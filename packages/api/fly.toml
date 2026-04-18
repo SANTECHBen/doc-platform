@@ -1,0 +1,42 @@
+# Fly.io config — deploy from packages/api or use --config flag.
+# CLI: cd packages/api && flyctl launch --no-deploy, then set secrets, then fly deploy.
+
+app = "equipment-hub-api"
+primary_region = "ord"
+
+[build]
+  dockerfile = "Dockerfile"
+  # Build from the monorepo root so the Dockerfile can pull workspace packages.
+  # Run `flyctl deploy --dockerfile packages/api/Dockerfile` from repo root.
+
+[env]
+  NODE_ENV = "production"
+  API_HOST = "0.0.0.0"
+  API_PORT = "3001"
+  # UPLOADS_DIR unused in prod — S3_BUCKET is set, so the S3 adapter is picked.
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+  # SSE streams can run up to Fly's request cap (~5 min by default, longer on
+  # extended-timeout plans). Plenty for a chat turn.
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 250
+    soft_limit = 200
+
+[[http_service.checks]]
+  grace_period = "10s"
+  interval = "30s"
+  method = "GET"
+  timeout = "5s"
+  path = "/health"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

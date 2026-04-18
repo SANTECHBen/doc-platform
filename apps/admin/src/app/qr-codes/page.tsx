@@ -1,0 +1,267 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import { Check, Copy, ExternalLink, Plus, Printer, QrCode as QrCodeIcon } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+import { PageHeader, PageShell } from '@/components/page-shell';
+import { EmptyState } from '@/components/empty-state';
+import { useToast } from '@/components/toast';
+import {
+  listAssetInstances,
+  listQrCodes,
+  mintQrCode,
+  PUBLIC_PWA_ORIGIN,
+  type AdminAssetInstance,
+  type AdminQrCode,
+} from '@/lib/api';
+
+export default function QrCodesPage() {
+  const [codes, setCodes] = useState<AdminQrCode[] | null>(null);
+  const [instances, setInstances] = useState<AdminAssetInstance[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [minting, setMinting] = useState(false);
+  const [selectedInstanceId, setSelectedInstanceId] = useState('');
+  const [label, setLabel] = useState('');
+  const [selectedCodeIds, setSelectedCodeIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    Promise.all([listQrCodes(), listAssetInstances()])
+      .then(([c, i]) => {
+        setCodes(c);
+        setInstances(i);
+        if (i[0]) setSelectedInstanceId(i[0].id);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  async function onMint() {
+    if (!selectedInstanceId) return;
+    setMinting(true);
+    setError(null);
+    try {
+      await mintQrCode({
+        assetInstanceId: selectedInstanceId,
+        label: label.trim() || undefined,
+      });
+      setLabel('');
+      const refreshed = await listQrCodes();
+      setCodes(refreshed);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setMinting(false);
+    }
+  }
+
+  function toggleSelected(id: string) {
+    setSelectedCodeIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAll() {
+    if (!codes) return;
+    setSelectedCodeIds(new Set(codes.filter((c) => c.active).map((c) => c.id)));
+  }
+
+  function clearSelection() {
+    setSelectedCodeIds(new Set());
+  }
+
+  const selectedCodes = useMemo(
+    () => (codes ?? []).filter((c) => selectedCodeIds.has(c.id)),
+    [codes, selectedCodeIds],
+  );
+
+  function openPrintSheet() {
+    if (selectedCodes.length === 0) return;
+    const params = new URLSearchParams();
+    for (const c of selectedCodes) params.append('id', c.id);
+    window.open(`/qr-codes/print?${params.toString()}`, '_blank');
+  }
+
+  return (
+    <PageShell crumbs={[{ label: 'QR codes' }]}>
+      <PageHeader
+        title="QR codes"
+        description={`Stickers resolve via ${PUBLIC_PWA_ORIGIN}/q/<code>. Mint per instance, then print a sheet to apply on equipment.`}
+      />
+
+      {error && (
+        <div className="rounded-md border border-signal-fault/40 bg-signal-fault/10 p-3 text-sm text-signal-fault">
+          {error}
+        </div>
+      )}
+
+      <section className="rounded-md border border-line-subtle bg-surface-raised p-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-tertiary">
+          Mint new sticker
+        </h2>
+        <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end">
+          <label className="flex flex-1 flex-col gap-1 text-sm">
+            <span className="text-ink-secondary">Asset instance</span>
+            <select
+              value={selectedInstanceId}
+              onChange={(e) => setSelectedInstanceId(e.target.value)}
+              className="rounded border border-line bg-surface-raised px-2 py-1.5"
+            >
+              {(instances ?? []).map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.assetModel.displayName} · {i.serialNumber} · {i.site.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-1 flex-col gap-1 text-sm">
+            <span className="text-ink-secondary">Label (shown on sticker)</span>
+            <input
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="Aisle 1 east"
+              className="rounded border border-line bg-surface-raised px-2 py-1.5"
+            />
+          </label>
+          <button
+            onClick={onMint}
+            disabled={minting || !selectedInstanceId}
+            className="h-[34px] shrink-0 rounded btn-primary disabled:opacity-50"
+          >
+            {minting ? 'Minting…' : 'Mint'}
+          </button>
+        </div>
+      </section>
+
+      <section className="rounded-md border border-line-subtle bg-surface-raised">
+        <div className="flex items-center justify-between border-b border-line-subtle p-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-tertiary">
+            Active stickers
+          </h2>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={selectAll}
+              className="rounded border border-line px-3 py-1 text-sm text-ink-secondary hover:bg-surface-inset"
+            >
+              Select all
+            </button>
+            <button
+              onClick={clearSelection}
+              disabled={selectedCodeIds.size === 0}
+              className="rounded border border-line px-3 py-1 text-sm text-ink-secondary hover:bg-surface-inset disabled:opacity-50"
+            >
+              Clear
+            </button>
+            <button
+              onClick={openPrintSheet}
+              disabled={selectedCodes.length === 0}
+              className="rounded btn-primary px-3 min-h-0 py-1 disabled:opacity-50"
+            >
+              Print sheet ({selectedCodes.length})
+            </button>
+          </div>
+        </div>
+        {!codes ? (
+          <p className="p-6 text-center text-sm text-ink-tertiary">Loading…</p>
+        ) : codes.length === 0 ? (
+          <p className="p-6 text-center text-sm text-ink-tertiary">No QR codes yet.</p>
+        ) : (
+          <table className="data-table">
+            <thead className="bg-surface-inset text-left text-xs uppercase tracking-wide text-ink-tertiary">
+              <tr>
+                <th className="w-10 px-4 py-2"></th>
+                <th className="w-24 px-4 py-2">Preview</th>
+                <th className="px-4 py-2">Code &amp; URL</th>
+                <th className="px-4 py-2">Asset</th>
+                <th className="px-4 py-2">Site</th>
+                <th className="px-4 py-2">Label</th>
+              </tr>
+            </thead>
+            <tbody>
+              {codes.map((c) => {
+                const url = `${PUBLIC_PWA_ORIGIN}/q/${c.code}`;
+                return (
+                  <tr key={c.id} className="border-t border-line-subtle align-top">
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedCodeIds.has(c.id)}
+                        onChange={() => toggleSelected(c.id)}
+                        disabled={!c.active}
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <QRCodeSVG value={url} size={56} level="M" />
+                    </td>
+                    <td className="px-4 py-3">
+                      <CodeWithUrl code={c.code} url={url} />
+                    </td>
+                    <td className="px-4 py-3">
+                      {c.assetInstance ? (
+                        <>
+                          <span className="block text-ink-primary">
+                            {c.assetInstance.modelDisplayName}
+                          </span>
+                          <span className="block text-xs text-ink-tertiary">
+                            {c.assetInstance.serialNumber}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-ink-tertiary">Unlinked</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">{c.assetInstance?.siteName ?? '—'}</td>
+                    <td className="px-4 py-3 text-ink-secondary">{c.label ?? '—'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </section>
+    </PageShell>
+  );
+}
+
+// Shows the short code on top, full URL underneath with open + copy affordances.
+function CodeWithUrl({ code, url }: { code: string; url: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard API can fail in insecure contexts; user can still click the link
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="font-mono text-xs text-ink-primary">{code}</span>
+      <div className="flex items-center gap-1.5">
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 font-mono text-[11px] text-brand hover:underline"
+          title="Open scan URL in new tab"
+        >
+          <ExternalLink size={10} strokeWidth={2} />
+          <span className="truncate">{url}</span>
+        </a>
+        <button
+          type="button"
+          onClick={copy}
+          className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-tertiary transition hover:bg-surface-inset hover:text-ink-primary"
+          title={copied ? 'Copied' : 'Copy URL'}
+          aria-label="Copy URL"
+        >
+          {copied ? <Check size={11} strokeWidth={2.5} /> : <Copy size={11} strokeWidth={2} />}
+        </button>
+      </div>
+    </div>
+  );
+}

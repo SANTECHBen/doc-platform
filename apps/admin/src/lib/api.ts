@@ -1,0 +1,815 @@
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3001';
+const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
+const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
+
+function authHeaders(): Record<string, string> {
+  if (!DEV_USER_ID || !DEV_ORG_ID) return {};
+  return { 'x-dev-user': `${DEV_USER_ID}:${DEV_ORG_ID}` };
+}
+
+export const PUBLIC_PWA_ORIGIN =
+  process.env.NEXT_PUBLIC_PWA_ORIGIN ?? 'http://localhost:3000';
+
+export interface AdminAssetInstance {
+  id: string;
+  serialNumber: string;
+  assetModel: {
+    id: string;
+    modelCode: string;
+    displayName: string;
+    category: string;
+  };
+  site: { id: string; name: string };
+  organization: { id: string; name: string };
+}
+
+export interface AdminQrCode {
+  id: string;
+  code: string;
+  label: string | null;
+  active: boolean;
+  createdAt: string;
+  assetInstance: {
+    id: string;
+    serialNumber: string;
+    modelDisplayName: string;
+    modelCategory: string;
+    siteName: string;
+  } | null;
+}
+
+export async function listAssetInstances(): Promise<AdminAssetInstance[]> {
+  const res = await fetch(`${API_BASE}/admin/asset-instances`, {
+    cache: 'no-store',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminAssetInstance[];
+}
+
+export async function listQrCodes(): Promise<AdminQrCode[]> {
+  const res = await fetch(`${API_BASE}/admin/qr-codes`, {
+    cache: 'no-store',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminQrCode[];
+}
+
+export interface AdminMetrics {
+  organizations: number;
+  sites: number;
+  assetInstances: number;
+  activeQrCodes: number;
+  openWorkOrders: number;
+  publishedContentPacks: number;
+  enrollments: number;
+  completedEnrollments: number;
+  completionRate: number;
+}
+
+export async function getMetrics(): Promise<AdminMetrics> {
+  const res = await fetch(`${API_BASE}/admin/metrics`, {
+    cache: 'no-store',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminMetrics;
+}
+
+export interface AdminOrganization {
+  id: string;
+  type: 'oem' | 'dealer' | 'integrator' | 'end_customer';
+  name: string;
+  slug: string;
+  oemCode: string | null;
+  parent: { id: string; name: string } | null;
+  siteCount: number;
+  userCount: number;
+  createdAt: string;
+  brand: {
+    primary: string | null;
+    onPrimary: string | null;
+    logoStorageKey: string | null;
+    logoUrl: string | null;
+    displayNameOverride: string | null;
+  };
+}
+
+export async function updateOrgBranding(
+  id: string,
+  body: {
+    brandPrimary?: string | null;
+    brandOnPrimary?: string | null;
+    logoStorageKey?: string | null;
+    displayNameOverride?: string | null;
+  },
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/organizations/${encodeURIComponent(id)}/branding`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+export async function listOrganizations(): Promise<AdminOrganization[]> {
+  const res = await fetch(`${API_BASE}/admin/organizations`, {
+    cache: 'no-store',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminOrganization[];
+}
+
+export interface AdminAssetModel {
+  id: string;
+  modelCode: string;
+  displayName: string;
+  category: string;
+  description: string | null;
+  imageStorageKey: string | null;
+  imageUrl: string | null;
+  owner: { id: string; name: string };
+  instanceCount: number;
+  packCount: number;
+}
+
+export async function updateAssetModelImage(
+  id: string,
+  imageStorageKey: string | null,
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/asset-models/${encodeURIComponent(id)}/image`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ imageStorageKey }),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+export async function listAdminAssetModels(): Promise<AdminAssetModel[]> {
+  const res = await fetch(`${API_BASE}/admin/asset-models`, {
+    cache: 'no-store',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminAssetModel[];
+}
+
+export interface AdminContentPack {
+  id: string;
+  name: string;
+  slug: string;
+  layerType: 'base' | 'dealer_overlay' | 'site_overlay';
+  assetModel: { id: string; displayName: string };
+  owner: string;
+  versionCount: number;
+  latestVersion: {
+    number: number;
+    label: string | null;
+    status: string;
+    publishedAt: string | null;
+  } | null;
+}
+
+export async function listContentPacks(): Promise<AdminContentPack[]> {
+  const res = await fetch(`${API_BASE}/admin/content-packs`, {
+    cache: 'no-store',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminContentPack[];
+}
+
+export interface AdminContentPackDetail {
+  id: string;
+  name: string;
+  slug: string;
+  layerType: string;
+  assetModel: { id: string; displayName: string; modelCode: string };
+  versions: Array<{
+    id: string;
+    versionNumber: number;
+    versionLabel: string | null;
+    status: string;
+    publishedAt: string | null;
+    changelog: string | null;
+    documents: Array<{
+      id: string;
+      title: string;
+      kind: string;
+      safetyCritical: boolean;
+      language: string;
+    }>;
+    trainingModules: Array<{ id: string; title: string }>;
+  }>;
+}
+
+export async function getContentPack(id: string): Promise<AdminContentPackDetail | null> {
+  const res = await fetch(`${API_BASE}/admin/content-packs/${encodeURIComponent(id)}`, {
+    cache: 'no-store',
+    headers: authHeaders(),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminContentPackDetail;
+}
+
+export interface AdminTrainingModule {
+  id: string;
+  title: string;
+  estimatedMinutes: number | null;
+  passThreshold: number;
+  competencyTag: string | null;
+  assetModel: string;
+  contentPack: string;
+  enrollments: number;
+  completed: number;
+  failed: number;
+}
+
+export async function listAdminTrainingModules(): Promise<AdminTrainingModule[]> {
+  const res = await fetch(`${API_BASE}/admin/training-modules`, {
+    cache: 'no-store',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminTrainingModule[];
+}
+
+export interface AdminPart {
+  id: string;
+  oemPartNumber: string;
+  displayName: string;
+  description: string | null;
+  crossReferences: string[];
+  discontinued: boolean;
+  imageStorageKey: string | null;
+  imageUrl: string | null;
+  owner: string;
+  bomCount: number;
+}
+
+export async function updatePartImage(
+  id: string,
+  imageStorageKey: string | null,
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/parts/${encodeURIComponent(id)}/image`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ imageStorageKey }),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+export async function listAdminParts(): Promise<AdminPart[]> {
+  const res = await fetch(`${API_BASE}/admin/parts`, {
+    cache: 'no-store',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminPart[];
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  displayName: string;
+  disabled: boolean;
+  homeOrganization: { id: string; name: string };
+  roles: string[];
+  membershipCount: number;
+  createdAt: string;
+}
+
+export async function listAdminUsers(): Promise<AdminUser[]> {
+  const res = await fetch(`${API_BASE}/admin/users`, {
+    cache: 'no-store',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminUser[];
+}
+
+export interface AdminAuditEvent {
+  id: string;
+  eventType: string;
+  targetType: string;
+  targetId: string | null;
+  payload: Record<string, unknown>;
+  occurredAt: string;
+  organization: string;
+  actor: string | null;
+}
+
+export async function listAuditEvents(): Promise<AdminAuditEvent[]> {
+  const res = await fetch(`${API_BASE}/admin/audit-events`, {
+    cache: 'no-store',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminAuditEvent[];
+}
+
+export async function createOrganization(params: {
+  type: 'oem' | 'dealer' | 'integrator' | 'end_customer';
+  name: string;
+  slug: string;
+  parentOrganizationId?: string;
+  oemCode?: string;
+}): Promise<{ id: string }> {
+  const res = await fetch(`${API_BASE}/admin/organizations`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { id: string };
+}
+
+export async function createSite(params: {
+  organizationId: string;
+  name: string;
+  code?: string;
+  city?: string;
+  region?: string;
+  country?: string;
+  postalCode?: string;
+  timezone?: string;
+}): Promise<{ id: string }> {
+  const res = await fetch(`${API_BASE}/admin/sites`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { id: string };
+}
+
+export async function createAssetModel(params: {
+  ownerOrganizationId: string;
+  modelCode: string;
+  displayName: string;
+  category: string;
+  description?: string;
+  imageStorageKey?: string;
+}): Promise<{ id: string }> {
+  const res = await fetch(`${API_BASE}/admin/asset-models`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { id: string };
+}
+
+export async function createAssetInstance(params: {
+  assetModelId: string;
+  siteId: string;
+  serialNumber: string;
+  installedAt?: string;
+  pinnedContentPackVersionId?: string;
+}): Promise<{ id: string }> {
+  const res = await fetch(`${API_BASE}/admin/asset-instances`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { id: string };
+}
+
+export interface BulkInstanceResult {
+  attempted: number;
+  created: number;
+  skipped: number;
+  instances: Array<{ id: string; serialNumber: string }>;
+}
+
+export async function bulkCreateAssetInstances(params: {
+  assetModelId: string;
+  siteId: string;
+  serialNumbers: string[];
+  installedAt?: string;
+  pinnedContentPackVersionId?: string;
+}): Promise<BulkInstanceResult> {
+  const res = await fetch(`${API_BASE}/admin/asset-instances/bulk`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as BulkInstanceResult;
+}
+
+export interface AdminSite {
+  id: string;
+  name: string;
+  code: string | null;
+  organizationId: string;
+  organizationName: string;
+  organizationType: string;
+}
+
+export interface UploadResult {
+  storageKey: string;
+  sha256: string;
+  size: number;
+  contentType: string;
+  originalFilename: string;
+  url: string;
+}
+
+export async function uploadFile(
+  file: File,
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<UploadResult> {
+  // Use XHR so we can surface progress during large video uploads. The fetch
+  // API does not expose an upload progress event.
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE}/admin/uploads`, true);
+    for (const [k, v] of Object.entries(authHeaders())) {
+      xhr.setRequestHeader(k, v);
+    }
+    xhr.upload.onprogress = (e) => {
+      if (onProgress && e.lengthComputable) onProgress(e.loaded, e.total);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch (e) {
+          reject(e);
+        }
+      } else {
+        reject(new Error(`${xhr.status}: ${xhr.responseText}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Network error'));
+    const form = new FormData();
+    form.append('file', file, file.name);
+    xhr.send(form);
+  });
+}
+
+export async function createContentPack(params: {
+  assetModelId: string;
+  name: string;
+  slug: string;
+  layerType: 'base' | 'dealer_overlay' | 'site_overlay';
+  basePackId?: string;
+}): Promise<{
+  pack: { id: string; name: string; slug: string };
+  version: { id: string; versionNumber: number; versionLabel: string | null } | null;
+}> {
+  const res = await fetch(`${API_BASE}/admin/content-packs`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ createDraftVersion: true, ...params }),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function createContentPackVersion(
+  packId: string,
+  body: { versionLabel?: string; changelog?: string } = {},
+): Promise<{ id: string; versionNumber: number; versionLabel: string | null; status: string }> {
+  const res = await fetch(
+    `${API_BASE}/admin/content-packs/${encodeURIComponent(packId)}/versions`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export type DocumentKind =
+  | 'markdown'
+  | 'pdf'
+  | 'video'
+  | 'structured_procedure'
+  | 'schematic'
+  | 'slides'
+  | 'file'
+  | 'external_video';
+
+export interface CreateDocumentInput {
+  kind: DocumentKind;
+  title: string;
+  language?: string;
+  safetyCritical?: boolean;
+  tags?: string[];
+  bodyMarkdown?: string;
+  storageKey?: string;
+  thumbnailStorageKey?: string;
+  externalUrl?: string;
+  streamPlaybackId?: string;
+  originalFilename?: string;
+  contentType?: string;
+  sizeBytes?: number;
+  orderingHint?: number;
+}
+
+export async function createDocument(
+  versionId: string,
+  body: CreateDocumentInput,
+): Promise<{ id: string }> {
+  const res = await fetch(
+    `${API_BASE}/admin/content-pack-versions/${encodeURIComponent(versionId)}/documents`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function deleteDocument(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/admin/documents/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+// --- Training authoring ---------------------------------------------------
+export async function createTrainingModule(params: {
+  contentPackVersionId: string;
+  title: string;
+  description?: string;
+  estimatedMinutes?: number;
+  competencyTag?: string;
+  passThreshold?: number;
+}): Promise<{ id: string }> {
+  const res = await fetch(
+    `${API_BASE}/admin/content-pack-versions/${encodeURIComponent(params.contentPackVersionId)}/training-modules`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(params),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function createLesson(
+  moduleId: string,
+  body: { title: string; bodyMarkdown?: string },
+): Promise<{ id: string }> {
+  const res = await fetch(
+    `${API_BASE}/admin/training-modules/${encodeURIComponent(moduleId)}/lessons`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function createQuizActivity(
+  moduleId: string,
+  body: {
+    title: string;
+    questions: Array<{
+      prompt: string;
+      options: string[];
+      correctIndex: number;
+      explanation?: string;
+    }>;
+  },
+): Promise<{ id: string }> {
+  const res = await fetch(
+    `${API_BASE}/admin/training-modules/${encodeURIComponent(moduleId)}/quiz-activities`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+// --- Parts authoring + BOM ------------------------------------------------
+export async function createPart(params: {
+  ownerOrganizationId: string;
+  oemPartNumber: string;
+  displayName: string;
+  description?: string;
+  crossReferences?: string[];
+  imageStorageKey?: string;
+}): Promise<{ id: string }> {
+  const res = await fetch(`${API_BASE}/admin/parts`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function listPartsByOwner(ownerId: string): Promise<Array<{
+  id: string;
+  oemPartNumber: string;
+  displayName: string;
+  description: string | null;
+  imageUrl: string | null;
+}>> {
+  const res = await fetch(
+    `${API_BASE}/admin/parts/by-owner?ownerId=${encodeURIComponent(ownerId)}`,
+    { cache: 'no-store', headers: authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export interface BomEntry {
+  bomEntryId: string;
+  partId: string;
+  positionRef: string | null;
+  quantity: number;
+  notes: string | null;
+  oemPartNumber: string | null;
+  displayName: string;
+  imageUrl: string | null;
+}
+
+export async function listBom(modelId: string): Promise<BomEntry[]> {
+  const res = await fetch(
+    `${API_BASE}/admin/asset-models/${encodeURIComponent(modelId)}/bom`,
+    { cache: 'no-store', headers: authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function addBomEntry(
+  modelId: string,
+  body: { partId: string; positionRef?: string; quantity: number; notes?: string },
+): Promise<{ id: string }> {
+  const res = await fetch(
+    `${API_BASE}/admin/asset-models/${encodeURIComponent(modelId)}/bom`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function removeBomEntry(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/admin/bom-entries/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+// --- Work orders ----------------------------------------------------------
+export interface AdminWorkOrder {
+  id: string;
+  title: string;
+  description: string | null;
+  status: 'open' | 'acknowledged' | 'in_progress' | 'blocked' | 'resolved' | 'closed';
+  severity: 'info' | 'low' | 'medium' | 'high' | 'critical';
+  openedAt: string;
+  resolvedAt: string | null;
+  closedAt: string | null;
+  attachments: Array<{ key: string; mime: string; caption?: string }>;
+  assetInstance: {
+    id: string;
+    serialNumber: string;
+    modelDisplayName: string;
+    modelCode: string;
+    siteName: string;
+    organizationName: string;
+  };
+  openedBy: { id: string; displayName: string } | null;
+  assignedTo: { id: string; displayName: string } | null;
+}
+
+export async function listAdminWorkOrders(
+  status: 'open' | 'closed' | 'all' = 'open',
+): Promise<AdminWorkOrder[]> {
+  const res = await fetch(`${API_BASE}/admin/work-orders?status=${status}`, {
+    cache: 'no-store',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function updateWorkOrder(
+  id: string,
+  body: { status?: AdminWorkOrder['status']; assignedToUserId?: string | null },
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/work-orders/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+export async function publishContentPackVersion(
+  versionId: string,
+): Promise<{ id: string; status: string; publishedAt: string }> {
+  const res = await fetch(
+    `${API_BASE}/admin/content-pack-versions/${encodeURIComponent(versionId)}/publish`,
+    { method: 'POST', headers: authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function listAllSites(): Promise<AdminSite[]> {
+  const res = await fetch(`${API_BASE}/admin/sites`, {
+    cache: 'no-store',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminSite[];
+}
+
+export async function listSitesForOrg(orgId: string): Promise<Array<{
+  id: string;
+  name: string;
+  code: string | null;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  timezone: string;
+}>> {
+  const res = await fetch(
+    `${API_BASE}/admin/organizations/${encodeURIComponent(orgId)}/sites`,
+    { cache: 'no-store', headers: authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export interface ModelInstance {
+  id: string;
+  serialNumber: string;
+  installedAt: string | null;
+  site: { id: string; name: string; organization: string };
+  pinnedVersion: { id: string; number: number; label: string | null } | null;
+}
+
+export async function listInstancesForModel(modelId: string): Promise<ModelInstance[]> {
+  const res = await fetch(
+    `${API_BASE}/admin/asset-models/${encodeURIComponent(modelId)}/instances`,
+    { cache: 'no-store', headers: authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function mintQrCode(params: {
+  assetInstanceId: string;
+  label?: string;
+}): Promise<AdminQrCode> {
+  const res = await fetch(`${API_BASE}/admin/qr-codes`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  const raw = (await res.json()) as {
+    id: string;
+    code: string;
+    label: string | null;
+    active: boolean;
+    createdAt: string;
+    assetInstanceId: string | null;
+  };
+  return {
+    id: raw.id,
+    code: raw.code,
+    label: raw.label,
+    active: raw.active,
+    createdAt: raw.createdAt,
+    assetInstance: null,
+  };
+}

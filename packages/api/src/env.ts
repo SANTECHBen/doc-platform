@@ -1,0 +1,49 @@
+import { z } from 'zod';
+
+const EnvSchema = z.object({
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  API_HOST: z.string().default('0.0.0.0'),
+  API_PORT: z.coerce.number().int().default(3001),
+  DATABASE_URL: z.string().url(),
+  ANTHROPIC_API_KEY: z.string().min(1),
+  ANTHROPIC_MODEL: z.string().default('claude-opus-4-7'),
+  EMBEDDING_MODEL: z.string().default('voyage-3'),
+
+  // Public origins — allowed by CORS, used in presented URLs.
+  PUBLIC_PWA_ORIGIN: z.string().url().default('http://localhost:3000'),
+  PUBLIC_ADMIN_ORIGIN: z.string().url().default('http://localhost:3002'),
+
+  // File storage. If S3_BUCKET is set, the S3-compatible adapter is used.
+  // Otherwise the filesystem adapter writes to UPLOADS_DIR (dev only).
+  UPLOADS_DIR: z.string().default('./uploads'),
+  S3_ENDPOINT: z.string().url().optional(),
+  S3_REGION: z.string().default('auto'),
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
+  S3_BUCKET: z.string().optional(),
+  S3_PUBLIC_URL: z.string().url().optional(),
+});
+
+export type Env = z.infer<typeof EnvSchema>;
+
+export function loadEnv(): Env {
+  const parsed = EnvSchema.safeParse(process.env);
+  if (!parsed.success) {
+    console.error('Invalid environment configuration:', parsed.error.flatten().fieldErrors);
+    process.exit(1);
+  }
+  const env = parsed.data;
+  if (env.S3_BUCKET) {
+    const missing: string[] = [];
+    if (!env.S3_ACCESS_KEY_ID) missing.push('S3_ACCESS_KEY_ID');
+    if (!env.S3_SECRET_ACCESS_KEY) missing.push('S3_SECRET_ACCESS_KEY');
+    if (!env.S3_PUBLIC_URL) missing.push('S3_PUBLIC_URL');
+    if (missing.length > 0) {
+      console.error(
+        `S3_BUCKET is set but missing required siblings: ${missing.join(', ')}`,
+      );
+      process.exit(1);
+    }
+  }
+  return env;
+}
