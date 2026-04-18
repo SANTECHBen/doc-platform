@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { use, useEffect, useState } from 'react';
-import { Check, FilePlus2, GraduationCap, Pencil, Plus, RefreshCw, Send, X } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Check, FilePlus2, GraduationCap, Pencil, Plus, RefreshCw, Send, Trash2, X } from 'lucide-react';
 import { PageHeader, PageShell, Pill } from '@/components/page-shell';
 import { useToast } from '@/components/toast';
 import {
@@ -19,6 +20,8 @@ import {
   createContentPackVersion,
   createDocument,
   createTrainingModule,
+  deleteContentPack,
+  deleteContentPackVersion,
   deleteDocument,
   getContentPack,
   publishContentPackVersion,
@@ -49,6 +52,7 @@ export default function ContentPackDetail({
   const [addOpen, setAddOpen] = useState<string | null>(null);
   const [moduleOpen, setModuleOpen] = useState<string | null>(null);
   const toast = useToast();
+  const router = useRouter();
 
   async function refresh() {
     try {
@@ -105,6 +109,39 @@ export default function ContentPackDetail({
     }
   }
 
+  async function onDeleteVersion(versionId: string, label: string) {
+    if (!confirm(`Delete draft version ${label}? This cannot be undone.`)) return;
+    setBusy(true);
+    try {
+      await deleteContentPackVersion(versionId);
+      toast.success(`Version ${label} deleted`);
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onDeletePack() {
+    if (!pack) return;
+    if (
+      !confirm(
+        `Delete content pack "${pack.name}"? This only works if nothing is published or pinned.`,
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      await deleteContentPack(pack.id);
+      toast.success('Content pack deleted');
+      router.push('/content-packs');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  }
+
   if (error && !pack) return <ErrorBanner error={error} />;
   if (!pack) return <p className="p-6 text-center text-sm text-ink-tertiary">Loading…</p>;
 
@@ -121,11 +158,16 @@ export default function ContentPackDetail({
         title={pack.name}
         description={`${pack.layerType.replace('_', ' ')} pack for ${pack.assetModel.displayName} (${pack.assetModel.modelCode})`}
         actions={
-          !hasDraft && (
-            <PrimaryButton onClick={onNewVersion} disabled={busy}>
-              <Plus size={14} strokeWidth={2} /> New draft version
-            </PrimaryButton>
-          )
+          <div className="flex items-center gap-2">
+            <SecondaryButton onClick={onDeletePack} disabled={busy}>
+              <Trash2 size={14} strokeWidth={2} /> Delete pack
+            </SecondaryButton>
+            {!hasDraft && (
+              <PrimaryButton onClick={onNewVersion} disabled={busy}>
+                <Plus size={14} strokeWidth={2} /> New draft version
+              </PrimaryButton>
+            )}
+          </div>
         }
       />
       <ErrorBanner error={error} />
@@ -155,6 +197,16 @@ export default function ContentPackDetail({
                   <SecondaryButton onClick={() => setAddOpen(v.id)} disabled={busy}>
                     <FilePlus2 size={14} strokeWidth={2} /> Add document
                   </SecondaryButton>
+                  <button
+                    type="button"
+                    className="btn btn-secondary text-signal-fault"
+                    onClick={() =>
+                      onDeleteVersion(v.id, `v${v.versionLabel ?? v.versionNumber}`)
+                    }
+                    disabled={busy}
+                  >
+                    <Trash2 size={14} strokeWidth={2} /> Delete draft
+                  </button>
                   <PrimaryButton
                     onClick={() => onPublish(v.id)}
                     disabled={busy || v.documents.length === 0}

@@ -556,6 +556,22 @@ export async function deleteDocument(id: string): Promise<void> {
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }
 
+export async function deleteContentPack(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/admin/content-packs/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+export async function deleteContentPackVersion(versionId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/content-pack-versions/${encodeURIComponent(versionId)}`,
+    { method: 'DELETE', headers: authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
 export async function updateDocument(
   id: string,
   patch: {

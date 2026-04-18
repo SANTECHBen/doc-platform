@@ -1300,6 +1300,78 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
     },
   );
 
+  // Delete a draft version. Refuses anything non-draft (audit trail guarantee)
+  // and refuses if any asset instance has it pinned (orphan protection).
+  app.delete<{ Params: { id: string } }>(
+    '/admin/content-pack-versions/:id',
+    { schema: { params: z.object({ id: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const version = await db.query.contentPackVersions.findFirst({
+        where: eq(schema.contentPackVersions.id, request.params.id),
+      });
+      if (!version) return reply.notFound();
+      if (version.status !== 'draft') {
+        return reply.badRequest(
+          `Cannot delete a ${version.status} version. Published versions are immutable for audit.`,
+        );
+      }
+      const pinned = await db.query.assetInstances.findFirst({
+        where: eq(schema.assetInstances.pinnedContentPackVersionId, version.id),
+      });
+      if (pinned) {
+        return reply.badRequest(
+          'One or more asset instances pin this version. Repin them first.',
+        );
+      }
+      // Documents + training modules belonging to this version cascade via FK.
+      await db
+        .delete(schema.contentPackVersions)
+        .where(eq(schema.contentPackVersions.id, version.id));
+      return { ok: true };
+    },
+  );
+
+  // Delete a content pack. Only allowed if every version is a draft AND no
+  // asset instance pins any version of this pack.
+  app.delete<{ Params: { id: string } }>(
+    '/admin/content-packs/:id',
+    { schema: { params: z.object({ id: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const pack = await db.query.contentPacks.findFirst({
+        where: eq(schema.contentPacks.id, request.params.id),
+      });
+      if (!pack) return reply.notFound();
+      const versions = await db.query.contentPackVersions.findMany({
+        where: eq(schema.contentPackVersions.contentPackId, pack.id),
+      });
+      const nonDraft = versions.find((v) => v.status !== 'draft');
+      if (nonDraft) {
+        return reply.badRequest(
+          `Cannot delete pack — version ${nonDraft.versionLabel ?? nonDraft.versionNumber} is ${nonDraft.status}. Published content is immutable for audit.`,
+        );
+      }
+      if (versions.length > 0) {
+        const pinned = await db.query.assetInstances.findFirst({
+          where: inArray(
+            schema.assetInstances.pinnedContentPackVersionId,
+            versions.map((v) => v.id),
+          ),
+        });
+        if (pinned) {
+          return reply.badRequest(
+            'An asset instance pins a version of this pack. Repin it first.',
+          );
+        }
+      }
+      await db.delete(schema.contentPacks).where(eq(schema.contentPacks.id, pack.id));
+      return { ok: true };
+    },
+  );
+
   // Publish a draft. Freezes the version; future edits require a new draft.
   // Audit event fired for compliance trail.
   app.post<{ Params: { versionId: string } }>(
