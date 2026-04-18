@@ -255,7 +255,7 @@ function NewPackForm({
           value={slug}
           onChange={(e) => onSlugChange(e.target.value)}
           placeholder="flow-turn-merge-90-base"
-          pattern="[a-z0-9-]+"
+          pattern="[a-z0-9\-]+"
           required
         />
       </Field>

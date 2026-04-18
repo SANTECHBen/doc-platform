@@ -22,6 +22,10 @@ const EnvSchema = z.object({
   S3_SECRET_ACCESS_KEY: z.string().optional(),
   S3_BUCKET: z.string().optional(),
   S3_PUBLIC_URL: z.string().url().optional(),
+
+  // Permit x-dev-user header even when NODE_ENV=production. Interim until
+  // WorkOS lands — set to '1' on the production API until then.
+  ALLOW_DEV_AUTH: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

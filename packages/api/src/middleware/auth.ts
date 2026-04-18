@@ -10,8 +10,10 @@ import type { FastifyInstance } from 'fastify';
  *     to allow anonymous preview of an asset's public-safe content).
  */
 export async function registerAuth(app: FastifyInstance) {
+  const allowDevAuth =
+    app.ctx.env.NODE_ENV !== 'production' || app.ctx.env.ALLOW_DEV_AUTH === '1';
   app.addHook('preHandler', async (request) => {
-    if (app.ctx.env.NODE_ENV !== 'production') {
+    if (allowDevAuth) {
       const dev = request.headers['x-dev-user'];
       if (typeof dev === 'string' && dev.includes(':')) {
         const [userId, organizationId] = dev.split(':');
