@@ -22,6 +22,17 @@ export const metadata: Metadata = {
   title: 'Equipment Hub',
   description: 'Scan equipment to access docs, training, parts, and AI troubleshooting.',
   manifest: '/manifest.webmanifest',
+  applicationName: 'Equipment Hub',
+  appleWebApp: {
+    capable: true,
+    title: 'Equipment Hub',
+    statusBarStyle: 'default',
+  },
+  formatDetection: { telephone: false },
+  icons: {
+    icon: '/icon.svg',
+    apple: '/icon.svg',
+  },
 };
 
 export const viewport: Viewport = {
@@ -29,6 +40,8 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

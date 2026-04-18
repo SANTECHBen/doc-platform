@@ -126,6 +126,8 @@
     -webkit-text-size-adjust: 100%;
     text-rendering: optimizeLegibility;
     font-feature-settings: 'kern', 'liga', 'calt';
+    /* Prevent rubber-band bounce on iOS when running as a PWA. */
+    overscroll-behavior-y: none;
   }
   body {
     background: rgb(var(--surface-base));
@@ -135,7 +137,18 @@
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* Honor iOS notch / home indicator when installed as PWA. */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    /* Tap should feel snappier; don't flash a blue overlay on tap. */
+    -webkit-tap-highlight-color: transparent;
   }
+  /* Buttons and tabs shouldn't be selectable like text. */
+  button, [role='tab'], .tablike { user-select: none; -webkit-user-select: none; }
+  /* Disable text callouts on non-text UI chrome for that native feel. */
+  header, nav, .nameplate { -webkit-touch-callout: none; }
   ::selection { background: rgba(var(--brand-soft-v), 0.35); }
 
   ::-webkit-scrollbar { width: 10px; height: 10px; }

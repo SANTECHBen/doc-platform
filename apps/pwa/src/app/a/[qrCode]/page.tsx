@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { IOSInstallBanner } from '@/components/ios-install-banner';
 import { AssetHubTabs } from './tabs';
 import { resolveAssetHub } from '@/lib/api';
 
@@ -45,7 +46,7 @@ export default async function AssetHubPage({
 
   return (
     <main
-      className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-4 md:px-6 md:py-6 lg:px-8 lg:py-8"
+      className="mx-auto flex max-w-3xl flex-col gap-4 px-3 py-3 md:px-4 md:py-4"
       style={brandStyle}
     >
       <header className="flex items-center justify-between">
@@ -78,29 +79,25 @@ export default async function AssetHubPage({
         <ThemeToggle />
       </header>
 
+      <IOSInstallBanner />
+
       <div className="page-enter flex flex-col gap-6">
         {hub.assetModel.imageUrl && (
           <figure
-            className="relative overflow-hidden rounded-lg border"
+            className="relative overflow-hidden rounded-lg border mx-auto"
             style={{
               borderColor: 'rgb(var(--surface-plate-edge))',
-              aspectRatio: '16 / 7',
+              height: 180,
+              maxWidth: 520,
+              width: '100%',
               background: 'rgb(var(--surface-elevated))',
             }}
           >
             <img
               src={hub.assetModel.imageUrl}
               alt={hub.assetModel.displayName}
-              className="h-full w-full object-cover"
-            />
-            {/* Subtle bottom gradient so the nameplate below visually joins */}
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-x-0 bottom-0 h-24"
-              style={{
-                background:
-                  'linear-gradient(to bottom, transparent, rgb(var(--surface-base) / 0.4))',
-              }}
+              className="h-full w-full object-contain"
+              style={{ padding: 12 }}
             />
           </figure>
         )}
