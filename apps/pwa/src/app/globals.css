@@ -304,6 +304,11 @@
   flex-direction: column;
   background: rgb(var(--surface-base));
   animation: doc-overlay-in 160ms ease-out;
+  /* Lock horizontal gestures — only vertical pan is allowed. Prevents the
+     document from sliding sideways or triggering browser swipe-back. */
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+  overflow-x: hidden;
 }
 @keyframes doc-overlay-in {
   from { opacity: 0; transform: translateY(6px); }
@@ -334,8 +339,18 @@
 .doc-overlay-scroll {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px 18px calc(16px + env(safe-area-inset-bottom));
   max-width: 100%;
+  touch-action: pan-y;
+  overscroll-behavior-x: contain;
+}
+.doc-overlay-scroll * { max-width: 100%; }
+.doc-overlay-scroll img,
+.doc-overlay-scroll pre,
+.doc-overlay-scroll table {
+  max-width: 100%;
+  overflow-x: auto;
 }
 .doc-overlay-scroll > .markdown-body,
 .doc-overlay-scroll > :not(.mx-auto) {
@@ -353,6 +368,9 @@
   flex-direction: column;
   padding-bottom: env(safe-area-inset-bottom);
   background: rgb(var(--surface-base));
+  touch-action: pan-y;
+  overscroll-behavior-x: contain;
+  overflow-x: hidden;
 }
 .doc-overlay-frame > * { flex: 1; min-height: 0; }
 .doc-overlay-frame iframe,
