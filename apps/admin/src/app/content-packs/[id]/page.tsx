@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { use, useEffect, useState } from 'react';
-import { FilePlus2, GraduationCap, Plus, Send } from 'lucide-react';
+import { Check, FilePlus2, GraduationCap, Pencil, Plus, RefreshCw, Send, X } from 'lucide-react';
 import { PageHeader, PageShell, Pill } from '@/components/page-shell';
 import { useToast } from '@/components/toast';
 import {
@@ -22,6 +22,7 @@ import {
   deleteDocument,
   getContentPack,
   publishContentPackVersion,
+  updateDocument,
   uploadFile,
   type AdminContentPackDetail,
   type CreateDocumentInput,
@@ -179,28 +180,13 @@ export default function ContentPackDetail({
                 ) : (
                   <ul className="mt-1 flex flex-col gap-1.5 text-sm">
                     {v.documents.map((d) => (
-                      <li
+                      <DocumentRow
                         key={d.id}
-                        className="flex items-start gap-2 rounded border border-line-subtle bg-surface-inset px-2 py-1.5"
-                      >
-                        <span className="shrink-0 rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[10px] uppercase text-ink-tertiary">
-                          {d.kind}
-                        </span>
-                        <span className="flex-1">
-                          <span className="block text-ink-primary">{d.title}</span>
-                          <span className="text-xs text-ink-tertiary">{d.language}</span>
-                        </span>
-                        {d.safetyCritical && <Pill tone="warning">safety</Pill>}
-                        {v.status === 'draft' && (
-                          <button
-                            onClick={() => onDeleteDoc(d.id)}
-                            className="text-xs text-signal-fault hover:underline"
-                            disabled={busy}
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </li>
+                        doc={d}
+                        editable={v.status === 'draft'}
+                        onDelete={() => onDeleteDoc(d.id)}
+                        onChanged={refresh}
+                      />
                     ))}
                   </ul>
                 )}
@@ -675,5 +661,170 @@ function AddModuleForm({
         </PrimaryButton>
       </div>
     </form>
+  );
+}
+
+interface DocRowData {
+  id: string;
+  title: string;
+  kind: string;
+  safetyCritical: boolean;
+  language: string;
+}
+
+function DocumentRow({
+  doc,
+  editable,
+  onDelete,
+  onChanged,
+}: {
+  doc: DocRowData;
+  editable: boolean;
+  onDelete: () => void;
+  onChanged: () => Promise<void>;
+}) {
+  const toast = useToast();
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(doc.title);
+  const [busy, setBusy] = useState(false);
+
+  const fileKinds = ['pdf', 'video', 'slides', 'file', 'schematic'];
+  const canReplaceFile = editable && fileKinds.includes(doc.kind);
+
+  async function saveRename() {
+    const t = title.trim();
+    if (!t || t === doc.title) {
+      setEditing(false);
+      setTitle(doc.title);
+      return;
+    }
+    setBusy(true);
+    try {
+      await updateDocument(doc.id, { title: t });
+      toast.success('Renamed');
+      setEditing(false);
+      await onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function replaceFile(file: File) {
+    setBusy(true);
+    try {
+      const up = await uploadFile(file);
+      await updateDocument(doc.id, {
+        storageKey: up.storageKey,
+        originalFilename: up.originalFilename,
+        contentType: up.contentType,
+        sizeBytes: up.size,
+      });
+      toast.success('File replaced');
+      await onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <li className="flex items-center gap-2 rounded border border-line-subtle bg-surface-inset px-2 py-1.5">
+      <span className="shrink-0 rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[10px] uppercase text-ink-tertiary">
+        {doc.kind}
+      </span>
+      <span className="flex-1 min-w-0">
+        {editing ? (
+          <form
+            className="flex items-center gap-1"
+            onSubmit={(e) => {
+              e.preventDefault();
+              saveRename();
+            }}
+          >
+            <input
+              autoFocus
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  setEditing(false);
+                  setTitle(doc.title);
+                }
+              }}
+              className="flex-1 rounded border border-line-subtle bg-surface-raised px-1.5 py-0.5 text-sm"
+              disabled={busy}
+            />
+            <button
+              type="submit"
+              className="p-1 text-signal-ok"
+              aria-label="Save"
+              disabled={busy}
+            >
+              <Check size={14} />
+            </button>
+            <button
+              type="button"
+              className="p-1 text-ink-tertiary"
+              onClick={() => {
+                setEditing(false);
+                setTitle(doc.title);
+              }}
+              aria-label="Cancel"
+              disabled={busy}
+            >
+              <X size={14} />
+            </button>
+          </form>
+        ) : (
+          <>
+            <span className="block truncate text-ink-primary">{doc.title}</span>
+            <span className="text-xs text-ink-tertiary">{doc.language}</span>
+          </>
+        )}
+      </span>
+      {doc.safetyCritical && <Pill tone="warning">safety</Pill>}
+      {editable && !editing && (
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="p-1 text-ink-tertiary hover:text-ink-primary"
+            aria-label="Rename"
+            disabled={busy}
+            title="Rename"
+          >
+            <Pencil size={14} />
+          </button>
+          {canReplaceFile && (
+            <label
+              className={`p-1 cursor-pointer text-ink-tertiary hover:text-ink-primary ${busy ? 'pointer-events-none opacity-50' : ''}`}
+              title="Replace file"
+            >
+              <RefreshCw size={14} />
+              <input
+                type="file"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = '';
+                  if (f) replaceFile(f);
+                }}
+              />
+            </label>
+          )}
+          <button
+            type="button"
+            onClick={onDelete}
+            className="ml-1 text-xs text-signal-fault hover:underline"
+            disabled={busy}
+          >
+            Remove
+          </button>
+        </div>
+      )}
+    </li>
   );
 }

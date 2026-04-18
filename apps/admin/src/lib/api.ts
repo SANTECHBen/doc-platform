@@ -556,6 +556,26 @@ export async function deleteDocument(id: string): Promise<void> {
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }
 
+export async function updateDocument(
+  id: string,
+  patch: {
+    title?: string;
+    storageKey?: string;
+    thumbnailStorageKey?: string | null;
+    originalFilename?: string;
+    contentType?: string;
+    sizeBytes?: number;
+    safetyCritical?: boolean;
+  },
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/admin/documents/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
 // --- Training authoring ---------------------------------------------------
 export async function createTrainingModule(params: {
   contentPackVersionId: string;

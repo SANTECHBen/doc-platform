@@ -1217,6 +1217,69 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
     },
   );
 
+  // Update a document (rename, swap file, etc.). Only allowed while the
+  // parent version is still a draft — published versions are immutable.
+  app.patch<{
+    Params: { id: string };
+    Body: {
+      title?: string;
+      storageKey?: string;
+      thumbnailStorageKey?: string | null;
+      originalFilename?: string;
+      contentType?: string;
+      sizeBytes?: number;
+      safetyCritical?: boolean;
+    };
+  }>(
+    '/admin/documents/:id',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema }),
+        body: z
+          .object({
+            title: z.string().min(1).max(200).optional(),
+            storageKey: z.string().max(400).optional(),
+            thumbnailStorageKey: z.string().max(400).nullable().optional(),
+            originalFilename: z.string().max(400).optional(),
+            contentType: z.string().max(200).optional(),
+            sizeBytes: z.number().int().nonnegative().optional(),
+            safetyCritical: z.boolean().optional(),
+          })
+          .refine((v) => Object.keys(v).length > 0, {
+            message: 'At least one field is required.',
+          }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const doc = await db.query.documents.findFirst({
+        where: eq(schema.documents.id, request.params.id),
+        with: { packVersion: true },
+      });
+      if (!doc) return reply.notFound();
+      if (doc.packVersion.status !== 'draft') {
+        return reply.badRequest('Cannot edit documents on a published version.');
+      }
+      const patch: Record<string, unknown> = {};
+      const b = request.body;
+      if (b.title !== undefined) patch.title = b.title;
+      if (b.storageKey !== undefined) patch.storageKey = b.storageKey;
+      if (b.thumbnailStorageKey !== undefined)
+        patch.thumbnailStorageKey = b.thumbnailStorageKey;
+      if (b.originalFilename !== undefined) patch.originalFilename = b.originalFilename;
+      if (b.contentType !== undefined) patch.contentType = b.contentType;
+      if (b.sizeBytes !== undefined) patch.sizeBytes = b.sizeBytes;
+      if (b.safetyCritical !== undefined) patch.safetyCritical = b.safetyCritical;
+      const [updated] = await db
+        .update(schema.documents)
+        .set(patch)
+        .where(eq(schema.documents.id, doc.id))
+        .returning();
+      return updated;
+    },
+  );
+
   // Remove a document from a draft version.
   app.delete<{ Params: { id: string } }>(
     '/admin/documents/:id',
