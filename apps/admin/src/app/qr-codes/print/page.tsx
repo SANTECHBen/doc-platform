@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
 import { listQrCodes, PUBLIC_PWA_ORIGIN, type AdminQrCode } from '@/lib/api';
@@ -10,6 +10,14 @@ import { listQrCodes, PUBLIC_PWA_ORIGIN, type AdminQrCode } from '@/lib/api';
 // identification block on the other, with the short code at the bottom as a
 // fallback for operators reading it aloud.
 export default function PrintSheetPage() {
+  return (
+    <Suspense fallback={<p className="p-6 text-ink-tertiary">Loading…</p>}>
+      <PrintSheetInner />
+    </Suspense>
+  );
+}
+
+function PrintSheetInner() {
   const params = useSearchParams();
   const ids = params.getAll('id');
   const [codes, setCodes] = useState<AdminQrCode[] | null>(null);
