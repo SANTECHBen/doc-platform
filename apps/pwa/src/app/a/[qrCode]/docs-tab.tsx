@@ -16,6 +16,7 @@ import {
   Presentation,
   ShieldAlert,
   Video,
+  X,
   Youtube,
   type LucideIcon,
 } from 'lucide-react';
@@ -182,37 +183,66 @@ function ErrorState({ text }: { text: string }) {
 
 function DocView({ doc, onBack }: { doc: DocumentBody; onBack: () => void }) {
   const Icon = kindIcon(doc.kind);
+  // Lock body scroll while the overlay is up so only the doc content scrolls.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
+  const isFramed =
+    doc.kind === 'pdf' ||
+    doc.kind === 'schematic' ||
+    doc.kind === 'slides' ||
+    doc.kind === 'video' ||
+    doc.kind === 'external_video';
+
   return (
-    <article className="flex flex-col gap-4">
-      <button
-        onClick={onBack}
-        className="inline-flex w-fit items-center gap-1 text-sm text-ink-secondary transition hover:text-ink-primary"
-      >
-        <ChevronLeft size={14} strokeWidth={2} />
-        All documents
-      </button>
-      {doc.safetyCritical && (
-        <div className="rounded-md border border-signal-safety/50 bg-signal-safety/10 p-4">
-          <div className="flex items-start gap-3">
-            <ShieldAlert size={20} strokeWidth={2} className="mt-0.5 text-signal-safety" />
-            <div>
-              <p className="font-semibold text-signal-safety">Safety-critical procedure</p>
-              <p className="text-sm text-ink-secondary">
-                Follow verbatim. Do not skip steps. If unsure, stop and ask.
-              </p>
+    <div className="doc-overlay" role="dialog" aria-modal="true" aria-label={doc.title}>
+      <header className="doc-overlay-bar">
+        <button
+          type="button"
+          onClick={onBack}
+          className="app-topbar-btn"
+          aria-label="Close document"
+        >
+          <ChevronLeft size={22} strokeWidth={2} />
+        </button>
+        <div className="doc-overlay-title">
+          <span className="inline-flex items-center gap-1.5 caption">
+            <Icon size={12} strokeWidth={2} />
+            {kindLabel(doc.kind)}
+          </span>
+          <h2 className="truncate text-base font-semibold">{doc.title}</h2>
+        </div>
+        <button
+          type="button"
+          onClick={onBack}
+          className="app-topbar-btn"
+          aria-label="Close document"
+        >
+          <X size={20} strokeWidth={2} />
+        </button>
+      </header>
+      <div className={isFramed ? 'doc-overlay-frame' : 'doc-overlay-scroll'}>
+        {doc.safetyCritical && (
+          <div className="mx-auto max-w-3xl rounded-md border border-signal-safety/50 bg-signal-safety/10 p-4 mt-4">
+            <div className="flex items-start gap-3">
+              <ShieldAlert size={20} strokeWidth={2} className="mt-0.5 text-signal-safety" />
+              <div>
+                <p className="font-semibold text-signal-safety">Safety-critical procedure</p>
+                <p className="text-sm text-ink-secondary">
+                  Follow verbatim. Do not skip steps. If unsure, stop and ask.
+                </p>
+              </div>
             </div>
           </div>
-        </div>
-      )}
-      <header className="flex flex-col gap-1">
-        <span className="inline-flex items-center gap-1.5 caption">
-          <Icon size={13} strokeWidth={2} />
-          {kindLabel(doc.kind)}
-        </span>
-        <h2 className="text-2xl font-semibold">{doc.title}</h2>
-      </header>
-      <DocContent doc={doc} />
-    </article>
+        )}
+        <DocContent doc={doc} />
+      </div>
+    </div>
   );
 }
 
