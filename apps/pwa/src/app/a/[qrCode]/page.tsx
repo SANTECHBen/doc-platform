@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { FullscreenButton } from '@/components/fullscreen-button';
 import { AssetHubTabs } from './tabs';
 import { resolveAssetHub } from '@/lib/api';
 
@@ -68,30 +69,11 @@ export default async function AssetHubPage({
             {hub.brand.displayName}
           </span>
         </div>
+        <FullscreenButton />
         <ThemeToggle />
       </header>
 
       <div className="app-scroll page-enter flex flex-col gap-4">
-        {hub.assetModel.imageUrl && (
-          <figure
-            className="relative overflow-hidden rounded-lg border mx-auto"
-            style={{
-              borderColor: 'rgb(var(--surface-plate-edge))',
-              height: 180,
-              maxWidth: 520,
-              width: '100%',
-              background: 'rgb(var(--surface-elevated))',
-            }}
-          >
-            <img
-              src={hub.assetModel.imageUrl}
-              alt={hub.assetModel.displayName}
-              className="h-full w-full object-contain"
-              style={{ padding: 12 }}
-            />
-          </figure>
-        )}
-
         <header className="nameplate">
           <span className="corner-mark tl" />
           <span className="corner-mark tr" />
@@ -106,7 +88,31 @@ export default async function AssetHubPage({
           </div>
 
           <div className="nameplate-row">
-            <div>
+            {hub.assetModel.imageUrl && (
+              <div
+                className="nameplate-thumb"
+                style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: 8,
+                  border: '1px solid rgb(var(--surface-plate-edge))',
+                  background: 'rgb(var(--surface-elevated))',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  overflow: 'hidden',
+                  padding: 4,
+                }}
+              >
+                <img
+                  src={hub.assetModel.imageUrl}
+                  alt=""
+                  style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                />
+              </div>
+            )}
+            <div style={{ flex: 1, minWidth: 0 }}>
               <div className="nameplate-title">{hub.assetModel.displayName}</div>
               <div className="nameplate-meta">
                 <span>{hub.assetModel.modelCode}</span>
