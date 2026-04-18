@@ -19,6 +19,7 @@ import {
   bulkCreateAssetInstances,
   createAssetInstance,
   pinLatestVersion,
+  unpinInstance,
   listAllSites,
   listAdminAssetModels,
   listInstancesForModel,
@@ -138,21 +139,41 @@ export default function AssetModelDetail({
                       : '—'}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={async () => {
-                        try {
-                          await pinLatestVersion(i.id);
-                          toast.success('Latest published version pinned.');
-                          await refresh();
-                        } catch (e) {
-                          toast.error(e instanceof Error ? e.message : String(e));
-                        }
-                      }}
-                    >
-                      Pin latest
-                    </button>
+                    <div className="flex justify-end gap-1">
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={async () => {
+                          try {
+                            await pinLatestVersion(i.id);
+                            toast.success('Latest published version pinned.');
+                            await refresh();
+                          } catch (e) {
+                            toast.error(e instanceof Error ? e.message : String(e));
+                          }
+                        }}
+                      >
+                        Pin latest
+                      </button>
+                      {i.pinnedVersion && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={async () => {
+                            if (!confirm('Unpin this version from the instance?')) return;
+                            try {
+                              await unpinInstance(i.id);
+                              toast.success('Unpinned.');
+                              await refresh();
+                            } catch (e) {
+                              toast.error(e instanceof Error ? e.message : String(e));
+                            }
+                          }}
+                        >
+                          Unpin
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

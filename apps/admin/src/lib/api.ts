@@ -396,6 +396,15 @@ export async function pinLatestVersion(instanceId: string): Promise<void> {
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }
 
+export async function unpinInstance(instanceId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/admin/asset-instances/${instanceId}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ pinnedContentPackVersionId: null }),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
 export interface BulkInstanceResult {
   attempted: number;
   created: number;
