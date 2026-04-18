@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ArrowUp, Camera, ShieldAlert, Sparkles, Square, X } from 'lucide-react';
-import type { AssetHubPayload } from '@platform/shared';
+import type { AssetHubPayload } from '@/lib/shared-schema';
 import { streamChat, uploadFile, type ChatCitation, type UploadResult } from '@/lib/api';
 
 type UserTurn = { role: 'user'; text: string; imageUrl?: string };

@@ -9,7 +9,7 @@ import {
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
-import type { AssetHubPayload } from '@platform/shared';
+import type { AssetHubPayload } from '@/lib/shared-schema';
 import { DocsTab } from './docs-tab';
 import { ChatTab } from './chat-tab';
 import { TrainingTab } from './training-tab';

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { AssetHubPayload } from '@platform/shared';
+import type { AssetHubPayload } from '@/lib/shared-schema';
 import {
   listTrainingModules,
   getTrainingModule,

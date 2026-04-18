@@ -1,4 +1,4 @@
-import { AssetHubPayloadSchema, type AssetHubPayload } from '@platform/shared';
+import { AssetHubPayloadSchema, type AssetHubPayload } from './shared-schema';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3001';
 
