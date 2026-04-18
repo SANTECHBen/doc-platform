@@ -18,6 +18,7 @@ import {
 import {
   bulkCreateAssetInstances,
   createAssetInstance,
+  pinLatestVersion,
   listAllSites,
   listAdminAssetModels,
   listInstancesForModel,
@@ -38,6 +39,7 @@ export default function AssetModelDetail({
   const [error, setError] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const toast = useToast();
 
   async function refresh() {
     try {
@@ -116,6 +118,7 @@ export default function AssetModelDetail({
                 <th className="px-4 py-2">Customer</th>
                 <th className="px-4 py-2">Pinned version</th>
                 <th className="px-4 py-2">Installed</th>
+                <th className="px-4 py-2"></th>
               </tr>
             </thead>
             <tbody>
@@ -133,6 +136,23 @@ export default function AssetModelDetail({
                     {i.installedAt
                       ? new Date(i.installedAt).toLocaleDateString()
                       : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={async () => {
+                        try {
+                          await pinLatestVersion(i.id);
+                          toast.success('Latest published version pinned.');
+                          await refresh();
+                        } catch (e) {
+                          toast.error(e instanceof Error ? e.message : String(e));
+                        }
+                      }}
+                    >
+                      Pin latest
+                    </button>
                   </td>
                 </tr>
               ))}

@@ -388,6 +388,14 @@ export async function createAssetInstance(params: {
   return (await res.json()) as { id: string };
 }
 
+export async function pinLatestVersion(instanceId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/asset-instances/${instanceId}/pin-latest`,
+    { method: 'POST', headers: { ...authHeaders() } },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
 export interface BulkInstanceResult {
   attempted: number;
   created: number;

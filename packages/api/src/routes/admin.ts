@@ -424,6 +424,59 @@ export async function registerAdminMutations(app: FastifyInstance) {
     },
   );
 
+  app.post<{ Params: { id: string } }>(
+    '/admin/asset-instances/:id/pin-latest',
+    {
+      schema: { params: z.object({ id: UuidSchema }) },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const instance = await db.query.assetInstances.findFirst({
+        where: eq(schema.assetInstances.id, request.params.id),
+      });
+      if (!instance) return reply.notFound();
+      const versionId = await findLatestPublishedVersionId(db, instance.assetModelId);
+      if (!versionId) {
+        return reply.badRequest(
+          'No published content pack version exists for this asset model.',
+        );
+      }
+      const [updated] = await db
+        .update(schema.assetInstances)
+        .set({ pinnedContentPackVersionId: versionId })
+        .where(eq(schema.assetInstances.id, request.params.id))
+        .returning();
+      return updated;
+    },
+  );
+
+  app.patch<{
+    Params: { id: string };
+    Body: { pinnedContentPackVersionId: string | null };
+  }>(
+    '/admin/asset-instances/:id',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema }),
+        body: z.object({
+          pinnedContentPackVersionId: UuidSchema.nullable(),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const [updated] = await db
+        .update(schema.assetInstances)
+        .set({ pinnedContentPackVersionId: request.body.pinnedContentPackVersionId })
+        .where(eq(schema.assetInstances.id, request.params.id))
+        .returning();
+      if (!updated) return reply.notFound();
+      return updated;
+    },
+  );
+
   app.post<{
     Body: {
       assetModelId: string;
