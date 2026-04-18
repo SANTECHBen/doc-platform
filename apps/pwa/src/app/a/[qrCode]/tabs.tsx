@@ -33,31 +33,8 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
   );
 
   return (
-    <div className="flex flex-col gap-5">
-      <nav className="segbar" role="tablist">
-        {TABS.map((t) => {
-          const Icon = t.icon;
-          const isActive = active === t.key;
-          return (
-            <button
-              key={t.key}
-              role="tab"
-              aria-selected={isActive}
-              data-active={isActive}
-              onClick={() => setActive(t.key)}
-              className="segbar-item"
-            >
-              <Icon size={16} strokeWidth={isActive ? 2 : 1.75} />
-              <span className="hidden sm:inline">{t.label}</span>
-              {countFor(hub, t.key) !== null && (
-                <span className="segbar-count tabular-nums">{countFor(hub, t.key)}</span>
-              )}
-            </button>
-          );
-        })}
-      </nav>
-
-      <div key={active} className="tab-pane">
+    <>
+      <div key={active} className="tab-pane flex flex-col gap-4">
         {active === 'overview' ? (
           <div className="spec-panel">
             <OverviewSpecs hub={hub} openIssueCount={openIssueCount} />
@@ -67,7 +44,7 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
             />
           </div>
         ) : (
-          <section className="rounded-md border border-line bg-surface-raised p-5 md:p-7 lg:p-8">
+          <section className="rounded-md border border-line bg-surface-raised p-4 md:p-6">
             {active === 'docs' && (
               <DocsTab versionId={hub.pinnedContentPackVersion?.id ?? null} />
             )}
@@ -77,7 +54,31 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
           </section>
         )}
       </div>
-    </div>
+
+      <nav className="app-tabbar" role="tablist" aria-label="Sections">
+        {TABS.map((t) => {
+          const Icon = t.icon;
+          const isActive = active === t.key;
+          const count = countFor(hub, t.key);
+          return (
+            <button
+              key={t.key}
+              role="tab"
+              aria-selected={isActive}
+              data-active={isActive}
+              onClick={() => setActive(t.key)}
+              className="app-tabbar-item"
+            >
+              <Icon size={22} strokeWidth={isActive ? 2.25 : 1.75} />
+              <span>{t.label}</span>
+              {count !== null && count > 0 && (
+                <span className="app-tabbar-count tabular-nums">{count}</span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
+    </>
   );
 }
 

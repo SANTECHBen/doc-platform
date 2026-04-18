@@ -2,7 +2,6 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
 import { ThemeToggle } from '@/components/theme-toggle';
-import { IOSInstallBanner } from '@/components/ios-install-banner';
 import { AssetHubTabs } from './tabs';
 import { resolveAssetHub } from '@/lib/api';
 
@@ -45,19 +44,12 @@ export default async function AssetHubPage({
     : undefined;
 
   return (
-    <main
-      className="mx-auto flex max-w-3xl flex-col gap-4 px-3 py-3 md:px-4 md:py-4"
-      style={brandStyle}
-    >
-      <header className="flex items-center justify-between">
-        <Link
-          href="/scan"
-          className="inline-flex items-center gap-1.5 text-sm text-ink-secondary transition hover:text-ink-primary"
-        >
-          <ChevronLeft size={16} strokeWidth={2} />
-          Scan another
+    <main className="app-shell" style={brandStyle}>
+      <header className="app-topbar">
+        <Link href="/scan" className="app-topbar-btn" aria-label="Scan another">
+          <ChevronLeft size={20} strokeWidth={2} />
         </Link>
-        <div className="flex items-center gap-2.5">
+        <div className="app-topbar-brand">
           {hub.brand.logoUrl ? (
             <img
               src={hub.brand.logoUrl}
@@ -72,16 +64,14 @@ export default async function AssetHubPage({
               {hub.brand.initials}
             </div>
           )}
-          <span className="hidden text-sm font-medium text-ink-secondary sm:inline">
+          <span className="text-sm font-medium text-ink-primary">
             {hub.brand.displayName}
           </span>
         </div>
         <ThemeToggle />
       </header>
 
-      <IOSInstallBanner />
-
-      <div className="page-enter flex flex-col gap-6">
+      <div className="app-scroll page-enter flex flex-col gap-4">
         {hub.assetModel.imageUrl && (
           <figure
             className="relative overflow-hidden rounded-lg border mx-auto"
