@@ -1,6 +1,4 @@
 import { notFound } from 'next/navigation';
-import Link from 'next/link';
-import { ChevronLeft } from 'lucide-react';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { FullscreenButton } from '@/components/fullscreen-button';
 import { AssetHubTabs } from './tabs';
@@ -47,9 +45,6 @@ export default async function AssetHubPage({
   return (
     <main className="app-shell" style={brandStyle}>
       <header className="app-topbar">
-        <Link href="/scan" className="app-topbar-btn" aria-label="Scan another">
-          <ChevronLeft size={20} strokeWidth={2} />
-        </Link>
         <div className="app-topbar-brand">
           {hub.brand.logoUrl ? (
             <img
