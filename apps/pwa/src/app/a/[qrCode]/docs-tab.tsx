@@ -58,6 +58,7 @@ export function DocsTab({ versionId }: { versionId: string | null }) {
     <ul className="grid grid-cols-1 gap-2.5 md:grid-cols-2 lg:grid-cols-3">
       {docs.map((d) => {
         const Icon = kindIcon(d.kind);
+        const tint = kindTint(d.kind);
         return (
           <li key={d.id}>
             <button
@@ -67,14 +68,7 @@ export function DocsTab({ versionId }: { versionId: string | null }) {
               }}
               className="group flex h-full w-full flex-col overflow-hidden rounded-md border border-line-subtle bg-surface-raised text-left transition hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-[0_4px_14px_-4px_rgba(11,95,191,0.25)]"
             >
-              {/* Visual: real thumbnail if set, else a typed cover swatch */}
-              <div
-                className="relative flex aspect-[16/9] w-full items-center justify-center overflow-hidden"
-                style={{
-                  background:
-                    'linear-gradient(135deg, rgb(var(--surface-elevated)) 0%, rgb(var(--surface-inset)) 100%)',
-                }}
-              >
+              <div className="relative flex aspect-[16/9] w-full items-center justify-center overflow-hidden">
                 {d.thumbnailUrl ? (
                   <img
                     src={d.thumbnailUrl}
@@ -82,11 +76,22 @@ export function DocsTab({ versionId }: { versionId: string | null }) {
                     className="h-full w-full object-cover"
                   />
                 ) : (
-                  <Icon
-                    size={32}
-                    strokeWidth={1.25}
-                    className="text-ink-tertiary transition group-hover:text-brand"
-                  />
+                  <div
+                    className="doc-thumb-placeholder"
+                    style={{
+                      background: `linear-gradient(135deg, ${tint.bgStart} 0%, ${tint.bgEnd} 100%)`,
+                    }}
+                  >
+                    <div
+                      className="doc-thumb-icon"
+                      style={{ color: tint.fg, background: tint.chip }}
+                    >
+                      <Icon size={32} strokeWidth={2} />
+                    </div>
+                    <span className="doc-thumb-label" style={{ color: tint.fg }}>
+                      {kindLabel(d.kind)}
+                    </span>
+                  </div>
                 )}
                 {d.safetyCritical && (
                   <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-sm bg-signal-safety/15 px-2 py-0.5 text-caption font-semibold uppercase text-signal-safety backdrop-blur-sm">
@@ -145,6 +150,72 @@ function kindLabel(kind: string): string {
       return 'File';
     default:
       return kind;
+  }
+}
+
+// Per-kind color scheme for the placeholder. Each pair uses a soft tinted
+// background, a saturated accent for the icon chip, and a readable ink color
+// for the kind label. Designed to read as "intentional card" not "missing
+// image".
+interface KindTint {
+  bgStart: string;
+  bgEnd: string;
+  chip: string;
+  fg: string;
+}
+function kindTint(kind: string): KindTint {
+  switch (kind) {
+    case 'pdf':
+      return {
+        bgStart: 'rgba(220, 38, 38, 0.12)',
+        bgEnd: 'rgba(220, 38, 38, 0.04)',
+        chip: 'rgba(220, 38, 38, 0.16)',
+        fg: '#b91c1c',
+      };
+    case 'video':
+    case 'external_video':
+      return {
+        bgStart: 'rgba(14, 165, 233, 0.14)',
+        bgEnd: 'rgba(14, 165, 233, 0.04)',
+        chip: 'rgba(14, 165, 233, 0.18)',
+        fg: '#0369a1',
+      };
+    case 'slides':
+      return {
+        bgStart: 'rgba(234, 88, 12, 0.12)',
+        bgEnd: 'rgba(234, 88, 12, 0.03)',
+        chip: 'rgba(234, 88, 12, 0.18)',
+        fg: '#c2410c',
+      };
+    case 'schematic':
+      return {
+        bgStart: 'rgba(124, 58, 237, 0.12)',
+        bgEnd: 'rgba(124, 58, 237, 0.03)',
+        chip: 'rgba(124, 58, 237, 0.18)',
+        fg: '#6d28d9',
+      };
+    case 'structured_procedure':
+      return {
+        bgStart: 'rgba(5, 150, 105, 0.12)',
+        bgEnd: 'rgba(5, 150, 105, 0.03)',
+        chip: 'rgba(5, 150, 105, 0.18)',
+        fg: '#047857',
+      };
+    case 'markdown':
+      return {
+        bgStart: 'rgba(37, 108, 211, 0.10)',
+        bgEnd: 'rgba(37, 108, 211, 0.02)',
+        chip: 'rgba(37, 108, 211, 0.16)',
+        fg: '#256CD3',
+      };
+    case 'file':
+    default:
+      return {
+        bgStart: 'rgba(82, 82, 91, 0.10)',
+        bgEnd: 'rgba(82, 82, 91, 0.02)',
+        chip: 'rgba(82, 82, 91, 0.14)',
+        fg: '#52525b',
+      };
   }
 }
 
