@@ -24,6 +24,7 @@ export const AssetHubPayloadSchema = z.object({
   organization: z.object({
     id: UuidSchema,
     name: z.string(),
+    requireScanAccess: z.boolean(),
   }),
   pinnedContentPackVersion: z
     .object({

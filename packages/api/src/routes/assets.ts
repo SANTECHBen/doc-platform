@@ -101,6 +101,7 @@ export async function registerAssetRoutes(app: FastifyInstance) {
         organization: {
           id: instance.site.organization.id,
           name: instance.site.organization.name,
+          requireScanAccess: instance.site.organization.requireScanAccess,
         },
         pinnedContentPackVersion: instance.pinnedContentPackVersion
           ? {

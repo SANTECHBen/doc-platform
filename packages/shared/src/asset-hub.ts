@@ -25,6 +25,10 @@ export const AssetHubPayloadSchema = z.object({
   organization: z.object({
     id: UuidSchema,
     name: z.string(),
+    // When true, the PWA requires a valid scan-session cookie (set by /q/:code)
+    // to show asset content. Lets security-sensitive customers block URL-sharing
+    // leakage without requiring login.
+    requireScanAccess: z.boolean(),
   }),
   pinnedContentPackVersion: z
     .object({

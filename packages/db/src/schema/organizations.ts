@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, jsonb, boolean } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import { organizationTypeEnum } from './enums';
 
@@ -30,6 +30,15 @@ export const organizations = pgTable('organizations', {
   logoStorageKey: text('logo_storage_key'),     // uploaded wordmark
   displayNameOverride: text('display_name_override'), // overrides "Equipment Hub"
   settings: jsonb('settings').$type<Record<string, unknown>>().notNull().default({}),
+  // When true, the PWA requires a valid scan-session cookie to show asset
+  // content. A cookie is minted when a user lands on /q/<code> (which is
+  // where QR codes point); it's bound to the code and short-lived (8h).
+  // Anyone who lands on /a/<code> without a matching cookie sees a
+  // "scan this equipment's QR code to continue" wall.
+  //
+  // This is an opt-in privacy setting, typically flipped on by end-customer
+  // orgs that don't want the asset content viewable by anyone with the URL.
+  requireScanAccess: boolean('require_scan_access').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

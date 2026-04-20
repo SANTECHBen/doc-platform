@@ -6,7 +6,7 @@ import { MapPin, Palette, Plus, Upload } from 'lucide-react';
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader, PageShell, Pill } from '@/components/page-shell';
 import { useToast } from '@/components/toast';
-import { uploadFile, updateOrgBranding } from '@/lib/api';
+import { uploadFile, updateOrgBranding, updateOrgPrivacy } from '@/lib/api';
 import {
   Drawer,
   ErrorBanner,
@@ -161,6 +161,8 @@ export default function OrgDetail({ params }: { params: Promise<{ id: string }> 
       )}
 
       {org.type === 'oem' && <BrandingSection org={org} onChanged={refresh} />}
+
+      <PrivacySection org={org} onChanged={refresh} />
 
       <Drawer
         title={`Add site to ${org.name}`}
@@ -523,5 +525,70 @@ function NewSiteForm({ orgId, onCreated }: { orgId: string; onCreated: () => Pro
         </PrimaryButton>
       </div>
     </form>
+  );
+}
+
+// Per-org privacy controls. Right now just the scan-access gate — flipping
+// it on requires techs to scan a QR code at the physical equipment before
+// the PWA shows content. Sharing a URL out-of-band won't grant access.
+function PrivacySection({
+  org,
+  onChanged,
+}: {
+  org: import('@/lib/api').AdminOrganization;
+  onChanged: () => Promise<void>;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
+
+  async function toggle() {
+    setSaving(true);
+    setError(null);
+    try {
+      await updateOrgPrivacy(org.id, { requireScanAccess: !org.requireScanAccess });
+      toast.success(
+        !org.requireScanAccess ? 'Scan access required' : 'Scan access disabled',
+      );
+      await onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="mt-8 rounded-md border border-line bg-surface-raised p-5">
+      <h2 className="mb-1 text-sm font-semibold text-ink-primary">Privacy</h2>
+      <p className="mb-4 text-xs text-ink-tertiary">
+        Controls how the PWA authorizes access to this organization's asset pages.
+      </p>
+      {error && (
+        <p className="mb-3 rounded border border-signal-fault/40 bg-signal-fault/10 p-2 text-xs text-signal-fault">
+          {error}
+        </p>
+      )}
+      <label className="flex items-start gap-3">
+        <input
+          type="checkbox"
+          checked={org.requireScanAccess}
+          onChange={toggle}
+          disabled={saving}
+          className="mt-1 shrink-0"
+        />
+        <span className="flex flex-col gap-1 text-sm">
+          <span className="font-medium text-ink-primary">
+            Require QR scan for PWA access
+          </span>
+          <span className="text-xs text-ink-tertiary">
+            When enabled, technicians must scan the physical QR sticker on the
+            equipment before the PWA shows content. An 8-hour session cookie is
+            minted at scan time — sharing a URL out-of-band won't grant access
+            to anyone without the cookie.
+          </span>
+        </span>
+      </label>
+    </section>
   );
 }

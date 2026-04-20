@@ -107,6 +107,7 @@ export interface AdminOrganization {
   siteCount: number;
   userCount: number;
   createdAt: string;
+  requireScanAccess: boolean;
   brand: {
     primary: string | null;
     onPrimary: string | null;
@@ -114,6 +115,21 @@ export interface AdminOrganization {
     logoUrl: string | null;
     displayNameOverride: string | null;
   };
+}
+
+export async function updateOrgPrivacy(
+  id: string,
+  body: { requireScanAccess: boolean },
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/organizations/${encodeURIComponent(id)}/privacy`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }
 
 export async function updateOrgBranding(

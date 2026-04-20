@@ -1,8 +1,11 @@
+import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { FullscreenButton } from '@/components/fullscreen-button';
+import { ScanWall } from '@/components/scan-wall';
 import { AssetHubTabs } from './tabs';
 import { resolveAssetHub } from '@/lib/api';
+import { SCAN_COOKIE_NAME, verifyScanSessionValue } from '@/lib/scan-session';
 
 // Hex "#F77531" → [247, 117, 49]. Returns null on invalid input.
 function hexToRgb(hex: string | null | undefined): [number, number, number] | null {
@@ -41,6 +44,18 @@ export default async function AssetHubPage({
   const { qrCode } = await params;
   const hub = await resolveAssetHub(qrCode);
   if (!hub) notFound();
+
+  // Scan-gate enforcement. If the owning org has opted in, a valid scan
+  // session cookie is required — it's minted when a user lands on /q/<code>
+  // (where QR codes point). Anyone sharing a /a/<code> URL out-of-band
+  // lacks the cookie and sees a scan-wall instead of the hub.
+  if (hub.organization.requireScanAccess) {
+    const cookieStore = await cookies();
+    const session = cookieStore.get(SCAN_COOKIE_NAME)?.value;
+    if (!session || !verifyScanSessionValue(session, qrCode)) {
+      return <ScanWall organizationName={hub.organization.name} />;
+    }
+  }
 
   const openWo = hub.tabs.openWorkOrders.count;
   const ledClass = openWo > 0 ? 'led-warn' : 'led-ok';

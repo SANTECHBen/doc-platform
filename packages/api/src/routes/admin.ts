@@ -251,6 +251,32 @@ export async function registerAdminMutations(app: FastifyInstance) {
     },
   );
 
+  // Privacy settings. For now just the scan-access flag; future per-org
+  // privacy knobs (e.g., audit retention, IP allowlists) land here.
+  app.patch<{
+    Params: { id: string };
+    Body: { requireScanAccess: boolean };
+  }>(
+    '/admin/organizations/:id/privacy',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema }),
+        body: z.object({ requireScanAccess: z.boolean() }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const [updated] = await db
+        .update(schema.organizations)
+        .set({ requireScanAccess: request.body.requireScanAccess })
+        .where(eq(schema.organizations.id, request.params.id))
+        .returning();
+      if (!updated) return reply.notFound();
+      return updated;
+    },
+  );
+
   app.post<{
     Body: {
       type: z.infer<typeof OrgTypeEnum>;
@@ -1965,7 +1991,7 @@ export async function registerAdminListings(app: FastifyInstance) {
       sql`SELECT o.id, o.type, o.name, o.slug, o.parent_organization_id,
                  o.oem_code, o.created_at,
                  o.brand_primary, o.brand_on_primary, o.logo_storage_key,
-                 o.display_name_override,
+                 o.display_name_override, o.require_scan_access,
                  p.name AS parent_name,
                  (SELECT count(*) FROM sites WHERE organization_id = o.id)::int AS site_count,
                  (SELECT count(*) FROM users WHERE home_organization_id = o.id)::int AS user_count
@@ -1984,6 +2010,7 @@ export async function registerAdminListings(app: FastifyInstance) {
       brand_on_primary: string | null;
       logo_storage_key: string | null;
       display_name_override: string | null;
+      require_scan_access: boolean;
       parent_name: string | null;
       site_count: number;
       user_count: number;
@@ -2001,6 +2028,7 @@ export async function registerAdminListings(app: FastifyInstance) {
       siteCount: r.site_count,
       userCount: r.user_count,
       createdAt: r.created_at,
+      requireScanAccess: r.require_scan_access,
       brand: {
         primary: r.brand_primary,
         onPrimary: r.brand_on_primary,

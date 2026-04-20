@@ -1,0 +1,1 @@
+ALTER TABLE "organizations" ADD COLUMN "require_scan_access" boolean DEFAULT false NOT NULL;
