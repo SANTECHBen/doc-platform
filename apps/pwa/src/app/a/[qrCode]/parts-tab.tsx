@@ -427,12 +427,19 @@ function PartDetailOverlay({
           </p>
         )}
 
+        <PartNameplate
+          part={data?.part ?? null}
+          bomRow={bomRow}
+          hub={hub}
+          componentCount={data?.components.length ?? 0}
+          onImageTap={() => setLightboxOpen(true)}
+        />
+
         <div key={active} className="tab-pane flex flex-col gap-4">
           {active === 'overview' && (
             <PartOverviewPane
               part={data?.part ?? null}
               bomRow={bomRow}
-              onImageTap={() => setLightboxOpen(true)}
               docCount={data?.documents.length ?? 0}
               trainingCount={data?.trainingModules.length ?? 0}
               componentCount={data?.components.length ?? 0}
@@ -514,17 +521,136 @@ function partTabCount(data: PartResources | null, key: PartTabKey): number | nul
   }
 }
 
+// Matches the equipment-page nameplate shell: milled-aluminum plate with
+// corner marks + brand rail, a caption row on top, and the part thumb + title
+// + meta row with metrics on the right. The thumb is tappable to open the
+// full-resolution lightbox — keeps the header compact but doesn't hide the
+// image, which is often how techs recognize a part.
+function PartNameplate({
+  part,
+  bomRow,
+  hub,
+  componentCount,
+  onImageTap,
+}: {
+  part: PartResources['part'] | null;
+  bomRow: BomEntry | undefined;
+  hub: AssetHubPayload;
+  componentCount: number;
+  onImageTap: () => void;
+}) {
+  return (
+    <header className="nameplate">
+      <span className="corner-mark tl" />
+      <span className="corner-mark tr" />
+      <span className="corner-mark bl" />
+      <span className="corner-mark br" />
+
+      <div className="nameplate-top">
+        <span className="led led-ok" />
+        <span className="caption">
+          {hub.assetModel.displayName} · S/N {hub.assetInstance.serialNumber}
+        </span>
+      </div>
+
+      <div className="nameplate-row">
+        {part?.imageUrl ? (
+          <button
+            type="button"
+            onClick={onImageTap}
+            aria-label={`Zoom ${part.displayName}`}
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: 8,
+              border: '1px solid rgb(var(--surface-plate-edge))',
+              background: 'rgb(var(--surface-elevated))',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              overflow: 'hidden',
+              padding: 4,
+            }}
+          >
+            <img
+              src={part.imageUrl}
+              alt=""
+              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+              draggable={false}
+            />
+          </button>
+        ) : (
+          <div
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: 8,
+              border: '1px solid rgb(var(--surface-plate-edge))',
+              background: 'rgb(var(--surface-elevated))',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              color: 'rgb(var(--ink-tertiary))',
+            }}
+          >
+            <Package size={22} strokeWidth={1.5} />
+          </div>
+        )}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="nameplate-title">
+            {part?.displayName ?? 'Loading…'}
+          </div>
+          <div className="nameplate-meta">
+            <span>{part?.oemPartNumber ?? '—'}</span>
+            {bomRow?.positionRef && (
+              <>
+                <span className="sep">·</span>
+                <span>
+                  Pos <span className="serial">{bomRow.positionRef}</span>
+                </span>
+              </>
+            )}
+            {part?.discontinued && (
+              <>
+                <span className="sep">·</span>
+                <span style={{ color: 'rgb(var(--signal-warn))' }}>Discontinued</span>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="nameplate-metrics">
+          {bomRow && (
+            <div className="nameplate-metric">
+              <span className="cap">Qty</span>
+              <span className="val">{bomRow.quantity}</span>
+            </div>
+          )}
+          <div className="nameplate-metric">
+            <span className="cap">Components</span>
+            <span className="val">{componentCount}</span>
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+// Overview tab — secondary info that doesn't belong in the nameplate:
+// description, cross-refs, and a compact spec grid with counts. Identity
+// (name, OEM#, position, qty) lives in the nameplate which sits above this
+// on every tab.
 function PartOverviewPane({
   part,
   bomRow,
-  onImageTap,
   docCount,
   trainingCount,
   componentCount,
 }: {
   part: PartResources['part'] | null;
   bomRow: BomEntry | undefined;
-  onImageTap: () => void;
   docCount: number;
   trainingCount: number;
   componentCount: number;
@@ -534,57 +660,16 @@ function PartOverviewPane({
   }
   return (
     <div className="flex flex-col gap-4">
-      {/* Hero image — tap to zoom */}
-      {part.imageUrl ? (
-        <button
-          type="button"
-          onClick={onImageTap}
-          aria-label={`Zoom ${part.displayName}`}
-          className="flex items-center justify-center rounded-md p-4"
-          style={{
-            background: 'rgb(var(--surface-inset))',
-            border: '1px solid rgb(var(--line-subtle))',
-            minHeight: 200,
-          }}
-        >
-          <img
-            src={part.imageUrl}
-            alt={part.displayName}
-            className="max-h-64 max-w-full object-contain"
-            draggable={false}
-          />
-        </button>
-      ) : (
-        <div
-          className="flex items-center justify-center rounded-md p-8 text-ink-tertiary"
-          style={{
-            background: 'rgb(var(--surface-inset))',
-            border: '1px solid rgb(var(--line-subtle))',
-          }}
-        >
-          <Package size={48} strokeWidth={1.25} />
-        </div>
+      {part.description && (
+        <section className="rounded-md border border-line bg-surface-raised p-4">
+          <div className="markdown-body text-sm">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{part.description}</ReactMarkdown>
+          </div>
+        </section>
       )}
 
-      {/* Spec-style metadata block */}
       <div className="spec-panel">
         <div className="spec-grid">
-          <div className="spec-field">
-            <span className="cap">OEM #</span>
-            <span className="val mono brand">{part.oemPartNumber}</span>
-          </div>
-          {bomRow?.positionRef && (
-            <div className="spec-field">
-              <span className="cap">Position</span>
-              <span className="val mono">{bomRow.positionRef}</span>
-            </div>
-          )}
-          {bomRow && (
-            <div className="spec-field">
-              <span className="cap">Qty on asset</span>
-              <span className="val mono">{bomRow.quantity}</span>
-            </div>
-          )}
           <div className="spec-field">
             <span className="cap">Documents</span>
             <span className="val mono">{docCount}</span>
@@ -597,24 +682,14 @@ function PartOverviewPane({
             <span className="cap">Components</span>
             <span className="val mono">{componentCount}</span>
           </div>
-          {part.discontinued && (
+          {bomRow && (
             <div className="spec-field">
-              <span className="cap">Status</span>
-              <span className="val warn">Discontinued</span>
+              <span className="cap">Qty on asset</span>
+              <span className="val mono">{bomRow.quantity}</span>
             </div>
           )}
         </div>
       </div>
-
-      {part.description && (
-        <section className="rounded-md border border-line bg-surface-raised p-4">
-          <div className="markdown-body text-sm">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {part.description}
-            </ReactMarkdown>
-          </div>
-        </section>
-      )}
 
       {part.crossReferences.length > 0 && (
         <section className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface-raised p-4">
