@@ -6,24 +6,25 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3001';
 // JWKS. If the session endpoint is missing the token (user not signed in),
 // the request will 401 at the API layer.
 //
-// We cache the token for the life of the page; NextAuth rotates it when
-// the browser next re-fetches the session (handled by the auth cookie).
-let cachedIdToken: string | null = null;
-
+// We deliberately don't cache client-side: NextAuth's jwt callback
+// transparently refreshes the underlying MS tokens when they near expiry,
+// so the session endpoint always returns the current valid ID token. A
+// fetch-per-call here keeps us aligned with whatever the server produced,
+// including post-refresh rotations. The call is cheap (cookie read + JSON).
 async function authHeaders(): Promise<Record<string, string>> {
   if (typeof window === 'undefined') return {};
-  if (!cachedIdToken) {
-    try {
-      const res = await fetch('/api/auth/session', { cache: 'no-store' });
-      if (res.ok) {
-        const session = (await res.json()) as { idToken?: string } | null;
-        cachedIdToken = session?.idToken ?? null;
+  try {
+    const res = await fetch('/api/auth/session', { cache: 'no-store' });
+    if (res.ok) {
+      const session = (await res.json()) as { idToken?: string } | null;
+      if (session?.idToken) {
+        return { authorization: `Bearer ${session.idToken}` };
       }
-    } catch {
-      // Network failure — fall through unauthenticated; API will 401.
     }
+  } catch {
+    // Network failure — fall through unauthenticated; API will 401.
   }
-  return cachedIdToken ? { authorization: `Bearer ${cachedIdToken}` } : {};
+  return {};
 }
 
 export const PUBLIC_PWA_ORIGIN =
