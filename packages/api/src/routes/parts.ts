@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
+import { deriveRole, type PartRole } from './admin';
 
 export async function registerPartsRoutes(app: FastifyInstance) {
   // Flat BOM listing for an asset model — part metadata joined with
@@ -17,12 +18,13 @@ export async function registerPartsRoutes(app: FastifyInstance) {
       });
       if (entries.length === 0) return [];
 
-      const parts = await db.query.parts.findMany({
-        where: inArray(
-          schema.parts.id,
-          [...new Set(entries.map((e) => e.partId))],
-        ),
-      });
+      const partIds = [...new Set(entries.map((e) => e.partId))];
+      const [parts, roleByPartId] = await Promise.all([
+        db.query.parts.findMany({
+          where: inArray(schema.parts.id, partIds),
+        }),
+        rolesForPartIds(db, partIds),
+      ]);
       const partById = new Map(parts.map((p) => [p.id, p]));
 
       return entries.map((e) => {
@@ -39,6 +41,7 @@ export async function registerPartsRoutes(app: FastifyInstance) {
           crossReferences: p?.crossReferences ?? [],
           discontinued: p?.discontinued ?? false,
           imageUrl: p?.imageStorageKey ? storage.publicUrl(p.imageStorageKey) : null,
+          role: roleByPartId.get(e.partId) ?? 'part',
         };
       });
     },
@@ -81,12 +84,12 @@ export async function registerPartsRoutes(app: FastifyInstance) {
         where: eq(schema.partComponents.parentPartId, partId),
       });
       const childIds = [...new Set(componentLinks.map((l) => l.childPartId))];
-      const childParts =
+      const [childParts, childRoles] = await Promise.all([
         childIds.length > 0
-          ? await db.query.parts.findMany({
-              where: inArray(schema.parts.id, childIds),
-            })
-          : [];
+          ? db.query.parts.findMany({ where: inArray(schema.parts.id, childIds) })
+          : Promise.resolve([] as Array<typeof schema.parts.$inferSelect>),
+        rolesForPartIds(db, childIds),
+      ]);
       const childById = new Map(childParts.map((p) => [p.id, p]));
       const components = componentLinks
         .map((l) => {
@@ -102,6 +105,7 @@ export async function registerPartsRoutes(app: FastifyInstance) {
             quantity: l.quantity,
             orderingHint: l.orderingHint,
             imageUrl: c.imageStorageKey ? storage.publicUrl(c.imageStorageKey) : null,
+            role: childRoles.get(c.id) ?? 'part',
           };
         })
         .filter((x): x is NonNullable<typeof x> => x !== null)
@@ -110,12 +114,16 @@ export async function registerPartsRoutes(app: FastifyInstance) {
             a.orderingHint - b.orderingHint || a.displayName.localeCompare(b.displayName),
         );
 
+      // Derive role for this part from part_components presence.
+      const roleMap = await rolesForPartIds(db, [partId]);
+      const role = roleMap.get(partId) ?? 'part';
+
       // No pinned version = no authored resources to show. Return the part
       // info + components (not version-scoped) so the PWA can still render
       // the detail view.
       if (!pinnedVersionId) {
         return {
-          part: mapPart(part, storage),
+          part: mapPart(part, storage, role),
           documents: [],
           trainingModules: [],
           components,
@@ -176,7 +184,7 @@ export async function registerPartsRoutes(app: FastifyInstance) {
         .sort((a, b) => a.orderingHint - b.orderingHint || a.title.localeCompare(b.title));
 
       return {
-        part: mapPart(part, storage),
+        part: mapPart(part, storage, role),
         documents,
         trainingModules,
         components,
@@ -188,6 +196,7 @@ export async function registerPartsRoutes(app: FastifyInstance) {
 function mapPart(
   p: typeof schema.parts.$inferSelect,
   storage: { publicUrl: (key: string) => string },
+  role: PartRole,
 ): {
   id: string;
   oemPartNumber: string;
@@ -196,6 +205,7 @@ function mapPart(
   crossReferences: string[];
   discontinued: boolean;
   imageUrl: string | null;
+  role: PartRole;
 } {
   return {
     id: p.id,
@@ -205,5 +215,29 @@ function mapPart(
     crossReferences: p.crossReferences,
     discontinued: p.discontinued,
     imageUrl: p.imageStorageKey ? storage.publicUrl(p.imageStorageKey) : null,
+    role,
   };
+}
+
+// Batch-derive the structural role for a set of part IDs. A single SQL query
+// tells us which have children and which have parents in part_components;
+// we project to a role map. No N+1 regardless of list size.
+async function rolesForPartIds(
+  db: import('@platform/db').Database,
+  partIds: string[],
+): Promise<Map<string, PartRole>> {
+  const out = new Map<string, PartRole>();
+  if (partIds.length === 0) return out;
+  const idsLiteral = `{${partIds.join(',')}}`;
+  const rows = (await db.execute(
+    sql`SELECT p.id,
+               EXISTS(SELECT 1 FROM part_components WHERE parent_part_id = p.id) AS has_children,
+               EXISTS(SELECT 1 FROM part_components WHERE child_part_id = p.id) AS has_parent
+        FROM parts p
+        WHERE p.id = ANY(${idsLiteral}::uuid[])`,
+  )) as unknown as Array<{ id: string; has_children: boolean; has_parent: boolean }>;
+  for (const r of rows) {
+    out.set(r.id, deriveRole(r.has_children, r.has_parent));
+  }
+  return out;
 }

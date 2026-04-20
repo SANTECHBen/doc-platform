@@ -261,6 +261,8 @@ export async function listAdminTrainingModules(): Promise<AdminTrainingModule[]>
   return (await res.json()) as AdminTrainingModule[];
 }
 
+export type PartRole = 'part' | 'assembly' | 'component' | 'sub_assembly';
+
 export interface AdminPart {
   id: string;
   oemPartNumber: string;
@@ -272,6 +274,7 @@ export interface AdminPart {
   imageUrl: string | null;
   owner: string;
   bomCount: number;
+  role: PartRole;
 }
 
 export async function updatePartImage(

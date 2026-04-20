@@ -31,6 +31,7 @@ import {
   type BomEntry,
   type DocumentBody,
   type PartResources,
+  type PartRole,
 } from '@/lib/api';
 import { ChatTab } from './chat-tab';
 
@@ -38,6 +39,21 @@ interface LightboxTarget {
   src: string;
   title: string;
   oemPartNumber: string;
+}
+
+// Derived structural role badge. Rendered wherever a part appears — BOM
+// rows, components list rows, part hub nameplate. 'part' has no badge
+// (it's the default / no hierarchical role).
+function RoleBadge({ role }: { role: PartRole }) {
+  if (role === 'part') return null;
+  const label =
+    role === 'assembly'
+      ? 'Assembly'
+      : role === 'sub_assembly'
+      ? 'Sub-assembly'
+      : 'Component';
+  const className = role === 'component' ? 'pill' : 'pill pill-info';
+  return <span className={className}>{label}</span>;
 }
 
 export function PartsTab({
@@ -192,7 +208,10 @@ export function PartsTab({
                   )}
                 </div>
               </button>
-              {r.discontinued && <span className="pill pill-warn">Discontinued</span>}
+              <div className="flex shrink-0 flex-col items-end gap-1 self-center">
+                <RoleBadge role={r.role} />
+                {r.discontinued && <span className="pill pill-warn">Discontinued</span>}
+              </div>
               <ChevronRight
                 size={18}
                 strokeWidth={2}
@@ -745,6 +764,11 @@ function PartNameplate({
               </>
             )}
           </div>
+          {part && part.role !== 'part' && (
+            <div style={{ marginTop: 8 }}>
+              <RoleBadge role={part.role} />
+            </div>
+          )}
         </div>
 
         <div className="nameplate-metrics">
@@ -991,6 +1015,7 @@ function ComponentsPane({
                 <span>Qty {c.quantity}</span>
               </div>
             </div>
+            <RoleBadge role={c.role} />
             <ChevronRight size={16} strokeWidth={2} className="shrink-0 text-ink-tertiary" />
           </button>
         </li>

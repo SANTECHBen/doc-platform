@@ -1,5 +1,17 @@
 import type { FastifyInstance } from 'fastify';
 import { and, eq, desc, inArray, sql } from 'drizzle-orm';
+
+// Derived structural role for a part. Lives alongside admin route definitions
+// so the admin parts listing can use it inline; the PWA parts route re-uses
+// it via the exported helper. Roles never touch the DB — they're purely a
+// projection of part_components link presence.
+export type PartRole = 'part' | 'assembly' | 'component' | 'sub_assembly';
+export function deriveRole(hasChildren: boolean, hasParent: boolean): PartRole {
+  if (hasChildren && hasParent) return 'sub_assembly';
+  if (hasChildren) return 'assembly';
+  if (hasParent) return 'component';
+  return 'part';
+}
 import { z } from 'zod';
 import { randomBytes } from 'node:crypto';
 import { schema } from '@platform/db';
@@ -2205,14 +2217,21 @@ export async function registerAdminListings(app: FastifyInstance) {
     }));
   });
 
-  // Parts with BOM membership counts.
+  // Parts with BOM membership counts + derived structural role. The role
+  // falls out of part_components row counts — no authored field required:
+  //   has_children + has_parent → sub_assembly
+  //   has_children only        → assembly
+  //   has_parent only          → component
+  //   neither                  → part   (shown without a badge)
   app.get('/admin/parts', async () => {
     const { db } = app.ctx;
     const rows = (await db.execute(
       sql`SELECT p.id, p.oem_part_number, p.display_name, p.description,
                  p.cross_references, p.discontinued, p.image_storage_key,
                  o.name AS owner_name,
-                 (SELECT count(*) FROM bom_entries WHERE part_id = p.id)::int AS bom_count
+                 (SELECT count(*) FROM bom_entries WHERE part_id = p.id)::int AS bom_count,
+                 EXISTS(SELECT 1 FROM part_components WHERE parent_part_id = p.id) AS has_children,
+                 EXISTS(SELECT 1 FROM part_components WHERE child_part_id = p.id) AS has_parent
           FROM parts p
           JOIN organizations o ON o.id = p.owner_organization_id
           ORDER BY p.display_name`,
@@ -2226,6 +2245,8 @@ export async function registerAdminListings(app: FastifyInstance) {
       image_storage_key: string | null;
       owner_name: string;
       bom_count: number;
+      has_children: boolean;
+      has_parent: boolean;
     }>;
     const { storage } = app.ctx;
     return rows.map((r) => ({
@@ -2239,6 +2260,7 @@ export async function registerAdminListings(app: FastifyInstance) {
       imageUrl: r.image_storage_key ? storage.publicUrl(r.image_storage_key) : null,
       owner: r.owner_name,
       bomCount: r.bom_count,
+      role: deriveRole(r.has_children, r.has_parent),
     }));
   });
 

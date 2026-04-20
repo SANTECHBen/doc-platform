@@ -278,6 +278,8 @@ export async function createWorkOrder(params: {
   return (await res.json()) as WorkOrder;
 }
 
+export type PartRole = 'part' | 'assembly' | 'component' | 'sub_assembly';
+
 export interface BomEntry {
   bomEntryId: string;
   partId: string;
@@ -290,6 +292,7 @@ export interface BomEntry {
   crossReferences: string[];
   discontinued: boolean;
   imageUrl: string | null;
+  role: PartRole;
 }
 
 export async function listParts(modelId: string): Promise<BomEntry[]> {
@@ -309,6 +312,7 @@ export interface PartResources {
     crossReferences: string[];
     discontinued: boolean;
     imageUrl: string | null;
+    role: PartRole;
   };
   documents: Array<{
     id: string;
@@ -335,6 +339,7 @@ export interface PartResources {
     quantity: number;
     orderingHint: number;
     imageUrl: string | null;
+    role: PartRole;
   }>;
 }
 

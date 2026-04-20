@@ -92,6 +92,7 @@ export default function PartsPage() {
                 <th className="px-4 py-2" style={{ width: 80 }}></th>
                 <th className="px-4 py-2">Part #</th>
                 <th className="px-4 py-2">Name</th>
+                <th className="px-4 py-2">Role</th>
                 <th className="px-4 py-2">Owner</th>
                 <th className="px-4 py-2">Cross-refs</th>
                 <th className="px-4 py-2">BOMs</th>
@@ -350,6 +351,17 @@ function PartRow({ part, onRefresh }: { part: AdminPart; onRefresh: () => Promis
         <span className="block font-medium text-ink-primary">{part.displayName}</span>
         {part.description && (
           <span className="block text-xs text-ink-tertiary">{part.description}</span>
+        )}
+      </td>
+      <td className="px-4 py-3">
+        {part.role !== 'part' && (
+          <span className={part.role === 'component' ? 'pill' : 'pill pill-info'}>
+            {part.role === 'assembly'
+              ? 'Assembly'
+              : part.role === 'sub_assembly'
+              ? 'Sub-assembly'
+              : 'Component'}
+          </span>
         )}
       </td>
       <td className="px-4 py-3 text-ink-secondary">{part.owner}</td>
