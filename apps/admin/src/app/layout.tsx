@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import { IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google';
+import { auth } from '@/auth';
 import { Sidebar } from '@/components/sidebar';
+import { UserMenu } from '@/components/user-menu';
 import { CommandPalette } from '@/components/command-palette';
 import { ToastProvider } from '@/components/toast';
 import { themeBootScript } from '@/components/theme-toggle';
@@ -24,7 +26,12 @@ export const metadata: Metadata = {
   title: 'Equipment Hub — Admin',
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // When signed in, render the full admin chrome (sidebar + command palette).
+  // When not, render children alone — the sign-in page handles its own layout.
+  // Middleware already redirects unauthenticated users to /sign-in, so this
+  // is mainly a visual concern.
+  const session = await auth();
   return (
     <html
       lang="en"
@@ -36,13 +43,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="min-h-screen bg-surface-base font-sans text-ink-primary antialiased">
         <ToastProvider>
-          <div className="flex min-h-screen">
-            <Sidebar />
-            <div className="flex min-h-screen flex-1 flex-col">
-              <main className="flex-1">{children}</main>
-            </div>
-          </div>
-          <CommandPalette />
+          {session ? (
+            <>
+              <div className="flex min-h-screen">
+                <Sidebar userMenu={<UserMenu />} />
+                <div className="flex min-h-screen flex-1 flex-col">
+                  <main className="flex-1">{children}</main>
+                </div>
+              </div>
+              <CommandPalette />
+            </>
+          ) : (
+            children
+          )}
         </ToastProvider>
       </body>
     </html>

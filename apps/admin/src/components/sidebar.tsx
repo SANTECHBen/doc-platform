@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import type { ReactNode } from 'react';
 import { ThemeToggle } from './theme-toggle';
 
 interface Nav {
@@ -37,7 +38,7 @@ const NAV: Nav[] = [
   { href: '/audit', label: 'Audit log', icon: ScrollText, match: /^\/audit/ },
 ];
 
-export function Sidebar() {
+export function Sidebar({ userMenu }: { userMenu?: ReactNode }) {
   const pathname = usePathname();
   return (
     <aside
@@ -107,16 +108,19 @@ export function Sidebar() {
       </nav>
 
       <footer
-        className="flex items-center justify-between px-5 py-3.5"
+        className="flex flex-col gap-2 px-5 py-3.5"
         style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
       >
-        <span
-          className="font-mono text-[10.5px] font-medium uppercase tracking-[0.08em]"
-          style={{ color: 'rgba(255,255,255,0.4)' }}
-        >
-          v0.0 · dev
-        </span>
-        <ThemeToggle />
+        {userMenu}
+        <div className="flex items-center justify-between">
+          <span
+            className="font-mono text-[10.5px] font-medium uppercase tracking-[0.08em]"
+            style={{ color: 'rgba(255,255,255,0.4)' }}
+          >
+            v0.0 · dev
+          </span>
+          <ThemeToggle />
+        </div>
       </footer>
     </aside>
   );

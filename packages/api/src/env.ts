@@ -24,8 +24,16 @@ const EnvSchema = z.object({
   S3_PUBLIC_URL: z.string().url().optional(),
 
   // Permit x-dev-user header even when NODE_ENV=production. Interim until
-  // WorkOS lands — set to '1' on the production API until then.
+  // full auth lands — set to '1' on the production API until then.
   ALLOW_DEV_AUTH: z.string().optional(),
+
+  // Microsoft Entra ID OIDC. The API validates Bearer tokens against
+  // Microsoft's JWKS; tokens must have audience = AUTH_MICROSOFT_CLIENT_ID.
+  // AUTH_ALLOWED_TENANTS is an optional comma-separated allow-list of MS
+  // tenant IDs (restricts admin to your own + invited customer tenants).
+  // Empty allows any validated MS tenant.
+  AUTH_MICROSOFT_CLIENT_ID: z.string().optional(),
+  AUTH_ALLOWED_TENANTS: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

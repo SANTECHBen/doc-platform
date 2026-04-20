@@ -1,10 +1,29 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3001';
-const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
-const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
 
-function authHeaders(): Record<string, string> {
-  if (!DEV_USER_ID || !DEV_ORG_ID) return {};
-  return { 'x-dev-user': `${DEV_USER_ID}:${DEV_ORG_ID}` };
+// Pulls the current user's Microsoft ID token from the NextAuth session
+// cookie (server-set) via the /api/auth/session endpoint. The ID token is
+// a JWT signed by Microsoft — our API validates the signature against MS's
+// JWKS. If the session endpoint is missing the token (user not signed in),
+// the request will 401 at the API layer.
+//
+// We cache the token for the life of the page; NextAuth rotates it when
+// the browser next re-fetches the session (handled by the auth cookie).
+let cachedIdToken: string | null = null;
+
+async function authHeaders(): Promise<Record<string, string>> {
+  if (typeof window === 'undefined') return {};
+  if (!cachedIdToken) {
+    try {
+      const res = await fetch('/api/auth/session', { cache: 'no-store' });
+      if (res.ok) {
+        const session = (await res.json()) as { idToken?: string } | null;
+        cachedIdToken = session?.idToken ?? null;
+      }
+    } catch {
+      // Network failure — fall through unauthenticated; API will 401.
+    }
+  }
+  return cachedIdToken ? { authorization: `Bearer ${cachedIdToken}` } : {};
 }
 
 export const PUBLIC_PWA_ORIGIN =
@@ -41,7 +60,7 @@ export interface AdminQrCode {
 export async function listAssetInstances(): Promise<AdminAssetInstance[]> {
   const res = await fetch(`${API_BASE}/admin/asset-instances`, {
     cache: 'no-store',
-    headers: authHeaders(),
+    headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return (await res.json()) as AdminAssetInstance[];
@@ -50,7 +69,7 @@ export async function listAssetInstances(): Promise<AdminAssetInstance[]> {
 export async function listQrCodes(): Promise<AdminQrCode[]> {
   const res = await fetch(`${API_BASE}/admin/qr-codes`, {
     cache: 'no-store',
-    headers: authHeaders(),
+    headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return (await res.json()) as AdminQrCode[];
@@ -72,7 +91,7 @@ export interface AdminMetrics {
 export async function getMetrics(): Promise<AdminMetrics> {
   const res = await fetch(`${API_BASE}/admin/metrics`, {
     cache: 'no-store',
-    headers: authHeaders(),
+    headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return (await res.json()) as AdminMetrics;
@@ -110,7 +129,7 @@ export async function updateOrgBranding(
     `${API_BASE}/admin/organizations/${encodeURIComponent(id)}/branding`,
     {
       method: 'PATCH',
-      headers: { 'content-type': 'application/json', ...authHeaders() },
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify(body),
     },
   );
@@ -120,7 +139,7 @@ export async function updateOrgBranding(
 export async function listOrganizations(): Promise<AdminOrganization[]> {
   const res = await fetch(`${API_BASE}/admin/organizations`, {
     cache: 'no-store',
-    headers: authHeaders(),
+    headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return (await res.json()) as AdminOrganization[];
@@ -147,7 +166,7 @@ export async function updateAssetModelImage(
     `${API_BASE}/admin/asset-models/${encodeURIComponent(id)}/image`,
     {
       method: 'PATCH',
-      headers: { 'content-type': 'application/json', ...authHeaders() },
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({ imageStorageKey }),
     },
   );
@@ -157,7 +176,7 @@ export async function updateAssetModelImage(
 export async function listAdminAssetModels(): Promise<AdminAssetModel[]> {
   const res = await fetch(`${API_BASE}/admin/asset-models`, {
     cache: 'no-store',
-    headers: authHeaders(),
+    headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return (await res.json()) as AdminAssetModel[];
@@ -182,7 +201,7 @@ export interface AdminContentPack {
 export async function listContentPacks(): Promise<AdminContentPack[]> {
   const res = await fetch(`${API_BASE}/admin/content-packs`, {
     cache: 'no-store',
-    headers: authHeaders(),
+    headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return (await res.json()) as AdminContentPack[];
@@ -223,7 +242,7 @@ export interface AdminContentPackDetail {
 export async function getContentPack(id: string): Promise<AdminContentPackDetail | null> {
   const res = await fetch(`${API_BASE}/admin/content-packs/${encodeURIComponent(id)}`, {
     cache: 'no-store',
-    headers: authHeaders(),
+    headers: await authHeaders(),
   });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
@@ -234,7 +253,7 @@ export async function getContentPack(id: string): Promise<AdminContentPackDetail
 export async function reprocessDocument(documentId: string): Promise<void> {
   const res = await fetch(
     `${API_BASE}/admin/documents/${encodeURIComponent(documentId)}/reprocess`,
-    { method: 'POST', headers: authHeaders() },
+    { method: 'POST', headers: await authHeaders() },
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }
@@ -255,7 +274,7 @@ export interface AdminTrainingModule {
 export async function listAdminTrainingModules(): Promise<AdminTrainingModule[]> {
   const res = await fetch(`${API_BASE}/admin/training-modules`, {
     cache: 'no-store',
-    headers: authHeaders(),
+    headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return (await res.json()) as AdminTrainingModule[];
@@ -285,7 +304,7 @@ export async function updatePartImage(
     `${API_BASE}/admin/parts/${encodeURIComponent(id)}/image`,
     {
       method: 'PATCH',
-      headers: { 'content-type': 'application/json', ...authHeaders() },
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({ imageStorageKey }),
     },
   );
@@ -295,7 +314,7 @@ export async function updatePartImage(
 export async function listAdminParts(): Promise<AdminPart[]> {
   const res = await fetch(`${API_BASE}/admin/parts`, {
     cache: 'no-store',
-    headers: authHeaders(),
+    headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return (await res.json()) as AdminPart[];
@@ -315,7 +334,7 @@ export interface AdminUser {
 export async function listAdminUsers(): Promise<AdminUser[]> {
   const res = await fetch(`${API_BASE}/admin/users`, {
     cache: 'no-store',
-    headers: authHeaders(),
+    headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return (await res.json()) as AdminUser[];
@@ -335,7 +354,7 @@ export interface AdminAuditEvent {
 export async function listAuditEvents(): Promise<AdminAuditEvent[]> {
   const res = await fetch(`${API_BASE}/admin/audit-events`, {
     cache: 'no-store',
-    headers: authHeaders(),
+    headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return (await res.json()) as AdminAuditEvent[];
@@ -350,7 +369,7 @@ export async function createOrganization(params: {
 }): Promise<{ id: string }> {
   const res = await fetch(`${API_BASE}/admin/organizations`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...authHeaders() },
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify(params),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
@@ -369,7 +388,7 @@ export async function createSite(params: {
 }): Promise<{ id: string }> {
   const res = await fetch(`${API_BASE}/admin/sites`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...authHeaders() },
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify(params),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
@@ -386,7 +405,7 @@ export async function createAssetModel(params: {
 }): Promise<{ id: string }> {
   const res = await fetch(`${API_BASE}/admin/asset-models`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...authHeaders() },
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify(params),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
@@ -402,7 +421,7 @@ export async function createAssetInstance(params: {
 }): Promise<{ id: string }> {
   const res = await fetch(`${API_BASE}/admin/asset-instances`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...authHeaders() },
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify(params),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
@@ -412,7 +431,7 @@ export async function createAssetInstance(params: {
 export async function pinLatestVersion(instanceId: string): Promise<void> {
   const res = await fetch(
     `${API_BASE}/admin/asset-instances/${instanceId}/pin-latest`,
-    { method: 'POST', headers: { ...authHeaders() } },
+    { method: 'POST', headers: { ...(await authHeaders()) } },
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }
@@ -420,7 +439,7 @@ export async function pinLatestVersion(instanceId: string): Promise<void> {
 export async function unpinInstance(instanceId: string): Promise<void> {
   const res = await fetch(`${API_BASE}/admin/asset-instances/${instanceId}`, {
     method: 'PATCH',
-    headers: { 'content-type': 'application/json', ...authHeaders() },
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify({ pinnedContentPackVersionId: null }),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
@@ -442,7 +461,7 @@ export async function bulkCreateAssetInstances(params: {
 }): Promise<BulkInstanceResult> {
   const res = await fetch(`${API_BASE}/admin/asset-instances/bulk`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...authHeaders() },
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify(params),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
@@ -512,7 +531,7 @@ export async function createContentPack(params: {
 }> {
   const res = await fetch(`${API_BASE}/admin/content-packs`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...authHeaders() },
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify({ createDraftVersion: true, ...params }),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
@@ -527,7 +546,7 @@ export async function createContentPackVersion(
     `${API_BASE}/admin/content-packs/${encodeURIComponent(packId)}/versions`,
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...authHeaders() },
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify(body),
     },
   );
@@ -570,7 +589,7 @@ export async function createDocument(
     `${API_BASE}/admin/content-pack-versions/${encodeURIComponent(versionId)}/documents`,
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...authHeaders() },
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify(body),
     },
   );
@@ -581,7 +600,7 @@ export async function createDocument(
 export async function deleteDocument(id: string): Promise<void> {
   const res = await fetch(`${API_BASE}/admin/documents/${encodeURIComponent(id)}`, {
     method: 'DELETE',
-    headers: authHeaders(),
+    headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }
@@ -589,7 +608,7 @@ export async function deleteDocument(id: string): Promise<void> {
 export async function deleteContentPack(id: string): Promise<void> {
   const res = await fetch(`${API_BASE}/admin/content-packs/${encodeURIComponent(id)}`, {
     method: 'DELETE',
-    headers: authHeaders(),
+    headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }
@@ -597,7 +616,7 @@ export async function deleteContentPack(id: string): Promise<void> {
 export async function deleteContentPackVersion(versionId: string): Promise<void> {
   const res = await fetch(
     `${API_BASE}/admin/content-pack-versions/${encodeURIComponent(versionId)}`,
-    { method: 'DELETE', headers: authHeaders() },
+    { method: 'DELETE', headers: await authHeaders() },
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }
@@ -616,7 +635,7 @@ export async function updateDocument(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/admin/documents/${encodeURIComponent(id)}`, {
     method: 'PATCH',
-    headers: { 'content-type': 'application/json', ...authHeaders() },
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify(patch),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
@@ -635,7 +654,7 @@ export async function createTrainingModule(params: {
     `${API_BASE}/admin/content-pack-versions/${encodeURIComponent(params.contentPackVersionId)}/training-modules`,
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...authHeaders() },
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify(params),
     },
   );
@@ -651,7 +670,7 @@ export async function createLesson(
     `${API_BASE}/admin/training-modules/${encodeURIComponent(moduleId)}/lessons`,
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...authHeaders() },
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify(body),
     },
   );
@@ -675,7 +694,7 @@ export async function createQuizActivity(
     `${API_BASE}/admin/training-modules/${encodeURIComponent(moduleId)}/quiz-activities`,
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...authHeaders() },
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify(body),
     },
   );
@@ -694,7 +713,7 @@ export async function createPart(params: {
 }): Promise<{ id: string }> {
   const res = await fetch(`${API_BASE}/admin/parts`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...authHeaders() },
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify(params),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
@@ -710,7 +729,7 @@ export async function listPartsByOwner(ownerId: string): Promise<Array<{
 }>> {
   const res = await fetch(
     `${API_BASE}/admin/parts/by-owner?ownerId=${encodeURIComponent(ownerId)}`,
-    { cache: 'no-store', headers: authHeaders() },
+    { cache: 'no-store', headers: await authHeaders() },
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return res.json();
@@ -730,7 +749,7 @@ export interface BomEntry {
 export async function listBom(modelId: string): Promise<BomEntry[]> {
   const res = await fetch(
     `${API_BASE}/admin/asset-models/${encodeURIComponent(modelId)}/bom`,
-    { cache: 'no-store', headers: authHeaders() },
+    { cache: 'no-store', headers: await authHeaders() },
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return res.json();
@@ -744,7 +763,7 @@ export async function addBomEntry(
     `${API_BASE}/admin/asset-models/${encodeURIComponent(modelId)}/bom`,
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...authHeaders() },
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify(body),
     },
   );
@@ -755,7 +774,7 @@ export async function addBomEntry(
 export async function removeBomEntry(id: string): Promise<void> {
   const res = await fetch(`${API_BASE}/admin/bom-entries/${encodeURIComponent(id)}`, {
     method: 'DELETE',
-    headers: authHeaders(),
+    headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }
@@ -778,7 +797,7 @@ export interface PartComponent {
 export async function listPartComponents(partId: string): Promise<PartComponent[]> {
   const res = await fetch(
     `${API_BASE}/admin/parts/${encodeURIComponent(partId)}/components`,
-    { cache: 'no-store', headers: authHeaders() },
+    { cache: 'no-store', headers: await authHeaders() },
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return res.json();
@@ -798,7 +817,7 @@ export async function addPartComponent(
     `${API_BASE}/admin/parts/${encodeURIComponent(partId)}/components`,
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...authHeaders() },
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify(body),
     },
   );
@@ -809,7 +828,7 @@ export async function addPartComponent(
 export async function removePartComponent(linkId: string): Promise<void> {
   const res = await fetch(
     `${API_BASE}/admin/part-components/${encodeURIComponent(linkId)}`,
-    { method: 'DELETE', headers: authHeaders() },
+    { method: 'DELETE', headers: await authHeaders() },
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }
@@ -826,7 +845,7 @@ export interface LinkedPart {
 export async function listPartsForDocument(documentId: string): Promise<LinkedPart[]> {
   const res = await fetch(
     `${API_BASE}/admin/documents/${encodeURIComponent(documentId)}/parts`,
-    { cache: 'no-store', headers: authHeaders() },
+    { cache: 'no-store', headers: await authHeaders() },
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return res.json();
@@ -840,7 +859,7 @@ export async function setPartsForDocument(
     `${API_BASE}/admin/documents/${encodeURIComponent(documentId)}/parts`,
     {
       method: 'PUT',
-      headers: { 'content-type': 'application/json', ...authHeaders() },
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({ partIds }),
     },
   );
@@ -850,7 +869,7 @@ export async function setPartsForDocument(
 export async function listPartsForTrainingModule(moduleId: string): Promise<LinkedPart[]> {
   const res = await fetch(
     `${API_BASE}/admin/training-modules/${encodeURIComponent(moduleId)}/parts`,
-    { cache: 'no-store', headers: authHeaders() },
+    { cache: 'no-store', headers: await authHeaders() },
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return res.json();
@@ -864,7 +883,7 @@ export async function setPartsForTrainingModule(
     `${API_BASE}/admin/training-modules/${encodeURIComponent(moduleId)}/parts`,
     {
       method: 'PUT',
-      headers: { 'content-type': 'application/json', ...authHeaders() },
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({ partIds }),
     },
   );
@@ -899,7 +918,7 @@ export async function listAdminWorkOrders(
 ): Promise<AdminWorkOrder[]> {
   const res = await fetch(`${API_BASE}/admin/work-orders?status=${status}`, {
     cache: 'no-store',
-    headers: authHeaders(),
+    headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return res.json();
@@ -911,7 +930,7 @@ export async function updateWorkOrder(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/work-orders/${encodeURIComponent(id)}`, {
     method: 'PATCH',
-    headers: { 'content-type': 'application/json', ...authHeaders() },
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
@@ -922,7 +941,7 @@ export async function publishContentPackVersion(
 ): Promise<{ id: string; status: string; publishedAt: string }> {
   const res = await fetch(
     `${API_BASE}/admin/content-pack-versions/${encodeURIComponent(versionId)}/publish`,
-    { method: 'POST', headers: authHeaders() },
+    { method: 'POST', headers: await authHeaders() },
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return res.json();
@@ -931,7 +950,7 @@ export async function publishContentPackVersion(
 export async function listAllSites(): Promise<AdminSite[]> {
   const res = await fetch(`${API_BASE}/admin/sites`, {
     cache: 'no-store',
-    headers: authHeaders(),
+    headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return (await res.json()) as AdminSite[];
@@ -948,7 +967,7 @@ export async function listSitesForOrg(orgId: string): Promise<Array<{
 }>> {
   const res = await fetch(
     `${API_BASE}/admin/organizations/${encodeURIComponent(orgId)}/sites`,
-    { cache: 'no-store', headers: authHeaders() },
+    { cache: 'no-store', headers: await authHeaders() },
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return res.json();
@@ -965,7 +984,7 @@ export interface ModelInstance {
 export async function listInstancesForModel(modelId: string): Promise<ModelInstance[]> {
   const res = await fetch(
     `${API_BASE}/admin/asset-models/${encodeURIComponent(modelId)}/instances`,
-    { cache: 'no-store', headers: authHeaders() },
+    { cache: 'no-store', headers: await authHeaders() },
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return res.json();
@@ -977,7 +996,7 @@ export async function mintQrCode(params: {
 }): Promise<AdminQrCode> {
   const res = await fetch(`${API_BASE}/admin/qr-codes`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...authHeaders() },
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify(params),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
