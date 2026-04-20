@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { use, useEffect, useState } from 'react';
-import { Plus, Upload } from 'lucide-react';
+import { use, useEffect, useMemo, useState } from 'react';
+import { Package, Plus, Trash2, Upload } from 'lucide-react';
 import { PageHeader, PageShell } from '@/components/page-shell';
 import { useToast } from '@/components/toast';
 import {
@@ -16,15 +16,21 @@ import {
   Textarea,
 } from '@/components/form';
 import {
+  addBomEntry,
   bulkCreateAssetInstances,
   createAssetInstance,
+  listAdminParts,
+  listBom,
   pinLatestVersion,
+  removeBomEntry,
   unpinInstance,
   listAllSites,
   listAdminAssetModels,
   listInstancesForModel,
   type AdminAssetModel,
+  type AdminPart,
   type AdminSite,
+  type BomEntry,
   type ModelInstance,
 } from '@/lib/api';
 
@@ -181,6 +187,8 @@ export default function AssetModelDetail({
           </table>
         </div>
       )}
+
+      <BomPanel assetModelId={id} />
 
       <Drawer title="Add instance" open={newOpen} onClose={() => setNewOpen(false)}>
         <NewInstanceForm
@@ -381,6 +389,313 @@ function BulkImportForm({
       <div className="mt-2 flex justify-end gap-2">
         <PrimaryButton type="submit" disabled={submitting || serials.length === 0}>
           {submitting ? 'Importing…' : `Import ${serials.length || ''}`}
+        </PrimaryButton>
+      </div>
+    </form>
+  );
+}
+
+// Bill of materials panel. Without a BOM, parts stay in the catalog but never
+// surface on an asset's Parts tab in the PWA. This is the piece that connects
+// a cataloged Part to an AssetModel with position + quantity context.
+function BomPanel({ assetModelId }: { assetModelId: string }) {
+  const [entries, setEntries] = useState<BomEntry[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const toast = useToast();
+
+  async function refresh() {
+    try {
+      setEntries(await listBom(assetModelId));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assetModelId]);
+
+  async function onRemove(bomEntryId: string, displayName: string) {
+    if (!confirm(`Remove "${displayName}" from this model's BOM?`)) return;
+    try {
+      await removeBomEntry(bomEntryId);
+      toast.success('Removed from BOM');
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <section className="mt-8">
+      <div className="mb-2 flex items-center justify-between">
+        <h2 className="text-xs font-medium uppercase tracking-wide text-ink-tertiary">
+          Bill of materials ({entries?.length ?? 0})
+        </h2>
+        <button
+          type="button"
+          onClick={() => setAddOpen(true)}
+          className="btn btn-secondary btn-sm"
+        >
+          <Plus size={13} strokeWidth={2} /> Add part
+        </button>
+      </div>
+
+      {error && (
+        <p className="mb-3 rounded border border-signal-fault/40 bg-signal-fault/10 p-3 text-sm text-signal-fault">
+          {error}
+        </p>
+      )}
+
+      {entries === null ? (
+        <p className="p-6 text-center text-sm text-ink-tertiary">Loading…</p>
+      ) : entries.length === 0 ? (
+        <p className="rounded-md border border-dashed border-line p-4 text-center text-sm text-ink-tertiary">
+          No BOM entries. Add a part from the catalog to make it visible on this
+          asset's Parts tab in the PWA.
+        </p>
+      ) : (
+        <div className="overflow-hidden rounded-md border border-line-subtle bg-surface-raised">
+          <table className="data-table">
+            <thead className="bg-surface-inset text-left text-xs uppercase tracking-wide text-ink-tertiary">
+              <tr>
+                <th className="w-14 px-4 py-2"></th>
+                <th className="px-4 py-2">Part</th>
+                <th className="px-4 py-2">OEM #</th>
+                <th className="w-24 px-4 py-2">Position</th>
+                <th className="w-16 px-4 py-2">Qty</th>
+                <th className="px-4 py-2">Notes</th>
+                <th className="w-16 px-4 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e) => (
+                <tr key={e.bomEntryId} className="border-t border-line-subtle">
+                  <td className="px-4 py-2">
+                    {e.imageUrl ? (
+                      <img
+                        src={e.imageUrl}
+                        alt=""
+                        className="h-10 w-10 rounded object-cover"
+                        style={{ border: '1px solid rgb(var(--line))' }}
+                      />
+                    ) : (
+                      <div
+                        className="flex h-10 w-10 items-center justify-center rounded text-ink-tertiary"
+                        style={{
+                          background: 'rgb(var(--surface-inset))',
+                          border: '1px solid rgb(var(--line-subtle))',
+                        }}
+                      >
+                        <Package size={16} strokeWidth={1.5} />
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-ink-primary">{e.displayName}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-ink-secondary">
+                    {e.oemPartNumber ?? '—'}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-xs text-ink-secondary">
+                    {e.positionRef ?? '—'}
+                  </td>
+                  <td className="px-4 py-3 text-ink-secondary tabular-nums">
+                    {e.quantity}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-ink-secondary">
+                    {e.notes ?? '—'}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => onRemove(e.bomEntryId, e.displayName)}
+                      aria-label={`Remove ${e.displayName} from BOM`}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded text-ink-tertiary transition hover:bg-surface-inset hover:text-signal-fault"
+                      title="Remove from BOM"
+                    >
+                      <Trash2 size={14} strokeWidth={2} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <Drawer title="Add part to BOM" open={addOpen} onClose={() => setAddOpen(false)}>
+        <AddBomForm
+          assetModelId={assetModelId}
+          existingPartIds={new Set((entries ?? []).map((e) => e.partId))}
+          onAdded={async () => {
+            setAddOpen(false);
+            await refresh();
+          }}
+        />
+      </Drawer>
+    </section>
+  );
+}
+
+function AddBomForm({
+  assetModelId,
+  existingPartIds,
+  onAdded,
+}: {
+  assetModelId: string;
+  existingPartIds: Set<string>;
+  onAdded: () => Promise<void>;
+}) {
+  const [parts, setParts] = useState<AdminPart[] | null>(null);
+  const [search, setSearch] = useState('');
+  const [selectedPartId, setSelectedPartId] = useState<string>('');
+  const [positionRef, setPositionRef] = useState('');
+  const [quantity, setQuantity] = useState('1');
+  const [notes, setNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    listAdminParts()
+      .then((all) => setParts(all))
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  // Filter out parts already on the BOM so users don't create duplicates by
+  // accident (the DB allows them, but they're almost always an authoring
+  // mistake — same part at the same position).
+  const available = useMemo(() => {
+    if (!parts) return null;
+    const remaining = parts.filter((p) => !existingPartIds.has(p.id));
+    const q = search.trim().toLowerCase();
+    if (!q) return remaining;
+    return remaining.filter((p) =>
+      [p.oemPartNumber, p.displayName, p.description ?? '', p.owner]
+        .join(' ')
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [parts, existingPartIds, search]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedPartId) {
+      setError('Pick a part first.');
+      return;
+    }
+    const qty = parseInt(quantity, 10);
+    if (!Number.isFinite(qty) || qty < 1) {
+      setError('Quantity must be a positive integer.');
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      await addBomEntry(assetModelId, {
+        partId: selectedPartId,
+        quantity: qty,
+        positionRef: positionRef.trim() || undefined,
+        notes: notes.trim() || undefined,
+      });
+      await onAdded();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-4">
+      {error && (
+        <p className="rounded border border-signal-fault/40 bg-signal-fault/10 p-3 text-sm text-signal-fault">
+          {error}
+        </p>
+      )}
+
+      <Field label="Search parts">
+        <TextInput
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="OEM #, name, description, or owner"
+          autoFocus
+        />
+      </Field>
+
+      <div>
+        <span className="form-label">Part</span>
+        {available === null ? (
+          <p className="mt-1.5 p-3 text-sm text-ink-tertiary">Loading parts…</p>
+        ) : available.length === 0 ? (
+          <p className="mt-1.5 rounded border border-dashed border-line p-3 text-sm text-ink-tertiary">
+            {parts && parts.length === existingPartIds.size
+              ? 'Every part in the catalog is already on this BOM.'
+              : 'No parts match.'}
+          </p>
+        ) : (
+          <ul className="mt-1.5 flex max-h-64 flex-col gap-1 overflow-y-auto rounded border border-line p-1">
+            {available.map((p) => (
+              <li key={p.id}>
+                <label
+                  className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm ${
+                    selectedPartId === p.id
+                      ? 'bg-brand-soft text-ink-primary'
+                      : 'hover:bg-surface-elevated'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="part"
+                    value={p.id}
+                    checked={selectedPartId === p.id}
+                    onChange={() => setSelectedPartId(p.id)}
+                    className="shrink-0"
+                  />
+                  <span className="font-mono text-xs text-ink-brand">
+                    {p.oemPartNumber}
+                  </span>
+                  <span className="truncate text-ink-primary">{p.displayName}</span>
+                  <span className="ml-auto shrink-0 text-xs text-ink-tertiary">
+                    {p.owner}
+                  </span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Position" hint="Optional — e.g. A-12, Motor 1">
+          <TextInput
+            value={positionRef}
+            onChange={(e) => setPositionRef(e.target.value)}
+            placeholder="Optional"
+          />
+        </Field>
+        <Field label="Quantity" required>
+          <TextInput
+            type="number"
+            min={1}
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+          />
+        </Field>
+      </div>
+
+      <Field label="Notes">
+        <Textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Optional installation or sourcing notes"
+          rows={2}
+        />
+      </Field>
+
+      <div className="mt-2 flex justify-end gap-2">
+        <PrimaryButton type="submit" disabled={submitting || !selectedPartId}>
+          {submitting ? 'Adding…' : 'Add to BOM'}
         </PrimaryButton>
       </div>
     </form>
