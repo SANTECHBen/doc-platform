@@ -97,84 +97,6 @@ function PrintSheetInner() {
           width: 5pt;
           background: linear-gradient(180deg, #0B5FBF 0%, #0a4da0 100%);
         }
-        /* L-bracket corner marks, like a calibration plate. */
-        .sticker-corner {
-          position: absolute;
-          width: 10pt;
-          height: 10pt;
-          pointer-events: none;
-        }
-        .sticker-corner::before,
-        .sticker-corner::after {
-          content: '';
-          position: absolute;
-          background: #0f1114;
-        }
-        .sticker-corner.tl {
-          top: 6pt;
-          left: 12pt;
-        }
-        .sticker-corner.tl::before {
-          width: 10pt;
-          height: 1pt;
-          top: 0;
-          left: 0;
-        }
-        .sticker-corner.tl::after {
-          width: 1pt;
-          height: 10pt;
-          top: 0;
-          left: 0;
-        }
-        .sticker-corner.tr {
-          top: 6pt;
-          right: 6pt;
-        }
-        .sticker-corner.tr::before {
-          width: 10pt;
-          height: 1pt;
-          top: 0;
-          right: 0;
-        }
-        .sticker-corner.tr::after {
-          width: 1pt;
-          height: 10pt;
-          top: 0;
-          right: 0;
-        }
-        .sticker-corner.bl {
-          bottom: 6pt;
-          left: 12pt;
-        }
-        .sticker-corner.bl::before {
-          width: 10pt;
-          height: 1pt;
-          bottom: 0;
-          left: 0;
-        }
-        .sticker-corner.bl::after {
-          width: 1pt;
-          height: 10pt;
-          bottom: 0;
-          left: 0;
-        }
-        .sticker-corner.br {
-          bottom: 6pt;
-          right: 6pt;
-        }
-        .sticker-corner.br::before {
-          width: 10pt;
-          height: 1pt;
-          bottom: 0;
-          right: 0;
-        }
-        .sticker-corner.br::after {
-          width: 1pt;
-          height: 10pt;
-          bottom: 0;
-          right: 0;
-        }
-
         /* Header strip — brand mark + product line. Sets a confident
            top-line hierarchy before the main content. */
         .sticker-header {
@@ -350,12 +272,6 @@ function PrintSheetInner() {
             );
             return (
               <div key={c.id} className="sticker">
-                {/* Corner marks — industrial calibration-plate touch */}
-                <span className="sticker-corner tl" />
-                <span className="sticker-corner tr" />
-                <span className="sticker-corner bl" />
-                <span className="sticker-corner br" />
-
                 {/* Header strip */}
                 <div className="sticker-header">
                   <span className="sticker-brandmark">EH</span>
