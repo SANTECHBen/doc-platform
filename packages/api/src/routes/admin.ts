@@ -79,8 +79,9 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   // List asset instances with model + site info (for the sticker picker).
   // Phase 1: returns everything the caller can see; real auth scoping is a
   // WorkOS-wiring task.
-  app.get('/admin/asset-instances', async () => {
+  app.get('/admin/asset-instances', async (request) => {
     const { db } = app.ctx;
+    requireAuth(request);
     const rows = await db.query.assetInstances.findMany({
       with: {
         model: true,
@@ -104,8 +105,9 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   });
 
   // List QR codes with resolved asset instance.
-  app.get('/admin/qr-codes', async () => {
+  app.get('/admin/qr-codes', async (request) => {
     const { db } = app.ctx;
+    requireAuth(request);
     const codes = await db
       .select()
       .from(schema.qrCodes)
@@ -616,6 +618,7 @@ export async function registerAdminMutations(app: FastifyInstance) {
     { schema: { params: z.object({ modelId: UuidSchema }) } },
     async (request) => {
       const { db } = app.ctx;
+      requireAuth(request);
       const rows = await db.query.assetInstances.findMany({
         where: eq(schema.assetInstances.assetModelId, request.params.modelId),
         with: {
@@ -649,6 +652,7 @@ export async function registerAdminMutations(app: FastifyInstance) {
     { schema: { params: z.object({ orgId: UuidSchema }) } },
     async (request) => {
       const { db } = app.ctx;
+      requireAuth(request);
       const rows = await db.query.sites.findMany({
         where: eq(schema.sites.organizationId, request.params.orgId),
       });
@@ -667,8 +671,9 @@ export async function registerAdminMutations(app: FastifyInstance) {
   // All sites across all orgs (for the asset-instance site picker — the
   // onboarding flow usually assigns Flow Turn conveyors to an Amazon DC, which
   // is a different org than Flow Turn itself).
-  app.get('/admin/sites', async () => {
+  app.get('/admin/sites', async (request) => {
     const { db } = app.ctx;
+    requireAuth(request);
     const rows = await db.query.sites.findMany({
       with: { organization: true },
     });
@@ -837,6 +842,7 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     { schema: { querystring: z.object({ ownerId: UuidSchema.optional() }) } },
     async (request) => {
       const { db, storage } = app.ctx;
+      requireAuth(request);
       const rows = request.query.ownerId
         ? await db.query.parts.findMany({
             where: eq(schema.parts.ownerOrganizationId, request.query.ownerId),
@@ -901,6 +907,7 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     { schema: { params: z.object({ modelId: UuidSchema }) } },
     async (request) => {
       const { db, storage } = app.ctx;
+      requireAuth(request);
       const entries = await db.query.bomEntries.findMany({
         where: eq(schema.bomEntries.assetModelId, request.params.modelId),
       });
@@ -987,6 +994,7 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     { schema: { params: z.object({ partId: UuidSchema }) } },
     async (request) => {
       const { db, storage } = app.ctx;
+      requireAuth(request);
       const links = await db.query.partComponents.findMany({
         where: eq(schema.partComponents.parentPartId, request.params.partId),
       });
@@ -1091,6 +1099,7 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     { schema: { params: z.object({ partId: UuidSchema }) } },
     async (request) => {
       const { db } = app.ctx;
+      requireAuth(request);
       const links = await db.query.partDocuments.findMany({
         where: eq(schema.partDocuments.partId, request.params.partId),
       });
@@ -1128,6 +1137,7 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     { schema: { params: z.object({ documentId: UuidSchema }) } },
     async (request) => {
       const { db } = app.ctx;
+      requireAuth(request);
       const links = await db.query.partDocuments.findMany({
         where: eq(schema.partDocuments.documentId, request.params.documentId),
       });
@@ -1209,6 +1219,7 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     { schema: { params: z.object({ partId: UuidSchema }) } },
     async (request) => {
       const { db } = app.ctx;
+      requireAuth(request);
       const links = await db.query.partTrainingModules.findMany({
         where: eq(schema.partTrainingModules.partId, request.params.partId),
       });
@@ -1242,6 +1253,7 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     { schema: { params: z.object({ moduleId: UuidSchema }) } },
     async (request) => {
       const { db } = app.ctx;
+      requireAuth(request);
       const links = await db.query.partTrainingModules.findMany({
         where: eq(schema.partTrainingModules.trainingModuleId, request.params.moduleId),
       });
@@ -1322,6 +1334,7 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     },
     async (request) => {
       const { db } = app.ctx;
+      requireAuth(request);
       const filter = request.query.status ?? 'open';
       const openStatuses = ['open', 'acknowledged', 'in_progress', 'blocked'];
       const closedStatuses = ['resolved', 'closed'];
@@ -1896,8 +1909,9 @@ async function findLatestPublishedVersionId(
 // read-only for now; authoring flows come later.
 export async function registerAdminListings(app: FastifyInstance) {
   // Dashboard metrics — a small grab-bag of counts and signal numbers.
-  app.get('/admin/metrics', async () => {
+  app.get('/admin/metrics', async (request) => {
     const { db } = app.ctx;
+    requireAuth(request);
     const [
       orgs,
       sites,
@@ -1944,8 +1958,9 @@ export async function registerAdminListings(app: FastifyInstance) {
   });
 
   // Organizations with denormalized counts for the listing page.
-  app.get('/admin/organizations', async () => {
+  app.get('/admin/organizations', async (request) => {
     const { db } = app.ctx;
+    requireAuth(request);
     const rows = (await db.execute(
       sql`SELECT o.id, o.type, o.name, o.slug, o.parent_organization_id,
                  o.oem_code, o.created_at,
@@ -1997,8 +2012,9 @@ export async function registerAdminListings(app: FastifyInstance) {
   });
 
   // Asset models with instance counts.
-  app.get('/admin/asset-models', async () => {
+  app.get('/admin/asset-models', async (request) => {
     const { db, storage } = app.ctx;
+    requireAuth(request);
     const rows = (await db.execute(
       sql`SELECT m.id, m.model_code, m.display_name, m.category, m.description,
                  m.image_storage_key,
@@ -2035,8 +2051,9 @@ export async function registerAdminListings(app: FastifyInstance) {
   });
 
   // Content packs with latest version info.
-  app.get('/admin/content-packs', async () => {
+  app.get('/admin/content-packs', async (request) => {
     const { db } = app.ctx;
+    requireAuth(request);
     const rows = (await db.execute(
       sql`SELECT p.id, p.name, p.slug, p.layer_type,
                  am.id AS asset_model_id, am.display_name AS asset_model_name,
@@ -2096,6 +2113,7 @@ export async function registerAdminListings(app: FastifyInstance) {
     { schema: { params: z.object({ id: UuidSchema }) } },
     async (request, reply) => {
       const { db } = app.ctx;
+      requireAuth(request);
       const pack = await db.query.contentPacks.findFirst({
         where: eq(schema.contentPacks.id, request.params.id),
         with: { assetModel: true },
@@ -2174,8 +2192,9 @@ export async function registerAdminListings(app: FastifyInstance) {
   );
 
   // Training modules with module-level enrollment stats.
-  app.get('/admin/training-modules', async () => {
+  app.get('/admin/training-modules', async (request) => {
     const { db } = app.ctx;
+    requireAuth(request);
     const rows = (await db.execute(
       sql`SELECT tm.id, tm.title, tm.estimated_minutes, tm.pass_threshold,
                  tm.competency_tag,
@@ -2223,8 +2242,9 @@ export async function registerAdminListings(app: FastifyInstance) {
   //   has_children only        → assembly
   //   has_parent only          → component
   //   neither                  → part   (shown without a badge)
-  app.get('/admin/parts', async () => {
+  app.get('/admin/parts', async (request) => {
     const { db } = app.ctx;
+    requireAuth(request);
     const rows = (await db.execute(
       sql`SELECT p.id, p.oem_part_number, p.display_name, p.description,
                  p.cross_references, p.discontinued, p.image_storage_key,
@@ -2265,8 +2285,9 @@ export async function registerAdminListings(app: FastifyInstance) {
   });
 
   // Users with home org, roles, and membership count.
-  app.get('/admin/users', async () => {
+  app.get('/admin/users', async (request) => {
     const { db } = app.ctx;
+    requireAuth(request);
     const rows = (await db.execute(
       sql`SELECT u.id, u.email, u.display_name, u.disabled, u.created_at,
                  o.id AS home_org_id, o.name AS home_org_name,
@@ -2301,8 +2322,9 @@ export async function registerAdminListings(app: FastifyInstance) {
   });
 
   // Recent audit events. Limited to last 200 entries.
-  app.get('/admin/audit-events', async () => {
+  app.get('/admin/audit-events', async (request) => {
     const { db } = app.ctx;
+    requireAuth(request);
     const rows = await db
       .select()
       .from(schema.auditEvents)
