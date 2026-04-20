@@ -12,7 +12,8 @@ import {
 import { relations } from 'drizzle-orm';
 import { organizations } from './organizations';
 import { assetModels } from './assets';
-import { contentPackVersions } from './content';
+import { contentPackVersions, documents } from './content';
+import { trainingModules } from './training';
 
 // A Part is catalog metadata, owned by an OEM. Sharable across models via BomEntry.
 export const parts = pgTable(
@@ -77,6 +78,52 @@ export const partReferences = pgTable('part_references', {
   context: text('context'),
 });
 
+// PartDocument: explicit authored link between a Part and a Document within
+// a ContentPackVersion. Authoring granularity is deliberately per-version
+// (not per-Part global) — a doc only exists inside its version, and OEMs
+// routinely revise which docs apply to a part as hardware revisions land.
+// Cascade on delete from either side so a removed doc or part cleans up.
+export const partDocuments = pgTable(
+  'part_documents',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    partId: uuid('part_id')
+      .notNull()
+      .references(() => parts.id, { onDelete: 'cascade' }),
+    documentId: uuid('document_id')
+      .notNull()
+      .references(() => documents.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    uniqPartDoc: unique().on(t.partId, t.documentId),
+    partIdx: index('part_documents_part_idx').on(t.partId),
+    docIdx: index('part_documents_document_idx').on(t.documentId),
+  }),
+);
+
+// PartTrainingModule: same pattern, linking a Part to a TrainingModule
+// inside a ContentPackVersion. Lets technicians open part → "Replacement
+// training for this specific unit".
+export const partTrainingModules = pgTable(
+  'part_training_modules',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    partId: uuid('part_id')
+      .notNull()
+      .references(() => parts.id, { onDelete: 'cascade' }),
+    trainingModuleId: uuid('training_module_id')
+      .notNull()
+      .references(() => trainingModules.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    uniqPartModule: unique().on(t.partId, t.trainingModuleId),
+    partIdx: index('part_training_modules_part_idx').on(t.partId),
+    moduleIdx: index('part_training_modules_module_idx').on(t.trainingModuleId),
+  }),
+);
+
 export const partsRelations = relations(parts, ({ one, many }) => ({
   owner: one(organizations, {
     fields: [parts.ownerOrganizationId],
@@ -96,3 +143,5 @@ export const bomEntriesRelations = relations(bomEntries, ({ one }) => ({
 export type Part = typeof parts.$inferSelect;
 export type BomEntry = typeof bomEntries.$inferSelect;
 export type PartReference = typeof partReferences.$inferSelect;
+export type PartDocument = typeof partDocuments.$inferSelect;
+export type PartTrainingModule = typeof partTrainingModules.$inferSelect;

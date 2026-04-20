@@ -300,6 +300,43 @@ export async function listParts(modelId: string): Promise<BomEntry[]> {
   return (await res.json()) as BomEntry[];
 }
 
+export interface PartResources {
+  part: {
+    id: string;
+    oemPartNumber: string;
+    displayName: string;
+    description: string | null;
+    crossReferences: string[];
+    discontinued: boolean;
+    imageUrl: string | null;
+  };
+  documents: Array<{
+    id: string;
+    title: string;
+    kind: string;
+    safetyCritical: boolean;
+    language: string;
+    orderingHint: number;
+  }>;
+  trainingModules: Array<{
+    id: string;
+    title: string;
+    description: string | null;
+    estimatedMinutes: number | null;
+    orderingHint: number;
+  }>;
+}
+
+export async function getPartResources(
+  partId: string,
+  assetInstanceId: string,
+): Promise<PartResources> {
+  const url = `${API_BASE}/parts/${encodeURIComponent(partId)}/resources?assetInstanceId=${encodeURIComponent(assetInstanceId)}`;
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as PartResources;
+}
+
 export interface ChatCitation {
   chunkId: string;
   documentId: string;

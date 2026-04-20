@@ -967,6 +967,236 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     },
   );
 
+  // ----- Part ↔ Document links ---------------------------------------------
+  // These back the "link parts" authoring flow on the admin content-pack
+  // detail page and the "docs for this part" lookup on the PWA parts overlay.
+
+  // List the documents linked to a specific part. Returns docs with their
+  // version context so the admin UI can show which version each lives in.
+  app.get<{ Params: { partId: string } }>(
+    '/admin/parts/:partId/documents',
+    { schema: { params: z.object({ partId: UuidSchema }) } },
+    async (request) => {
+      const { db } = app.ctx;
+      const links = await db.query.partDocuments.findMany({
+        where: eq(schema.partDocuments.partId, request.params.partId),
+      });
+      if (links.length === 0) return [];
+      const docIds = [...new Set(links.map((l) => l.documentId))];
+      const docs = await db.query.documents.findMany({
+        where: inArray(schema.documents.id, docIds),
+        with: { packVersion: { with: { pack: true } } },
+      });
+      const byId = new Map(docs.map((d) => [d.id, d]));
+      return links
+        .map((l) => {
+          const d = byId.get(l.documentId);
+          if (!d) return null;
+          return {
+            linkId: l.id,
+            documentId: d.id,
+            title: d.title,
+            kind: d.kind,
+            safetyCritical: d.safetyCritical,
+            contentPackVersionId: d.contentPackVersionId,
+            packName: d.packVersion.pack.name,
+            versionNumber: d.packVersion.versionNumber,
+            versionLabel: d.packVersion.versionLabel,
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+    },
+  );
+
+  // List the parts linked to a specific document. Powers the inverse view —
+  // the admin content-pack page shows each doc with a "linked parts" count.
+  app.get<{ Params: { documentId: string } }>(
+    '/admin/documents/:documentId/parts',
+    { schema: { params: z.object({ documentId: UuidSchema }) } },
+    async (request) => {
+      const { db } = app.ctx;
+      const links = await db.query.partDocuments.findMany({
+        where: eq(schema.partDocuments.documentId, request.params.documentId),
+      });
+      if (links.length === 0) return [];
+      const partIds = [...new Set(links.map((l) => l.partId))];
+      const parts = await db.query.parts.findMany({
+        where: inArray(schema.parts.id, partIds),
+      });
+      const byId = new Map(parts.map((p) => [p.id, p]));
+      return links
+        .map((l) => {
+          const p = byId.get(l.partId);
+          if (!p) return null;
+          return {
+            linkId: l.id,
+            partId: p.id,
+            oemPartNumber: p.oemPartNumber,
+            displayName: p.displayName,
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+    },
+  );
+
+  // Replace the full set of parts linked to a document in one call. The admin
+  // drawer loads the current set, the author toggles checkboxes, saves — this
+  // endpoint is what the save hits. Using a set-replace semantics (vs. per-
+  // link add/remove) keeps the drawer's UX simple and the wire-protocol honest.
+  app.put<{
+    Params: { documentId: string };
+    Body: { partIds: string[] };
+  }>(
+    '/admin/documents/:documentId/parts',
+    {
+      schema: {
+        params: z.object({ documentId: UuidSchema }),
+        body: z.object({ partIds: z.array(UuidSchema) }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const documentId = request.params.documentId;
+      const wanted = new Set(request.body.partIds);
+
+      await db.transaction(async (tx) => {
+        const existing = await tx.query.partDocuments.findMany({
+          where: eq(schema.partDocuments.documentId, documentId),
+        });
+        const existingIds = new Set(existing.map((e) => e.partId));
+        const toDelete = existing.filter((e) => !wanted.has(e.partId));
+        const toInsert = [...wanted].filter((pid) => !existingIds.has(pid));
+
+        if (toDelete.length > 0) {
+          await tx.delete(schema.partDocuments).where(
+            inArray(
+              schema.partDocuments.id,
+              toDelete.map((d) => d.id),
+            ),
+          );
+        }
+        if (toInsert.length > 0) {
+          await tx.insert(schema.partDocuments).values(
+            toInsert.map((partId) => ({ documentId, partId })),
+          );
+        }
+      });
+
+      return { ok: true, count: wanted.size };
+    },
+  );
+
+  // ----- Part ↔ TrainingModule links ---------------------------------------
+  // Same shape as documents; separated for clarity and to keep the admin
+  // drawers distinct (training modules aren't browseable as docs).
+
+  app.get<{ Params: { partId: string } }>(
+    '/admin/parts/:partId/training-modules',
+    { schema: { params: z.object({ partId: UuidSchema }) } },
+    async (request) => {
+      const { db } = app.ctx;
+      const links = await db.query.partTrainingModules.findMany({
+        where: eq(schema.partTrainingModules.partId, request.params.partId),
+      });
+      if (links.length === 0) return [];
+      const moduleIds = [...new Set(links.map((l) => l.trainingModuleId))];
+      const modules = await db.query.trainingModules.findMany({
+        where: inArray(schema.trainingModules.id, moduleIds),
+        with: { packVersion: { with: { pack: true } } },
+      });
+      const byId = new Map(modules.map((m) => [m.id, m]));
+      return links
+        .map((l) => {
+          const m = byId.get(l.trainingModuleId);
+          if (!m) return null;
+          return {
+            linkId: l.id,
+            trainingModuleId: m.id,
+            title: m.title,
+            contentPackVersionId: m.contentPackVersionId,
+            packName: m.packVersion.pack.name,
+            versionNumber: m.packVersion.versionNumber,
+            versionLabel: m.packVersion.versionLabel,
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+    },
+  );
+
+  app.get<{ Params: { moduleId: string } }>(
+    '/admin/training-modules/:moduleId/parts',
+    { schema: { params: z.object({ moduleId: UuidSchema }) } },
+    async (request) => {
+      const { db } = app.ctx;
+      const links = await db.query.partTrainingModules.findMany({
+        where: eq(schema.partTrainingModules.trainingModuleId, request.params.moduleId),
+      });
+      if (links.length === 0) return [];
+      const partIds = [...new Set(links.map((l) => l.partId))];
+      const parts = await db.query.parts.findMany({
+        where: inArray(schema.parts.id, partIds),
+      });
+      const byId = new Map(parts.map((p) => [p.id, p]));
+      return links
+        .map((l) => {
+          const p = byId.get(l.partId);
+          if (!p) return null;
+          return {
+            linkId: l.id,
+            partId: p.id,
+            oemPartNumber: p.oemPartNumber,
+            displayName: p.displayName,
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+    },
+  );
+
+  app.put<{
+    Params: { moduleId: string };
+    Body: { partIds: string[] };
+  }>(
+    '/admin/training-modules/:moduleId/parts',
+    {
+      schema: {
+        params: z.object({ moduleId: UuidSchema }),
+        body: z.object({ partIds: z.array(UuidSchema) }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const moduleId = request.params.moduleId;
+      const wanted = new Set(request.body.partIds);
+
+      await db.transaction(async (tx) => {
+        const existing = await tx.query.partTrainingModules.findMany({
+          where: eq(schema.partTrainingModules.trainingModuleId, moduleId),
+        });
+        const existingIds = new Set(existing.map((e) => e.partId));
+        const toDelete = existing.filter((e) => !wanted.has(e.partId));
+        const toInsert = [...wanted].filter((pid) => !existingIds.has(pid));
+
+        if (toDelete.length > 0) {
+          await tx.delete(schema.partTrainingModules).where(
+            inArray(
+              schema.partTrainingModules.id,
+              toDelete.map((d) => d.id),
+            ),
+          );
+        }
+        if (toInsert.length > 0) {
+          await tx.insert(schema.partTrainingModules).values(
+            toInsert.map((partId) => ({ trainingModuleId: moduleId, partId })),
+          );
+        }
+      });
+
+      return { ok: true, count: wanted.size };
+    },
+  );
+
   // Admin-wide work order listing with asset + opener context.
   app.get<{ Querystring: { status?: 'open' | 'closed' | 'all' } }>(
     '/admin/work-orders',

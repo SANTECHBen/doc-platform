@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
@@ -10,7 +10,9 @@ import {
   CircleDashed,
   FilePlus2,
   GraduationCap,
+  Link2,
   Loader2,
+  Package,
   Pencil,
   Plus,
   RefreshCw,
@@ -39,11 +41,17 @@ import {
   deleteContentPackVersion,
   deleteDocument,
   getContentPack,
+  listAdminParts,
+  listPartsForDocument,
+  listPartsForTrainingModule,
   publishContentPackVersion,
   reprocessDocument,
+  setPartsForDocument,
+  setPartsForTrainingModule,
   updateDocument,
   uploadFile,
   type AdminContentPackDetail,
+  type AdminPart,
   type CreateDocumentInput,
   type DocumentKind,
   type UploadResult,
@@ -284,9 +292,7 @@ export default function ContentPackDetail({
                 ) : (
                   <ul className="mt-1 flex flex-col gap-1 text-sm">
                     {v.trainingModules.map((m) => (
-                      <li key={m.id} className="text-ink-primary">
-                        {m.title}
-                      </li>
+                      <TrainingModuleRow key={m.id} module={m} />
                     ))}
                   </ul>
                 )}
@@ -779,6 +785,7 @@ function DocumentRow({
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(doc.title);
   const [busy, setBusy] = useState(false);
+  const [linkPartsOpen, setLinkPartsOpen] = useState(false);
 
   const fileKinds = ['pdf', 'video', 'slides', 'file', 'schematic'];
   const canReplaceFile = editable && fileKinds.includes(doc.kind);
@@ -893,6 +900,18 @@ function DocumentRow({
       </span>
       {doc.safetyCritical && <Pill tone="warning">safety</Pill>}
       <ExtractionBadge status={doc.extractionStatus} />
+      {!editing && (
+        <button
+          type="button"
+          onClick={() => setLinkPartsOpen(true)}
+          className="p-1 text-ink-tertiary hover:text-ink-primary"
+          aria-label="Link parts"
+          disabled={busy}
+          title="Link parts to this document"
+        >
+          <Link2 size={14} />
+        </button>
+      )}
       {editable && !editing && (
         <div className="flex items-center gap-1">
           {(doc.extractionStatus === 'failed' || doc.extractionStatus === 'ready') && (
@@ -957,6 +976,17 @@ function DocumentRow({
           <span className="font-medium">Extraction failed:</span> {doc.extractionError}
         </div>
       )}
+      <Drawer
+        title={`Link parts — ${doc.title}`}
+        open={linkPartsOpen}
+        onClose={() => setLinkPartsOpen(false)}
+      >
+        <LinkPartsPanel
+          kind="document"
+          targetId={doc.id}
+          onSaved={() => setLinkPartsOpen(false)}
+        />
+      </Drawer>
     </li>
   );
 }
@@ -1021,5 +1051,207 @@ function ExtractionBadge({ status }: { status: DocRowData['extractionStatus'] })
     >
       <AlertTriangle size={11} strokeWidth={2} /> failed
     </span>
+  );
+}
+
+// Training module row with a link-parts action. Training-module editing
+// (rename, delete, activities) lives in a separate page; here we just expose
+// the part-linking affordance since that's what binds training to a part
+// on the PWA side.
+function TrainingModuleRow({ module }: { module: { id: string; title: string } }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <li className="flex items-center gap-2 rounded border border-line-subtle bg-surface-inset px-2 py-1.5">
+      <GraduationCap size={14} strokeWidth={2} className="shrink-0 text-ink-tertiary" />
+      <span className="flex-1 truncate text-ink-primary">{module.title}</span>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="p-1 text-ink-tertiary hover:text-ink-primary"
+        aria-label="Link parts"
+        title="Link parts to this training module"
+      >
+        <Link2 size={14} />
+      </button>
+      <Drawer
+        title={`Link parts — ${module.title}`}
+        open={open}
+        onClose={() => setOpen(false)}
+      >
+        <LinkPartsPanel
+          kind="training"
+          targetId={module.id}
+          onSaved={() => setOpen(false)}
+        />
+      </Drawer>
+    </li>
+  );
+}
+
+// Shared panel used from document + training-module rows. `kind` switches the
+// two API endpoints but the UX is otherwise identical: load current links,
+// let the author toggle part checkboxes, save the full set.
+function LinkPartsPanel({
+  kind,
+  targetId,
+  onSaved,
+}: {
+  kind: 'document' | 'training';
+  targetId: string;
+  onSaved: () => void;
+}) {
+  const [allParts, setAllParts] = useState<AdminPart[] | null>(null);
+  const [selected, setSelected] = useState<Set<string> | null>(null);
+  const [search, setSearch] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [parts, currentLinks] = await Promise.all([
+          listAdminParts(),
+          kind === 'document'
+            ? listPartsForDocument(targetId)
+            : listPartsForTrainingModule(targetId),
+        ]);
+        setAllParts(parts);
+        setSelected(new Set(currentLinks.map((l) => l.partId)));
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    })();
+  }, [kind, targetId]);
+
+  const filtered = useMemo(() => {
+    if (!allParts) return null;
+    const q = search.trim().toLowerCase();
+    if (!q) return allParts;
+    return allParts.filter((p) =>
+      [p.oemPartNumber, p.displayName, p.description ?? '', p.owner]
+        .join(' ')
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [allParts, search]);
+
+  function toggle(id: string) {
+    if (!selected) return;
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelected(next);
+  }
+
+  async function save() {
+    if (!selected) return;
+    setSaving(true);
+    setError(null);
+    try {
+      if (kind === 'document') {
+        await setPartsForDocument(targetId, [...selected]);
+      } else {
+        await setPartsForTrainingModule(targetId, [...selected]);
+      }
+      toast.success(`${selected.size} part${selected.size === 1 ? '' : 's'} linked`);
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (error) {
+    return (
+      <p className="rounded border border-signal-fault/40 bg-signal-fault/10 p-3 text-sm text-signal-fault">
+        {error}
+      </p>
+    );
+  }
+  if (!allParts || !selected) {
+    return <p className="p-6 text-center text-sm text-ink-tertiary">Loading parts…</p>;
+  }
+
+  return (
+    <div className="flex h-full flex-col gap-3">
+      <Field label="Search parts">
+        <TextInput
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="OEM #, name, description, or owner"
+          autoFocus
+        />
+      </Field>
+
+      <div className="text-xs text-ink-tertiary">
+        {selected.size} of {allParts.length} selected
+      </div>
+
+      {filtered && filtered.length === 0 ? (
+        <p className="rounded border border-dashed border-line p-4 text-center text-sm text-ink-tertiary">
+          No parts match.
+        </p>
+      ) : (
+        <ul className="flex flex-1 flex-col gap-1 overflow-y-auto rounded border border-line p-1">
+          {(filtered ?? []).map((p) => {
+            const checked = selected.has(p.id);
+            return (
+              <li key={p.id}>
+                <label
+                  className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm ${
+                    checked
+                      ? 'bg-brand-soft text-ink-primary'
+                      : 'hover:bg-surface-elevated'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggle(p.id)}
+                    className="shrink-0"
+                  />
+                  {p.imageUrl ? (
+                    <img
+                      src={p.imageUrl}
+                      alt=""
+                      className="h-8 w-8 shrink-0 rounded object-contain"
+                      style={{
+                        background: 'rgb(var(--surface-inset))',
+                        border: '1px solid rgb(var(--line-subtle))',
+                      }}
+                    />
+                  ) : (
+                    <div
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-ink-tertiary"
+                      style={{
+                        background: 'rgb(var(--surface-inset))',
+                        border: '1px solid rgb(var(--line-subtle))',
+                      }}
+                    >
+                      <Package size={14} strokeWidth={1.5} />
+                    </div>
+                  )}
+                  <span className="font-mono text-xs text-ink-brand">
+                    {p.oemPartNumber}
+                  </span>
+                  <span className="truncate text-ink-primary">{p.displayName}</span>
+                  <span className="ml-auto shrink-0 text-xs text-ink-tertiary">
+                    {p.owner}
+                  </span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      <div className="mt-2 flex justify-end gap-2">
+        <PrimaryButton onClick={save} disabled={saving}>
+          {saving ? 'Saving…' : 'Save links'}
+        </PrimaryButton>
+      </div>
+    </div>
   );
 }

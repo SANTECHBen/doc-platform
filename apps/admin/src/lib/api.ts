@@ -757,6 +757,63 @@ export async function removeBomEntry(id: string): Promise<void> {
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }
 
+// --- Part ↔ Document / TrainingModule linking -----------------------------
+
+export interface LinkedPart {
+  linkId: string;
+  partId: string;
+  oemPartNumber: string;
+  displayName: string;
+}
+
+export async function listPartsForDocument(documentId: string): Promise<LinkedPart[]> {
+  const res = await fetch(
+    `${API_BASE}/admin/documents/${encodeURIComponent(documentId)}/parts`,
+    { cache: 'no-store', headers: authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function setPartsForDocument(
+  documentId: string,
+  partIds: string[],
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/documents/${encodeURIComponent(documentId)}/parts`,
+    {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ partIds }),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+export async function listPartsForTrainingModule(moduleId: string): Promise<LinkedPart[]> {
+  const res = await fetch(
+    `${API_BASE}/admin/training-modules/${encodeURIComponent(moduleId)}/parts`,
+    { cache: 'no-store', headers: authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function setPartsForTrainingModule(
+  moduleId: string,
+  partIds: string[],
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/training-modules/${encodeURIComponent(moduleId)}/parts`,
+    {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ partIds }),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
 // --- Work orders ----------------------------------------------------------
 export interface AdminWorkOrder {
   id: string;

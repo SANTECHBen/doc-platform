@@ -36,6 +36,13 @@
       "when": 1776649356735,
       "tag": "0004_tense_sway",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1776691528763,
+      "tag": "0005_fresh_violations",
+      "breakpoints": true
     }
   ]
 }
