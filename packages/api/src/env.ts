@@ -34,6 +34,11 @@ const EnvSchema = z.object({
   // Empty allows any validated MS tenant.
   AUTH_MICROSOFT_CLIENT_ID: z.string().optional(),
   AUTH_ALLOWED_TENANTS: z.string().optional(),
+  // Comma-separated email allow-list. Users signing in with one of these
+  // emails get platform_admin=true set on every sign-in — grants "see all
+  // orgs" override. Bootstraps SANTECH staff access without a chicken-and-
+  // egg UI.
+  PLATFORM_ADMIN_EMAILS: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

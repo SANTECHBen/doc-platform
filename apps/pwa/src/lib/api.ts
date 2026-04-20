@@ -2,11 +2,20 @@ import { AssetHubPayloadSchema, type AssetHubPayload } from './shared-schema';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3001';
 
-export async function resolveAssetHub(qrCode: string): Promise<AssetHubPayload | null> {
-  const res = await fetch(`${API_BASE}/assets/resolve/${encodeURIComponent(qrCode)}`, {
-    // No caching — QR resolution must always reflect current pinned version.
-    cache: 'no-store',
-  });
+export type AssetResolveSource = 'qr' | 'direct' | 'blocked';
+
+export async function resolveAssetHub(
+  qrCode: string,
+  source: AssetResolveSource = 'direct',
+): Promise<AssetHubPayload | null> {
+  const qs = source === 'direct' ? '' : `?source=${source}`;
+  const res = await fetch(
+    `${API_BASE}/assets/resolve/${encodeURIComponent(qrCode)}${qs}`,
+    {
+      // No caching — QR resolution must always reflect current pinned version.
+      cache: 'no-store',
+    },
+  );
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   const json = await res.json();

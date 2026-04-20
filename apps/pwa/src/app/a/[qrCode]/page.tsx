@@ -48,11 +48,14 @@ export default async function AssetHubPage({
   // Scan-gate enforcement. If the owning org has opted in, a valid scan
   // session cookie is required — it's minted when a user lands on /q/<code>
   // (where QR codes point). Anyone sharing a /a/<code> URL out-of-band
-  // lacks the cookie and sees a scan-wall instead of the hub.
+  // lacks the cookie and sees a scan-wall instead of the hub. Blocked
+  // attempts are audit-logged so customers can see URL-sharing attempts.
   if (hub.organization.requireScanAccess) {
     const cookieStore = await cookies();
     const session = cookieStore.get(SCAN_COOKIE_NAME)?.value;
     if (!session || !verifyScanSessionValue(session, qrCode)) {
+      // Fire-and-forget blocked audit event.
+      void resolveAssetHub(qrCode, 'blocked').catch(() => {});
       return <ScanWall organizationName={hub.organization.name} />;
     }
   }

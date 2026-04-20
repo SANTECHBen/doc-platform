@@ -79,6 +79,8 @@ declare module 'fastify' {
     auth?: {
       userId: string;
       organizationId: string;
+      /** True for SANTECH staff — bypasses per-org data scoping. */
+      platformAdmin?: boolean;
     };
   }
 }

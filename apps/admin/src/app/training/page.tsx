@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { DataLoader, PageHeader, PageShell } from '@/components/page-shell';
 import { listAdminTrainingModules } from '@/lib/api';
 
@@ -34,7 +35,12 @@ export default function TrainingPage() {
                   return (
                     <tr key={m.id} className="border-t border-line-subtle align-top">
                       <td className="px-4 py-3">
-                        <span className="block font-medium text-ink-primary">{m.title}</span>
+                        <Link
+                          href={`/training/${m.id}`}
+                          className="block font-medium text-ink-primary hover:text-brand"
+                        >
+                          {m.title}
+                        </Link>
                         {m.competencyTag && (
                           <span className="block font-mono text-xs text-ink-tertiary">
                             {m.competencyTag}

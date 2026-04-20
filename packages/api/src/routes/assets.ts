@@ -16,11 +16,17 @@ function initials(name: string): string {
 export async function registerAssetRoutes(app: FastifyInstance) {
   // Resolve a scanned QR code to the asset hub payload.
   // This is the single hottest endpoint — it fires on every QR scan.
-  app.get<{ Params: { qrCode: string } }>(
+  app.get<{
+    Params: { qrCode: string };
+    Querystring: { source?: 'qr' | 'direct' | 'blocked' };
+  }>(
     '/assets/resolve/:qrCode',
     {
       schema: {
         params: z.object({ qrCode: QrCodeStringSchema }),
+        querystring: z.object({
+          source: z.enum(['qr', 'direct', 'blocked']).optional(),
+        }),
         response: { 200: AssetHubPayloadSchema },
       },
     },
@@ -127,14 +133,23 @@ export async function registerAssetRoutes(app: FastifyInstance) {
         },
       });
 
-      // Append an audit trail for scan resolution (anonymous-safe: we log QR + instance).
+      // Append an audit trail. Event type depends on source so security-
+      // sensitive customers can distinguish real QR scans from URL shares
+      // from scan-gate denials.
+      const source = request.query.source ?? 'direct';
+      const eventType =
+        source === 'qr'
+          ? 'qr.scan'
+          : source === 'blocked'
+          ? 'qr.scan.blocked'
+          : 'asset.hub.viewed';
       await db.insert(schema.auditEvents).values({
         organizationId: instance.site.organization.id,
         actorUserId: request.auth?.userId ?? null,
-        eventType: 'qr.scan.resolved',
+        eventType,
         targetType: 'asset_instance',
         targetId: instance.id,
-        payload: { qrCode },
+        payload: { qrCode, source },
         ipAddress: request.ip,
         userAgent: request.headers['user-agent'] ?? null,
       });

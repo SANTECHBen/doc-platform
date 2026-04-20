@@ -30,6 +30,11 @@ export const organizations = pgTable('organizations', {
   logoStorageKey: text('logo_storage_key'),     // uploaded wordmark
   displayNameOverride: text('display_name_override'), // overrides "Equipment Hub"
   settings: jsonb('settings').$type<Record<string, unknown>>().notNull().default({}),
+  // Microsoft Entra tenant ID that maps to this org. When a user signs in
+  // via Microsoft with a matching `tid` claim, their home org is set to
+  // this row. Null = not linked to any Microsoft tenant (e.g., SANTECH
+  // internal orgs for platform admins). Unique: one tenant = one org.
+  msftTenantId: text('msft_tenant_id').unique(),
   // When true, the PWA requires a valid scan-session cookie to show asset
   // content. A cookie is minted when a user lands on /q/<code> (which is
   // where QR codes point); it's bound to the code and short-lived (8h).

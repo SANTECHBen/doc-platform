@@ -18,6 +18,7 @@ import { schema } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { isExtractable, processDocument } from '@platform/ai';
 import { requireAuth } from '../middleware/auth';
+import { getScope, orgIdsLiteral } from '../middleware/scope';
 import type { Storage } from '../storage';
 
 // Pull a storage key into a Buffer. The extraction pipeline needs bytes in
@@ -859,6 +860,278 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
         })
         .returning();
       return created;
+    },
+  );
+
+  // Full training module detail: module metadata, lessons, activities.
+  // Single round-trip so the authoring page renders without waterfalls.
+  app.get<{ Params: { id: string } }>(
+    '/admin/training-modules/:id',
+    { schema: { params: z.object({ id: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const module = await db.query.trainingModules.findFirst({
+        where: eq(schema.trainingModules.id, request.params.id),
+        with: { packVersion: { with: { pack: true } } },
+      });
+      if (!module) return reply.notFound();
+      const [lessonRows, activityRows] = await Promise.all([
+        db.query.lessons.findMany({
+          where: eq(schema.lessons.trainingModuleId, module.id),
+        }),
+        db.query.activities.findMany({
+          where: eq(schema.activities.trainingModuleId, module.id),
+        }),
+      ]);
+      lessonRows.sort(
+        (a, b) => a.orderingHint - b.orderingHint || a.title.localeCompare(b.title),
+      );
+      activityRows.sort(
+        (a, b) => a.orderingHint - b.orderingHint || a.title.localeCompare(b.title),
+      );
+      return {
+        id: module.id,
+        title: module.title,
+        description: module.description,
+        estimatedMinutes: module.estimatedMinutes,
+        competencyTag: module.competencyTag,
+        passThreshold: module.passThreshold,
+        orderingHint: module.orderingHint,
+        contentPack: {
+          id: module.packVersion.pack.id,
+          name: module.packVersion.pack.name,
+          versionNumber: module.packVersion.versionNumber,
+          versionLabel: module.packVersion.versionLabel,
+          status: module.packVersion.status,
+        },
+        lessons: lessonRows,
+        activities: activityRows,
+      };
+    },
+  );
+
+  // Update module metadata (title, description, threshold, etc.).
+  // Content is still frozen once the containing version is published.
+  app.patch<{
+    Params: { id: string };
+    Body: {
+      title?: string;
+      description?: string | null;
+      estimatedMinutes?: number | null;
+      competencyTag?: string | null;
+      passThreshold?: number;
+      orderingHint?: number;
+    };
+  }>(
+    '/admin/training-modules/:id',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema }),
+        body: z.object({
+          title: z.string().min(1).max(200).optional(),
+          description: z.string().max(2000).nullable().optional(),
+          estimatedMinutes: z.number().int().min(0).max(9999).nullable().optional(),
+          competencyTag: z.string().max(120).nullable().optional(),
+          passThreshold: z.number().min(0).max(1).optional(),
+          orderingHint: z.number().int().optional(),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const module = await db.query.trainingModules.findFirst({
+        where: eq(schema.trainingModules.id, request.params.id),
+        with: { packVersion: true },
+      });
+      if (!module) return reply.notFound();
+      if (module.packVersion.status !== 'draft') {
+        return reply.badRequest('Can only edit modules in a draft version.');
+      }
+      const patch: Record<string, unknown> = {};
+      if (request.body.title !== undefined) patch.title = request.body.title;
+      if (request.body.description !== undefined) patch.description = request.body.description;
+      if (request.body.estimatedMinutes !== undefined)
+        patch.estimatedMinutes = request.body.estimatedMinutes;
+      if (request.body.competencyTag !== undefined)
+        patch.competencyTag = request.body.competencyTag;
+      if (request.body.passThreshold !== undefined)
+        patch.passThreshold = request.body.passThreshold;
+      if (request.body.orderingHint !== undefined)
+        patch.orderingHint = request.body.orderingHint;
+      const [updated] = await db
+        .update(schema.trainingModules)
+        .set(patch)
+        .where(eq(schema.trainingModules.id, module.id))
+        .returning();
+      return updated;
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    '/admin/training-modules/:id',
+    { schema: { params: z.object({ id: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const module = await db.query.trainingModules.findFirst({
+        where: eq(schema.trainingModules.id, request.params.id),
+        with: { packVersion: true },
+      });
+      if (!module) return reply.notFound();
+      if (module.packVersion.status !== 'draft') {
+        return reply.badRequest('Can only delete modules in a draft version.');
+      }
+      await db
+        .delete(schema.trainingModules)
+        .where(eq(schema.trainingModules.id, module.id));
+      return { ok: true };
+    },
+  );
+
+  // Lesson update / delete. Scoped to draft versions via the parent module.
+  app.patch<{
+    Params: { id: string };
+    Body: { title?: string; bodyMarkdown?: string | null; orderingHint?: number };
+  }>(
+    '/admin/lessons/:id',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema }),
+        body: z.object({
+          title: z.string().min(1).max(200).optional(),
+          bodyMarkdown: z.string().max(400000).nullable().optional(),
+          orderingHint: z.number().int().optional(),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const lesson = await db.query.lessons.findFirst({
+        where: eq(schema.lessons.id, request.params.id),
+        with: { module: { with: { packVersion: true } } },
+      });
+      if (!lesson) return reply.notFound();
+      if (lesson.module.packVersion.status !== 'draft') {
+        return reply.badRequest('Can only edit lessons in a draft version.');
+      }
+      const patch: Record<string, unknown> = {};
+      if (request.body.title !== undefined) patch.title = request.body.title;
+      if (request.body.bodyMarkdown !== undefined)
+        patch.bodyMarkdown = request.body.bodyMarkdown;
+      if (request.body.orderingHint !== undefined)
+        patch.orderingHint = request.body.orderingHint;
+      const [updated] = await db
+        .update(schema.lessons)
+        .set(patch)
+        .where(eq(schema.lessons.id, lesson.id))
+        .returning();
+      return updated;
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    '/admin/lessons/:id',
+    { schema: { params: z.object({ id: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const lesson = await db.query.lessons.findFirst({
+        where: eq(schema.lessons.id, request.params.id),
+        with: { module: { with: { packVersion: true } } },
+      });
+      if (!lesson) return reply.notFound();
+      if (lesson.module.packVersion.status !== 'draft') {
+        return reply.badRequest('Can only delete lessons in a draft version.');
+      }
+      await db.delete(schema.lessons).where(eq(schema.lessons.id, lesson.id));
+      return { ok: true };
+    },
+  );
+
+  // Quiz activity update / delete. Same draft-only constraint.
+  app.patch<{
+    Params: { id: string };
+    Body: {
+      title?: string;
+      questions?: Array<{
+        prompt: string;
+        options: string[];
+        correctIndex: number;
+        explanation?: string;
+      }>;
+      weight?: number;
+      orderingHint?: number;
+    };
+  }>(
+    '/admin/activities/:id',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema }),
+        body: z.object({
+          title: z.string().min(1).max(200).optional(),
+          questions: z
+            .array(
+              z.object({
+                prompt: z.string().min(1),
+                options: z.array(z.string().min(1)).min(2).max(8),
+                correctIndex: z.number().int().nonnegative(),
+                explanation: z.string().optional(),
+              }),
+            )
+            .min(1)
+            .optional(),
+          weight: z.number().positive().optional(),
+          orderingHint: z.number().int().optional(),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const activity = await db.query.activities.findFirst({
+        where: eq(schema.activities.id, request.params.id),
+        with: { module: { with: { packVersion: true } } },
+      });
+      if (!activity) return reply.notFound();
+      if (activity.module.packVersion.status !== 'draft') {
+        return reply.badRequest('Can only edit activities in a draft version.');
+      }
+      const patch: Record<string, unknown> = {};
+      if (request.body.title !== undefined) patch.title = request.body.title;
+      if (request.body.weight !== undefined) patch.weight = request.body.weight;
+      if (request.body.orderingHint !== undefined)
+        patch.orderingHint = request.body.orderingHint;
+      if (request.body.questions !== undefined) {
+        patch.config = { ...activity.config, questions: request.body.questions };
+      }
+      const [updated] = await db
+        .update(schema.activities)
+        .set(patch)
+        .where(eq(schema.activities.id, activity.id))
+        .returning();
+      return updated;
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    '/admin/activities/:id',
+    { schema: { params: z.object({ id: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const activity = await db.query.activities.findFirst({
+        where: eq(schema.activities.id, request.params.id),
+        with: { module: { with: { packVersion: true } } },
+      });
+      if (!activity) return reply.notFound();
+      if (activity.module.packVersion.status !== 'draft') {
+        return reply.badRequest('Can only delete activities in a draft version.');
+      }
+      await db.delete(schema.activities).where(eq(schema.activities.id, activity.id));
+      return { ok: true };
     },
   );
 
@@ -1987,8 +2260,11 @@ export async function registerAdminListings(app: FastifyInstance) {
   app.get('/admin/organizations', async (request) => {
     const { db } = app.ctx;
     requireAuth(request);
+    const scope = await getScope(request, db);
+    const scopeLiteral = orgIdsLiteral(scope);
     const rows = (await db.execute(
-      sql`SELECT o.id, o.type, o.name, o.slug, o.parent_organization_id,
+      scope.all
+        ? sql`SELECT o.id, o.type, o.name, o.slug, o.parent_organization_id,
                  o.oem_code, o.created_at,
                  o.brand_primary, o.brand_on_primary, o.logo_storage_key,
                  o.display_name_override, o.require_scan_access,
@@ -1997,6 +2273,17 @@ export async function registerAdminListings(app: FastifyInstance) {
                  (SELECT count(*) FROM users WHERE home_organization_id = o.id)::int AS user_count
           FROM organizations o
           LEFT JOIN organizations p ON p.id = o.parent_organization_id
+          ORDER BY o.type, o.name`
+        : sql`SELECT o.id, o.type, o.name, o.slug, o.parent_organization_id,
+                 o.oem_code, o.created_at,
+                 o.brand_primary, o.brand_on_primary, o.logo_storage_key,
+                 o.display_name_override, o.require_scan_access,
+                 p.name AS parent_name,
+                 (SELECT count(*) FROM sites WHERE organization_id = o.id)::int AS site_count,
+                 (SELECT count(*) FROM users WHERE home_organization_id = o.id)::int AS user_count
+          FROM organizations o
+          LEFT JOIN organizations p ON p.id = o.parent_organization_id
+          WHERE o.id = ANY(${scopeLiteral}::uuid[])
           ORDER BY o.type, o.name`,
     )) as unknown as Array<{
       id: string;
@@ -2043,14 +2330,26 @@ export async function registerAdminListings(app: FastifyInstance) {
   app.get('/admin/asset-models', async (request) => {
     const { db, storage } = app.ctx;
     requireAuth(request);
+    const scope = await getScope(request, db);
+    const scopeLiteral = orgIdsLiteral(scope);
     const rows = (await db.execute(
-      sql`SELECT m.id, m.model_code, m.display_name, m.category, m.description,
+      scope.all
+        ? sql`SELECT m.id, m.model_code, m.display_name, m.category, m.description,
                  m.image_storage_key,
                  o.id AS owner_id, o.name AS owner_name,
                  (SELECT count(*) FROM asset_instances WHERE asset_model_id = m.id)::int AS instance_count,
                  (SELECT count(*) FROM content_packs WHERE asset_model_id = m.id)::int AS pack_count
           FROM asset_models m
           JOIN organizations o ON o.id = m.owner_organization_id
+          ORDER BY m.display_name`
+        : sql`SELECT m.id, m.model_code, m.display_name, m.category, m.description,
+                 m.image_storage_key,
+                 o.id AS owner_id, o.name AS owner_name,
+                 (SELECT count(*) FROM asset_instances WHERE asset_model_id = m.id)::int AS instance_count,
+                 (SELECT count(*) FROM content_packs WHERE asset_model_id = m.id)::int AS pack_count
+          FROM asset_models m
+          JOIN organizations o ON o.id = m.owner_organization_id
+          WHERE m.owner_organization_id = ANY(${scopeLiteral}::uuid[])
           ORDER BY m.display_name`,
     )) as unknown as Array<{
       id: string;
@@ -2082,8 +2381,11 @@ export async function registerAdminListings(app: FastifyInstance) {
   app.get('/admin/content-packs', async (request) => {
     const { db } = app.ctx;
     requireAuth(request);
+    const scope = await getScope(request, db);
+    const scopeLiteral = orgIdsLiteral(scope);
     const rows = (await db.execute(
-      sql`SELECT p.id, p.name, p.slug, p.layer_type,
+      scope.all
+        ? sql`SELECT p.id, p.name, p.slug, p.layer_type,
                  am.id AS asset_model_id, am.display_name AS asset_model_name,
                  o.name AS owner_name,
                  (SELECT count(*) FROM content_pack_versions WHERE content_pack_id = p.id)::int AS version_count,
@@ -2101,6 +2403,26 @@ export async function registerAdminListings(app: FastifyInstance) {
             ORDER BY version_number DESC
             LIMIT 1
           ) latest ON true
+          ORDER BY p.name`
+        : sql`SELECT p.id, p.name, p.slug, p.layer_type,
+                 am.id AS asset_model_id, am.display_name AS asset_model_name,
+                 o.name AS owner_name,
+                 (SELECT count(*) FROM content_pack_versions WHERE content_pack_id = p.id)::int AS version_count,
+                 latest.version_number AS latest_version_number,
+                 latest.version_label AS latest_version_label,
+                 latest.status AS latest_version_status,
+                 latest.published_at AS latest_published_at
+          FROM content_packs p
+          JOIN asset_models am ON am.id = p.asset_model_id
+          JOIN organizations o ON o.id = p.owner_organization_id
+          LEFT JOIN LATERAL (
+            SELECT version_number, version_label, status, published_at
+            FROM content_pack_versions
+            WHERE content_pack_id = p.id
+            ORDER BY version_number DESC
+            LIMIT 1
+          ) latest ON true
+          WHERE p.owner_organization_id = ANY(${scopeLiteral}::uuid[])
           ORDER BY p.name`,
     )) as unknown as Array<{
       id: string;
@@ -2273,8 +2595,11 @@ export async function registerAdminListings(app: FastifyInstance) {
   app.get('/admin/parts', async (request) => {
     const { db } = app.ctx;
     requireAuth(request);
+    const scope = await getScope(request, db);
+    const scopeLiteral = orgIdsLiteral(scope);
     const rows = (await db.execute(
-      sql`SELECT p.id, p.oem_part_number, p.display_name, p.description,
+      scope.all
+        ? sql`SELECT p.id, p.oem_part_number, p.display_name, p.description,
                  p.cross_references, p.discontinued, p.image_storage_key,
                  o.name AS owner_name,
                  (SELECT count(*) FROM bom_entries WHERE part_id = p.id)::int AS bom_count,
@@ -2282,6 +2607,16 @@ export async function registerAdminListings(app: FastifyInstance) {
                  EXISTS(SELECT 1 FROM part_components WHERE child_part_id = p.id) AS has_parent
           FROM parts p
           JOIN organizations o ON o.id = p.owner_organization_id
+          ORDER BY p.display_name`
+        : sql`SELECT p.id, p.oem_part_number, p.display_name, p.description,
+                 p.cross_references, p.discontinued, p.image_storage_key,
+                 o.name AS owner_name,
+                 (SELECT count(*) FROM bom_entries WHERE part_id = p.id)::int AS bom_count,
+                 EXISTS(SELECT 1 FROM part_components WHERE parent_part_id = p.id) AS has_children,
+                 EXISTS(SELECT 1 FROM part_components WHERE child_part_id = p.id) AS has_parent
+          FROM parts p
+          JOIN organizations o ON o.id = p.owner_organization_id
+          WHERE p.owner_organization_id = ANY(${scopeLiteral}::uuid[])
           ORDER BY p.display_name`,
     )) as unknown as Array<{
       id: string;
@@ -2316,14 +2651,27 @@ export async function registerAdminListings(app: FastifyInstance) {
   app.get('/admin/users', async (request) => {
     const { db } = app.ctx;
     requireAuth(request);
+    const scope = await getScope(request, db);
+    const scopeLiteral = orgIdsLiteral(scope);
     const rows = (await db.execute(
-      sql`SELECT u.id, u.email, u.display_name, u.disabled, u.created_at,
+      scope.all
+        ? sql`SELECT u.id, u.email, u.display_name, u.disabled, u.created_at,
                  o.id AS home_org_id, o.name AS home_org_name,
                  COALESCE(ARRAY_AGG(DISTINCT m.role) FILTER (WHERE m.role IS NOT NULL), ARRAY[]::text[]) AS roles,
                  (SELECT count(*) FROM memberships WHERE user_id = u.id)::int AS membership_count
           FROM users u
           JOIN organizations o ON o.id = u.home_organization_id
           LEFT JOIN memberships m ON m.user_id = u.id
+          GROUP BY u.id, o.id
+          ORDER BY u.display_name`
+        : sql`SELECT u.id, u.email, u.display_name, u.disabled, u.created_at,
+                 o.id AS home_org_id, o.name AS home_org_name,
+                 COALESCE(ARRAY_AGG(DISTINCT m.role) FILTER (WHERE m.role IS NOT NULL), ARRAY[]::text[]) AS roles,
+                 (SELECT count(*) FROM memberships WHERE user_id = u.id)::int AS membership_count
+          FROM users u
+          JOIN organizations o ON o.id = u.home_organization_id
+          LEFT JOIN memberships m ON m.user_id = u.id
+          WHERE u.home_organization_id = ANY(${scopeLiteral}::uuid[])
           GROUP BY u.id, o.id
           ORDER BY u.display_name`,
     )) as unknown as Array<{
@@ -2349,15 +2697,23 @@ export async function registerAdminListings(app: FastifyInstance) {
     }));
   });
 
-  // Recent audit events. Limited to last 200 entries.
+  // Recent audit events. Limited to last 200 entries within scope.
   app.get('/admin/audit-events', async (request) => {
     const { db } = app.ctx;
     requireAuth(request);
-    const rows = await db
-      .select()
-      .from(schema.auditEvents)
-      .orderBy(desc(schema.auditEvents.occurredAt))
-      .limit(200);
+    const scope = await getScope(request, db);
+    const rows = scope.all
+      ? await db
+          .select()
+          .from(schema.auditEvents)
+          .orderBy(desc(schema.auditEvents.occurredAt))
+          .limit(200)
+      : await db
+          .select()
+          .from(schema.auditEvents)
+          .where(inArray(schema.auditEvents.organizationId, scope.orgIds))
+          .orderBy(desc(schema.auditEvents.occurredAt))
+          .limit(200);
 
     if (rows.length === 0) return [];
 

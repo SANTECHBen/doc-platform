@@ -16,6 +16,10 @@ export const users = pgTable('users', {
   displayName: text('display_name').notNull(),
   workosUserId: text('workos_user_id').unique(),
   disabled: boolean('disabled').notNull().default(false),
+  // Platform admins (SANTECH staff) see every org's data regardless of home
+  // org. Customer admins see only their own org + descendants in the parent
+  // chain. Controlled at sign-in by the PLATFORM_ADMIN_EMAILS env var.
+  platformAdmin: boolean('platform_admin').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

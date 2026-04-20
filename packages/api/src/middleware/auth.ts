@@ -134,7 +134,7 @@ async function verifyMsIdToken(token: string, audience: string): Promise<MsClaim
 async function upsertUserFromClaims(
   app: FastifyInstance,
   claims: MsClaims,
-): Promise<{ userId: string; organizationId: string } | null> {
+): Promise<{ userId: string; organizationId: string; platformAdmin: boolean } | null> {
   const { db } = app.ctx;
   const email = claims.email ?? claims.preferred_username;
   if (!email) {
@@ -143,36 +143,80 @@ async function upsertUserFromClaims(
   }
   const displayName = claims.name ?? email;
 
+  // Bootstrap platform admins: emails in this env list get platform_admin=true
+  // on every sign-in. This is the chicken-and-egg workaround for setting up
+  // the first SANTECH admin — no UI required to grant admin to myself.
+  const platformAdminEmails = (app.ctx.env.PLATFORM_ADMIN_EMAILS ?? '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  const isPlatformAdmin = platformAdminEmails.includes(email.toLowerCase());
+
+  // Resolve the user's home org from their Microsoft tenant ID when a
+  // matching organizations.msft_tenant_id row exists. This is how customer
+  // admins get mapped to their own org: we tag the org with their tenant,
+  // they sign in, they land in their own scope automatically.
+  let resolvedHomeOrgId: string | null = null;
+  if (claims.tid) {
+    const tenantMatch = await db.query.organizations.findFirst({
+      where: eq(schema.organizations.msftTenantId, claims.tid),
+    });
+    if (tenantMatch) resolvedHomeOrgId = tenantMatch.id;
+  }
+
   // Lookup existing user by email.
   let user = await db.query.users.findFirst({
     where: eq(schema.users.email, email),
   });
 
   if (!user) {
-    // First sign-in — create a user record bound to the first end_customer
-    // org as a placeholder home org. This is a minimal provisioning model:
-    // all signed-in users share the same home org until we add per-tenant
-    // mapping. The organization IDs are fine for running admin operations;
-    // per-customer scoping is a separate schema + policy change.
-    const endCustomer = await db.query.organizations.findFirst({
+    // First sign-in — create a user record. Home org preference:
+    //   1. Tenant-mapped org (claims.tid → organizations.msft_tenant_id)
+    //   2. First end_customer org (placeholder — unmapped tenant fallback)
+    const fallback = await db.query.organizations.findFirst({
       where: eq(schema.organizations.type, 'end_customer'),
     });
-    if (!endCustomer) {
-      app.log.error('auth: no end_customer org exists — cannot auto-provision user');
+    const homeOrgId = resolvedHomeOrgId ?? fallback?.id;
+    if (!homeOrgId) {
+      app.log.error('auth: no home org available — cannot auto-provision user');
       return null;
     }
     const [created] = await db
       .insert(schema.users)
       .values({
-        homeOrganizationId: endCustomer.id,
+        homeOrganizationId: homeOrgId,
         email,
         displayName,
+        platformAdmin: isPlatformAdmin,
       })
       .returning();
     if (!created) return null;
     user = created;
-    app.log.info({ userId: user.id, email }, 'auth: provisioned new user from MS sign-in');
+    app.log.info(
+      { userId: user.id, email, platformAdmin: isPlatformAdmin, homeOrgId },
+      'auth: provisioned new user from MS sign-in',
+    );
+  } else {
+    // Keep platform_admin in sync with env on every sign-in. Also update
+    // homeOrg if the tenant mapping has changed (rare but possible).
+    const updates: Record<string, unknown> = {};
+    if (user.platformAdmin !== isPlatformAdmin) updates.platformAdmin = isPlatformAdmin;
+    if (resolvedHomeOrgId && user.homeOrganizationId !== resolvedHomeOrgId) {
+      updates.homeOrganizationId = resolvedHomeOrgId;
+    }
+    if (Object.keys(updates).length > 0) {
+      const [updated] = await db
+        .update(schema.users)
+        .set(updates)
+        .where(eq(schema.users.id, user.id))
+        .returning();
+      if (updated) user = updated;
+    }
   }
 
-  return { userId: user.id, organizationId: user.homeOrganizationId };
+  return {
+    userId: user.id,
+    organizationId: user.homeOrganizationId,
+    platformAdmin: user.platformAdmin,
+  };
 }

@@ -22,8 +22,9 @@ export default async function QrResolvePage({
 
   // Always resolve the hub here so we know whether the owning org wants a
   // scan cookie. Avoids an extra network hop on the /a/<code> side and
-  // keeps the logic centralized at the QR entry point.
-  const hub = await resolveAssetHub(qrCode);
+  // keeps the logic centralized at the QR entry point. source=qr tags the
+  // audit event as an actual QR scan (vs a direct URL load on /a/).
+  const hub = await resolveAssetHub(qrCode, 'qr');
 
   // Unknown/inactive QR → let /a/<code> show a 404. Nothing to protect yet.
   if (hub?.organization.requireScanAccess) {

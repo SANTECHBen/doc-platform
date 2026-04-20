@@ -695,16 +695,116 @@ export async function createLesson(
   return res.json();
 }
 
+export interface AdminLesson {
+  id: string;
+  trainingModuleId: string;
+  title: string;
+  bodyMarkdown: string | null;
+  streamPlaybackId: string | null;
+  orderingHint: number;
+}
+
+export interface AdminQuizQuestion {
+  prompt: string;
+  options: string[];
+  correctIndex: number;
+  explanation?: string;
+}
+
+export interface AdminActivity {
+  id: string;
+  trainingModuleId: string;
+  kind: 'quiz' | 'checklist' | 'procedure_signoff' | 'video_knowledge_check' | 'practical';
+  title: string;
+  config: { questions?: AdminQuizQuestion[] } & Record<string, unknown>;
+  weight: number;
+  orderingHint: number;
+}
+
+export interface AdminTrainingModuleDetail {
+  id: string;
+  title: string;
+  description: string | null;
+  estimatedMinutes: number | null;
+  competencyTag: string | null;
+  passThreshold: number;
+  orderingHint: number;
+  contentPack: {
+    id: string;
+    name: string;
+    versionNumber: number;
+    versionLabel: string | null;
+    status: 'draft' | 'in_review' | 'published' | 'archived';
+  };
+  lessons: AdminLesson[];
+  activities: AdminActivity[];
+}
+
+export async function getTrainingModule(id: string): Promise<AdminTrainingModuleDetail | null> {
+  const res = await fetch(
+    `${API_BASE}/admin/training-modules/${encodeURIComponent(id)}`,
+    { cache: 'no-store', headers: await authHeaders() },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function updateTrainingModule(
+  id: string,
+  body: Partial<{
+    title: string;
+    description: string | null;
+    estimatedMinutes: number | null;
+    competencyTag: string | null;
+    passThreshold: number;
+    orderingHint: number;
+  }>,
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/training-modules/${encodeURIComponent(id)}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+export async function deleteTrainingModule(id: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/training-modules/${encodeURIComponent(id)}`,
+    { method: 'DELETE', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+export async function updateLesson(
+  id: string,
+  body: Partial<{ title: string; bodyMarkdown: string | null; orderingHint: number }>,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/admin/lessons/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+export async function deleteLesson(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/admin/lessons/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
 export async function createQuizActivity(
   moduleId: string,
   body: {
     title: string;
-    questions: Array<{
-      prompt: string;
-      options: string[];
-      correctIndex: number;
-      explanation?: string;
-    }>;
+    questions: AdminQuizQuestion[];
   },
 ): Promise<{ id: string }> {
   const res = await fetch(
@@ -717,6 +817,31 @@ export async function createQuizActivity(
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return res.json();
+}
+
+export async function updateActivity(
+  id: string,
+  body: Partial<{
+    title: string;
+    questions: AdminQuizQuestion[];
+    weight: number;
+    orderingHint: number;
+  }>,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/admin/activities/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+export async function deleteActivity(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/admin/activities/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }
 
 // --- Parts authoring + BOM ------------------------------------------------
