@@ -328,6 +328,24 @@ function PartDetailOverlay({
   const [openDoc, setOpenDoc] = useState<DocumentBody | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
 
+  // Cache part metadata by ID so the breadcrumb can render every ancestor's
+  // name without refetching when we pop back. Seed from the BOM for the
+  // initial entry (we already have its name); deeper entries populate as
+  // getPartResources resolves them.
+  const [partMeta, setPartMeta] = useState<
+    Record<string, { displayName: string; oemPartNumber: string }>
+  >(() => {
+    const seed: Record<string, { displayName: string; oemPartNumber: string }> = {};
+    const initial = bomRows.find((r) => r.partId === initialPartId);
+    if (initial && initial.oemPartNumber) {
+      seed[initialPartId] = {
+        displayName: initial.displayName,
+        oemPartNumber: initial.oemPartNumber,
+      };
+    }
+    return seed;
+  });
+
   function goBack() {
     if (depth === 0) {
       onClose();
@@ -339,6 +357,19 @@ function PartDetailOverlay({
 
   function drillInto(childId: string) {
     setStack((s) => [...s, childId]);
+    setActive('overview');
+  }
+
+  // Jump to an arbitrary ancestor depth via breadcrumb tap. idx is the
+  // zero-based index in the stack; -1 closes the overlay entirely (the
+  // asset root).
+  function jumpTo(idx: number) {
+    if (idx < 0) {
+      onClose();
+      return;
+    }
+    if (idx >= stack.length - 1) return;
+    setStack((s) => s.slice(0, idx + 1));
     setActive('overview');
   }
 
@@ -357,14 +388,27 @@ function PartDetailOverlay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [depth]);
 
-  // Refetch resources whenever the selected part changes.
+  // Refetch resources whenever the selected part changes. Cache the part's
+  // display info so the breadcrumb can keep rendering it after we navigate.
   useEffect(() => {
     let cancelled = false;
     setData(null);
     setError(null);
     getPartResources(currentPartId, hub.assetInstance.id)
       .then((r) => {
-        if (!cancelled) setData(r);
+        if (cancelled) return;
+        setData(r);
+        setPartMeta((prev) =>
+          prev[r.part.id]
+            ? prev
+            : {
+                ...prev,
+                [r.part.id]: {
+                  displayName: r.part.displayName,
+                  oemPartNumber: r.part.oemPartNumber,
+                },
+              },
+        );
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -433,6 +477,9 @@ function PartDetailOverlay({
           hub={hub}
           componentCount={data?.components.length ?? 0}
           onImageTap={() => setLightboxOpen(true)}
+          stack={stack}
+          partMeta={partMeta}
+          onJump={jumpTo}
         />
 
         <div key={active} className="tab-pane flex flex-col gap-4">
@@ -532,13 +579,23 @@ function PartNameplate({
   hub,
   componentCount,
   onImageTap,
+  stack,
+  partMeta,
+  onJump,
 }: {
   part: PartResources['part'] | null;
   bomRow: BomEntry | undefined;
   hub: AssetHubPayload;
   componentCount: number;
   onImageTap: () => void;
+  stack: string[];
+  partMeta: Record<string, { displayName: string; oemPartNumber: string }>;
+  onJump: (idx: number) => void;
 }) {
+  // Build the breadcrumb from root (asset) → stack ancestors. We exclude the
+  // last entry because that's the part the nameplate's title already shows.
+  const ancestors = stack.slice(0, -1);
+
   return (
     <header className="nameplate">
       <span className="corner-mark tl" />
@@ -546,11 +603,80 @@ function PartNameplate({
       <span className="corner-mark bl" />
       <span className="corner-mark br" />
 
-      <div className="nameplate-top">
+      <div className="nameplate-top" style={{ flexWrap: 'wrap' }}>
         <span className="led led-ok" />
-        <span className="caption">
-          {hub.assetModel.displayName} · S/N {hub.assetInstance.serialNumber}
-        </span>
+        <nav
+          aria-label="Part hierarchy"
+          className="caption"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            flexWrap: 'wrap',
+            minWidth: 0,
+          }}
+        >
+          {/* Root: the asset itself — tap to close the overlay and return. */}
+          <button
+            type="button"
+            onClick={() => onJump(-1)}
+            className="truncate"
+            style={{
+              color: 'rgb(var(--ink-brand))',
+              fontFamily: 'inherit',
+              background: 'none',
+              border: 0,
+              padding: 0,
+              cursor: 'pointer',
+              textTransform: 'none',
+              fontSize: '10.5px',
+              letterSpacing: '0.1em',
+            }}
+            title="Back to asset"
+          >
+            {hub.assetModel.displayName}
+          </button>
+          {/* Intermediate ancestors */}
+          {ancestors.map((ancestorId, i) => {
+            const meta = partMeta[ancestorId];
+            return (
+              <span
+                key={ancestorId}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              >
+                <span style={{ opacity: 0.5 }}>→</span>
+                <button
+                  type="button"
+                  onClick={() => onJump(i)}
+                  style={{
+                    color: 'rgb(var(--ink-secondary))',
+                    fontFamily: 'inherit',
+                    background: 'none',
+                    border: 0,
+                    padding: 0,
+                    cursor: 'pointer',
+                    textTransform: 'none',
+                    fontSize: '10.5px',
+                    letterSpacing: '0.1em',
+                  }}
+                  title={`Jump to ${meta?.displayName ?? 'ancestor'}`}
+                >
+                  {meta?.oemPartNumber ?? '…'}
+                </button>
+              </span>
+            );
+          })}
+          {/* Current part — shown as a non-interactive tail so the trail reads
+              cleanly even though the nameplate's title below also shows it. */}
+          {part && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ opacity: 0.5 }}>→</span>
+              <span style={{ color: 'rgb(var(--ink-primary))', fontWeight: 600 }}>
+                {part.oemPartNumber}
+              </span>
+            </span>
+          )}
+        </nav>
       </div>
 
       <div className="nameplate-row">
