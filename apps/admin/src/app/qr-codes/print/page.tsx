@@ -104,9 +104,10 @@ function PrintSheetInner() {
           align-items: center;
           gap: 5pt;
           padding-left: 4pt;
-          padding-bottom: 4pt;
+          padding-bottom: 3pt;
           border-bottom: 0.5pt solid #d4d4d4;
-          margin-bottom: 6pt;
+          margin-bottom: 4pt;
+          flex-shrink: 0;
         }
         .sticker-brandmark {
           width: 11pt;
@@ -140,33 +141,34 @@ function PrintSheetInner() {
           color: #6b6b6b;
         }
 
-        /* Vertical main: identification block on top, QR centered below.
-           The 2.5" square is too narrow for a side-by-side layout once the
-           QR hits 96pt — the ident column collapses. Vertical gives both
-           pieces the room they need. */
+        /* Vertical main: ident block on top, QR centered below. Content is
+           budgeted for a 2.5" sticker — 180pt gross, ~165pt after padding,
+           minus header (20pt) and footer (15pt) leaves ~130pt for main.
+           Ident (~30pt) + QR (82pt + 7pt border/pad) fits with headroom. */
         .sticker-main {
           flex: 1;
           display: flex;
           flex-direction: column;
-          gap: 6pt;
+          gap: 4pt;
           padding-left: 4pt;
           padding-right: 2pt;
           min-height: 0;
+          overflow: hidden;
         }
         .sticker-ident {
           display: flex;
           flex-direction: column;
-          gap: 3pt;
+          gap: 2pt;
+          flex-shrink: 0;
         }
         .sticker-model {
-          font-size: 11.5pt;
+          font-size: 11pt;
           font-weight: 600;
-          line-height: 1.05;
+          line-height: 1.1;
           letter-spacing: -0.012em;
           overflow: hidden;
-          display: -webkit-box;
-          -webkit-line-clamp: 2;
-          -webkit-box-orient: vertical;
+          text-overflow: ellipsis;
+          white-space: nowrap;
           color: #0f1114;
         }
         .sticker-serial {
@@ -183,7 +185,7 @@ function PrintSheetInner() {
           color: #6b6b6b;
         }
         .sticker-serial-value {
-          font-size: 10pt;
+          font-size: 9.5pt;
           font-weight: 600;
           color: #0B5FBF;
         }
@@ -204,29 +206,21 @@ function PrintSheetInner() {
           margin-right: 3pt;
         }
 
-        /* QR + "scan" CTA, stacked. The QR gets a discrete bracketed frame
-           that reads as "calibrated marker" rather than "generic box". */
+        /* QR sits at the bottom of main. The QR visual pattern is universally
+           recognized — no textual "scan" hint needed, saves vertical space. */
         .sticker-qr-col {
           display: flex;
           flex-direction: column;
           align-items: center;
-          gap: 3pt;
+          margin-top: auto;
+          flex-shrink: 0;
         }
         .sticker-qr {
           position: relative;
-          padding: 3pt;
+          padding: 2.5pt;
           background: white;
           border: 0.5pt solid #0f1114;
           border-radius: 2pt;
-        }
-        .sticker-qr-hint {
-          font-size: 5.5pt;
-          font-weight: 700;
-          letter-spacing: 0.16em;
-          text-transform: uppercase;
-          color: #0B5FBF;
-          text-align: center;
-          line-height: 1.15;
         }
 
         /* Footer — unique code + URL. Thin top rule reads as "manufacturer
@@ -236,14 +230,15 @@ function PrintSheetInner() {
           align-items: center;
           justify-content: space-between;
           gap: 6pt;
-          padding-top: 4pt;
+          padding-top: 3pt;
           padding-left: 4pt;
-          margin-top: 6pt;
+          margin-top: 4pt;
           border-top: 0.5pt solid #d4d4d4;
           font-family: 'IBM Plex Mono', ui-monospace, monospace;
           font-size: 5.5pt;
           color: #6b6b6b;
           letter-spacing: 0.06em;
+          flex-shrink: 0;
         }
         .sticker-footer-code {
           font-weight: 600;
@@ -296,25 +291,24 @@ function PrintSheetInner() {
                         {c.assetInstance?.serialNumber ?? '—'}
                       </span>
                     </div>
-                    {c.assetInstance?.siteName && (
+                    {(c.assetInstance?.siteName || c.label) && (
                       <div className="sticker-meta">
-                        <span className="sticker-meta-label">Site</span>
-                        {c.assetInstance.siteName}
-                      </div>
-                    )}
-                    {c.label && (
-                      <div className="sticker-meta">
-                        <span className="sticker-meta-label">Loc</span>
-                        {c.label}
+                        <span className="sticker-meta-label">
+                          {c.assetInstance?.siteName ? 'Site' : 'Loc'}
+                        </span>
+                        {c.assetInstance?.siteName
+                          ? c.label
+                            ? `${c.assetInstance.siteName} · ${c.label}`
+                            : c.assetInstance.siteName
+                          : c.label}
                       </div>
                     )}
                   </div>
 
                   <div className="sticker-qr-col">
                     <div className="sticker-qr">
-                      <QRCodeSVG value={url} size={96} level="M" includeMargin={false} />
+                      <QRCodeSVG value={url} size={82} level="M" includeMargin={false} />
                     </div>
-                    <div className="sticker-qr-hint">Scan to view</div>
                   </div>
                 </div>
 
