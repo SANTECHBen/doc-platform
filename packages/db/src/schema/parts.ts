@@ -78,6 +78,38 @@ export const partReferences = pgTable('part_references', {
   context: text('context'),
 });
 
+// PartComponent: part-of-part hierarchy. A Motor is a Part; its Bearing is
+// another Part that's a Component of Motor. This is distinct from bom_entries
+// (which attaches parts directly to an asset model) — it lets authors curate
+// the internal structure of a complex part. Technicians drill in on the PWA
+// to find replacement parts at any depth.
+//
+// The same child can appear under multiple parents (a bearing SKU shared
+// across two motor models). Parent ↔ child are not exclusive roles — a part
+// can be both a child of one part and a parent of others.
+export const partComponents = pgTable(
+  'part_components',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    parentPartId: uuid('parent_part_id')
+      .notNull()
+      .references(() => parts.id, { onDelete: 'cascade' }),
+    childPartId: uuid('child_part_id')
+      .notNull()
+      .references(() => parts.id, { onDelete: 'cascade' }),
+    positionRef: text('position_ref'),
+    quantity: integer('quantity').notNull().default(1),
+    notes: text('notes'),
+    orderingHint: integer('ordering_hint').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    uniqParentChildPos: unique().on(t.parentPartId, t.childPartId, t.positionRef),
+    parentIdx: index('part_components_parent_idx').on(t.parentPartId),
+    childIdx: index('part_components_child_idx').on(t.childPartId),
+  }),
+);
+
 // PartDocument: explicit authored link between a Part and a Document within
 // a ContentPackVersion. Authoring granularity is deliberately per-version
 // (not per-Part global) — a doc only exists inside its version, and OEMs
@@ -143,5 +175,6 @@ export const bomEntriesRelations = relations(bomEntries, ({ one }) => ({
 export type Part = typeof parts.$inferSelect;
 export type BomEntry = typeof bomEntries.$inferSelect;
 export type PartReference = typeof partReferences.$inferSelect;
+export type PartComponent = typeof partComponents.$inferSelect;
 export type PartDocument = typeof partDocuments.$inferSelect;
 export type PartTrainingModule = typeof partTrainingModules.$inferSelect;

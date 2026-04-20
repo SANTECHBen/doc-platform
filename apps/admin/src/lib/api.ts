@@ -757,6 +757,60 @@ export async function removeBomEntry(id: string): Promise<void> {
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }
 
+// --- Part components (parent → children hierarchy) -----------------------
+
+export interface PartComponent {
+  linkId: string;
+  childPartId: string;
+  oemPartNumber: string;
+  displayName: string;
+  description: string | null;
+  positionRef: string | null;
+  quantity: number;
+  notes: string | null;
+  orderingHint: number;
+  imageUrl: string | null;
+}
+
+export async function listPartComponents(partId: string): Promise<PartComponent[]> {
+  const res = await fetch(
+    `${API_BASE}/admin/parts/${encodeURIComponent(partId)}/components`,
+    { cache: 'no-store', headers: authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function addPartComponent(
+  partId: string,
+  body: {
+    childPartId: string;
+    positionRef?: string;
+    quantity: number;
+    notes?: string;
+    orderingHint?: number;
+  },
+): Promise<{ id: string }> {
+  const res = await fetch(
+    `${API_BASE}/admin/parts/${encodeURIComponent(partId)}/components`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function removePartComponent(linkId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/part-components/${encodeURIComponent(linkId)}`,
+    { method: 'DELETE', headers: authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
 // --- Part ↔ Document / TrainingModule linking -----------------------------
 
 export interface LinkedPart {

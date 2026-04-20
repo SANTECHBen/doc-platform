@@ -74,13 +74,51 @@ export async function registerPartsRoutes(app: FastifyInstance) {
       });
       if (!part) return reply.notFound('Part not found.');
 
+      // Components are part-of-part and aren't version-scoped — a motor
+      // always has its bearings regardless of the asset's pinned content
+      // pack version. Fetch these alongside the version-scoped resources.
+      const componentLinks = await db.query.partComponents.findMany({
+        where: eq(schema.partComponents.parentPartId, partId),
+      });
+      const childIds = [...new Set(componentLinks.map((l) => l.childPartId))];
+      const childParts =
+        childIds.length > 0
+          ? await db.query.parts.findMany({
+              where: inArray(schema.parts.id, childIds),
+            })
+          : [];
+      const childById = new Map(childParts.map((p) => [p.id, p]));
+      const components = componentLinks
+        .map((l) => {
+          const c = childById.get(l.childPartId);
+          if (!c) return null;
+          return {
+            linkId: l.id,
+            childPartId: c.id,
+            oemPartNumber: c.oemPartNumber,
+            displayName: c.displayName,
+            description: c.description,
+            positionRef: l.positionRef,
+            quantity: l.quantity,
+            orderingHint: l.orderingHint,
+            imageUrl: c.imageStorageKey ? storage.publicUrl(c.imageStorageKey) : null,
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null)
+        .sort(
+          (a, b) =>
+            a.orderingHint - b.orderingHint || a.displayName.localeCompare(b.displayName),
+        );
+
       // No pinned version = no authored resources to show. Return the part
-      // info alone so the PWA can still render the detail view.
+      // info + components (not version-scoped) so the PWA can still render
+      // the detail view.
       if (!pinnedVersionId) {
         return {
           part: mapPart(part, storage),
           documents: [],
           trainingModules: [],
+          components,
         };
       }
 
@@ -141,6 +179,7 @@ export async function registerPartsRoutes(app: FastifyInstance) {
         part: mapPart(part, storage),
         documents,
         trainingModules,
+        components,
       };
     },
   );

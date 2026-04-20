@@ -43,6 +43,13 @@
       "when": 1776691528763,
       "tag": "0005_fresh_violations",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1776693523019,
+      "tag": "0006_fresh_wild_pack",
+      "breakpoints": true
     }
   ]
 }

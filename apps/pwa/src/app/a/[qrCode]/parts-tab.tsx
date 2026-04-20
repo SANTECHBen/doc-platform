@@ -292,13 +292,13 @@ function ImageLightbox({
 // asset hub's shell: fixed top bar, scrolling content, bottom tab bar.
 // Tabs: Overview, Documents, Training, Parts (sibling parts for quick jump),
 // Assistant (AI scoped to this part's linked docs via partId).
-type PartTabKey = 'overview' | 'documents' | 'training' | 'parts' | 'chat';
+type PartTabKey = 'overview' | 'documents' | 'training' | 'components' | 'chat';
 
 const PART_TABS: Array<{ key: PartTabKey; label: string; icon: LucideIcon }> = [
   { key: 'overview', label: 'Overview', icon: LayoutGrid },
   { key: 'documents', label: 'Documents', icon: FileText },
   { key: 'training', label: 'Training', icon: GraduationCap },
-  { key: 'parts', label: 'Parts', icon: Wrench },
+  { key: 'components', label: 'Components', icon: Wrench },
   { key: 'chat', label: 'Assistant', icon: MessageSquare },
 ];
 
@@ -315,30 +315,49 @@ function PartDetailOverlay({
   qrCode: string;
   onClose: () => void;
 }) {
-  const [currentPartId, setCurrentPartId] = useState(initialPartId);
+  // Navigation stack — drilling into a component pushes; the top-left button
+  // pops. At depth 0 the button closes the whole overlay. Mirrors native
+  // mobile nav. Stored as a plain array of partIds.
+  const [stack, setStack] = useState<string[]>([initialPartId]);
+  const currentPartId = stack[stack.length - 1]!;
+  const depth = stack.length - 1;
+
   const [active, setActive] = useState<PartTabKey>('overview');
   const [data, setData] = useState<PartResources | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openDoc, setOpenDoc] = useState<DocumentBody | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
 
-  // Escape closes; body scroll locked while open.
+  function goBack() {
+    if (depth === 0) {
+      onClose();
+      return;
+    }
+    setStack((s) => s.slice(0, -1));
+    setActive('overview');
+  }
+
+  function drillInto(childId: string) {
+    setStack((s) => [...s, childId]);
+    setActive('overview');
+  }
+
+  // Escape triggers back (pops or closes); body scroll locked while open.
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') goBack();
     }
     document.addEventListener('keydown', onKey);
     return () => {
       document.body.style.overflow = prev;
       document.removeEventListener('keydown', onKey);
     };
-  }, [onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [depth]);
 
-  // Refetch resources whenever the selected part changes. Null while fetching
-  // so tabs can show a loading state. Parts tab navigation and initial open
-  // both flow through this.
+  // Refetch resources whenever the selected part changes.
   useEffect(() => {
     let cancelled = false;
     setData(null);
@@ -364,7 +383,9 @@ function PartDetailOverlay({
     }
   }
 
-  const bomRow = bomRows.find((r) => r.partId === currentPartId);
+  // Only the top-level (initial) part has a BOM row in the asset's BOM; deeper
+  // components are looked up via getPartResources and don't have BOM context.
+  const bomRow = depth === 0 ? bomRows.find((r) => r.partId === currentPartId) : undefined;
 
   return (
     <div
@@ -372,13 +393,15 @@ function PartDetailOverlay({
       role="dialog"
       aria-modal="true"
       aria-label={data?.part.displayName ?? 'Part detail'}
+      style={{ display: 'flex', flexDirection: 'column' }}
     >
       <header className="doc-overlay-bar">
         <button
           type="button"
-          onClick={onClose}
+          onClick={goBack}
           className="app-topbar-btn"
-          aria-label="Back"
+          aria-label={depth === 0 ? 'Close' : 'Back to parent part'}
+          title={depth === 0 ? 'Close' : 'Back'}
         >
           <ChevronLeft size={22} strokeWidth={2} />
         </button>
@@ -398,78 +421,81 @@ function PartDetailOverlay({
         </button>
       </header>
 
-      <div className="app-scroll page-enter flex flex-col gap-4">
-        {error && (
-          <p className="rounded-md border border-signal-fault/40 bg-signal-fault/10 p-3 text-sm text-signal-fault">
-            {error}
-          </p>
-        )}
-
-        <div key={active} className="tab-pane flex flex-col gap-4">
-          {active === 'overview' && (
-            <PartOverviewPane
-              part={data?.part ?? null}
-              bomRow={bomRow}
-              onImageTap={() => setLightboxOpen(true)}
-              docCount={data?.documents.length ?? 0}
-              trainingCount={data?.trainingModules.length ?? 0}
-            />
-          )}
-
-          {active === 'documents' && (
-            <PartDocumentsPane
-              data={data}
-              onOpenDocument={openDocument}
-            />
-          )}
-
-          {active === 'training' && <PartTrainingPane data={data} />}
-
-          {active === 'parts' && (
-            <SiblingPartsPane
-              rows={bomRows}
-              currentPartId={currentPartId}
-              onPick={(id) => {
-                setCurrentPartId(id);
-                setActive('overview');
-              }}
-            />
-          )}
-
-          {active === 'chat' && (
-            <ChatTab
-              hub={hub}
-              qrCode={qrCode}
-              partId={currentPartId}
-              partName={data?.part.displayName ?? bomRow?.displayName}
-            />
-          )}
+      {/* Top-tab segbar — differentiates from the equipment page (bottom tabs). */}
+      <div
+        className="px-3 pt-3"
+        style={{
+          background: 'rgb(var(--surface-base))',
+          borderBottom: '1px solid rgb(var(--line-subtle))',
+        }}
+      >
+        <div className="segbar" role="tablist" aria-label="Part sections">
+          {PART_TABS.map((t) => {
+            const Icon = t.icon;
+            const isActive = active === t.key;
+            const count = partTabCount(data, t.key);
+            return (
+              <button
+                key={t.key}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                data-active={isActive}
+                onClick={() => setActive(t.key)}
+                className="segbar-item"
+              >
+                <Icon size={14} strokeWidth={isActive ? 2.25 : 2} />
+                <span>{t.label}</span>
+                {count !== null && count > 0 && (
+                  <span className="segbar-count">{count}</span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      <nav className="app-tabbar" role="tablist" aria-label="Part sections">
-        {PART_TABS.map((t) => {
-          const Icon = t.icon;
-          const isActive = active === t.key;
-          const count = partTabCount(data, t.key);
-          return (
-            <button
-              key={t.key}
-              role="tab"
-              aria-selected={isActive}
-              data-active={isActive}
-              onClick={() => setActive(t.key)}
-              className="app-tabbar-item"
-            >
-              <Icon size={22} strokeWidth={isActive ? 2.25 : 1.75} />
-              <span>{t.label}</span>
-              {count !== null && count > 0 && (
-                <span className="app-tabbar-count tabular-nums">{count}</span>
-              )}
-            </button>
-          );
-        })}
-      </nav>
+      <div className="flex-1 overflow-y-auto">
+        <div className="page-enter flex flex-col gap-4 px-3.5 pb-6 pt-4">
+          {error && (
+            <p className="rounded-md border border-signal-fault/40 bg-signal-fault/10 p-3 text-sm text-signal-fault">
+              {error}
+            </p>
+          )}
+
+          <div key={active} className="tab-pane flex flex-col gap-4">
+            {active === 'overview' && (
+              <PartOverviewPane
+                part={data?.part ?? null}
+                bomRow={bomRow}
+                onImageTap={() => setLightboxOpen(true)}
+                docCount={data?.documents.length ?? 0}
+                trainingCount={data?.trainingModules.length ?? 0}
+                componentCount={data?.components.length ?? 0}
+              />
+            )}
+
+            {active === 'documents' && (
+              <PartDocumentsPane data={data} onOpenDocument={openDocument} />
+            )}
+
+            {active === 'training' && <PartTrainingPane data={data} />}
+
+            {active === 'components' && (
+              <ComponentsPane data={data} onDrillInto={drillInto} />
+            )}
+
+            {active === 'chat' && (
+              <ChatTab
+                hub={hub}
+                qrCode={qrCode}
+                partId={currentPartId}
+                partName={data?.part.displayName ?? bomRow?.displayName}
+              />
+            )}
+          </div>
+        </div>
+      </div>
 
       {lightboxOpen && data?.part.imageUrl && (
         <ImageLightbox
@@ -491,6 +517,8 @@ function partTabCount(data: PartResources | null, key: PartTabKey): number | nul
   switch (key) {
     case 'documents':
       return data.documents.length;
+    case 'components':
+      return data.components.length;
     case 'training':
       return data.trainingModules.length;
     default:
@@ -504,12 +532,14 @@ function PartOverviewPane({
   onImageTap,
   docCount,
   trainingCount,
+  componentCount,
 }: {
   part: PartResources['part'] | null;
   bomRow: BomEntry | undefined;
   onImageTap: () => void;
   docCount: number;
   trainingCount: number;
+  componentCount: number;
 }) {
   if (!part) {
     return <p className="py-12 text-center text-sm text-ink-tertiary">Loading…</p>;
@@ -574,6 +604,10 @@ function PartOverviewPane({
           <div className="spec-field">
             <span className="cap">Training</span>
             <span className="val mono">{trainingCount}</span>
+          </div>
+          <div className="spec-field">
+            <span className="cap">Components</span>
+            <span className="val mono">{componentCount}</span>
           </div>
           {part.discontinued && (
             <div className="spec-field">
@@ -701,78 +735,77 @@ function PartTrainingPane({ data }: { data: PartResources | null }) {
   );
 }
 
-function SiblingPartsPane({
-  rows,
-  currentPartId,
-  onPick,
+// Components pane — shows the current part's sub-parts (children), not
+// sibling parts on the asset. Tapping drills into the child, pushing it
+// onto the nav stack so back returns to this part.
+function ComponentsPane({
+  data,
+  onDrillInto,
 }: {
-  rows: BomEntry[];
-  currentPartId: string;
-  onPick: (partId: string) => void;
+  data: PartResources | null;
+  onDrillInto: (childPartId: string) => void;
 }) {
+  if (!data) {
+    return <p className="py-8 text-center text-sm text-ink-tertiary">Loading…</p>;
+  }
+  if (data.components.length === 0) {
+    return (
+      <p className="py-10 text-center text-sm text-ink-tertiary">
+        No sub-components authored for this part yet.
+      </p>
+    );
+  }
   return (
     <ul className="flex flex-col gap-1.5">
-      {rows.map((r) => {
-        const isCurrent = r.partId === currentPartId;
-        return (
-          <li key={r.bomEntryId}>
-            <button
-              type="button"
-              onClick={() => !isCurrent && onPick(r.partId)}
-              disabled={isCurrent}
-              className={`flex w-full items-center gap-3 rounded-md border px-3 py-2.5 text-left transition ${
-                isCurrent
-                  ? 'border-brand/50 bg-brand-soft'
-                  : 'border-line bg-surface-raised hover:border-brand/40'
-              }`}
-            >
-              {r.imageUrl ? (
-                <div
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded p-0.5"
-                  style={{
-                    background: 'rgb(var(--surface-inset))',
-                    border: '1px solid rgb(var(--line-subtle))',
-                  }}
-                >
-                  <img
-                    src={r.imageUrl}
-                    alt=""
-                    className="max-h-full max-w-full object-contain"
-                  />
-                </div>
-              ) : (
-                <div
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded text-ink-tertiary"
-                  style={{
-                    background: 'rgb(var(--surface-inset))',
-                    border: '1px solid rgb(var(--line-subtle))',
-                  }}
-                >
-                  <Package size={16} strokeWidth={1.5} />
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-2">
-                  <span className="part-num truncate">{r.oemPartNumber}</span>
-                  <span className="truncate text-sm text-ink-primary">
-                    {r.displayName}
-                  </span>
-                </div>
-                {r.positionRef && (
-                  <div className="font-mono text-[11px] text-ink-tertiary">
-                    Pos {r.positionRef}
-                  </div>
-                )}
+      {data.components.map((c) => (
+        <li key={c.linkId}>
+          <button
+            type="button"
+            onClick={() => onDrillInto(c.childPartId)}
+            aria-label={`Drill into ${c.displayName}`}
+            className="flex w-full items-center gap-3 rounded-md border border-line bg-surface-raised px-3 py-2.5 text-left transition hover:border-brand/40"
+          >
+            {c.imageUrl ? (
+              <div
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded p-0.5"
+                style={{
+                  background: 'rgb(var(--surface-inset))',
+                  border: '1px solid rgb(var(--line-subtle))',
+                }}
+              >
+                <img
+                  src={c.imageUrl}
+                  alt=""
+                  className="max-h-full max-w-full object-contain"
+                />
               </div>
-              {isCurrent ? (
-                <span className="pill pill-info">Current</span>
-              ) : (
-                <ChevronRight size={16} strokeWidth={2} className="shrink-0 text-ink-tertiary" />
-              )}
-            </button>
-          </li>
-        );
-      })}
+            ) : (
+              <div
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded text-ink-tertiary"
+                style={{
+                  background: 'rgb(var(--surface-inset))',
+                  border: '1px solid rgb(var(--line-subtle))',
+                }}
+              >
+                <Package size={16} strokeWidth={1.5} />
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline gap-2">
+                <span className="part-num truncate">{c.oemPartNumber}</span>
+                <span className="truncate text-sm text-ink-primary">
+                  {c.displayName}
+                </span>
+              </div>
+              <div className="flex gap-3 font-mono text-[11px] text-ink-tertiary">
+                {c.positionRef && <span>Pos {c.positionRef}</span>}
+                <span>Qty {c.quantity}</span>
+              </div>
+            </div>
+            <ChevronRight size={16} strokeWidth={2} className="shrink-0 text-ink-tertiary" />
+          </button>
+        </li>
+      ))}
     </ul>
   );
 }

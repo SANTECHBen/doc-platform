@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ImagePlus, Plus, Wrench, X } from 'lucide-react';
+import { ImagePlus, Layers, Package, Plus, Trash2, Wrench, X } from 'lucide-react';
 import { PageHeader, PageShell, Pill } from '@/components/page-shell';
 import {
   Drawer,
@@ -14,13 +14,17 @@ import {
 } from '@/components/form';
 import { useToast } from '@/components/toast';
 import {
+  addPartComponent,
   createPart,
   listAdminParts,
   listOrganizations,
+  listPartComponents,
+  removePartComponent,
   updatePartImage,
   uploadFile,
   type AdminOrganization,
   type AdminPart,
+  type PartComponent,
 } from '@/lib/api';
 
 export default function PartsPage() {
@@ -271,6 +275,7 @@ function NewPartForm({
 
 function PartRow({ part, onRefresh }: { part: AdminPart; onRefresh: () => Promise<void> }) {
   const [uploading, setUploading] = useState(false);
+  const [componentsOpen, setComponentsOpen] = useState(false);
   const toast = useToast();
 
   async function onImagePicked(e: React.ChangeEvent<HTMLInputElement>) {
@@ -366,9 +371,312 @@ function PartRow({ part, onRefresh }: { part: AdminPart; onRefresh: () => Promis
       </td>
       <td className="px-4 py-3">{part.bomCount}</td>
       <td className="px-4 py-3">
-        {part.discontinued && <Pill tone="warning">discontinued</Pill>}
+        <div className="flex items-center gap-2">
+          {part.discontinued && <Pill tone="warning">discontinued</Pill>}
+          <button
+            type="button"
+            onClick={() => setComponentsOpen(true)}
+            className="inline-flex items-center gap-1 rounded border border-line px-2 py-1 text-xs text-ink-secondary hover:bg-surface-inset hover:text-ink-primary"
+            title="Manage sub-parts that make up this part"
+          >
+            <Layers size={12} strokeWidth={2} />
+            Components
+          </button>
+        </div>
       </td>
+      <Drawer
+        title={`Components — ${part.displayName}`}
+        open={componentsOpen}
+        onClose={() => setComponentsOpen(false)}
+      >
+        <ComponentsPanel part={part} />
+      </Drawer>
     </tr>
+  );
+}
+
+// Sub-parts drawer — shows current components of a part and lets the author
+// add/remove them. Mirrors the BOM panel pattern from asset-model detail.
+function ComponentsPanel({ part }: { part: AdminPart }) {
+  const [entries, setEntries] = useState<PartComponent[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [allParts, setAllParts] = useState<AdminPart[] | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const toast = useToast();
+
+  async function refresh() {
+    try {
+      setEntries(await listPartComponents(part.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+    listAdminParts()
+      .then(setAllParts)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [part.id]);
+
+  async function onRemove(linkId: string, childName: string) {
+    if (!confirm(`Remove "${childName}" from ${part.displayName}'s components?`)) return;
+    try {
+      await removePartComponent(linkId);
+      toast.success('Component removed');
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {error && (
+        <p className="rounded border border-signal-fault/40 bg-signal-fault/10 p-3 text-sm text-signal-fault">
+          {error}
+        </p>
+      )}
+
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-ink-secondary">
+          Sub-parts that make up <span className="font-mono text-ink-primary">{part.oemPartNumber}</span>.
+          Technicians can drill in on the PWA to find replacement parts at any depth.
+        </p>
+        <button
+          type="button"
+          onClick={() => setAddOpen(true)}
+          className="btn btn-primary btn-sm shrink-0"
+        >
+          <Plus size={13} strokeWidth={2} /> Add
+        </button>
+      </div>
+
+      {entries === null ? (
+        <p className="p-6 text-center text-sm text-ink-tertiary">Loading…</p>
+      ) : entries.length === 0 ? (
+        <p className="rounded-md border border-dashed border-line p-4 text-center text-sm text-ink-tertiary">
+          No components yet. Add a sub-part to build this part's hierarchy.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {entries.map((e) => (
+            <li
+              key={e.linkId}
+              className="flex items-center gap-3 rounded-md border border-line bg-surface-raised px-3 py-2.5"
+            >
+              {e.imageUrl ? (
+                <img
+                  src={e.imageUrl}
+                  alt=""
+                  className="h-10 w-10 shrink-0 rounded object-contain p-0.5"
+                  style={{
+                    background: 'rgb(var(--surface-inset))',
+                    border: '1px solid rgb(var(--line-subtle))',
+                  }}
+                />
+              ) : (
+                <div
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded text-ink-tertiary"
+                  style={{
+                    background: 'rgb(var(--surface-inset))',
+                    border: '1px solid rgb(var(--line-subtle))',
+                  }}
+                >
+                  <Package size={14} strokeWidth={1.5} />
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="font-mono text-xs text-ink-brand">{e.oemPartNumber}</span>
+                  <span className="truncate text-sm text-ink-primary">{e.displayName}</span>
+                </div>
+                <div className="flex gap-3 font-mono text-[11px] text-ink-tertiary">
+                  {e.positionRef && <span>Pos {e.positionRef}</span>}
+                  <span>Qty {e.quantity}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => onRemove(e.linkId, e.displayName)}
+                aria-label={`Remove ${e.displayName}`}
+                className="inline-flex h-7 w-7 items-center justify-center rounded text-ink-tertiary transition hover:bg-surface-inset hover:text-signal-fault"
+                title="Remove"
+              >
+                <Trash2 size={14} strokeWidth={2} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <Drawer
+        title="Add component"
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+      >
+        <AddComponentForm
+          parent={part}
+          allParts={allParts}
+          existingChildIds={new Set((entries ?? []).map((e) => e.childPartId))}
+          onAdded={async () => {
+            setAddOpen(false);
+            await refresh();
+          }}
+        />
+      </Drawer>
+    </div>
+  );
+}
+
+function AddComponentForm({
+  parent,
+  allParts,
+  existingChildIds,
+  onAdded,
+}: {
+  parent: AdminPart;
+  allParts: AdminPart[] | null;
+  existingChildIds: Set<string>;
+  onAdded: () => Promise<void>;
+}) {
+  const [selectedChildId, setSelectedChildId] = useState('');
+  const [search, setSearch] = useState('');
+  const [positionRef, setPositionRef] = useState('');
+  const [quantity, setQuantity] = useState('1');
+  const [notes, setNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const available = allParts
+    ? allParts
+        .filter((p) => p.id !== parent.id && !existingChildIds.has(p.id))
+        .filter((p) => {
+          const q = search.trim().toLowerCase();
+          if (!q) return true;
+          return [p.oemPartNumber, p.displayName, p.description ?? '', p.owner]
+            .join(' ')
+            .toLowerCase()
+            .includes(q);
+        })
+    : null;
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedChildId) {
+      setError('Pick a sub-part first.');
+      return;
+    }
+    const qty = parseInt(quantity, 10);
+    if (!Number.isFinite(qty) || qty < 1) {
+      setError('Quantity must be a positive integer.');
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      await addPartComponent(parent.id, {
+        childPartId: selectedChildId,
+        quantity: qty,
+        positionRef: positionRef.trim() || undefined,
+        notes: notes.trim() || undefined,
+      });
+      await onAdded();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-4">
+      {error && (
+        <p className="rounded border border-signal-fault/40 bg-signal-fault/10 p-3 text-sm text-signal-fault">
+          {error}
+        </p>
+      )}
+
+      <Field label="Search parts">
+        <TextInput
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="OEM #, name, description"
+          autoFocus
+        />
+      </Field>
+
+      <div>
+        <span className="form-label">Sub-part</span>
+        {available === null ? (
+          <p className="mt-1.5 p-3 text-sm text-ink-tertiary">Loading…</p>
+        ) : available.length === 0 ? (
+          <p className="mt-1.5 rounded border border-dashed border-line p-3 text-sm text-ink-tertiary">
+            No eligible parts. Create the sub-part in the catalog first.
+          </p>
+        ) : (
+          <ul className="mt-1.5 flex max-h-64 flex-col gap-1 overflow-y-auto rounded border border-line p-1">
+            {available.map((p) => (
+              <li key={p.id}>
+                <label
+                  className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm ${
+                    selectedChildId === p.id
+                      ? 'bg-brand-soft text-ink-primary'
+                      : 'hover:bg-surface-elevated'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="component"
+                    value={p.id}
+                    checked={selectedChildId === p.id}
+                    onChange={() => setSelectedChildId(p.id)}
+                    className="shrink-0"
+                  />
+                  <span className="font-mono text-xs text-ink-brand">{p.oemPartNumber}</span>
+                  <span className="truncate text-ink-primary">{p.displayName}</span>
+                  <span className="ml-auto shrink-0 text-xs text-ink-tertiary">{p.owner}</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Position" hint="Optional">
+          <TextInput
+            value={positionRef}
+            onChange={(e) => setPositionRef(e.target.value)}
+            placeholder="Optional"
+          />
+        </Field>
+        <Field label="Quantity" required>
+          <TextInput
+            type="number"
+            min={1}
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+          />
+        </Field>
+      </div>
+
+      <Field label="Notes">
+        <Textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Optional"
+          rows={2}
+        />
+      </Field>
+
+      <div className="flex justify-end gap-2">
+        <PrimaryButton type="submit" disabled={submitting || !selectedChildId}>
+          {submitting ? 'Adding…' : 'Add component'}
+        </PrimaryButton>
+      </div>
+    </form>
   );
 }
 

@@ -325,6 +325,17 @@ export interface PartResources {
     estimatedMinutes: number | null;
     orderingHint: number;
   }>;
+  components: Array<{
+    linkId: string;
+    childPartId: string;
+    oemPartNumber: string;
+    displayName: string;
+    description: string | null;
+    positionRef: string | null;
+    quantity: number;
+    orderingHint: number;
+    imageUrl: string | null;
+  }>;
 }
 
 export async function getPartResources(

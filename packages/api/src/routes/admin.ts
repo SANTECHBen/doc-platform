@@ -967,6 +967,107 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     },
   );
 
+  // ----- Part Components (parent → children hierarchy) ---------------------
+  // Drives the drill-down in the PWA part hub: Motor → Bearing → inner race…
+
+  app.get<{ Params: { partId: string } }>(
+    '/admin/parts/:partId/components',
+    { schema: { params: z.object({ partId: UuidSchema }) } },
+    async (request) => {
+      const { db, storage } = app.ctx;
+      const links = await db.query.partComponents.findMany({
+        where: eq(schema.partComponents.parentPartId, request.params.partId),
+      });
+      if (links.length === 0) return [];
+      const childIds = [...new Set(links.map((l) => l.childPartId))];
+      const children = await db.query.parts.findMany({
+        where: inArray(schema.parts.id, childIds),
+      });
+      const byId = new Map(children.map((p) => [p.id, p]));
+      // Sort by ordering_hint then by child name for stable UI.
+      const mapped = links
+        .map((l) => {
+          const child = byId.get(l.childPartId);
+          if (!child) return null;
+          return {
+            linkId: l.id,
+            childPartId: child.id,
+            oemPartNumber: child.oemPartNumber,
+            displayName: child.displayName,
+            description: child.description,
+            positionRef: l.positionRef,
+            quantity: l.quantity,
+            notes: l.notes,
+            orderingHint: l.orderingHint,
+            imageUrl: child.imageStorageKey ? storage.publicUrl(child.imageStorageKey) : null,
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+      mapped.sort(
+        (a, b) => a.orderingHint - b.orderingHint || a.displayName.localeCompare(b.displayName),
+      );
+      return mapped;
+    },
+  );
+
+  app.post<{
+    Params: { partId: string };
+    Body: {
+      childPartId: string;
+      positionRef?: string;
+      quantity: number;
+      notes?: string;
+      orderingHint?: number;
+    };
+  }>(
+    '/admin/parts/:partId/components',
+    {
+      schema: {
+        params: z.object({ partId: UuidSchema }),
+        body: z.object({
+          childPartId: UuidSchema,
+          positionRef: z.string().max(60).optional(),
+          quantity: z.number().int().min(1).default(1),
+          notes: z.string().max(400).optional(),
+          orderingHint: z.number().int().default(0),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const { partId } = request.params;
+      if (partId === request.body.childPartId) {
+        return reply.badRequest('A part cannot be its own component.');
+      }
+      const [created] = await db
+        .insert(schema.partComponents)
+        .values({
+          parentPartId: partId,
+          childPartId: request.body.childPartId,
+          positionRef: request.body.positionRef ?? null,
+          quantity: request.body.quantity,
+          notes: request.body.notes ?? null,
+          orderingHint: request.body.orderingHint ?? 0,
+        })
+        .returning();
+      return created;
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    '/admin/part-components/:id',
+    { schema: { params: z.object({ id: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      await db
+        .delete(schema.partComponents)
+        .where(eq(schema.partComponents.id, request.params.id));
+      return { ok: true };
+    },
+  );
+
   // ----- Part ↔ Document links ---------------------------------------------
   // These back the "link parts" authoring flow on the admin content-pack
   // detail page and the "docs for this part" lookup on the PWA parts overlay.
