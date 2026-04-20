@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ArrowUp, Camera, ShieldAlert, Sparkles, Square, X } from 'lucide-react';
+import { ArrowUp, Camera, ChevronDown, FileText, ShieldAlert, Sparkles, Square, X } from 'lucide-react';
 import type { AssetHubPayload } from '@/lib/shared-schema';
 import { streamChat, uploadFile, type ChatCitation, type UploadResult } from '@/lib/api';
 
@@ -324,33 +324,56 @@ function TurnView({ turn }: { turn: Turn }) {
         </div>
 
         {!turn.streaming && ordered.length > 0 && (
-          <div className="mt-4 border-t border-line pt-3">
-            <div className="mb-2.5 flex items-center gap-2.5">
-              <span className="caption">Sources</span>
-              <span className="h-px flex-1" style={{ background: 'rgb(var(--line-subtle))' }} />
-            </div>
-            <ol className="flex flex-col gap-1.5">
-              {ordered.map((c, idx) => (
-                <li key={c.chunkId} className="source-item">
-                  <span className="source-num">[{idx + 1}]</span>
-                  <div className="flex-1">
-                    <div className="source-title">
-                      {c.documentTitle}
-                      {c.safetyCritical && (
-                        <span className="pill pill-safety">
-                          <ShieldAlert size={10} strokeWidth={2.5} />
-                          Safety
-                        </span>
-                      )}
-                    </div>
-                    <div className="source-quote">“{c.quote}”</div>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          </div>
+          <SourcesList sources={ordered} />
         )}
       </div>
+    </div>
+  );
+}
+
+// Collapsible source list. Grounding is still emitted by the retriever and
+// cited inline as [1] [2] markers in the prose — the full list is tucked
+// behind a button so casual users aren't buried in quotes. Click to toggle.
+function SourcesList({ sources }: { sources: ChatCitation[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-3 border-t border-line pt-2.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-secondary transition hover:text-ink-primary"
+      >
+        <FileText size={12} strokeWidth={2} />
+        {sources.length} source{sources.length === 1 ? '' : 's'}
+        <ChevronDown
+          size={12}
+          strokeWidth={2.5}
+          className="transition-transform"
+          style={{ transform: open ? 'rotate(180deg)' : 'none' }}
+        />
+      </button>
+      {open && (
+        <ol className="mt-2.5 flex flex-col gap-1.5">
+          {sources.map((c, idx) => (
+            <li key={c.chunkId} className="source-item">
+              <span className="source-num">[{idx + 1}]</span>
+              <div className="flex-1">
+                <div className="source-title">
+                  {c.documentTitle}
+                  {c.safetyCritical && (
+                    <span className="pill pill-safety">
+                      <ShieldAlert size={10} strokeWidth={2.5} />
+                      Safety
+                    </span>
+                  )}
+                </div>
+                <div className="source-quote">“{c.quote}”</div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }
