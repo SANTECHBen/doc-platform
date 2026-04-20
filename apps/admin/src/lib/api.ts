@@ -109,6 +109,7 @@ export interface AdminOrganization {
   userCount: number;
   createdAt: string;
   requireScanAccess: boolean;
+  msftTenantId: string | null;
   brand: {
     primary: string | null;
     onPrimary: string | null;
@@ -120,7 +121,11 @@ export interface AdminOrganization {
 
 export async function updateOrgPrivacy(
   id: string,
-  body: { requireScanAccess: boolean },
+  body: {
+    requireScanAccess?: boolean;
+    /** Microsoft tenant UUID, or null to unlink the org from any tenant. */
+    msftTenantId?: string | null;
+  },
 ): Promise<void> {
   const res = await fetch(
     `${API_BASE}/admin/organizations/${encodeURIComponent(id)}/privacy`,

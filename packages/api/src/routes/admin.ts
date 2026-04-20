@@ -252,25 +252,49 @@ export async function registerAdminMutations(app: FastifyInstance) {
     },
   );
 
-  // Privacy settings. For now just the scan-access flag; future per-org
-  // privacy knobs (e.g., audit retention, IP allowlists) land here.
+  // Privacy + access settings — scan-gate flag and Microsoft tenant mapping.
+  // Tenant mapping is what drives per-org data scoping at sign-in: users
+  // whose Microsoft tid matches an org's msft_tenant_id land in that org's
+  // scope automatically. Both fields are patchable independently.
   app.patch<{
     Params: { id: string };
-    Body: { requireScanAccess: boolean };
+    Body: { requireScanAccess?: boolean; msftTenantId?: string | null };
   }>(
     '/admin/organizations/:id/privacy',
     {
       schema: {
         params: z.object({ id: UuidSchema }),
-        body: z.object({ requireScanAccess: z.boolean() }),
+        body: z.object({
+          requireScanAccess: z.boolean().optional(),
+          // UUID-shaped but not necessarily a UUID in our schema; Microsoft
+          // tenant IDs are UUIDs though. Null clears the mapping.
+          msftTenantId: z
+            .string()
+            .regex(
+              /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+              'must be a Microsoft tenant UUID',
+            )
+            .nullable()
+            .optional(),
+        }),
       },
     },
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const patch: Record<string, unknown> = {};
+      if (request.body.requireScanAccess !== undefined) {
+        patch.requireScanAccess = request.body.requireScanAccess;
+      }
+      if (request.body.msftTenantId !== undefined) {
+        patch.msftTenantId = request.body.msftTenantId;
+      }
+      if (Object.keys(patch).length === 0) {
+        return reply.badRequest('No fields to update.');
+      }
       const [updated] = await db
         .update(schema.organizations)
-        .set({ requireScanAccess: request.body.requireScanAccess })
+        .set(patch)
         .where(eq(schema.organizations.id, request.params.id))
         .returning();
       if (!updated) return reply.notFound();
@@ -2267,7 +2291,7 @@ export async function registerAdminListings(app: FastifyInstance) {
         ? sql`SELECT o.id, o.type, o.name, o.slug, o.parent_organization_id,
                  o.oem_code, o.created_at,
                  o.brand_primary, o.brand_on_primary, o.logo_storage_key,
-                 o.display_name_override, o.require_scan_access,
+                 o.display_name_override, o.require_scan_access, o.msft_tenant_id,
                  p.name AS parent_name,
                  (SELECT count(*) FROM sites WHERE organization_id = o.id)::int AS site_count,
                  (SELECT count(*) FROM users WHERE home_organization_id = o.id)::int AS user_count
@@ -2277,7 +2301,7 @@ export async function registerAdminListings(app: FastifyInstance) {
         : sql`SELECT o.id, o.type, o.name, o.slug, o.parent_organization_id,
                  o.oem_code, o.created_at,
                  o.brand_primary, o.brand_on_primary, o.logo_storage_key,
-                 o.display_name_override, o.require_scan_access,
+                 o.display_name_override, o.require_scan_access, o.msft_tenant_id,
                  p.name AS parent_name,
                  (SELECT count(*) FROM sites WHERE organization_id = o.id)::int AS site_count,
                  (SELECT count(*) FROM users WHERE home_organization_id = o.id)::int AS user_count
@@ -2298,6 +2322,7 @@ export async function registerAdminListings(app: FastifyInstance) {
       logo_storage_key: string | null;
       display_name_override: string | null;
       require_scan_access: boolean;
+      msft_tenant_id: string | null;
       parent_name: string | null;
       site_count: number;
       user_count: number;
@@ -2316,6 +2341,7 @@ export async function registerAdminListings(app: FastifyInstance) {
       userCount: r.user_count,
       createdAt: r.created_at,
       requireScanAccess: r.require_scan_access,
+      msftTenantId: r.msft_tenant_id,
       brand: {
         primary: r.brand_primary,
         onPrimary: r.brand_on_primary,
