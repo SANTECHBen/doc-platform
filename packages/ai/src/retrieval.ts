@@ -19,11 +19,17 @@ export interface Retriever {
    * ContentPackVersion (and optionally layered overlay versions).
    *
    * Scoping is mandatory — grounding must never leak across tenants or versions.
+   *
+   * `documentIds` further narrows the pool to a specific set of documents.
+   * Used by the part-scoped chat so answers cite only author-curated docs
+   * for the selected part. An empty array means "no docs to retrieve from"
+   * (returns nothing); `undefined` means "no additional filter".
    */
   retrieve(input: {
     query: string;
     contentPackVersionIds: string[];
     topK: number;
+    documentIds?: string[];
   }): Promise<RetrievedChunk[]>;
 }
 
@@ -36,34 +42,61 @@ export interface Retriever {
 export function createPgTextSearchRetriever(params: { db: Database }): Retriever {
   const { db } = params;
   return {
-    async retrieve({ query, contentPackVersionIds, topK }) {
+    async retrieve({ query, contentPackVersionIds, topK, documentIds }) {
       if (contentPackVersionIds.length === 0) return [];
-      const idsLiteral = `{${contentPackVersionIds.join(',')}}`;
+      if (documentIds && documentIds.length === 0) return [];
+      const versionsLiteral = `{${contentPackVersionIds.join(',')}}`;
+      const docsLiteral = documentIds ? `{${documentIds.join(',')}}` : null;
 
-      const rows = (await db.execute(
-        sql`SELECT id, document_id, content_pack_version_id, content,
-                 char_start, char_end, page,
-                 ts_rank(to_tsvector('english', content),
-                         websearch_to_tsquery('english', ${query})) AS score
-            FROM document_chunks
-            WHERE content_pack_version_id = ANY(${idsLiteral}::uuid[])
-              AND to_tsvector('english', content) @@ websearch_to_tsquery('english', ${query})
-            ORDER BY score DESC
-            LIMIT ${topK}`,
-      )) as unknown as RawRow[];
+      // When documentIds is set, add an AND clause restricting to that set.
+      // We compose the SQL conditionally rather than paramterizing the clause
+      // itself; both branches remain fully parameterized for safety.
+      const rows = docsLiteral
+        ? ((await db.execute(
+            sql`SELECT id, document_id, content_pack_version_id, content,
+                     char_start, char_end, page,
+                     ts_rank(to_tsvector('english', content),
+                             websearch_to_tsquery('english', ${query})) AS score
+                FROM document_chunks
+                WHERE content_pack_version_id = ANY(${versionsLiteral}::uuid[])
+                  AND document_id = ANY(${docsLiteral}::uuid[])
+                  AND to_tsvector('english', content) @@ websearch_to_tsquery('english', ${query})
+                ORDER BY score DESC
+                LIMIT ${topK}`,
+          )) as unknown as RawRow[])
+        : ((await db.execute(
+            sql`SELECT id, document_id, content_pack_version_id, content,
+                     char_start, char_end, page,
+                     ts_rank(to_tsvector('english', content),
+                             websearch_to_tsquery('english', ${query})) AS score
+                FROM document_chunks
+                WHERE content_pack_version_id = ANY(${versionsLiteral}::uuid[])
+                  AND to_tsvector('english', content) @@ websearch_to_tsquery('english', ${query})
+                ORDER BY score DESC
+                LIMIT ${topK}`,
+          )) as unknown as RawRow[]);
 
       if (rows.length === 0) {
-        // FTS returned nothing (e.g., stopword-only query). Fall back to the
-        // first N chunks of the pinned version so the model has something to
-        // ground on. Keeps the UI useful for bare-word questions.
-        const fallback = (await db.execute(
-          sql`SELECT id, document_id, content_pack_version_id, content,
-                   char_start, char_end, page, 0::float AS score
-              FROM document_chunks
-              WHERE content_pack_version_id = ANY(${idsLiteral}::uuid[])
-              ORDER BY chunk_index
-              LIMIT ${topK}`,
-        )) as unknown as RawRow[];
+        // Stopword-only / no-match fallback: serve the first N chunks of the
+        // scoped pool so the model has something to ground on.
+        const fallback = docsLiteral
+          ? ((await db.execute(
+              sql`SELECT id, document_id, content_pack_version_id, content,
+                       char_start, char_end, page, 0::float AS score
+                  FROM document_chunks
+                  WHERE content_pack_version_id = ANY(${versionsLiteral}::uuid[])
+                    AND document_id = ANY(${docsLiteral}::uuid[])
+                  ORDER BY chunk_index
+                  LIMIT ${topK}`,
+            )) as unknown as RawRow[])
+          : ((await db.execute(
+              sql`SELECT id, document_id, content_pack_version_id, content,
+                       char_start, char_end, page, 0::float AS score
+                  FROM document_chunks
+                  WHERE content_pack_version_id = ANY(${versionsLiteral}::uuid[])
+                  ORDER BY chunk_index
+                  LIMIT ${topK}`,
+            )) as unknown as RawRow[]);
         return fallback.map(mapRow);
       }
 
@@ -84,23 +117,37 @@ export function createPgVectorRetriever(params: {
 }): Retriever {
   const { db, embed: embedFn } = params;
   return {
-    async retrieve({ query, contentPackVersionIds, topK }) {
+    async retrieve({ query, contentPackVersionIds, topK, documentIds }) {
       if (contentPackVersionIds.length === 0) return [];
+      if (documentIds && documentIds.length === 0) return [];
 
       const vec = await embedFn(query);
       const vectorLiteral = `[${vec.join(',')}]`;
-      const idsLiteral = `{${contentPackVersionIds.join(',')}}`;
+      const versionsLiteral = `{${contentPackVersionIds.join(',')}}`;
+      const docsLiteral = documentIds ? `{${documentIds.join(',')}}` : null;
 
-      const rows = (await db.execute(
-        sql`SELECT id, document_id, content_pack_version_id, content,
-                 char_start, char_end, page,
-                 (embedding <=> ${vectorLiteral}::vector) AS score
-            FROM document_chunks
-            WHERE content_pack_version_id = ANY(${idsLiteral}::uuid[])
-              AND embedding IS NOT NULL
-            ORDER BY embedding <=> ${vectorLiteral}::vector
-            LIMIT ${topK}`,
-      )) as unknown as RawRow[];
+      const rows = docsLiteral
+        ? ((await db.execute(
+            sql`SELECT id, document_id, content_pack_version_id, content,
+                     char_start, char_end, page,
+                     (embedding <=> ${vectorLiteral}::vector) AS score
+                FROM document_chunks
+                WHERE content_pack_version_id = ANY(${versionsLiteral}::uuid[])
+                  AND document_id = ANY(${docsLiteral}::uuid[])
+                  AND embedding IS NOT NULL
+                ORDER BY embedding <=> ${vectorLiteral}::vector
+                LIMIT ${topK}`,
+          )) as unknown as RawRow[])
+        : ((await db.execute(
+            sql`SELECT id, document_id, content_pack_version_id, content,
+                     char_start, char_end, page,
+                     (embedding <=> ${vectorLiteral}::vector) AS score
+                FROM document_chunks
+                WHERE content_pack_version_id = ANY(${versionsLiteral}::uuid[])
+                  AND embedding IS NOT NULL
+                ORDER BY embedding <=> ${vectorLiteral}::vector
+                LIMIT ${topK}`,
+          )) as unknown as RawRow[]);
 
       return rows.map(mapRow);
     },
@@ -140,15 +187,16 @@ export function createHybridRetriever(params: {
   const vec = createPgVectorRetriever({ db, embed: (q) => embed(q, 'query') });
 
   return {
-    async retrieve({ query, contentPackVersionIds, topK: _ignoredTopK }) {
+    async retrieve({ query, contentPackVersionIds, topK: _ignoredTopK, documentIds }) {
       if (contentPackVersionIds.length === 0) return [];
+      if (documentIds && documentIds.length === 0) return [];
 
       // Run both legs in parallel. If vector search fails (e.g., VOYAGE_API_KEY
       // missing or all chunks unembedded), fall back gracefully to FTS alone.
       const [ftsResults, vecResults] = await Promise.all([
-        fts.retrieve({ query, contentPackVersionIds, topK: candidatesPerLeg }),
+        fts.retrieve({ query, contentPackVersionIds, topK: candidatesPerLeg, documentIds }),
         vec
-          .retrieve({ query, contentPackVersionIds, topK: candidatesPerLeg })
+          .retrieve({ query, contentPackVersionIds, topK: candidatesPerLeg, documentIds })
           .catch(() => [] as RetrievedChunk[]),
       ]);
 

@@ -119,6 +119,32 @@ Extract in 2–3 sentences the key observable facts: any visible fault codes, al
       }
     }
 
+    // If partId is set, scope retrieval to documents author-linked to that
+    // part. The PWA's part-detail Assistant tab passes this so answers cite
+    // only the docs explicitly curated for the selected part. We compute the
+    // document ID set here (small query) and hand it to the retriever.
+    let scopedDocumentIds: string[] | undefined;
+    if (body.partId) {
+      const links = await db.query.partDocuments.findMany({
+        where: eq(schema.partDocuments.partId, body.partId),
+      });
+      // Intersect with the pinned version — links may reference docs from
+      // older versions; we only want this version's docs to be retrievable.
+      if (links.length > 0) {
+        const docIds = [...new Set(links.map((l) => l.documentId))];
+        const docs = await db.query.documents.findMany({
+          where: inArray(schema.documents.id, docIds),
+          columns: { id: true, contentPackVersionId: true },
+        });
+        scopedDocumentIds = docs
+          .filter((d) => d.contentPackVersionId === conversation.contentPackVersionId)
+          .map((d) => d.id);
+      } else {
+        // Explicit empty set → retriever returns nothing, AI will say "no info".
+        scopedDocumentIds = [];
+      }
+    }
+
     // Retrieve + enrich with safety flags. Hybrid retrieval (FTS + pgvector)
     // with Voyage reranking — best-in-class recall for grounded Q&A. If
     // VOYAGE_API_KEY is missing or quota-exhausted, the retriever degrades
@@ -135,6 +161,7 @@ Extract in 2–3 sentences the key observable facts: any visible fault codes, al
       query: retrievalQuery,
       contentPackVersionIds: [conversation.contentPackVersionId],
       topK: 8,
+      documentIds: scopedDocumentIds,
     });
     const chunks: SafetyFlaggedChunk[] = await enrichSafety(db, retrieved);
 

@@ -375,6 +375,8 @@ export async function streamChat(
     imageStorageKey?: string;
     devUserId: string;
     devOrgId: string;
+    /** Scope retrieval to a specific part (author-linked docs only). */
+    partId?: string;
   },
   onEvent: (e: ChatStreamEvent) => void,
   signal?: AbortSignal,
@@ -391,6 +393,7 @@ export async function streamChat(
       conversationId: params.conversationId,
       message: params.message,
       imageStorageKey: params.imageStorageKey,
+      partId: params.partId,
     }),
     signal,
   });

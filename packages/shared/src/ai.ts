@@ -27,6 +27,11 @@ export const AIChatRequestSchema = z.object({
     .string()
     .length(2)
     .optional(),
+  // Optional: scope retrieval to a specific part. When set, only chunks from
+  // documents author-linked to this part (via part_documents) are retrieved.
+  // Used by the PWA part-detail hub's Assistant tab so answers cite only the
+  // docs explicitly curated for that part.
+  partId: UuidSchema.optional(),
 }).refine((b) => b.message.trim().length > 0 || !!b.imageStorageKey, {
   message: 'Provide a message, an image, or both.',
 });

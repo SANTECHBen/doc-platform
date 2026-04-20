@@ -19,22 +19,25 @@ type Turn = UserTurn | AssistantTurn;
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
 const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
 
-// Per-asset conversation store. The chat tab unmounts whenever the user
-// switches to another tab, so without persistence the turns vanish. We key
-// by assetInstanceId so each piece of equipment has its own thread.
+// Per-conversation store. Keyed by assetInstanceId (optionally scoped to a
+// partId) so asset-wide chats and part-specific chats persist independently
+// across tab switches and reloads.
 const CHAT_STORAGE_VERSION = 1;
-const CHAT_STORAGE_KEY = (assetInstanceId: string) =>
-  `eh:chat:v${CHAT_STORAGE_VERSION}:${assetInstanceId}`;
+function chatStorageKey(assetInstanceId: string, partId?: string): string {
+  return partId
+    ? `eh:chat:v${CHAT_STORAGE_VERSION}:${assetInstanceId}:${partId}`
+    : `eh:chat:v${CHAT_STORAGE_VERSION}:${assetInstanceId}`;
+}
 
 interface StoredChat {
   turns: Turn[];
   conversationId?: string;
 }
 
-function loadChat(assetInstanceId: string): StoredChat {
+function loadChat(key: string): StoredChat {
   if (typeof window === 'undefined') return { turns: [] };
   try {
-    const raw = window.localStorage.getItem(CHAT_STORAGE_KEY(assetInstanceId));
+    const raw = window.localStorage.getItem(key);
     if (!raw) return { turns: [] };
     const parsed = JSON.parse(raw) as StoredChat;
     // A previous session might have been killed mid-stream — the saved turn
@@ -49,35 +52,45 @@ function loadChat(assetInstanceId: string): StoredChat {
   }
 }
 
-function saveChat(assetInstanceId: string, state: StoredChat): void {
+function saveChat(key: string, state: StoredChat): void {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(
-      CHAT_STORAGE_KEY(assetInstanceId),
-      JSON.stringify(state),
-    );
+    window.localStorage.setItem(key, JSON.stringify(state));
   } catch {
     // localStorage quota exhaustion is rare here (max ~50 turns = tens of KB),
     // but silent on failure — losing persistence is better than breaking chat.
   }
 }
 
-function clearChat(assetInstanceId: string): void {
+function clearChat(key: string): void {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.removeItem(CHAT_STORAGE_KEY(assetInstanceId));
+    window.localStorage.removeItem(key);
   } catch {
     // ignore
   }
 }
 
-export function ChatTab({ hub, qrCode: _qrCode }: { hub: AssetHubPayload; qrCode: string }) {
+export function ChatTab({
+  hub,
+  qrCode: _qrCode,
+  partId,
+  partName,
+}: {
+  hub: AssetHubPayload;
+  qrCode: string;
+  /** When set, chat is scoped to a specific part's linked docs. */
+  partId?: string;
+  /** Optional display name for the part — shown in the grounding banner. */
+  partName?: string;
+}) {
   const assetInstanceId = hub.assetInstance.id;
+  const storageKey = chatStorageKey(assetInstanceId, partId);
   // Lazy-init from localStorage so the first render already has the saved
   // history — no flash of empty state on tab re-open.
-  const [turns, setTurns] = useState<Turn[]>(() => loadChat(assetInstanceId).turns);
+  const [turns, setTurns] = useState<Turn[]>(() => loadChat(storageKey).turns);
   const [conversationId, setConversationId] = useState<string | undefined>(
-    () => loadChat(assetInstanceId).conversationId,
+    () => loadChat(storageKey).conversationId,
   );
   const [input, setInput] = useState('');
   const [pending, setPending] = useState(false);
@@ -90,8 +103,20 @@ export function ChatTab({ hub, qrCode: _qrCode }: { hub: AssetHubPayload; qrCode
 
   // Persist whenever a meaningful piece of the conversation changes.
   useEffect(() => {
-    saveChat(assetInstanceId, { turns, conversationId });
-  }, [assetInstanceId, turns, conversationId]);
+    saveChat(storageKey, { turns, conversationId });
+  }, [storageKey, turns, conversationId]);
+
+  // If the scope (partId) changes, rehydrate from the new storage key. Keeps
+  // per-part conversations distinct and survives part-to-part navigation
+  // within the part hub.
+  useEffect(() => {
+    const loaded = loadChat(storageKey);
+    setTurns(loaded.turns);
+    setConversationId(loaded.conversationId);
+    abortRef.current?.abort();
+    setError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageKey]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -103,7 +128,7 @@ export function ChatTab({ hub, qrCode: _qrCode }: { hub: AssetHubPayload; qrCode
     setTurns([]);
     setConversationId(undefined);
     setError(null);
-    clearChat(assetInstanceId);
+    clearChat(storageKey);
   }
 
   if (!DEV_USER_ID || !DEV_ORG_ID) {
@@ -173,6 +198,7 @@ export function ChatTab({ hub, qrCode: _qrCode }: { hub: AssetHubPayload; qrCode
           imageStorageKey: currentAttachment?.storageKey,
           devUserId: DEV_USER_ID,
           devOrgId: DEV_ORG_ID,
+          partId,
         },
         (event) => {
           if (event.type === 'conversation') {
@@ -216,12 +242,13 @@ export function ChatTab({ hub, qrCode: _qrCode }: { hub: AssetHubPayload; qrCode
           className="font-mono text-[10.5px] font-medium uppercase tracking-[0.1em]"
           style={{ color: 'rgb(var(--ink-brand))' }}
         >
-          Grounded on this asset
+          {partId ? 'Grounded on this part' : 'Grounded on this asset'}
         </span>
         <span className="text-ink-tertiary">·</span>
         <span className="font-mono text-[11.5px] text-ink-secondary">
-          {hub.assetModel.displayName} · rev{' '}
-          {hub.pinnedContentPackVersion?.versionLabel ?? 'current'}
+          {partId && partName
+            ? partName
+            : `${hub.assetModel.displayName} · rev ${hub.pinnedContentPackVersion?.versionLabel ?? 'current'}`}
         </span>
         {turns.length > 0 && (
           <button
@@ -243,7 +270,9 @@ export function ChatTab({ hub, qrCode: _qrCode }: { hub: AssetHubPayload; qrCode
       >
         {turns.length === 0 && (
           <div className="flex flex-col items-center gap-2 py-12 text-center">
-            <p className="text-base text-ink-secondary">Ask about this equipment.</p>
+            <p className="text-base text-ink-secondary">
+              {partId ? 'Ask about this part.' : 'Ask about this equipment.'}
+            </p>
             <p className="max-w-sm text-sm text-ink-tertiary">
               Answers are grounded on the published content for this exact serial.
               Safety-critical procedures are quoted verbatim.

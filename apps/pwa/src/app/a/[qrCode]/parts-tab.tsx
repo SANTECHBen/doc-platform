@@ -10,16 +10,20 @@ import {
   FileType2,
   GraduationCap,
   Layers,
+  LayoutGrid,
+  MessageSquare,
   Package,
   Paperclip,
   Presentation,
   Search,
   ShieldAlert,
   Video,
+  Wrench,
   X,
   Youtube,
   type LucideIcon,
 } from 'lucide-react';
+import type { AssetHubPayload } from '@/lib/shared-schema';
 import {
   getDocument,
   getPartResources,
@@ -28,6 +32,7 @@ import {
   type DocumentBody,
   type PartResources,
 } from '@/lib/api';
+import { ChatTab } from './chat-tab';
 
 interface LightboxTarget {
   src: string;
@@ -36,12 +41,14 @@ interface LightboxTarget {
 }
 
 export function PartsTab({
-  assetModelId,
-  assetInstanceId,
+  hub,
+  qrCode,
 }: {
-  assetModelId: string;
-  assetInstanceId: string;
+  hub: AssetHubPayload;
+  qrCode: string;
 }) {
+  const assetModelId = hub.assetModel.id;
+  const assetInstanceId = hub.assetInstance.id;
   const [rows, setRows] = useState<BomEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -201,10 +208,12 @@ export function PartsTab({
         )}
       </ul>
 
-      {openPartId && (
+      {openPartId && rows && (
         <PartDetailOverlay
-          partId={openPartId}
-          assetInstanceId={assetInstanceId}
+          initialPartId={openPartId}
+          bomRows={rows}
+          hub={hub}
+          qrCode={qrCode}
           onClose={() => setOpenPartId(null)}
         />
       )}
@@ -279,23 +288,41 @@ function ImageLightbox({
   );
 }
 
-// Full part detail — opens from a tap on a part row. Shows the image,
-// metadata, and author-curated links to documents + training for this part,
-// scoped to the asset instance's pinned content pack version. Documents
-// themselves open the existing doc-overlay UX by reusing its shell.
+// Full part detail — slides in as a full-viewport overlay and mirrors the
+// asset hub's shell: fixed top bar, scrolling content, bottom tab bar.
+// Tabs: Overview, Documents, Training, Parts (sibling parts for quick jump),
+// Assistant (AI scoped to this part's linked docs via partId).
+type PartTabKey = 'overview' | 'documents' | 'training' | 'parts' | 'chat';
+
+const PART_TABS: Array<{ key: PartTabKey; label: string; icon: LucideIcon }> = [
+  { key: 'overview', label: 'Overview', icon: LayoutGrid },
+  { key: 'documents', label: 'Documents', icon: FileText },
+  { key: 'training', label: 'Training', icon: GraduationCap },
+  { key: 'parts', label: 'Parts', icon: Wrench },
+  { key: 'chat', label: 'Assistant', icon: MessageSquare },
+];
+
 function PartDetailOverlay({
-  partId,
-  assetInstanceId,
+  initialPartId,
+  bomRows,
+  hub,
+  qrCode,
   onClose,
 }: {
-  partId: string;
-  assetInstanceId: string;
+  initialPartId: string;
+  bomRows: BomEntry[];
+  hub: AssetHubPayload;
+  qrCode: string;
   onClose: () => void;
 }) {
+  const [currentPartId, setCurrentPartId] = useState(initialPartId);
+  const [active, setActive] = useState<PartTabKey>('overview');
   const [data, setData] = useState<PartResources | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openDoc, setOpenDoc] = useState<DocumentBody | null>(null);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
+  // Escape closes; body scroll locked while open.
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -309,9 +336,14 @@ function PartDetailOverlay({
     };
   }, [onClose]);
 
+  // Refetch resources whenever the selected part changes. Null while fetching
+  // so tabs can show a loading state. Parts tab navigation and initial open
+  // both flow through this.
   useEffect(() => {
     let cancelled = false;
-    getPartResources(partId, assetInstanceId)
+    setData(null);
+    setError(null);
+    getPartResources(currentPartId, hub.assetInstance.id)
       .then((r) => {
         if (!cancelled) setData(r);
       })
@@ -321,7 +353,7 @@ function PartDetailOverlay({
     return () => {
       cancelled = true;
     };
-  }, [partId, assetInstanceId]);
+  }, [currentPartId, hub.assetInstance.id]);
 
   async function openDocument(docId: string) {
     try {
@@ -332,21 +364,26 @@ function PartDetailOverlay({
     }
   }
 
+  const bomRow = bomRows.find((r) => r.partId === currentPartId);
+
   return (
-    <div className="doc-overlay" role="dialog" aria-modal="true" aria-label="Part detail">
+    <div
+      className="doc-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label={data?.part.displayName ?? 'Part detail'}
+    >
       <header className="doc-overlay-bar">
         <button
           type="button"
           onClick={onClose}
           className="app-topbar-btn"
-          aria-label="Close part detail"
+          aria-label="Back"
         >
           <ChevronLeft size={22} strokeWidth={2} />
         </button>
         <div className="doc-overlay-title">
-          <span className="caption">
-            {data?.part.oemPartNumber ?? 'Part'}
-          </span>
+          <span className="caption">{data?.part.oemPartNumber ?? 'Part'}</span>
           <h2 className="truncate text-base font-semibold">
             {data?.part.displayName ?? 'Loading…'}
           </h2>
@@ -355,161 +392,388 @@ function PartDetailOverlay({
           type="button"
           onClick={onClose}
           className="app-topbar-btn"
-          aria-label="Close part detail"
+          aria-label="Close"
         >
           <X size={20} strokeWidth={2} />
         </button>
       </header>
 
-      <div className="doc-overlay-scroll">
+      <div className="app-scroll page-enter flex flex-col gap-4">
         {error && (
-          <p className="mx-auto max-w-3xl rounded-md border border-signal-fault/40 bg-signal-fault/10 p-3 text-sm text-signal-fault">
+          <p className="rounded-md border border-signal-fault/40 bg-signal-fault/10 p-3 text-sm text-signal-fault">
             {error}
           </p>
         )}
-        {!data && !error ? (
-          <p className="py-12 text-center text-sm text-ink-tertiary">Loading…</p>
-        ) : data ? (
-          <div className="mx-auto flex max-w-3xl flex-col gap-6">
-            {/* Hero image — tap to zoom (reuses the existing lightbox pattern inline) */}
-            {data.part.imageUrl && (
-              <div
-                className="flex items-center justify-center rounded-md p-4"
-                style={{
-                  background: 'rgb(var(--surface-inset))',
-                  border: '1px solid rgb(var(--line-subtle))',
-                  minHeight: 180,
-                }}
-              >
-                <img
-                  src={data.part.imageUrl}
-                  alt={data.part.displayName}
-                  className="max-h-64 max-w-full object-contain"
-                  draggable={false}
-                />
-              </div>
-            )}
 
-            {/* Metadata */}
-            <section className="flex flex-col gap-3">
-              {data.part.description && (
-                <div className="markdown-body text-sm">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {data.part.description}
-                  </ReactMarkdown>
-                </div>
-              )}
-              {data.part.crossReferences.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="caption">Cross-refs</span>
-                  {data.part.crossReferences.map((xr) => (
-                    <span key={xr} className="part-xref">
-                      {xr}
-                    </span>
-                  ))}
-                </div>
-              )}
-              {data.part.discontinued && (
-                <span className="pill pill-warn w-fit">Discontinued</span>
-              )}
-            </section>
+        <div key={active} className="tab-pane flex flex-col gap-4">
+          {active === 'overview' && (
+            <PartOverviewPane
+              part={data?.part ?? null}
+              bomRow={bomRow}
+              onImageTap={() => setLightboxOpen(true)}
+              docCount={data?.documents.length ?? 0}
+              trainingCount={data?.trainingModules.length ?? 0}
+            />
+          )}
 
-            {/* Linked documents */}
-            <section className="flex flex-col gap-2">
-              <h3 className="caption">Documents</h3>
-              {data.documents.length === 0 ? (
-                <p className="text-sm text-ink-tertiary">
-                  No documents linked to this part.
-                </p>
-              ) : (
-                <ul className="flex flex-col gap-1.5">
-                  {data.documents.map((d) => {
-                    const Icon = kindIcon(d.kind);
-                    return (
-                      <li key={d.id}>
-                        <button
-                          type="button"
-                          onClick={() => openDocument(d.id)}
-                          className="flex w-full items-center gap-3 rounded-md border border-line bg-surface-raised px-4 py-3 text-left transition hover:border-brand/40"
-                        >
-                          <Icon
-                            size={18}
-                            strokeWidth={2}
-                            className="shrink-0 text-ink-secondary"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <div className="truncate text-sm font-medium text-ink-primary">
-                              {d.title}
-                            </div>
-                            <div className="text-xs text-ink-tertiary">
-                              {kindLabel(d.kind)}
-                              {d.language !== 'en' && ` · ${d.language.toUpperCase()}`}
-                            </div>
-                          </div>
-                          {d.safetyCritical && (
-                            <span className="pill pill-safety">
-                              <ShieldAlert size={10} strokeWidth={2.5} />
-                              Safety
-                            </span>
-                          )}
-                          <ChevronRight
-                            size={16}
-                            strokeWidth={2}
-                            className="shrink-0 text-ink-tertiary"
-                          />
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </section>
+          {active === 'documents' && (
+            <PartDocumentsPane
+              data={data}
+              onOpenDocument={openDocument}
+            />
+          )}
 
-            {/* Linked training modules */}
-            <section className="flex flex-col gap-2">
-              <h3 className="caption">Training</h3>
-              {data.trainingModules.length === 0 ? (
-                <p className="text-sm text-ink-tertiary">
-                  No training modules linked to this part.
-                </p>
-              ) : (
-                <ul className="flex flex-col gap-1.5">
-                  {data.trainingModules.map((m) => (
-                    <li
-                      key={m.id}
-                      className="flex items-center gap-3 rounded-md border border-line bg-surface-raised px-4 py-3"
-                    >
-                      <GraduationCap
-                        size={18}
-                        strokeWidth={2}
-                        className="shrink-0 text-ink-secondary"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-ink-primary">
-                          {m.title}
-                        </div>
-                        {m.description && (
-                          <div className="line-clamp-2 text-xs text-ink-tertiary">
-                            {m.description}
-                          </div>
-                        )}
-                      </div>
-                      {m.estimatedMinutes && (
-                        <span className="font-mono text-xs text-ink-tertiary">
-                          {m.estimatedMinutes}m
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </div>
-        ) : null}
+          {active === 'training' && <PartTrainingPane data={data} />}
+
+          {active === 'parts' && (
+            <SiblingPartsPane
+              rows={bomRows}
+              currentPartId={currentPartId}
+              onPick={(id) => {
+                setCurrentPartId(id);
+                setActive('overview');
+              }}
+            />
+          )}
+
+          {active === 'chat' && (
+            <ChatTab
+              hub={hub}
+              qrCode={qrCode}
+              partId={currentPartId}
+              partName={data?.part.displayName ?? bomRow?.displayName}
+            />
+          )}
+        </div>
       </div>
 
+      <nav className="app-tabbar" role="tablist" aria-label="Part sections">
+        {PART_TABS.map((t) => {
+          const Icon = t.icon;
+          const isActive = active === t.key;
+          const count = partTabCount(data, t.key);
+          return (
+            <button
+              key={t.key}
+              role="tab"
+              aria-selected={isActive}
+              data-active={isActive}
+              onClick={() => setActive(t.key)}
+              className="app-tabbar-item"
+            >
+              <Icon size={22} strokeWidth={isActive ? 2.25 : 1.75} />
+              <span>{t.label}</span>
+              {count !== null && count > 0 && (
+                <span className="app-tabbar-count tabular-nums">{count}</span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
+
+      {lightboxOpen && data?.part.imageUrl && (
+        <ImageLightbox
+          target={{
+            src: data.part.imageUrl,
+            title: data.part.displayName,
+            oemPartNumber: data.part.oemPartNumber,
+          }}
+          onClose={() => setLightboxOpen(false)}
+        />
+      )}
       {openDoc && <PartDocView doc={openDoc} onBack={() => setOpenDoc(null)} />}
     </div>
+  );
+}
+
+function partTabCount(data: PartResources | null, key: PartTabKey): number | null {
+  if (!data) return null;
+  switch (key) {
+    case 'documents':
+      return data.documents.length;
+    case 'training':
+      return data.trainingModules.length;
+    default:
+      return null;
+  }
+}
+
+function PartOverviewPane({
+  part,
+  bomRow,
+  onImageTap,
+  docCount,
+  trainingCount,
+}: {
+  part: PartResources['part'] | null;
+  bomRow: BomEntry | undefined;
+  onImageTap: () => void;
+  docCount: number;
+  trainingCount: number;
+}) {
+  if (!part) {
+    return <p className="py-12 text-center text-sm text-ink-tertiary">Loading…</p>;
+  }
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Hero image — tap to zoom */}
+      {part.imageUrl ? (
+        <button
+          type="button"
+          onClick={onImageTap}
+          aria-label={`Zoom ${part.displayName}`}
+          className="flex items-center justify-center rounded-md p-4"
+          style={{
+            background: 'rgb(var(--surface-inset))',
+            border: '1px solid rgb(var(--line-subtle))',
+            minHeight: 200,
+          }}
+        >
+          <img
+            src={part.imageUrl}
+            alt={part.displayName}
+            className="max-h-64 max-w-full object-contain"
+            draggable={false}
+          />
+        </button>
+      ) : (
+        <div
+          className="flex items-center justify-center rounded-md p-8 text-ink-tertiary"
+          style={{
+            background: 'rgb(var(--surface-inset))',
+            border: '1px solid rgb(var(--line-subtle))',
+          }}
+        >
+          <Package size={48} strokeWidth={1.25} />
+        </div>
+      )}
+
+      {/* Spec-style metadata block */}
+      <div className="spec-panel">
+        <div className="spec-grid">
+          <div className="spec-field">
+            <span className="cap">OEM #</span>
+            <span className="val mono brand">{part.oemPartNumber}</span>
+          </div>
+          {bomRow?.positionRef && (
+            <div className="spec-field">
+              <span className="cap">Position</span>
+              <span className="val mono">{bomRow.positionRef}</span>
+            </div>
+          )}
+          {bomRow && (
+            <div className="spec-field">
+              <span className="cap">Qty on asset</span>
+              <span className="val mono">{bomRow.quantity}</span>
+            </div>
+          )}
+          <div className="spec-field">
+            <span className="cap">Documents</span>
+            <span className="val mono">{docCount}</span>
+          </div>
+          <div className="spec-field">
+            <span className="cap">Training</span>
+            <span className="val mono">{trainingCount}</span>
+          </div>
+          {part.discontinued && (
+            <div className="spec-field">
+              <span className="cap">Status</span>
+              <span className="val warn">Discontinued</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {part.description && (
+        <section className="rounded-md border border-line bg-surface-raised p-4">
+          <div className="markdown-body text-sm">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {part.description}
+            </ReactMarkdown>
+          </div>
+        </section>
+      )}
+
+      {part.crossReferences.length > 0 && (
+        <section className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface-raised p-4">
+          <span className="caption">Cross-refs</span>
+          {part.crossReferences.map((xr) => (
+            <span key={xr} className="part-xref">
+              {xr}
+            </span>
+          ))}
+        </section>
+      )}
+    </div>
+  );
+}
+
+function PartDocumentsPane({
+  data,
+  onOpenDocument,
+}: {
+  data: PartResources | null;
+  onOpenDocument: (id: string) => void;
+}) {
+  if (!data) return <p className="py-8 text-center text-sm text-ink-tertiary">Loading…</p>;
+  if (data.documents.length === 0) {
+    return (
+      <p className="py-10 text-center text-sm text-ink-tertiary">
+        No documents linked to this part yet.
+      </p>
+    );
+  }
+  return (
+    <ul className="flex flex-col gap-1.5">
+      {data.documents.map((d) => {
+        const Icon = kindIcon(d.kind);
+        return (
+          <li key={d.id}>
+            <button
+              type="button"
+              onClick={() => onOpenDocument(d.id)}
+              className="flex w-full items-center gap-3 rounded-md border border-line bg-surface-raised px-4 py-3 text-left transition hover:border-brand/40"
+            >
+              <Icon
+                size={18}
+                strokeWidth={2}
+                className="shrink-0 text-ink-secondary"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium text-ink-primary">
+                  {d.title}
+                </div>
+                <div className="text-xs text-ink-tertiary">
+                  {kindLabel(d.kind)}
+                  {d.language !== 'en' && ` · ${d.language.toUpperCase()}`}
+                </div>
+              </div>
+              {d.safetyCritical && (
+                <span className="pill pill-safety">
+                  <ShieldAlert size={10} strokeWidth={2.5} />
+                  Safety
+                </span>
+              )}
+              <ChevronRight size={16} strokeWidth={2} className="shrink-0 text-ink-tertiary" />
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function PartTrainingPane({ data }: { data: PartResources | null }) {
+  if (!data) return <p className="py-8 text-center text-sm text-ink-tertiary">Loading…</p>;
+  if (data.trainingModules.length === 0) {
+    return (
+      <p className="py-10 text-center text-sm text-ink-tertiary">
+        No training modules linked to this part yet.
+      </p>
+    );
+  }
+  return (
+    <ul className="flex flex-col gap-1.5">
+      {data.trainingModules.map((m) => (
+        <li
+          key={m.id}
+          className="flex items-center gap-3 rounded-md border border-line bg-surface-raised px-4 py-3"
+        >
+          <GraduationCap
+            size={18}
+            strokeWidth={2}
+            className="shrink-0 text-ink-secondary"
+          />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium text-ink-primary">{m.title}</div>
+            {m.description && (
+              <div className="line-clamp-2 text-xs text-ink-tertiary">{m.description}</div>
+            )}
+          </div>
+          {m.estimatedMinutes && (
+            <span className="font-mono text-xs text-ink-tertiary">
+              {m.estimatedMinutes}m
+            </span>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function SiblingPartsPane({
+  rows,
+  currentPartId,
+  onPick,
+}: {
+  rows: BomEntry[];
+  currentPartId: string;
+  onPick: (partId: string) => void;
+}) {
+  return (
+    <ul className="flex flex-col gap-1.5">
+      {rows.map((r) => {
+        const isCurrent = r.partId === currentPartId;
+        return (
+          <li key={r.bomEntryId}>
+            <button
+              type="button"
+              onClick={() => !isCurrent && onPick(r.partId)}
+              disabled={isCurrent}
+              className={`flex w-full items-center gap-3 rounded-md border px-3 py-2.5 text-left transition ${
+                isCurrent
+                  ? 'border-brand/50 bg-brand-soft'
+                  : 'border-line bg-surface-raised hover:border-brand/40'
+              }`}
+            >
+              {r.imageUrl ? (
+                <div
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded p-0.5"
+                  style={{
+                    background: 'rgb(var(--surface-inset))',
+                    border: '1px solid rgb(var(--line-subtle))',
+                  }}
+                >
+                  <img
+                    src={r.imageUrl}
+                    alt=""
+                    className="max-h-full max-w-full object-contain"
+                  />
+                </div>
+              ) : (
+                <div
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded text-ink-tertiary"
+                  style={{
+                    background: 'rgb(var(--surface-inset))',
+                    border: '1px solid rgb(var(--line-subtle))',
+                  }}
+                >
+                  <Package size={16} strokeWidth={1.5} />
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="part-num truncate">{r.oemPartNumber}</span>
+                  <span className="truncate text-sm text-ink-primary">
+                    {r.displayName}
+                  </span>
+                </div>
+                {r.positionRef && (
+                  <div className="font-mono text-[11px] text-ink-tertiary">
+                    Pos {r.positionRef}
+                  </div>
+                )}
+              </div>
+              {isCurrent ? (
+                <span className="pill pill-info">Current</span>
+              ) : (
+                <ChevronRight size={16} strokeWidth={2} className="shrink-0 text-ink-tertiary" />
+              )}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
