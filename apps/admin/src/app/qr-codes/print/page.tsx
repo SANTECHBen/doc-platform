@@ -57,6 +57,13 @@ function PrintSheetInner() {
           .no-print {
             display: none !important;
           }
+          .sticker {
+            /* Keep ink thin on the heavy elements — thermal/laser printers
+               blow up dense blacks. Slightly reduce the rail weight at
+               print time to stay crisp. */
+            print-color-adjust: exact;
+            -webkit-print-color-adjust: exact;
+          }
         }
         .sticker-sheet {
           display: grid;
@@ -67,82 +74,255 @@ function PrintSheetInner() {
         .sticker {
           position: relative;
           display: flex;
-          gap: 0.12in;
-          padding: 0.12in;
-          border: 1px solid #1a1a1a;
-          border-radius: 2px;
+          flex-direction: column;
+          padding: 0.11in 0.13in 0.09in 0.13in;
           background: white;
           color: #0f1114;
           break-inside: avoid;
           overflow: hidden;
           font-family: 'IBM Plex Sans', system-ui, sans-serif;
+          /* Two-layer border: outer fine hairline, inner brand accent rule
+             at top/bottom. Mimics a milled aluminum ID plate. */
+          border: 0.8pt solid #0f1114;
+          box-shadow: inset 0 0 0 3pt white, inset 0 0 0 3.6pt #0f1114;
+          border-radius: 3pt;
         }
+        /* Brand rail on the left — thicker and more confident than before. */
         .sticker::before {
           content: '';
           position: absolute;
           left: 0;
           top: 0;
           bottom: 0;
-          width: 4px;
-          background: #0B5FBF;
+          width: 5pt;
+          background: linear-gradient(180deg, #0B5FBF 0%, #0a4da0 100%);
         }
-        .sticker-qr {
+        /* L-bracket corner marks, like a calibration plate. */
+        .sticker-corner {
+          position: absolute;
+          width: 10pt;
+          height: 10pt;
+          pointer-events: none;
+        }
+        .sticker-corner::before,
+        .sticker-corner::after {
+          content: '';
+          position: absolute;
+          background: #0f1114;
+        }
+        .sticker-corner.tl {
+          top: 6pt;
+          left: 12pt;
+        }
+        .sticker-corner.tl::before {
+          width: 10pt;
+          height: 1pt;
+          top: 0;
+          left: 0;
+        }
+        .sticker-corner.tl::after {
+          width: 1pt;
+          height: 10pt;
+          top: 0;
+          left: 0;
+        }
+        .sticker-corner.tr {
+          top: 6pt;
+          right: 6pt;
+        }
+        .sticker-corner.tr::before {
+          width: 10pt;
+          height: 1pt;
+          top: 0;
+          right: 0;
+        }
+        .sticker-corner.tr::after {
+          width: 1pt;
+          height: 10pt;
+          top: 0;
+          right: 0;
+        }
+        .sticker-corner.bl {
+          bottom: 6pt;
+          left: 12pt;
+        }
+        .sticker-corner.bl::before {
+          width: 10pt;
+          height: 1pt;
+          bottom: 0;
+          left: 0;
+        }
+        .sticker-corner.bl::after {
+          width: 1pt;
+          height: 10pt;
+          bottom: 0;
+          left: 0;
+        }
+        .sticker-corner.br {
+          bottom: 6pt;
+          right: 6pt;
+        }
+        .sticker-corner.br::before {
+          width: 10pt;
+          height: 1pt;
+          bottom: 0;
+          right: 0;
+        }
+        .sticker-corner.br::after {
+          width: 1pt;
+          height: 10pt;
+          bottom: 0;
+          right: 0;
+        }
+
+        /* Header strip — brand mark + product line. Sets a confident
+           top-line hierarchy before the main content. */
+        .sticker-header {
+          display: flex;
+          align-items: center;
+          gap: 5pt;
+          padding-left: 4pt;
+          padding-bottom: 4pt;
+          border-bottom: 0.5pt solid #d4d4d4;
+          margin-bottom: 6pt;
+        }
+        .sticker-brandmark {
+          width: 11pt;
+          height: 11pt;
           flex-shrink: 0;
+          background: linear-gradient(135deg, #256CD3 0%, #0B5FBF 100%);
+          border-radius: 1.5pt;
+          color: white;
+          font-family: 'IBM Plex Mono', ui-monospace, monospace;
+          font-size: 5.5pt;
+          font-weight: 700;
           display: flex;
           align-items: center;
           justify-content: center;
+          letter-spacing: -0.04em;
         }
-        .sticker-body {
+        .sticker-brandname {
+          font-size: 5.5pt;
+          font-weight: 700;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          color: #0f1114;
+        }
+        .sticker-category {
+          margin-left: auto;
+          font-family: 'IBM Plex Mono', ui-monospace, monospace;
+          font-size: 5.5pt;
+          font-weight: 600;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: #6b6b6b;
+        }
+
+        /* Main layout: QR on right, identification on left. */
+        .sticker-main {
+          flex: 1;
+          display: flex;
+          gap: 8pt;
+          padding-left: 4pt;
+          min-height: 0;
+        }
+        .sticker-ident {
           flex: 1;
           min-width: 0;
           display: flex;
           flex-direction: column;
-          gap: 0.04in;
-          padding-left: 0.04in;
-        }
-        .sticker-caption {
-          font-size: 7pt;
-          font-weight: 600;
-          letter-spacing: 0.1em;
-          text-transform: uppercase;
-          color: #6b6b6b;
+          gap: 3pt;
         }
         .sticker-model {
-          font-size: 11pt;
+          font-size: 11.5pt;
           font-weight: 600;
-          line-height: 1.1;
+          line-height: 1.05;
+          letter-spacing: -0.012em;
           overflow: hidden;
           display: -webkit-box;
           -webkit-line-clamp: 2;
           -webkit-box-orient: vertical;
-        }
-        .sticker-serial {
-          font-family: 'IBM Plex Mono', ui-monospace, monospace;
-          font-size: 9pt;
-          font-weight: 600;
           color: #0f1114;
         }
+        .sticker-serial {
+          display: flex;
+          align-items: baseline;
+          gap: 4pt;
+          font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        }
+        .sticker-serial-label {
+          font-size: 5.5pt;
+          font-weight: 700;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          color: #6b6b6b;
+        }
+        .sticker-serial-value {
+          font-size: 10pt;
+          font-weight: 600;
+          color: #0B5FBF;
+        }
         .sticker-meta {
-          font-size: 8pt;
+          font-family: 'IBM Plex Mono', ui-monospace, monospace;
+          font-size: 7pt;
           color: #424242;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-        .sticker-code {
-          margin-top: auto;
-          padding-top: 0.04in;
-          border-top: 1px solid #e0e0e0;
-          font-family: 'IBM Plex Mono', ui-monospace, monospace;
-          font-size: 7pt;
-          color: #6b6b6b;
-          letter-spacing: 0.05em;
-        }
-        .sticker-scan-hint {
-          font-size: 6pt;
-          letter-spacing: 0.12em;
+        .sticker-meta-label {
+          font-size: 5.5pt;
+          font-weight: 700;
+          letter-spacing: 0.14em;
           text-transform: uppercase;
           color: #6b6b6b;
+          margin-right: 3pt;
+        }
+
+        /* QR + "scan" CTA, stacked. The QR gets a discrete bracketed frame
+           that reads as "calibrated marker" rather than "generic box". */
+        .sticker-qr-col {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 3pt;
+        }
+        .sticker-qr {
+          position: relative;
+          padding: 3pt;
+          background: white;
+          border: 0.5pt solid #0f1114;
+          border-radius: 2pt;
+        }
+        .sticker-qr-hint {
+          font-size: 5.5pt;
+          font-weight: 700;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          color: #0B5FBF;
+          text-align: center;
+          line-height: 1.15;
+        }
+
+        /* Footer — unique code + URL. Thin top rule reads as "manufacturer
+           plate bottom stamp". */
+        .sticker-footer {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 6pt;
+          padding-top: 4pt;
+          padding-left: 4pt;
+          margin-top: 6pt;
+          border-top: 0.5pt solid #d4d4d4;
+          font-family: 'IBM Plex Mono', ui-monospace, monospace;
+          font-size: 5.5pt;
+          color: #6b6b6b;
+          letter-spacing: 0.06em;
+        }
+        .sticker-footer-code {
+          font-weight: 600;
+          color: #0f1114;
         }
       `}</style>
 
@@ -163,27 +343,72 @@ function PrintSheetInner() {
         <div className="sticker-sheet">
           {codes.map((c) => {
             const url = `${PUBLIC_PWA_ORIGIN}/q/${c.code}`;
+            // URL display without protocol — shorter, still recognizable.
+            const shortUrl = PUBLIC_PWA_ORIGIN.replace(/^https?:\/\//, '').replace(
+              /\/$/,
+              '',
+            );
             return (
               <div key={c.id} className="sticker">
-                <div className="sticker-qr">
-                  <QRCodeSVG value={url} size={140} level="M" includeMargin={false} />
-                </div>
-                <div className="sticker-body">
-                  <div className="sticker-scan-hint">Scan for docs · parts · AI</div>
-                  <div className="sticker-caption">
+                {/* Corner marks — industrial calibration-plate touch */}
+                <span className="sticker-corner tl" />
+                <span className="sticker-corner tr" />
+                <span className="sticker-corner bl" />
+                <span className="sticker-corner br" />
+
+                {/* Header strip */}
+                <div className="sticker-header">
+                  <span className="sticker-brandmark">EH</span>
+                  <span className="sticker-brandname">Equipment Hub</span>
+                  <span className="sticker-category">
                     {c.assetInstance?.modelCategory?.toUpperCase() ?? 'ASSET'}
+                  </span>
+                </div>
+
+                {/* Main: identification on left, QR on right */}
+                <div className="sticker-main">
+                  <div className="sticker-ident">
+                    <div className="sticker-model">
+                      {c.assetInstance?.modelDisplayName ?? 'Unlinked'}
+                    </div>
+                    <div className="sticker-serial">
+                      <span className="sticker-serial-label">S/N</span>
+                      <span className="sticker-serial-value">
+                        {c.assetInstance?.serialNumber ?? '—'}
+                      </span>
+                    </div>
+                    {c.assetInstance?.siteName && (
+                      <div className="sticker-meta">
+                        <span className="sticker-meta-label">Site</span>
+                        {c.assetInstance.siteName}
+                      </div>
+                    )}
+                    {c.label && (
+                      <div className="sticker-meta">
+                        <span className="sticker-meta-label">Loc</span>
+                        {c.label}
+                      </div>
+                    )}
                   </div>
-                  <div className="sticker-model">
-                    {c.assetInstance?.modelDisplayName ?? 'Unlinked'}
+
+                  <div className="sticker-qr-col">
+                    <div className="sticker-qr">
+                      <QRCodeSVG value={url} size={96} level="M" includeMargin={false} />
+                    </div>
+                    <div className="sticker-qr-hint">
+                      Scan with
+                      <br />
+                      phone camera
+                    </div>
                   </div>
-                  <div className="sticker-serial">
-                    S/N {c.assetInstance?.serialNumber ?? '—'}
-                  </div>
-                  {c.assetInstance?.siteName && (
-                    <div className="sticker-meta">{c.assetInstance.siteName}</div>
-                  )}
-                  {c.label && <div className="sticker-meta">{c.label}</div>}
-                  <div className="sticker-code">ID · {c.code}</div>
+                </div>
+
+                {/* Footer: spoken-backup code + short URL */}
+                <div className="sticker-footer">
+                  <span>
+                    ID · <span className="sticker-footer-code">{c.code}</span>
+                  </span>
+                  <span>{shortUrl}</span>
                 </div>
               </div>
             );
