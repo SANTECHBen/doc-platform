@@ -11,44 +11,39 @@ import type {
 export function Field({
   label,
   hint,
+  error,
   required,
   children,
 }: {
   label: string;
   hint?: string;
+  error?: string | null;
   required?: boolean;
   children: ReactNode;
 }) {
   return (
-    <label className="flex flex-col gap-1.5 text-sm">
-      <span className="caption">
-        {label}
-        {required && <span className="ml-0.5 text-signal-fault">*</span>}
-      </span>
+    <label className="flex flex-col gap-1.5">
+      <span className={`form-label${required ? ' form-label-required' : ''}`}>{label}</span>
       {children}
-      {hint && <span className="text-xs text-ink-tertiary">{hint}</span>}
+      {error ? (
+        <span className="form-error">{error}</span>
+      ) : (
+        hint && <span className="form-hint">{hint}</span>
+      )}
     </label>
   );
 }
 
-const INPUT_CLS =
-  'min-h-[36px] rounded border border-line bg-surface-raised px-3 py-1.5 text-sm text-ink-primary placeholder-ink-tertiary focus:border-brand focus:outline-none';
-
 export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} className={`${INPUT_CLS} ${props.className ?? ''}`} />;
+  return <input {...props} className={`form-input ${props.className ?? ''}`} />;
 }
 
 export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select {...props} className={`${INPUT_CLS} ${props.className ?? ''}`} />;
+  return <select {...props} className={`form-select ${props.className ?? ''}`} />;
 }
 
 export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return (
-    <textarea
-      {...props}
-      className={`${INPUT_CLS.replace('min-h-[36px]', 'min-h-[72px]')} ${props.className ?? ''}`}
-    />
-  );
+  return <textarea {...props} className={`form-textarea ${props.className ?? ''}`} />;
 }
 
 export function PrimaryButton({

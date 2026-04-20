@@ -13,6 +13,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { PageShell, PageHeader } from '@/components/page-shell';
+import { SetupChecklist } from '@/components/setup-checklist';
 import { TilesSkeleton } from '@/components/skeleton';
 import { getMetrics, type AdminMetrics } from '@/lib/api';
 
@@ -59,11 +60,13 @@ export default function Dashboard() {
       ) : !metrics ? (
         <TilesSkeleton count={8} />
       ) : (
-        <div className="grid grid-cols-2 gap-3.5 md:grid-cols-4">
+        <div className="flex flex-col gap-5">
+          <SetupChecklist metrics={metrics} />
+          <div className="grid grid-cols-2 gap-3.5 md:grid-cols-4">
           <Tile icon={Building2} label="Organizations" value={metrics.organizations} sub="tenants across all types" />
           <Tile icon={MapPin} label="Sites" value={metrics.sites} sub="customer facilities" />
           <Tile icon={Boxes} label="Instances" value={metrics.assetInstances} sub="serial-numbered units" />
-          <Tile icon={QrCode} label="QR stickers" value={metrics.activeQrCodes} sub="active in the field" />
+          <Tile icon={QrCode} label="QR labels" value={metrics.activeQrCodes} sub="active in the field" />
           <Tile
             icon={AlertTriangle}
             label="Work orders"
@@ -90,6 +93,7 @@ export default function Dashboard() {
             tone={metrics.completionRate >= 0.8 ? 'ok' : 'default'}
             sub={`of ${metrics.enrollments} enrolled`}
           />
+          </div>
         </div>
       )}
     </PageShell>

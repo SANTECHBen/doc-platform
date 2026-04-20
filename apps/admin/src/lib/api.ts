@@ -59,6 +59,7 @@ export async function listQrCodes(): Promise<AdminQrCode[]> {
 export interface AdminMetrics {
   organizations: number;
   sites: number;
+  assetModels: number;
   assetInstances: number;
   activeQrCodes: number;
   openWorkOrders: number;

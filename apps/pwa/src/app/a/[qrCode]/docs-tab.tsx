@@ -8,7 +8,7 @@ import {
   Download,
   FileText,
   FileType2,
-  Film,
+  FolderOpen,
   Layers,
   Maximize2,
   Minimize2,
@@ -21,6 +21,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { DocListSkeleton } from '@/components/skeleton';
+import { EmptyState } from '@/components/empty-state';
 import { listDocuments, getDocument, type DocumentListItem, type DocumentBody } from '@/lib/api';
 
 export function DocsTab({ versionId }: { versionId: string | null }) {
@@ -42,12 +43,26 @@ export function DocsTab({ versionId }: { versionId: string | null }) {
   }, [versionId]);
 
   if (!versionId) {
-    return <EmptyState text="No content version pinned to this asset." />;
+    return (
+      <EmptyState
+        icon={FolderOpen}
+        title="No revision pinned"
+        description="No content version is pinned to this asset yet."
+        tone="neutral"
+      />
+    );
   }
   if (error) return <ErrorState text={error} />;
   if (docs === null) return <DocListSkeleton />;
   if (docs.length === 0) {
-    return <EmptyState text="No documents published in this revision." />;
+    return (
+      <EmptyState
+        icon={FolderOpen}
+        title="No documents"
+        description="No documents have been published in this revision."
+        tone="neutral"
+      />
+    );
   }
 
   if (open) {
@@ -83,10 +98,10 @@ export function DocsTab({ versionId }: { versionId: string | null }) {
                     }}
                   >
                     <div
-                      className="doc-thumb-icon"
+                      className="icon-chip icon-chip-lg"
                       style={{ color: tint.fg, background: tint.chip }}
                     >
-                      <Icon size={32} strokeWidth={2} />
+                      <Icon size={28} strokeWidth={2} />
                     </div>
                     <span className="doc-thumb-label" style={{ color: tint.fg }}>
                       {kindLabel(d.kind)}
@@ -240,7 +255,7 @@ function kindIcon(kind: string): LucideIcon {
   }
 }
 
-function EmptyState({ text }: { text: string }) {
+function InlineEmpty({ text }: { text: string }) {
   return <p className="py-8 text-center text-sm text-ink-tertiary">{text}</p>;
 }
 
@@ -320,7 +335,7 @@ function DocView({ doc, onBack }: { doc: DocumentBody; onBack: () => void }) {
 function DocContent({ doc }: { doc: DocumentBody }) {
   if (doc.kind === 'markdown' || doc.kind === 'structured_procedure') {
     if (!doc.bodyMarkdown)
-      return <EmptyState text="This document has no body." />;
+      return <InlineEmpty text="This document has no body." />;
     return (
       <div className="markdown-body text-base">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{doc.bodyMarkdown}</ReactMarkdown>
@@ -329,7 +344,7 @@ function DocContent({ doc }: { doc: DocumentBody }) {
   }
 
   if (doc.kind === 'pdf') {
-    if (!doc.fileUrl) return <EmptyState text="No file attached." />;
+    if (!doc.fileUrl) return <InlineEmpty text="No file attached." />;
     return <FramedFile url={doc.fileUrl} filename={doc.originalFilename} title={doc.title} />;
   }
 
@@ -356,11 +371,11 @@ function DocContent({ doc }: { doc: DocumentBody }) {
         />
       );
     }
-    return <EmptyState text="Video source missing." />;
+    return <InlineEmpty text="Video source missing." />;
   }
 
   if (doc.kind === 'external_video') {
-    if (!doc.externalUrl) return <EmptyState text="No URL set." />;
+    if (!doc.externalUrl) return <InlineEmpty text="No URL set." />;
     const embed = toEmbedUrl(doc.externalUrl);
     if (!embed) {
       return (
@@ -388,7 +403,7 @@ function DocContent({ doc }: { doc: DocumentBody }) {
   }
 
   if (doc.kind === 'schematic') {
-    if (!doc.fileUrl) return <EmptyState text="No file attached." />;
+    if (!doc.fileUrl) return <InlineEmpty text="No file attached." />;
     const isImage = (doc.contentType ?? '').startsWith('image/');
     if (isImage) {
       return (
@@ -403,7 +418,7 @@ function DocContent({ doc }: { doc: DocumentBody }) {
   }
 
   if (doc.kind === 'slides') {
-    if (!doc.fileUrl) return <EmptyState text="No file attached." />;
+    if (!doc.fileUrl) return <InlineEmpty text="No file attached." />;
     const officeViewer = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(doc.fileUrl)}`;
     const isLocalhost = /^https?:\/\/localhost|127\.0\.0\.1/i.test(doc.fileUrl);
     return (
@@ -432,7 +447,7 @@ function DocContent({ doc }: { doc: DocumentBody }) {
   }
 
   if (doc.kind === 'file') {
-    if (!doc.fileUrl) return <EmptyState text="No file attached." />;
+    if (!doc.fileUrl) return <InlineEmpty text="No file attached." />;
     return (
       <div className="flex items-center justify-between rounded-md border border-line bg-surface-elevated p-5">
         <div>
@@ -454,7 +469,7 @@ function DocContent({ doc }: { doc: DocumentBody }) {
     );
   }
 
-  return <EmptyState text={`Unsupported document kind (${doc.kind}).`} />;
+  return <InlineEmpty text={`Unsupported document kind (${doc.kind}).`} />;
 }
 
 // Iframe viewer with fullscreen toggle. Used for PDFs and schematics. Rotating

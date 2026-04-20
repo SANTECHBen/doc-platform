@@ -1457,6 +1457,7 @@ export async function registerAdminListings(app: FastifyInstance) {
     const [
       orgs,
       sites,
+      models,
       instances,
       activeQr,
       openWorkOrders,
@@ -1466,6 +1467,7 @@ export async function registerAdminListings(app: FastifyInstance) {
     ] = await Promise.all([
       scalar(db, sql`SELECT count(*)::int AS n FROM organizations`),
       scalar(db, sql`SELECT count(*)::int AS n FROM sites`),
+      scalar(db, sql`SELECT count(*)::int AS n FROM asset_models`),
       scalar(db, sql`SELECT count(*)::int AS n FROM asset_instances`),
       scalar(db, sql`SELECT count(*)::int AS n FROM qr_codes WHERE active = true`),
       scalar(
@@ -1486,6 +1488,7 @@ export async function registerAdminListings(app: FastifyInstance) {
     return {
       organizations: orgs,
       sites,
+      assetModels: models,
       assetInstances: instances,
       activeQrCodes: activeQr,
       openWorkOrders,

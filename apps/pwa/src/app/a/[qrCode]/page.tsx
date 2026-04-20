@@ -4,14 +4,33 @@ import { FullscreenButton } from '@/components/fullscreen-button';
 import { AssetHubTabs } from './tabs';
 import { resolveAssetHub } from '@/lib/api';
 
-// Hex "#F77531" → "247 117 49" for plugging into my CSS variables.
-// Returns null on invalid input — caller falls back to the default brand.
-function hexToRgbTriplet(hex: string | null | undefined): string | null {
+// Hex "#F77531" → [247, 117, 49]. Returns null on invalid input.
+function hexToRgb(hex: string | null | undefined): [number, number, number] | null {
   if (!hex) return null;
   const match = /^#([0-9a-f]{6})$/i.exec(hex.trim());
   if (!match) return null;
   const n = parseInt(match[1]!, 16);
-  return `${(n >> 16) & 255} ${(n >> 8) & 255} ${n & 255}`;
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function rgbToTriplet(rgb: [number, number, number]): string {
+  return `${rgb[0]} ${rgb[1]} ${rgb[2]}`;
+}
+
+// WCAG relative luminance.
+function luminance(rgb: [number, number, number]): number {
+  const [r, g, b] = rgb.map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  }) as [number, number, number];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrast(a: [number, number, number], b: [number, number, number]): number {
+  const la = luminance(a);
+  const lb = luminance(b);
+  const [hi, lo] = la > lb ? [la, lb] : [lb, la];
+  return (hi + 0.05) / (lo + 0.05);
 }
 
 export default async function AssetHubPage({
@@ -26,19 +45,32 @@ export default async function AssetHubPage({
   const openWo = hub.tabs.openWorkOrders.count;
   const ledClass = openWo > 0 ? 'led-warn' : 'led-ok';
 
-  const brandRgb = hexToRgbTriplet(hub.brand.primary);
-  const onBrandRgb = hexToRgbTriplet(hub.brand.onPrimary);
+  const brandRgb = hexToRgb(hub.brand.primary);
+  const onBrandRgb = hexToRgb(hub.brand.onPrimary);
 
-  // Inline style overrides the token values for this subtree only. Every
-  // `rgb(var(--brand))` deeper in the tree picks up the OEM's brand.
-  const brandStyle: React.CSSProperties | undefined = brandRgb
+  // Reject the OEM palette if it would produce unreadable text. We need the
+  // brand color to hit roughly 3.0:1 against whatever ink sits on top of it —
+  // either the OEM-supplied onPrimary, or default white. Below that, buttons
+  // and pills become illegible; better to fall back to the platform brand.
+  const effectiveOnBrand: [number, number, number] = onBrandRgb ?? [255, 255, 255];
+  const brandIsUsable =
+    brandRgb !== null && contrast(brandRgb, effectiveOnBrand) >= 3.0;
+
+  // A very light brand can't stand in for --ink-brand (used for text on light
+  // surfaces). Demand 3.0:1 against the light-mode surface (≈#F5F6F8).
+  const inkBrandIsUsable =
+    brandRgb !== null && contrast(brandRgb, [245, 246, 248]) >= 3.0;
+
+  const brandStyle: React.CSSProperties | undefined = brandIsUsable
     ? ({
-        ['--brand' as any]: brandRgb,
-        ['--brand-strong' as any]: brandRgb,
-        ['--ink-brand' as any]: brandRgb,
-        ['--brand-glow' as any]: brandRgb,
-        ['--signal-info' as any]: brandRgb,
-        ...(onBrandRgb ? { ['--brand-ink' as any]: onBrandRgb } : {}),
+        ['--brand' as any]: rgbToTriplet(brandRgb!),
+        ['--brand-strong' as any]: rgbToTriplet(brandRgb!),
+        ['--brand-glow' as any]: rgbToTriplet(brandRgb!),
+        ['--signal-info' as any]: rgbToTriplet(brandRgb!),
+        ...(inkBrandIsUsable
+          ? { ['--ink-brand' as any]: rgbToTriplet(brandRgb!) }
+          : {}),
+        ...(onBrandRgb ? { ['--brand-ink' as any]: rgbToTriplet(onBrandRgb) } : {}),
       } as React.CSSProperties)
     : undefined;
 

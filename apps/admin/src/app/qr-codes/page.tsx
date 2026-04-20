@@ -87,7 +87,7 @@ export default function QrCodesPage() {
     <PageShell crumbs={[{ label: 'QR codes' }]}>
       <PageHeader
         title="QR codes"
-        description={`Stickers resolve via ${PUBLIC_PWA_ORIGIN}/q/<code>. Mint per instance, then print a sheet to apply on equipment.`}
+        description={`Labels resolve via ${PUBLIC_PWA_ORIGIN}/q/<code>. Generate one per instance, then print a sheet to apply on equipment.`}
       />
 
       {error && (
@@ -98,7 +98,7 @@ export default function QrCodesPage() {
 
       <section className="rounded-md border border-line-subtle bg-surface-raised p-4">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-tertiary">
-          Mint new sticker
+          Generate new label
         </h2>
         <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end">
           <label className="flex flex-1 flex-col gap-1 text-sm">
@@ -116,7 +116,7 @@ export default function QrCodesPage() {
             </select>
           </label>
           <label className="flex flex-1 flex-col gap-1 text-sm">
-            <span className="text-ink-secondary">Label (shown on sticker)</span>
+            <span className="text-ink-secondary">Caption (shown on label)</span>
             <input
               value={label}
               onChange={(e) => setLabel(e.target.value)}
@@ -129,7 +129,7 @@ export default function QrCodesPage() {
             disabled={minting || !selectedInstanceId}
             className="h-[34px] shrink-0 rounded btn-primary disabled:opacity-50"
           >
-            {minting ? 'Minting…' : 'Mint'}
+            {minting ? 'Generating…' : 'Generate'}
           </button>
         </div>
       </section>
@@ -137,7 +137,7 @@ export default function QrCodesPage() {
       <section className="rounded-md border border-line-subtle bg-surface-raised">
         <div className="flex items-center justify-between border-b border-line-subtle p-4">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-tertiary">
-            Active stickers
+            Active labels
           </h2>
           <div className="flex items-center gap-2">
             <button

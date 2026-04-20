@@ -16,7 +16,7 @@ export function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center justify-center gap-4 rounded-md border border-dashed border-line bg-surface-raised px-6 py-16 text-center">
-      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-brand-soft text-brand-strong">
+      <div className="icon-chip icon-chip-lg">
         <Icon size={26} strokeWidth={1.75} />
       </div>
       <div className="flex max-w-md flex-col gap-1.5">

@@ -43,7 +43,7 @@ const NAV: Item[] = [
   { id: 'nav-packs', label: 'Content packs', href: '/content-packs', group: 'Navigate', icon: FileStack, keywords: 'documents publish version' },
   { id: 'nav-training', label: 'Training', href: '/training', group: 'Navigate', icon: GraduationCap, keywords: 'modules enrollment quiz' },
   { id: 'nav-parts', label: 'Parts', href: '/parts', group: 'Navigate', icon: Wrench, keywords: 'bom catalog' },
-  { id: 'nav-qr', label: 'QR codes', href: '/qr-codes', group: 'Navigate', icon: QrCode, keywords: 'stickers print' },
+  { id: 'nav-qr', label: 'QR codes', href: '/qr-codes', group: 'Navigate', icon: QrCode, keywords: 'labels stickers print generate mint' },
   { id: 'nav-users', label: 'Users', href: '/users', group: 'Navigate', icon: Users, keywords: 'people roles' },
   { id: 'nav-audit', label: 'Audit log', href: '/audit', group: 'Navigate', icon: ScrollText, keywords: 'events history compliance' },
 ];
