@@ -24,18 +24,25 @@ async function fetchFileBuffer(storage: Storage, storageKey: string): Promise<Bu
 // on processing — extraction can take 5–30s for large PDFs. The admin UI
 // polls documents.extractionStatus to show progress. Errors are captured
 // into the document row, not thrown, so the process won't exit.
-function triggerExtraction(
-  app: FastifyInstance,
-  documentId: string,
-): void {
+function triggerExtraction(app: FastifyInstance, documentId: string): void {
   const { db, storage } = app.ctx;
-  void processDocument({
+  const startedAt = Date.now();
+  app.log.info({ documentId }, 'extraction pipeline starting');
+  processDocument({
     db,
     documentId,
     fetchFile: (k) => fetchFileBuffer(storage, k),
-  }).catch((err: unknown) => {
-    app.log.error({ err, documentId }, 'extraction pipeline threw');
-  });
+  })
+    .then((result) => {
+      const ms = Date.now() - startedAt;
+      app.log.info(
+        { documentId, ms, status: result.status, chunks: result.chunksWritten },
+        'extraction pipeline completed',
+      );
+    })
+    .catch((err: unknown) => {
+      app.log.error({ err, documentId }, 'extraction pipeline threw');
+    });
 }
 
 export async function registerAdminRoutes(app: FastifyInstance) {
@@ -1278,10 +1285,11 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
         where: eq(schema.documents.id, request.params.id),
       });
       if (!doc) return reply.notFound();
-      if (doc.extractionStatus === 'processing') {
-        return reply.conflict('Document is already being processed.');
-      }
-
+      // Note: we allow resetting a 'processing' doc. If a real job is mid-
+      // flight (same container, same process), it'll race with the new job
+      // and the transactional chunk-swap at the end picks a deterministic
+      // winner. If the 'processing' status is stale (container restarted),
+      // reset is the only way out.
       await db
         .update(schema.documents)
         .set({ extractionStatus: 'pending', extractionError: null })

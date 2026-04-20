@@ -101,21 +101,13 @@ async function tryTextLayer(buffer: Buffer): Promise<{
     const pdf = await getDocumentProxy(new Uint8Array(buffer));
     const pageCount = pdf.numPages;
 
-    // Extract per-page so we can keep page boundaries for citations.
-    const perPage: string[] = [];
-    for (let p = 1; p <= pageCount; p += 1) {
-      const { text } = await extractText(pdf, { mergePages: false });
-      // unpdf returns the full array when mergePages=false; grab the one we want.
-      // The API shape differs by version; handle both.
-      if (Array.isArray(text)) {
-        perPage.push(text[p - 1] ?? '');
-      } else if (p === 1) {
-        // Older behavior returned a single string; we already have it all.
-        perPage.push(text);
-        for (let i = 2; i <= pageCount; i += 1) perPage.push('');
-        break;
-      }
-    }
+    // Single call returns all pages when mergePages=false. Older versions of
+    // unpdf returned a joined string; handle both shapes.
+    const { text } = await extractText(pdf, { mergePages: false });
+    const perPage: string[] = Array.isArray(text)
+      ? text.map((t) => t ?? '')
+      : [text ?? '', ...Array(Math.max(pageCount - 1, 0)).fill('')];
+
     const total = perPage.join('\n\n');
     return { text: total, pageCount, perPage };
   } catch (err) {
