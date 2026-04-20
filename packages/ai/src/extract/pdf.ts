@@ -1,193 +1,124 @@
-// PDF extraction. Two-tier strategy:
-//   1. Fast path: `unpdf` pulls the embedded text layer. Works for 95% of born-
-//      digital PDFs (manufacturer manuals, operator guides, spec sheets).
-//   2. Quality fallback: if the text layer is empty or suspiciously short
-//      relative to page count, hand the PDF to Claude, which handles scanned
-//      pages, complex tables, and figures natively via its PDF ingestion.
+// PDF extraction via Claude's native document ingestion.
 //
-// The fallback is gated on content, not content_type — a "PDF" that's actually
-// scanned images is still a PDF. We detect this by looking at the text yield.
+// Rather than run a JS text-layer extractor (unpdf / pdfjs-dist) and fall back
+// to an LLM for scanned/complex pages, we just send every PDF to Claude. This
+// is:
+//   - Simpler — one code path, no library incompatibilities.
+//   - Higher quality — Claude handles scans, tables, multi-column layouts,
+//     and figures (which it describes in prose, useful for RAG).
+//   - Comparable in cost — haiku at ~$0.25/1M input tokens × a 10-page PDF ≈
+//     $0.001. Well under the budget for the quality lift.
+//
+// If ANTHROPIC_API_KEY is missing the function throws, because without it we
+// have no way to extract anything at all.
 
-import { extractText, getDocumentProxy } from 'unpdf';
 import Anthropic from '@anthropic-ai/sdk';
-import type { ExtractionResult, ExtractedPage } from './types.js';
+import type { ExtractionResult } from './types.js';
 import { ExtractionError } from './types.js';
 
-// Below this many characters *per page* we treat the text layer as inadequate
-// and fall back to Claude. 200 covers short spec pages; scanned pages routinely
-// produce 0–30 chars of OCR junk, which is well below this threshold.
-const MIN_CHARS_PER_PAGE = 200;
-
-// Claude fallback uses a cheap capable model. We're doing extraction, not
-// reasoning — haiku is plenty and keeps costs marginal.
-const FALLBACK_MODEL = 'claude-haiku-4-5-20251001';
+// Haiku is more than capable for transcription. Reserving Sonnet/Opus here
+// would be overkill and burn budget.
+const EXTRACTION_MODEL = 'claude-haiku-4-5-20251001';
 
 export async function extractPdf(buffer: Buffer): Promise<ExtractionResult> {
-  const notes: string[] = [];
-
-  // Tier 1: text layer.
-  const { text, pageCount, perPage } = await tryTextLayer(buffer);
-
-  const avgPerPage = pageCount > 0 ? text.length / pageCount : 0;
-  const textLayerLikelyFine = avgPerPage >= MIN_CHARS_PER_PAGE;
-
-  if (textLayerLikelyFine) {
-    const markdown = assembleMarkdownFromPages(perPage);
-    const pages = buildPageRanges(perPage);
-    return {
-      markdown,
-      pages,
-      meta: {
-        source: 'pdf',
-        quality: 0.9,
-        notes: [`text layer, ${pageCount} pages`, ...notes],
-      },
-    };
-  }
-
-  // Tier 2: Claude fallback. Only run if the key is present — otherwise
-  // return what we have and flag it, rather than hard-failing.
-  notes.push(
-    `text layer thin (${Math.round(avgPerPage)} chars/page); trying Claude fallback`,
-  );
   if (!process.env.ANTHROPIC_API_KEY) {
-    notes.push('no ANTHROPIC_API_KEY — skipping fallback');
-    const markdown = assembleMarkdownFromPages(perPage);
-    const pages = buildPageRanges(perPage);
-    return {
-      markdown,
-      pages,
-      meta: { source: 'pdf', quality: 0.4, notes },
-    };
+    throw new ExtractionError('ANTHROPIC_API_KEY is not set — cannot extract PDFs');
   }
 
-  try {
-    const markdown = await claudePdfFallback(buffer);
-    return {
-      markdown,
-      pages: [], // Claude collapses into a single markdown stream; page ranges lost.
-      meta: {
-        source: 'pdf',
-        quality: 0.85,
-        notes: [...notes, 'Claude fallback succeeded'],
-      },
-    };
-  } catch (err) {
-    // If Claude fallback fails, serve whatever text we did get — partial is
-    // better than nothing. Caller sees quality=0.3 and can surface a warning.
-    const markdown = assembleMarkdownFromPages(perPage);
-    const pages = buildPageRanges(perPage);
-    return {
-      markdown,
-      pages,
-      meta: {
-        source: 'pdf',
-        quality: 0.3,
-        notes: [
-          ...notes,
-          `Claude fallback failed: ${err instanceof Error ? err.message : String(err)}`,
-        ],
-      },
-    };
+  // Anthropic accepts PDFs up to 32MB as base64. If the upload was larger,
+  // extraction fails loudly rather than silently truncating.
+  const maxBytes = 32 * 1024 * 1024;
+  if (buffer.length > maxBytes) {
+    throw new ExtractionError(
+      `PDF is ${Math.round(buffer.length / 1024 / 1024)}MB — over Anthropic's 32MB limit`,
+    );
   }
-}
 
-async function tryTextLayer(buffer: Buffer): Promise<{
-  text: string;
-  pageCount: number;
-  perPage: string[];
-}> {
-  try {
-    const pdf = await getDocumentProxy(new Uint8Array(buffer));
-    const pageCount = pdf.numPages;
-
-    // Single call returns all pages when mergePages=false. Older versions of
-    // unpdf returned a joined string; handle both shapes.
-    const { text } = await extractText(pdf, { mergePages: false });
-    const perPage: string[] = Array.isArray(text)
-      ? text.map((t) => t ?? '')
-      : [text ?? '', ...Array(Math.max(pageCount - 1, 0)).fill('')];
-
-    const total = perPage.join('\n\n');
-    return { text: total, pageCount, perPage };
-  } catch (err) {
-    throw new ExtractionError('unpdf failed to parse PDF', err);
-  }
-}
-
-/**
- * Ask Claude to transcribe the PDF into clean markdown. Claude's PDF support
- * handles scans, tables, multi-column layouts, and figures (which it describes
- * briefly in prose — useful for RAG retrieval over diagrams).
- */
-async function claudePdfFallback(buffer: Buffer): Promise<string> {
   const client = new Anthropic();
   const base64 = buffer.toString('base64');
 
-  // The installed @anthropic-ai/sdk (0.32.x) doesn't type the `document`
-  // content block yet. The API accepts it at runtime; cast to bypass the
-  // stale type. When the SDK is upgraded, these casts can be removed.
-  const message = await client.messages.create({
-    model: FALLBACK_MODEL,
-    max_tokens: 16_000,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'document',
-            source: {
-              type: 'base64',
-              media_type: 'application/pdf',
-              data: base64,
+  let message;
+  try {
+    // SDK 0.32 doesn't type the `document` content block yet. The API accepts
+    // it at runtime; cast to bypass the stale type until the SDK is upgraded.
+    message = await client.messages.create({
+      model: EXTRACTION_MODEL,
+      max_tokens: 16_000,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'document',
+              source: {
+                type: 'base64',
+                media_type: 'application/pdf',
+                data: base64,
+              },
+            } as any,
+            {
+              type: 'text',
+              text: [
+                'Extract the full text of this PDF as clean GitHub-flavored Markdown.',
+                'Preserve document structure — headings become #, ##, ###; lists become - or 1.; tables become GFM tables.',
+                'For figures and diagrams, write a one-sentence description in *italics* so retrieval can match questions about them.',
+                'Insert `<!-- page:N -->` at the start of each page so citations can reference specific pages.',
+                'Output the markdown only — no preamble, explanation, or commentary.',
+              ].join(' '),
             },
-          } as any,
-          {
-            type: 'text',
-            text: [
-              'Extract this document as clean GitHub-flavored Markdown.',
-              'Preserve headings (use #, ##, ###), lists, and tables.',
-              'For figures and diagrams, write a one-sentence description in *italics*.',
-              'Insert `---` between pages.',
-              'Do not add commentary, preambles, or explanations — output the markdown only.',
-            ].join(' '),
-          },
-        ],
-      },
-    ],
-  });
+          ],
+        },
+      ],
+    });
+  } catch (err) {
+    throw new ExtractionError(
+      `Claude PDF extraction failed: ${err instanceof Error ? err.message : String(err)}`,
+      err,
+    );
+  }
 
   const textBlock = message.content.find((b) => b.type === 'text');
   if (!textBlock || textBlock.type !== 'text') {
-    throw new ExtractionError('Claude fallback returned no text content');
+    throw new ExtractionError('Claude returned no text content for PDF');
   }
-  return textBlock.text.trim();
+
+  const markdown = textBlock.text.trim();
+  if (markdown.length === 0) {
+    throw new ExtractionError('Claude returned empty markdown for PDF');
+  }
+
+  // Pull page ranges from the <!-- page:N --> markers we asked Claude to insert.
+  // If it didn't emit them (short doc, one page), pages stays empty and the
+  // chunker falls back to section-based attribution.
+  const pages = parsePageMarkers(markdown);
+
+  return {
+    markdown,
+    pages,
+    meta: {
+      source: 'pdf',
+      quality: 0.9,
+      notes: [`extracted via Claude (${EXTRACTION_MODEL})`],
+    },
+  };
 }
 
-function assembleMarkdownFromPages(perPage: string[]): string {
-  // Join with a page break marker so the chunker can attribute chunks to pages
-  // even though we collapse to one string.
-  return perPage
-    .map((p, i) => `<!-- page:${i + 1} -->\n\n${normalizeWhitespace(p)}`)
-    .filter((p) => p.trim().length > 0)
-    .join('\n\n');
-}
-
-function buildPageRanges(perPage: string[]): ExtractedPage[] {
-  const pages: ExtractedPage[] = [];
-  let cursor = 0;
-  for (let i = 0; i < perPage.length; i += 1) {
-    const header = `<!-- page:${i + 1} -->\n\n`;
-    const body = normalizeWhitespace(perPage[i] ?? '');
-    if (!body) continue;
-    const start = cursor + header.length;
-    const end = start + body.length;
-    pages.push({ pageNumber: i + 1, charStart: start, charEnd: end });
-    cursor = end + 2; // "\n\n" separator between pages
+function parsePageMarkers(markdown: string): Array<{
+  pageNumber: number;
+  charStart: number;
+  charEnd: number;
+}> {
+  const pages: Array<{ pageNumber: number; charStart: number; charEnd: number }> = [];
+  const re = /<!--\s*page:(\d+)\s*-->/g;
+  const matches: Array<{ pageNumber: number; start: number }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(markdown)) !== null) {
+    matches.push({ pageNumber: Number(m[1]), start: m.index });
+  }
+  for (let i = 0; i < matches.length; i += 1) {
+    const start = matches[i]!.start;
+    const end = i + 1 < matches.length ? matches[i + 1]!.start : markdown.length;
+    pages.push({ pageNumber: matches[i]!.pageNumber, charStart: start, charEnd: end });
   }
   return pages;
-}
-
-function normalizeWhitespace(s: string): string {
-  return s.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
