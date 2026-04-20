@@ -140,17 +140,20 @@ function PrintSheetInner() {
           color: #6b6b6b;
         }
 
-        /* Main layout: QR on right, identification on left. */
+        /* Vertical main: identification block on top, QR centered below.
+           The 2.5" square is too narrow for a side-by-side layout once the
+           QR hits 96pt — the ident column collapses. Vertical gives both
+           pieces the room they need. */
         .sticker-main {
           flex: 1;
           display: flex;
-          gap: 8pt;
+          flex-direction: column;
+          gap: 6pt;
           padding-left: 4pt;
+          padding-right: 2pt;
           min-height: 0;
         }
         .sticker-ident {
-          flex: 1;
-          min-width: 0;
           display: flex;
           flex-direction: column;
           gap: 3pt;
@@ -311,11 +314,7 @@ function PrintSheetInner() {
                     <div className="sticker-qr">
                       <QRCodeSVG value={url} size={96} level="M" includeMargin={false} />
                     </div>
-                    <div className="sticker-qr-hint">
-                      Scan with
-                      <br />
-                      phone camera
-                    </div>
+                    <div className="sticker-qr-hint">Scan to view</div>
                   </div>
                 </div>
 
