@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { FileStack, Plus } from 'lucide-react';
 import { EmptyState } from '@/components/empty-state';
+import { NextStepHint } from '@/components/next-step-hint';
 import { TableSkeleton } from '@/components/skeleton';
 import { useToast } from '@/components/toast';
 import { PageHeader, PageShell, Pill } from '@/components/page-shell';
@@ -68,6 +69,7 @@ export default function ContentPacksPage() {
         }
       />
       <ErrorBanner error={error} />
+      <NextStepHint page="content-packs" />
       {rows === null ? (
         <TableSkeleton cols={6} rows={5} />
       ) : rows.length === 0 ? (

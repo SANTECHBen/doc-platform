@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Boxes, ImagePlus, Plus, X } from 'lucide-react';
 import { EmptyState } from '@/components/empty-state';
+import { NextStepHint } from '@/components/next-step-hint';
 import { TableSkeleton } from '@/components/skeleton';
 import { useToast } from '@/components/toast';
 import { PageHeader, PageShell } from '@/components/page-shell';
@@ -72,6 +73,7 @@ export default function AssetModelsPage() {
         }
       />
       <ErrorBanner error={error} />
+      <NextStepHint page="asset-models" />
       {oems.length === 0 && (
         <p className="mb-4 rounded border border-signal-warn/40 bg-signal-warn/10 p-3 text-sm text-signal-warn">
           Create an OEM organization first — asset models must be owned by one.
