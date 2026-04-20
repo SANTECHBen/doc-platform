@@ -17,6 +17,13 @@ export function FullscreenButton() {
       typeof el.requestFullscreen === 'function' ||
       typeof el.webkitRequestFullscreen === 'function';
     if (!has) return;
+
+    // If we're in an iframe or a context where fullscreen isn't allowed
+    // (some in-app webviews, Vercel preview chrome, CSP-restricted pages),
+    // requestFullscreen will reject AND log a console warning before the
+    // catch runs. Skip the auto-enter in that case.
+    const canFullscreen =
+      document.fullscreenEnabled || (document as any).webkitFullscreenEnabled;
     setSupported(true);
 
     const onChange = () => {
@@ -27,19 +34,21 @@ export function FullscreenButton() {
     document.addEventListener('fullscreenchange', onChange);
     document.addEventListener('webkitfullscreenchange', onChange);
 
-    // Fire once on the first user tap. Browsers need a gesture; by listening
-    // pointerdown with capture we catch virtually any interaction.
+    // Auto-enter on first tap — but only where the browser will actually
+    // honor it. Otherwise the manual button still works when the user taps it.
     let triggered = false;
     const onFirstTap = () => {
       if (triggered) return;
       triggered = true;
       window.removeEventListener('pointerdown', onFirstTap, true);
-      // Fail silently — some embedded browsers (in-app webviews) reject.
+      if (!canFullscreen) return;
       (el.requestFullscreen || el.webkitRequestFullscreen)
         ?.call(el)
         .catch(() => {});
     };
-    window.addEventListener('pointerdown', onFirstTap, true);
+    if (canFullscreen) {
+      window.addEventListener('pointerdown', onFirstTap, true);
+    }
 
     return () => {
       document.removeEventListener('fullscreenchange', onChange);

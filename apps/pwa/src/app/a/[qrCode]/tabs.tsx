@@ -82,6 +82,22 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
   );
 }
 
+// UTC + explicit locale so the same markup renders on the server (Fly/Chicago)
+// and every client browser. Using toLocaleDateString() without these knobs
+// causes React hydration mismatch (#418) when the client's locale/timezone
+// differs from the server.
+const INSTALLED_FMT = new Intl.DateTimeFormat('en-US', {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+  timeZone: 'UTC',
+});
+function formatInstalledAt(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '—' : INSTALLED_FMT.format(d);
+}
+
 function countFor(hub: AssetHubPayload, key: TabKey): number | null {
   switch (key) {
     case 'docs':
@@ -122,11 +138,7 @@ function OverviewSpecs({
       />
       <SpecField
         label="Installed"
-        value={
-          hub.assetInstance.installedAt
-            ? new Date(hub.assetInstance.installedAt).toLocaleDateString()
-            : '—'
-        }
+        value={formatInstalledAt(hub.assetInstance.installedAt)}
       />
     </div>
   );
