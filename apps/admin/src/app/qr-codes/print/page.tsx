@@ -97,54 +97,10 @@ function PrintSheetInner() {
           width: 5pt;
           background: linear-gradient(180deg, #0B5FBF 0%, #0a4da0 100%);
         }
-        /* Header strip — brand mark + product line. Sets a confident
-           top-line hierarchy before the main content. */
-        .sticker-header {
-          display: flex;
-          align-items: center;
-          gap: 5pt;
-          padding-left: 4pt;
-          padding-bottom: 3pt;
-          border-bottom: 0.5pt solid #d4d4d4;
-          margin-bottom: 4pt;
-          flex-shrink: 0;
-        }
-        .sticker-brandmark {
-          width: 11pt;
-          height: 11pt;
-          flex-shrink: 0;
-          background: linear-gradient(135deg, #256CD3 0%, #0B5FBF 100%);
-          border-radius: 1.5pt;
-          color: white;
-          font-family: 'IBM Plex Mono', ui-monospace, monospace;
-          font-size: 5.5pt;
-          font-weight: 700;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          letter-spacing: -0.04em;
-        }
-        .sticker-brandname {
-          font-size: 5.5pt;
-          font-weight: 700;
-          letter-spacing: 0.14em;
-          text-transform: uppercase;
-          color: #0f1114;
-        }
-        .sticker-category {
-          margin-left: auto;
-          font-family: 'IBM Plex Mono', ui-monospace, monospace;
-          font-size: 5.5pt;
-          font-weight: 600;
-          letter-spacing: 0.12em;
-          text-transform: uppercase;
-          color: #6b6b6b;
-        }
-
-        /* Vertical main: ident block on top, QR centered below. Content is
-           budgeted for a 2.5" sticker — 180pt gross, ~165pt after padding,
-           minus header (20pt) and footer (15pt) leaves ~130pt for main.
-           Ident (~30pt) + QR (82pt + 7pt border/pad) fits with headroom. */
+        /* Vertical main: ident block on top, QR pinned to bottom, footer
+           below. Budget for a 2.5" sticker (180pt): 14pt padding + ident
+           ~44pt + QR ~98pt (92pt + pad/border) + footer ~13pt fits with
+           a small buffer. */
         .sticker-main {
           flex: 1;
           display: flex;
@@ -172,30 +128,23 @@ function PrintSheetInner() {
           color: #0f1114;
         }
         .sticker-serial {
-          display: flex;
-          align-items: baseline;
-          gap: 4pt;
           font-family: 'IBM Plex Mono', ui-monospace, monospace;
         }
-        .sticker-serial-label {
-          font-size: 5.5pt;
-          font-weight: 700;
-          letter-spacing: 0.14em;
-          text-transform: uppercase;
-          color: #6b6b6b;
-        }
         .sticker-serial-value {
-          font-size: 9.5pt;
+          font-size: 10pt;
           font-weight: 600;
           color: #0B5FBF;
+          letter-spacing: 0.02em;
         }
         .sticker-meta {
           font-family: 'IBM Plex Mono', ui-monospace, monospace;
           font-size: 7pt;
+          line-height: 1.2;
           color: #424242;
           overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
         }
         .sticker-meta-label {
           font-size: 5.5pt;
@@ -263,30 +212,14 @@ function PrintSheetInner() {
         <div className="sticker-sheet">
           {codes.map((c) => {
             const url = `${PUBLIC_PWA_ORIGIN}/q/${c.code}`;
-            // URL display without protocol — shorter, still recognizable.
-            const shortUrl = PUBLIC_PWA_ORIGIN.replace(/^https?:\/\//, '').replace(
-              /\/$/,
-              '',
-            );
             return (
               <div key={c.id} className="sticker">
-                {/* Header strip */}
-                <div className="sticker-header">
-                  <span className="sticker-brandmark">EH</span>
-                  <span className="sticker-brandname">Equipment Hub</span>
-                  <span className="sticker-category">
-                    {c.assetInstance?.modelCategory?.toUpperCase() ?? 'ASSET'}
-                  </span>
-                </div>
-
-                {/* Main: identification on left, QR on right */}
                 <div className="sticker-main">
                   <div className="sticker-ident">
                     <div className="sticker-model">
                       {c.assetInstance?.modelDisplayName ?? 'Unlinked'}
                     </div>
                     <div className="sticker-serial">
-                      <span className="sticker-serial-label">S/N</span>
                       <span className="sticker-serial-value">
                         {c.assetInstance?.serialNumber ?? '—'}
                       </span>
@@ -307,17 +240,15 @@ function PrintSheetInner() {
 
                   <div className="sticker-qr-col">
                     <div className="sticker-qr">
-                      <QRCodeSVG value={url} size={82} level="M" includeMargin={false} />
+                      <QRCodeSVG value={url} size={92} level="M" includeMargin={false} />
                     </div>
                   </div>
                 </div>
 
-                {/* Footer: spoken-backup code + short URL */}
                 <div className="sticker-footer">
                   <span>
                     ID · <span className="sticker-footer-code">{c.code}</span>
                   </span>
-                  <span>{shortUrl}</span>
                 </div>
               </div>
             );
