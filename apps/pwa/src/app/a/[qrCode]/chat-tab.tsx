@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ArrowUp, Camera, ChevronDown, FileText, ShieldAlert, Sparkles, Square, X } from 'lucide-react';
+import { ArrowUp, Camera, ChevronDown, FileText, ShieldAlert, Sparkles, Square, Trash2, X } from 'lucide-react';
 import type { AssetHubPayload } from '@/lib/shared-schema';
 import { streamChat, uploadFile, type ChatCitation, type UploadResult } from '@/lib/api';
 
@@ -19,21 +19,92 @@ type Turn = UserTurn | AssistantTurn;
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
 const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
 
+// Per-asset conversation store. The chat tab unmounts whenever the user
+// switches to another tab, so without persistence the turns vanish. We key
+// by assetInstanceId so each piece of equipment has its own thread.
+const CHAT_STORAGE_VERSION = 1;
+const CHAT_STORAGE_KEY = (assetInstanceId: string) =>
+  `eh:chat:v${CHAT_STORAGE_VERSION}:${assetInstanceId}`;
+
+interface StoredChat {
+  turns: Turn[];
+  conversationId?: string;
+}
+
+function loadChat(assetInstanceId: string): StoredChat {
+  if (typeof window === 'undefined') return { turns: [] };
+  try {
+    const raw = window.localStorage.getItem(CHAT_STORAGE_KEY(assetInstanceId));
+    if (!raw) return { turns: [] };
+    const parsed = JSON.parse(raw) as StoredChat;
+    // A previous session might have been killed mid-stream — the saved turn
+    // would still carry streaming:true. Reset that flag so the UI doesn't
+    // show a phantom cursor forever.
+    const turns = (parsed.turns ?? []).map((t) =>
+      t.role === 'assistant' ? { ...t, streaming: false } : t,
+    );
+    return { turns, conversationId: parsed.conversationId };
+  } catch {
+    return { turns: [] };
+  }
+}
+
+function saveChat(assetInstanceId: string, state: StoredChat): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(
+      CHAT_STORAGE_KEY(assetInstanceId),
+      JSON.stringify(state),
+    );
+  } catch {
+    // localStorage quota exhaustion is rare here (max ~50 turns = tens of KB),
+    // but silent on failure — losing persistence is better than breaking chat.
+  }
+}
+
+function clearChat(assetInstanceId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(CHAT_STORAGE_KEY(assetInstanceId));
+  } catch {
+    // ignore
+  }
+}
+
 export function ChatTab({ hub, qrCode: _qrCode }: { hub: AssetHubPayload; qrCode: string }) {
-  const [turns, setTurns] = useState<Turn[]>([]);
+  const assetInstanceId = hub.assetInstance.id;
+  // Lazy-init from localStorage so the first render already has the saved
+  // history — no flash of empty state on tab re-open.
+  const [turns, setTurns] = useState<Turn[]>(() => loadChat(assetInstanceId).turns);
+  const [conversationId, setConversationId] = useState<string | undefined>(
+    () => loadChat(assetInstanceId).conversationId,
+  );
   const [input, setInput] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [conversationId, setConversationId] = useState<string | undefined>();
   const [attachment, setAttachment] = useState<UploadResult | null>(null);
   const [uploading, setUploading] = useState(false);
   const cameraRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  // Persist whenever a meaningful piece of the conversation changes.
+  useEffect(() => {
+    saveChat(assetInstanceId, { turns, conversationId });
+  }, [assetInstanceId, turns, conversationId]);
+
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [turns, pending]);
+
+  function onClearConversation() {
+    if (turns.length === 0) return;
+    abortRef.current?.abort();
+    setTurns([]);
+    setConversationId(undefined);
+    setError(null);
+    clearChat(assetInstanceId);
+  }
 
   if (!DEV_USER_ID || !DEV_ORG_ID) {
     return (
@@ -152,6 +223,18 @@ export function ChatTab({ hub, qrCode: _qrCode }: { hub: AssetHubPayload; qrCode
           {hub.assetModel.displayName} · rev{' '}
           {hub.pinnedContentPackVersion?.versionLabel ?? 'current'}
         </span>
+        {turns.length > 0 && (
+          <button
+            type="button"
+            onClick={onClearConversation}
+            className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-medium uppercase tracking-[0.08em] text-ink-tertiary transition hover:bg-surface-elevated hover:text-signal-fault"
+            title="Clear conversation"
+            aria-label="Clear conversation"
+          >
+            <Trash2 size={11} strokeWidth={2} />
+            Clear
+          </button>
+        )}
       </div>
 
       <div
