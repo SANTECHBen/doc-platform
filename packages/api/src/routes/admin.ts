@@ -4,7 +4,39 @@ import { z } from 'zod';
 import { randomBytes } from 'node:crypto';
 import { schema } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
+import { isExtractable, processDocument } from '@platform/ai';
 import { requireAuth } from '../middleware/auth';
+import type { Storage } from '../storage';
+
+// Pull a storage key into a Buffer. The extraction pipeline needs bytes in
+// memory — file sizes are capped at upload (20 MB default) so this is fine.
+async function fetchFileBuffer(storage: Storage, storageKey: string): Promise<Buffer> {
+  const result = await storage.stream(storageKey);
+  if (!result) throw new Error(`File not found in storage: ${storageKey}`);
+  const chunks: Buffer[] = [];
+  for await (const chunk of result.stream as AsyncIterable<Buffer | string>) {
+    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+// Fire-and-forget extraction. We deliberately don't block the HTTP response
+// on processing — extraction can take 5–30s for large PDFs. The admin UI
+// polls documents.extractionStatus to show progress. Errors are captured
+// into the document row, not thrown, so the process won't exit.
+function triggerExtraction(
+  app: FastifyInstance,
+  documentId: string,
+): void {
+  const { db, storage } = app.ctx;
+  void processDocument({
+    db,
+    documentId,
+    fetchFile: (k) => fetchFileBuffer(storage, k),
+  }).catch((err: unknown) => {
+    app.log.error({ err, documentId }, 'extraction pipeline threw');
+  });
+}
 
 export async function registerAdminRoutes(app: FastifyInstance) {
   // List asset instances with model + site info (for the sticker picker).
@@ -1193,6 +1225,16 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
         return reply.badRequest(`Document kind "${b.kind}" is missing its payload field.`);
       }
 
+      // Decide initial extraction state. Markdown/structured_procedure ground
+      // off bodyMarkdown and need chunking too (for embedding). Binary docs
+      // (pdf/pptx/docx/slides/schematic) need full extraction. Videos and
+      // external URLs have no text the AI can retrieve from.
+      const needsExtraction =
+        b.kind === 'markdown' ||
+        b.kind === 'structured_procedure' ||
+        isExtractable(b.kind, b.contentType ?? null);
+      const initialStatus = needsExtraction ? 'pending' : 'not_applicable';
+
       const [doc] = await db
         .insert(schema.documents)
         .values({
@@ -1211,9 +1253,42 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
           safetyCritical: b.safetyCritical,
           orderingHint: b.orderingHint,
           tags: b.tags,
+          extractionStatus: initialStatus,
         })
         .returning();
+
+      if (doc && needsExtraction) {
+        triggerExtraction(app, doc.id);
+      }
       return doc;
+    },
+  );
+
+  // Re-run extraction for a single document. Useful when a failed job needs
+  // retry, or after the extractor is updated. Accepts ready/failed/pending
+  // docs; rejects 'processing' to avoid stepping on an in-flight job.
+  app.post<{ Params: { id: string } }>(
+    '/admin/documents/:id/reprocess',
+    { schema: { params: z.object({ id: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+
+      const doc = await db.query.documents.findFirst({
+        where: eq(schema.documents.id, request.params.id),
+      });
+      if (!doc) return reply.notFound();
+      if (doc.extractionStatus === 'processing') {
+        return reply.conflict('Document is already being processed.');
+      }
+
+      await db
+        .update(schema.documents)
+        .set({ extractionStatus: 'pending', extractionError: null })
+        .where(eq(schema.documents.id, doc.id));
+
+      triggerExtraction(app, doc.id);
+      return { ok: true, documentId: doc.id };
     },
   );
 
@@ -1689,6 +1764,9 @@ export async function registerAdminListings(app: FastifyInstance) {
             kind: string;
             safetyCritical: boolean;
             language: string;
+            extractionStatus: string;
+            extractionError: string | null;
+            extractedAt: string | null;
           }>,
           trainingModules: [] as Array<{ id: string; title: string }>,
         })).map((v) => [v.id, v]),
@@ -1701,6 +1779,9 @@ export async function registerAdminListings(app: FastifyInstance) {
           kind: d.kind,
           safetyCritical: d.safetyCritical,
           language: d.language,
+          extractionStatus: d.extractionStatus,
+          extractionError: d.extractionError,
+          extractedAt: d.extractedAt ? d.extractedAt.toISOString() : null,
         });
       }
       for (const m of trainingModules) {

@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { and, eq, inArray } from 'drizzle-orm';
 import { schema } from '@platform/db';
 import {
-  createPgTextSearchRetriever,
+  createHybridRetriever,
   extractCitedChunkIds,
   buildSafetyDirective,
   buildSystemPrompt,
@@ -119,8 +119,18 @@ Extract in 2–3 sentences the key observable facts: any visible fault codes, al
       }
     }
 
-    // Retrieve + enrich with safety flags.
-    const retriever = createPgTextSearchRetriever({ db });
+    // Retrieve + enrich with safety flags. Hybrid retrieval (FTS + pgvector)
+    // with Voyage reranking — best-in-class recall for grounded Q&A. If
+    // VOYAGE_API_KEY is missing or quota-exhausted, the retriever degrades
+    // to FTS-only automatically rather than failing the turn.
+    const retriever = createHybridRetriever({
+      db,
+      options: {
+        topK: 8,
+        candidatesPerLeg: 30,
+        skipRerank: !process.env.VOYAGE_API_KEY,
+      },
+    });
     const retrieved = await retriever.retrieve({
       query: retrievalQuery,
       contentPackVersionIds: [conversation.contentPackVersionId],

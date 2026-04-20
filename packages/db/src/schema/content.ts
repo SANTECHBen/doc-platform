@@ -12,7 +12,12 @@ import {
 import { relations } from 'drizzle-orm';
 import { organizations } from './organizations';
 import { assetModels } from './assets';
-import { contentPackStatusEnum, contentLayerTypeEnum, documentKindEnum } from './enums';
+import {
+  contentPackStatusEnum,
+  contentLayerTypeEnum,
+  documentKindEnum,
+  extractionStatusEnum,
+} from './enums';
 
 // ContentPack = named bundle of docs + training + parts authored against an AssetModel.
 // Layer type determines how it composes with others at render time:
@@ -108,6 +113,19 @@ export const documents = pgTable(
     safetyCritical: boolean('safety_critical').notNull().default(false),
     orderingHint: integer('ordering_hint').notNull().default(0),
     tags: jsonb('tags').$type<string[]>().notNull().default([]),
+    // Lifecycle of the extraction → chunking → embedding pipeline for this doc.
+    // markdown/structured_procedure/external_video default to 'not_applicable'.
+    // pdf/docx/pptx/slides/schematic start as 'pending' and advance via the pipeline.
+    extractionStatus: extractionStatusEnum('extraction_status')
+      .notNull()
+      .default('not_applicable'),
+    // Last error message when extractionStatus = 'failed'. Nullable otherwise.
+    extractionError: text('extraction_error'),
+    // Cached extracted markdown so we don't re-run the extractor on each re-embed
+    // or index rebuild. Populated by the pipeline; treat as opaque text.
+    extractedText: text('extracted_text'),
+    // When extraction last completed successfully. Also nudged on reprocess.
+    extractedAt: timestamp('extracted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({

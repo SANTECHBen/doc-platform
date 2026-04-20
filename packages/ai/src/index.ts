@@ -3,3 +3,7 @@ export * from './retrieval';
 export * from './troubleshooter';
 export * from './guardrails';
 export * from './prompts';
+export * from './embeddings';
+export * from './chunking';
+export * from './pipeline';
+export * from './extract/index.js';

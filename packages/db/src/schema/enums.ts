@@ -81,3 +81,15 @@ export const workOrderSeverityEnum = pgEnum('work_order_severity', [
 ]);
 
 export const aiMessageRoleEnum = pgEnum('ai_message_role', ['user', 'assistant', 'system', 'tool']);
+
+// Per-document extraction lifecycle. A document uploaded as PDF/DOCX/PPTX needs
+// its text pulled out and chunked before the AI can ground on it. We surface
+// the state so the admin UI can show progress and failures instead of silent
+// "AI doesn't know about this doc" behavior.
+export const extractionStatusEnum = pgEnum('extraction_status', [
+  'not_applicable', // markdown-native / external video — nothing to extract.
+  'pending',        // queued, haven't started yet.
+  'processing',     // extraction in flight.
+  'ready',          // extracted + chunked + embedded.
+  'failed',         // terminal failure; see extractionError for details.
+]);

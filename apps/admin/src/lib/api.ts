@@ -207,6 +207,14 @@ export interface AdminContentPackDetail {
       kind: string;
       safetyCritical: boolean;
       language: string;
+      extractionStatus:
+        | 'not_applicable'
+        | 'pending'
+        | 'processing'
+        | 'ready'
+        | 'failed';
+      extractionError: string | null;
+      extractedAt: string | null;
     }>;
     trainingModules: Array<{ id: string; title: string }>;
   }>;
@@ -220,6 +228,15 @@ export async function getContentPack(id: string): Promise<AdminContentPackDetail
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return (await res.json()) as AdminContentPackDetail;
+}
+
+/** Re-run extraction + chunking + embedding for a document. */
+export async function reprocessDocument(documentId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/documents/${encodeURIComponent(documentId)}/reprocess`,
+    { method: 'POST', headers: authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }
 
 export interface AdminTrainingModule {

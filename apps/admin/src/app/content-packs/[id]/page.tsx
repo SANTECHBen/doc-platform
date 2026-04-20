@@ -3,7 +3,22 @@
 import Link from 'next/link';
 import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, FilePlus2, GraduationCap, Pencil, Plus, RefreshCw, Send, Trash2, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  Check,
+  CircleCheck,
+  CircleDashed,
+  FilePlus2,
+  GraduationCap,
+  Loader2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Send,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { PageHeader, PageShell, Pill } from '@/components/page-shell';
 import { useToast } from '@/components/toast';
 import {
@@ -25,6 +40,7 @@ import {
   deleteDocument,
   getContentPack,
   publishContentPackVersion,
+  reprocessDocument,
   updateDocument,
   uploadFile,
   type AdminContentPackDetail,
@@ -66,6 +82,22 @@ export default function ContentPackDetail({
     void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Poll every 3s while any document is mid-extraction. The pipeline typically
+  // finishes in 5-30s per doc, so a 3s cadence surfaces state fast without
+  // hammering the API. Stops automatically once all docs settle.
+  useEffect(() => {
+    if (!pack) return;
+    const inFlight = pack.versions.some((v) =>
+      v.documents.some(
+        (d) => d.extractionStatus === 'pending' || d.extractionStatus === 'processing',
+      ),
+    );
+    if (!inFlight) return;
+    const interval = setInterval(() => void refresh(), 3000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pack]);
 
   async function onNewVersion() {
     setBusy(true);
@@ -722,6 +754,14 @@ interface DocRowData {
   kind: string;
   safetyCritical: boolean;
   language: string;
+  extractionStatus:
+    | 'not_applicable'
+    | 'pending'
+    | 'processing'
+    | 'ready'
+    | 'failed';
+  extractionError: string | null;
+  extractedAt: string | null;
 }
 
 function DocumentRow({
@@ -782,8 +822,22 @@ function DocumentRow({
     }
   }
 
+  async function onReprocess() {
+    setBusy(true);
+    try {
+      await reprocessDocument(doc.id);
+      toast.success('Re-extraction queued');
+      await onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <li className="flex items-center gap-2 rounded border border-line-subtle bg-surface-inset px-2 py-1.5">
+    <li className="flex flex-col gap-1 rounded border border-line-subtle bg-surface-inset px-2 py-1.5">
+      <div className="flex items-center gap-2">
       <span className="shrink-0 rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[10px] uppercase text-ink-tertiary">
         {doc.kind}
       </span>
@@ -838,8 +892,21 @@ function DocumentRow({
         )}
       </span>
       {doc.safetyCritical && <Pill tone="warning">safety</Pill>}
+      <ExtractionBadge status={doc.extractionStatus} />
       {editable && !editing && (
         <div className="flex items-center gap-1">
+          {(doc.extractionStatus === 'failed' || doc.extractionStatus === 'ready') && (
+            <button
+              type="button"
+              onClick={onReprocess}
+              className="p-1 text-ink-tertiary hover:text-ink-primary"
+              aria-label="Reprocess"
+              disabled={busy}
+              title="Re-run extraction + embedding"
+            >
+              <RotateCcw size={14} />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setEditing(true)}
@@ -877,6 +944,82 @@ function DocumentRow({
           </button>
         </div>
       )}
+      </div>
+      {doc.extractionStatus === 'failed' && doc.extractionError && (
+        <div
+          className="mt-0.5 rounded border px-2 py-1 text-xs"
+          style={{
+            borderColor: 'rgba(var(--signal-fault) / 0.3)',
+            background: 'rgba(var(--signal-fault) / 0.08)',
+            color: 'rgb(var(--signal-fault))',
+          }}
+        >
+          <span className="font-medium">Extraction failed:</span> {doc.extractionError}
+        </div>
+      )}
     </li>
+  );
+}
+
+// Status pill + icon for the extraction pipeline. `not_applicable` is
+// intentionally invisible — markdown docs etc. chunk directly without
+// extraction, and surfacing a "ready/not-applicable" pill everywhere adds
+// noise that makes real failures harder to spot.
+function ExtractionBadge({ status }: { status: DocRowData['extractionStatus'] }) {
+  if (status === 'not_applicable') return null;
+  if (status === 'pending') {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+        style={{
+          background: 'rgb(var(--surface-elevated))',
+          color: 'rgb(var(--ink-tertiary))',
+        }}
+        title="Queued for extraction"
+      >
+        <CircleDashed size={11} strokeWidth={2} /> queued
+      </span>
+    );
+  }
+  if (status === 'processing') {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+        style={{
+          background: 'rgba(var(--brand-soft-v), var(--brand-soft-a))',
+          color: 'rgb(var(--ink-brand))',
+        }}
+        title="Extracting + embedding right now"
+      >
+        <Loader2 size={11} strokeWidth={2} className="animate-spin" /> extracting
+      </span>
+    );
+  }
+  if (status === 'ready') {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+        style={{
+          background: 'rgba(var(--signal-ok) / 0.14)',
+          color: 'rgb(var(--signal-ok))',
+        }}
+        title="Indexed — searchable by AI"
+      >
+        <CircleCheck size={11} strokeWidth={2} /> indexed
+      </span>
+    );
+  }
+  // failed
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+      style={{
+        background: 'rgba(var(--signal-fault) / 0.14)',
+        color: 'rgb(var(--signal-fault))',
+      }}
+      title="Extraction failed — click reprocess to retry"
+    >
+      <AlertTriangle size={11} strokeWidth={2} /> failed
+    </span>
   );
 }
