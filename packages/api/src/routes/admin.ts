@@ -24,25 +24,43 @@ async function fetchFileBuffer(storage: Storage, storageKey: string): Promise<Bu
 // on processing — extraction can take 5–30s for large PDFs. The admin UI
 // polls documents.extractionStatus to show progress. Errors are captured
 // into the document row, not thrown, so the process won't exit.
+//
+// Extra defensiveness: wrap everything in an IIFE with its own try/catch
+// and write failures back to the row. Without this, an error thrown during
+// module init or a sync exception path could escape processDocument's
+// internal try/catch and kill the Node process.
 function triggerExtraction(app: FastifyInstance, documentId: string): void {
   const { db, storage } = app.ctx;
   const startedAt = Date.now();
   app.log.info({ documentId }, 'extraction pipeline starting');
-  processDocument({
-    db,
-    documentId,
-    fetchFile: (k) => fetchFileBuffer(storage, k),
-  })
-    .then((result) => {
+
+  (async () => {
+    try {
+      const result = await processDocument({
+        db,
+        documentId,
+        fetchFile: (k) => fetchFileBuffer(storage, k),
+      });
       const ms = Date.now() - startedAt;
       app.log.info(
         { documentId, ms, status: result.status, chunks: result.chunksWritten },
         'extraction pipeline completed',
       );
-    })
-    .catch((err: unknown) => {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       app.log.error({ err, documentId }, 'extraction pipeline threw');
-    });
+      // Best-effort: mark the doc failed so the UI can show a real error
+      // instead of leaving it stuck at 'processing'.
+      try {
+        await db
+          .update(schema.documents)
+          .set({ extractionStatus: 'failed', extractionError: msg })
+          .where(eq(schema.documents.id, documentId));
+      } catch (writeErr) {
+        app.log.error({ err: writeErr, documentId }, 'failed to persist extraction failure');
+      }
+    }
+  })();
 }
 
 export async function registerAdminRoutes(app: FastifyInstance) {
