@@ -1,5 +1,23 @@
 import type { SafetyFlaggedChunk } from './guardrails';
 
+/**
+ * When a conversation is scoped to a specific part inside an asset (via
+ * partId on the chat request), the AI needs to know which part it is so
+ * questions like "what assembly is this part in?" don't come back as
+ * "which part?". Populated only for part-scoped chat turns.
+ */
+export interface PartContext {
+  oemPartNumber: string;
+  displayName: string;
+  description: string | null;
+  /** Positional ref on the parent asset's BOM (e.g., "E-217"). */
+  positionRef: string | null;
+  /** Name of the parent part if this part is itself a component. */
+  parentPartDisplayName?: string | null;
+  /** OEM number of the parent part if applicable. */
+  parentOemPartNumber?: string | null;
+}
+
 export interface GroundingContext {
   assetModelDisplayName: string;
   assetModelCategory: string;
@@ -7,6 +25,8 @@ export interface GroundingContext {
   siteName: string;
   contentPackVersionLabel: string | null;
   chunks: SafetyFlaggedChunk[];
+  /** Optional — populated only when the chat is scoped to a specific part. */
+  part?: PartContext | null;
 }
 
 /**
@@ -41,9 +61,40 @@ export function buildSystemPrompt(ctx: GroundingContext, safetyDirective: string
     `- Site: ${ctx.siteName}`,
     `- Content version: ${ctx.contentPackVersionLabel ?? 'current'}`,
     '',
-    '## Source chunks',
-    '',
   );
+
+  // When a part is in scope, pin it at the top of the context so the model
+  // always knows which specific part the user is asking about. Without this
+  // the model falls back to "which part do you mean?" even though the UI is
+  // visibly zoomed into one.
+  if (ctx.part) {
+    lines.push(
+      '## Part in focus',
+      'The user is currently viewing this specific part in the PWA. Answer in reference to it',
+      'unless they explicitly ask about something else.',
+      `- OEM part number: ${ctx.part.oemPartNumber}`,
+      `- Name: ${ctx.part.displayName}`,
+    );
+    if (ctx.part.description) {
+      lines.push(`- Description: ${ctx.part.description}`);
+    }
+    if (ctx.part.positionRef) {
+      lines.push(`- Position on the asset's BOM: ${ctx.part.positionRef}`);
+    }
+    if (ctx.part.parentPartDisplayName) {
+      lines.push(
+        `- Parent assembly: ${ctx.part.parentPartDisplayName}` +
+          (ctx.part.parentOemPartNumber ? ` (${ctx.part.parentOemPartNumber})` : ''),
+      );
+    } else {
+      lines.push(
+        `- Parent assembly: the ${ctx.assetModelDisplayName} itself (this is a top-level BOM part).`,
+      );
+    }
+    lines.push('');
+  }
+
+  lines.push('## Source chunks', '');
 
   for (const chunk of ctx.chunks) {
     lines.push(`<chunk id="${chunk.id}"${chunk.safetyCritical ? ' safety_critical="true"' : ''}>`);

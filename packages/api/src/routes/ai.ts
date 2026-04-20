@@ -122,9 +122,59 @@ Extract in 2–3 sentences the key observable facts: any visible fault codes, al
     // If partId is set, scope retrieval to documents author-linked to that
     // part. The PWA's part-detail Assistant tab passes this so answers cite
     // only the docs explicitly curated for the selected part. We compute the
-    // document ID set here (small query) and hand it to the retriever.
+    // document ID set here (small query) and hand it to the retriever, and
+    // we also gather enough part metadata to tell the model which specific
+    // part is in focus — otherwise it asks "which part?" despite the UI
+    // being zoomed into one.
     let scopedDocumentIds: string[] | undefined;
+    let partContext: {
+      oemPartNumber: string;
+      displayName: string;
+      description: string | null;
+      positionRef: string | null;
+      parentPartDisplayName?: string | null;
+      parentOemPartNumber?: string | null;
+    } | null = null;
+
     if (body.partId) {
+      const [part, bomRow, parentLink] = await Promise.all([
+        db.query.parts.findFirst({
+          where: eq(schema.parts.id, body.partId),
+        }),
+        db.query.bomEntries.findFirst({
+          where: and(
+            eq(schema.bomEntries.partId, body.partId),
+            eq(schema.bomEntries.assetModelId, instance.model.id),
+          ),
+        }),
+        db.query.partComponents.findFirst({
+          where: eq(schema.partComponents.childPartId, body.partId),
+        }),
+      ]);
+
+      if (part) {
+        let parentPartDisplayName: string | null = null;
+        let parentOemPartNumber: string | null = null;
+        if (parentLink) {
+          const parent = await db.query.parts.findFirst({
+            where: eq(schema.parts.id, parentLink.parentPartId),
+            columns: { oemPartNumber: true, displayName: true },
+          });
+          if (parent) {
+            parentPartDisplayName = parent.displayName;
+            parentOemPartNumber = parent.oemPartNumber;
+          }
+        }
+        partContext = {
+          oemPartNumber: part.oemPartNumber,
+          displayName: part.displayName,
+          description: part.description,
+          positionRef: bomRow?.positionRef ?? null,
+          parentPartDisplayName,
+          parentOemPartNumber,
+        };
+      }
+
       const links = await db.query.partDocuments.findMany({
         where: eq(schema.partDocuments.partId, body.partId),
       });
@@ -176,6 +226,7 @@ Extract in 2–3 sentences the key observable facts: any visible fault codes, al
         contentPackVersionLabel:
           instance.pinnedContentPackVersion?.versionLabel ?? null,
         chunks,
+        part: partContext,
       },
       safetyDirective,
     );
