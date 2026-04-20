@@ -393,7 +393,6 @@ function PartDetailOverlay({
       role="dialog"
       aria-modal="true"
       aria-label={data?.part.displayName ?? 'Part detail'}
-      style={{ display: 'flex', flexDirection: 'column' }}
     >
       <header className="doc-overlay-bar">
         <button
@@ -421,81 +420,70 @@ function PartDetailOverlay({
         </button>
       </header>
 
-      {/* Top-tab segbar — differentiates from the equipment page (bottom tabs). */}
-      <div
-        className="px-3 pt-3"
-        style={{
-          background: 'rgb(var(--surface-base))',
-          borderBottom: '1px solid rgb(var(--line-subtle))',
-        }}
-      >
-        <div className="segbar" role="tablist" aria-label="Part sections">
-          {PART_TABS.map((t) => {
-            const Icon = t.icon;
-            const isActive = active === t.key;
-            const count = partTabCount(data, t.key);
-            return (
-              <button
-                key={t.key}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                data-active={isActive}
-                onClick={() => setActive(t.key)}
-                className="segbar-item"
-              >
-                <Icon size={14} strokeWidth={isActive ? 2.25 : 2} />
-                <span>{t.label}</span>
-                {count !== null && count > 0 && (
-                  <span className="segbar-count">{count}</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      <div className="app-scroll page-enter flex flex-col gap-4">
+        {error && (
+          <p className="rounded-md border border-signal-fault/40 bg-signal-fault/10 p-3 text-sm text-signal-fault">
+            {error}
+          </p>
+        )}
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="page-enter flex flex-col gap-4 px-3.5 pb-6 pt-4">
-          {error && (
-            <p className="rounded-md border border-signal-fault/40 bg-signal-fault/10 p-3 text-sm text-signal-fault">
-              {error}
-            </p>
+        <div key={active} className="tab-pane flex flex-col gap-4">
+          {active === 'overview' && (
+            <PartOverviewPane
+              part={data?.part ?? null}
+              bomRow={bomRow}
+              onImageTap={() => setLightboxOpen(true)}
+              docCount={data?.documents.length ?? 0}
+              trainingCount={data?.trainingModules.length ?? 0}
+              componentCount={data?.components.length ?? 0}
+            />
           )}
 
-          <div key={active} className="tab-pane flex flex-col gap-4">
-            {active === 'overview' && (
-              <PartOverviewPane
-                part={data?.part ?? null}
-                bomRow={bomRow}
-                onImageTap={() => setLightboxOpen(true)}
-                docCount={data?.documents.length ?? 0}
-                trainingCount={data?.trainingModules.length ?? 0}
-                componentCount={data?.components.length ?? 0}
-              />
-            )}
+          {active === 'documents' && (
+            <PartDocumentsPane data={data} onOpenDocument={openDocument} />
+          )}
 
-            {active === 'documents' && (
-              <PartDocumentsPane data={data} onOpenDocument={openDocument} />
-            )}
+          {active === 'training' && <PartTrainingPane data={data} />}
 
-            {active === 'training' && <PartTrainingPane data={data} />}
+          {active === 'components' && (
+            <ComponentsPane data={data} onDrillInto={drillInto} />
+          )}
 
-            {active === 'components' && (
-              <ComponentsPane data={data} onDrillInto={drillInto} />
-            )}
-
-            {active === 'chat' && (
-              <ChatTab
-                hub={hub}
-                qrCode={qrCode}
-                partId={currentPartId}
-                partName={data?.part.displayName ?? bomRow?.displayName}
-              />
-            )}
-          </div>
+          {active === 'chat' && (
+            <ChatTab
+              hub={hub}
+              qrCode={qrCode}
+              partId={currentPartId}
+              partName={data?.part.displayName ?? bomRow?.displayName}
+            />
+          )}
         </div>
       </div>
+
+      <nav className="app-tabbar" role="tablist" aria-label="Part sections">
+        {PART_TABS.map((t) => {
+          const Icon = t.icon;
+          const isActive = active === t.key;
+          const count = partTabCount(data, t.key);
+          return (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              data-active={isActive}
+              onClick={() => setActive(t.key)}
+              className="app-tabbar-item"
+            >
+              <Icon size={22} strokeWidth={isActive ? 2.25 : 1.75} />
+              <span>{t.label}</span>
+              {count !== null && count > 0 && (
+                <span className="app-tabbar-count tabular-nums">{count}</span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
 
       {lightboxOpen && data?.part.imageUrl && (
         <ImageLightbox
