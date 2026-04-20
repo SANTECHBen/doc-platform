@@ -100,7 +100,11 @@ const jwksByIssuer = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 function getJwks(issuer: string): ReturnType<typeof createRemoteJWKSet> {
   let jwks = jwksByIssuer.get(issuer);
   if (!jwks) {
-    jwks = createRemoteJWKSet(new URL(`${issuer}/discovery/v2.0/keys`));
+    // Microsoft's JWKS lives at https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys
+    // — the issuer URL ends in /v2.0, but the discovery path drops it. Strip
+    // the trailing /v2.0 segment before appending /discovery/v2.0/keys.
+    const base = issuer.replace(/\/v2\.0\/?$/, '');
+    jwks = createRemoteJWKSet(new URL(`${base}/discovery/v2.0/keys`));
     jwksByIssuer.set(issuer, jwks);
   }
   return jwks;
