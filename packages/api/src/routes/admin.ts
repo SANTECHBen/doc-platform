@@ -77,74 +77,126 @@ function triggerExtraction(app: FastifyInstance, documentId: string): void {
 }
 
 export async function registerAdminRoutes(app: FastifyInstance) {
-  // List asset instances with model + site info (for the sticker picker).
-  // Phase 1: returns everything the caller can see; real auth scoping is a
-  // WorkOS-wiring task.
+  // List asset instances with model + site info. Scoped: returns only
+  // instances whose owning site belongs to an org the user can see (home
+  // org + descendants via getScope). Platform admins see everything.
   app.get('/admin/asset-instances', async (request) => {
     const { db } = app.ctx;
     requireAuth(request);
-    const rows = await db.query.assetInstances.findMany({
-      with: {
-        model: true,
-        site: { with: { organization: true } },
+    const scope = await getScope(request, db);
+    if (!scope.all && scope.orgIds.length === 0) return [];
+    const scopeLiteral = orgIdsLiteral(scope);
+    const rows = (await db.execute(
+      scope.all
+        ? sql`SELECT ai.id, ai.serial_number,
+                 am.id AS model_id, am.model_code, am.display_name AS model_display_name,
+                 am.category AS model_category,
+                 s.id AS site_id, s.name AS site_name,
+                 o.id AS org_id, o.name AS org_name
+              FROM asset_instances ai
+              JOIN asset_models am ON am.id = ai.asset_model_id
+              JOIN sites s ON s.id = ai.site_id
+              JOIN organizations o ON o.id = s.organization_id
+              ORDER BY am.display_name`
+        : sql`SELECT ai.id, ai.serial_number,
+                 am.id AS model_id, am.model_code, am.display_name AS model_display_name,
+                 am.category AS model_category,
+                 s.id AS site_id, s.name AS site_name,
+                 o.id AS org_id, o.name AS org_name
+              FROM asset_instances ai
+              JOIN asset_models am ON am.id = ai.asset_model_id
+              JOIN sites s ON s.id = ai.site_id
+              JOIN organizations o ON o.id = s.organization_id
+              WHERE s.organization_id = ANY(${scopeLiteral}::uuid[])
+              ORDER BY am.display_name`,
+    )) as unknown as Array<{
+      id: string;
+      serial_number: string;
+      model_id: string;
+      model_code: string;
+      model_display_name: string;
+      model_category: string;
+      site_id: string;
+      site_name: string;
+      org_id: string;
+      org_name: string;
+    }>;
+    return rows.map((r) => ({
+      id: r.id,
+      serialNumber: r.serial_number,
+      assetModel: {
+        id: r.model_id,
+        modelCode: r.model_code,
+        displayName: r.model_display_name,
+        category: r.model_category,
       },
-    });
-    return rows
-      .map((r) => ({
-        id: r.id,
-        serialNumber: r.serialNumber,
-        assetModel: {
-          id: r.model.id,
-          modelCode: r.model.modelCode,
-          displayName: r.model.displayName,
-          category: r.model.category,
-        },
-        site: { id: r.site.id, name: r.site.name },
-        organization: { id: r.site.organization.id, name: r.site.organization.name },
-      }))
-      .sort((a, b) => a.assetModel.displayName.localeCompare(b.assetModel.displayName));
+      site: { id: r.site_id, name: r.site_name },
+      organization: { id: r.org_id, name: r.org_name },
+    }));
   });
 
-  // List QR codes with resolved asset instance.
+  // List QR codes with resolved asset instance. Scoped: a QR is visible only
+  // when its linked asset instance's site belongs to an org in scope.
+  // Unlinked QRs (no asset_instance_id) are visible only to platform admins —
+  // scoped users have no org to attribute them to, and leaking a free-floating
+  // code across tenants would defeat the scope guard.
   app.get('/admin/qr-codes', async (request) => {
     const { db } = app.ctx;
     requireAuth(request);
-    const codes = await db
-      .select()
-      .from(schema.qrCodes)
-      .orderBy(desc(schema.qrCodes.createdAt));
-    if (codes.length === 0) return [];
-
-    const instanceIds = codes
-      .map((c) => c.assetInstanceId)
-      .filter((id): id is string => id !== null);
-    const instances = instanceIds.length
-      ? await db.query.assetInstances.findMany({
-          where: inArray(schema.assetInstances.id, instanceIds),
-          with: { model: true, site: true },
-        })
-      : [];
-    const byId = new Map(instances.map((i) => [i.id, i]));
-
-    return codes.map((c) => {
-      const instance = c.assetInstanceId ? byId.get(c.assetInstanceId) : null;
-      return {
-        id: c.id,
-        code: c.code,
-        label: c.label,
-        active: c.active,
-        createdAt: c.createdAt,
-        assetInstance: instance
-          ? {
-              id: instance.id,
-              serialNumber: instance.serialNumber,
-              modelDisplayName: instance.model.displayName,
-              modelCategory: instance.model.category,
-              siteName: instance.site.name,
-            }
-          : null,
-      };
-    });
+    const scope = await getScope(request, db);
+    if (!scope.all && scope.orgIds.length === 0) return [];
+    const scopeLiteral = orgIdsLiteral(scope);
+    const rows = (await db.execute(
+      scope.all
+        ? sql`SELECT q.id, q.code, q.label, q.active, q.created_at,
+                 ai.id AS instance_id, ai.serial_number,
+                 am.display_name AS model_display_name,
+                 am.category AS model_category,
+                 s.name AS site_name
+              FROM qr_codes q
+              LEFT JOIN asset_instances ai ON ai.id = q.asset_instance_id
+              LEFT JOIN asset_models am ON am.id = ai.asset_model_id
+              LEFT JOIN sites s ON s.id = ai.site_id
+              ORDER BY q.created_at DESC`
+        : sql`SELECT q.id, q.code, q.label, q.active, q.created_at,
+                 ai.id AS instance_id, ai.serial_number,
+                 am.display_name AS model_display_name,
+                 am.category AS model_category,
+                 s.name AS site_name
+              FROM qr_codes q
+              JOIN asset_instances ai ON ai.id = q.asset_instance_id
+              JOIN asset_models am ON am.id = ai.asset_model_id
+              JOIN sites s ON s.id = ai.site_id
+              WHERE s.organization_id = ANY(${scopeLiteral}::uuid[])
+              ORDER BY q.created_at DESC`,
+    )) as unknown as Array<{
+      id: string;
+      code: string;
+      label: string | null;
+      active: boolean;
+      created_at: string;
+      instance_id: string | null;
+      serial_number: string | null;
+      model_display_name: string | null;
+      model_category: string | null;
+      site_name: string | null;
+    }>;
+    return rows.map((r) => ({
+      id: r.id,
+      code: r.code,
+      label: r.label,
+      active: r.active,
+      createdAt: r.created_at,
+      assetInstance: r.instance_id
+        ? {
+            id: r.instance_id,
+            serialNumber: r.serial_number!,
+            modelDisplayName: r.model_display_name!,
+            modelCategory: r.model_category!,
+            siteName: r.site_name!,
+          }
+        : null,
+    }));
   });
 
   // Mint a new QR code for an asset instance.
@@ -161,11 +213,18 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
 
       const instance = await db.query.assetInstances.findFirst({
         where: eq(schema.assetInstances.id, request.body.assetInstanceId),
+        with: { site: true },
       });
       if (!instance) return reply.notFound('Asset instance not found.');
+      // Scope check: 404 (not 403) for out-of-scope instances — don't confirm
+      // the row exists to a caller who shouldn't know about it.
+      if (!scope.all && !scope.orgIds.includes(instance.site.organizationId)) {
+        return reply.notFound('Asset instance not found.');
+      }
 
       const code = generateQrCode();
       const [created] = await db
@@ -719,29 +778,44 @@ export async function registerAdminMutations(app: FastifyInstance) {
     },
   );
 
-  // All sites across all orgs (for the asset-instance site picker — the
-  // onboarding flow usually assigns Flow Turn conveyors to an Amazon DC, which
-  // is a different org than Flow Turn itself).
+  // Sites across orgs the user can see (for the asset-instance site picker —
+  // the onboarding flow usually assigns Flow Turn conveyors to an Amazon DC,
+  // which is a different org than Flow Turn itself). Platform admins see all.
   app.get('/admin/sites', async (request) => {
     const { db } = app.ctx;
     requireAuth(request);
-    const rows = await db.query.sites.findMany({
-      with: { organization: true },
-    });
-    return rows
-      .map((s) => ({
-        id: s.id,
-        name: s.name,
-        code: s.code,
-        organizationId: s.organizationId,
-        organizationName: s.organization.name,
-        organizationType: s.organization.type,
-      }))
-      .sort((a, b) =>
-        `${a.organizationName} ${a.name}`.localeCompare(
-          `${b.organizationName} ${b.name}`,
-        ),
-      );
+    const scope = await getScope(request, db);
+    if (!scope.all && scope.orgIds.length === 0) return [];
+    const scopeLiteral = orgIdsLiteral(scope);
+    const rows = (await db.execute(
+      scope.all
+        ? sql`SELECT s.id, s.name, s.code, s.organization_id,
+                 o.name AS organization_name, o.type AS organization_type
+              FROM sites s
+              JOIN organizations o ON o.id = s.organization_id
+              ORDER BY o.name, s.name`
+        : sql`SELECT s.id, s.name, s.code, s.organization_id,
+                 o.name AS organization_name, o.type AS organization_type
+              FROM sites s
+              JOIN organizations o ON o.id = s.organization_id
+              WHERE s.organization_id = ANY(${scopeLiteral}::uuid[])
+              ORDER BY o.name, s.name`,
+    )) as unknown as Array<{
+      id: string;
+      name: string;
+      code: string | null;
+      organization_id: string;
+      organization_name: string;
+      organization_type: string;
+    }>;
+    return rows.map((s) => ({
+      id: s.id,
+      name: s.name,
+      code: s.code,
+      organizationId: s.organization_id,
+      organizationName: s.organization_name,
+      organizationType: s.organization_type,
+    }));
   });
 }
 
@@ -2231,10 +2305,35 @@ async function findLatestPublishedVersionId(
 // Additional admin listings — used by the admin app's sidebar pages. All are
 // read-only for now; authoring flows come later.
 export async function registerAdminListings(app: FastifyInstance) {
-  // Dashboard metrics — a small grab-bag of counts and signal numbers.
+  // Dashboard metrics — counts scoped to what the user can see. Platform
+  // admins get global counts; everyone else gets counts over their home org
+  // and descendants. The predicates mirror how each table ties back to an
+  // organization: sites.organization_id directly; asset_instances via site;
+  // asset_models / content_packs via owner_organization_id; qr_codes via
+  // asset_instance → site; work_orders via asset_instance → site;
+  // enrollments via user → home_organization_id.
   app.get('/admin/metrics', async (request) => {
     const { db } = app.ctx;
     requireAuth(request);
+    const scope = await getScope(request, db);
+    if (!scope.all && scope.orgIds.length === 0) {
+      return {
+        organizations: 0,
+        sites: 0,
+        assetModels: 0,
+        assetInstances: 0,
+        activeQrCodes: 0,
+        openWorkOrders: 0,
+        publishedContentPacks: 0,
+        enrollments: 0,
+        completedEnrollments: 0,
+        completionRate: 0,
+      };
+    }
+    const scopeLiteral = orgIdsLiteral(scope);
+    const orgFilter = (column: string) =>
+      scope.all ? sql`` : sql`WHERE ${sql.raw(column)} = ANY(${scopeLiteral}::uuid[])`;
+
     const [
       orgs,
       sites,
@@ -2246,24 +2345,74 @@ export async function registerAdminListings(app: FastifyInstance) {
       enrollments,
       completed,
     ] = await Promise.all([
-      scalar(db, sql`SELECT count(*)::int AS n FROM organizations`),
-      scalar(db, sql`SELECT count(*)::int AS n FROM sites`),
-      scalar(db, sql`SELECT count(*)::int AS n FROM asset_models`),
-      scalar(db, sql`SELECT count(*)::int AS n FROM asset_instances`),
-      scalar(db, sql`SELECT count(*)::int AS n FROM qr_codes WHERE active = true`),
       scalar(
         db,
-        sql`SELECT count(*)::int AS n FROM work_orders
-            WHERE status IN ('open','acknowledged','in_progress','blocked')`,
+        scope.all
+          ? sql`SELECT count(*)::int AS n FROM organizations`
+          : sql`SELECT count(*)::int AS n FROM organizations WHERE id = ANY(${scopeLiteral}::uuid[])`,
       ),
       scalar(
         db,
-        sql`SELECT count(*)::int AS n FROM content_pack_versions WHERE status = 'published'`,
+        sql`SELECT count(*)::int AS n FROM sites ${orgFilter('organization_id')}`,
       ),
-      scalar(db, sql`SELECT count(*)::int AS n FROM enrollments`),
       scalar(
         db,
-        sql`SELECT count(*)::int AS n FROM enrollments WHERE status = 'completed'`,
+        sql`SELECT count(*)::int AS n FROM asset_models ${orgFilter('owner_organization_id')}`,
+      ),
+      scalar(
+        db,
+        scope.all
+          ? sql`SELECT count(*)::int AS n FROM asset_instances`
+          : sql`SELECT count(*)::int AS n FROM asset_instances ai
+                JOIN sites s ON s.id = ai.site_id
+                WHERE s.organization_id = ANY(${scopeLiteral}::uuid[])`,
+      ),
+      scalar(
+        db,
+        scope.all
+          ? sql`SELECT count(*)::int AS n FROM qr_codes WHERE active = true`
+          : sql`SELECT count(*)::int AS n FROM qr_codes q
+                JOIN asset_instances ai ON ai.id = q.asset_instance_id
+                JOIN sites s ON s.id = ai.site_id
+                WHERE q.active = true
+                  AND s.organization_id = ANY(${scopeLiteral}::uuid[])`,
+      ),
+      scalar(
+        db,
+        scope.all
+          ? sql`SELECT count(*)::int AS n FROM work_orders
+                WHERE status IN ('open','acknowledged','in_progress','blocked')`
+          : sql`SELECT count(*)::int AS n FROM work_orders wo
+                JOIN asset_instances ai ON ai.id = wo.asset_instance_id
+                JOIN sites s ON s.id = ai.site_id
+                WHERE wo.status IN ('open','acknowledged','in_progress','blocked')
+                  AND s.organization_id = ANY(${scopeLiteral}::uuid[])`,
+      ),
+      scalar(
+        db,
+        scope.all
+          ? sql`SELECT count(*)::int AS n FROM content_pack_versions WHERE status = 'published'`
+          : sql`SELECT count(*)::int AS n FROM content_pack_versions cpv
+                JOIN content_packs cp ON cp.id = cpv.content_pack_id
+                WHERE cpv.status = 'published'
+                  AND cp.owner_organization_id = ANY(${scopeLiteral}::uuid[])`,
+      ),
+      scalar(
+        db,
+        scope.all
+          ? sql`SELECT count(*)::int AS n FROM enrollments`
+          : sql`SELECT count(*)::int AS n FROM enrollments e
+                JOIN users u ON u.id = e.user_id
+                WHERE u.home_organization_id = ANY(${scopeLiteral}::uuid[])`,
+      ),
+      scalar(
+        db,
+        scope.all
+          ? sql`SELECT count(*)::int AS n FROM enrollments WHERE status = 'completed'`
+          : sql`SELECT count(*)::int AS n FROM enrollments e
+                JOIN users u ON u.id = e.user_id
+                WHERE e.status = 'completed'
+                  AND u.home_organization_id = ANY(${scopeLiteral}::uuid[])`,
       ),
     ]);
     return {
@@ -2490,11 +2639,17 @@ export async function registerAdminListings(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
       const pack = await db.query.contentPacks.findFirst({
         where: eq(schema.contentPacks.id, request.params.id),
         with: { assetModel: true },
       });
       if (!pack) return reply.notFound();
+      // Scope check: return 404 (not 403) so out-of-scope callers can't
+      // confirm the pack exists.
+      if (!scope.all && !scope.orgIds.includes(pack.ownerOrganizationId)) {
+        return reply.notFound();
+      }
 
       const versions = await db.query.contentPackVersions.findMany({
         where: eq(schema.contentPackVersions.contentPackId, pack.id),
@@ -2567,12 +2722,17 @@ export async function registerAdminListings(app: FastifyInstance) {
     },
   );
 
-  // Training modules with module-level enrollment stats.
+  // Training modules with module-level enrollment stats. Scoped via the
+  // owning content pack's organization.
   app.get('/admin/training-modules', async (request) => {
     const { db } = app.ctx;
     requireAuth(request);
+    const scope = await getScope(request, db);
+    if (!scope.all && scope.orgIds.length === 0) return [];
+    const scopeLiteral = orgIdsLiteral(scope);
     const rows = (await db.execute(
-      sql`SELECT tm.id, tm.title, tm.estimated_minutes, tm.pass_threshold,
+      scope.all
+        ? sql`SELECT tm.id, tm.title, tm.estimated_minutes, tm.pass_threshold,
                  tm.competency_tag,
                  cpv.version_number AS pack_version_number,
                  cp.name AS pack_name,
@@ -2584,6 +2744,20 @@ export async function registerAdminListings(app: FastifyInstance) {
           JOIN content_pack_versions cpv ON cpv.id = tm.content_pack_version_id
           JOIN content_packs cp ON cp.id = cpv.content_pack_id
           JOIN asset_models am ON am.id = cp.asset_model_id
+          ORDER BY tm.title`
+        : sql`SELECT tm.id, tm.title, tm.estimated_minutes, tm.pass_threshold,
+                 tm.competency_tag,
+                 cpv.version_number AS pack_version_number,
+                 cp.name AS pack_name,
+                 am.display_name AS asset_model_name,
+                 (SELECT count(*) FROM enrollments WHERE training_module_id = tm.id)::int AS enrollments,
+                 (SELECT count(*) FROM enrollments WHERE training_module_id = tm.id AND status = 'completed')::int AS completed,
+                 (SELECT count(*) FROM enrollments WHERE training_module_id = tm.id AND status = 'failed')::int AS failed
+          FROM training_modules tm
+          JOIN content_pack_versions cpv ON cpv.id = tm.content_pack_version_id
+          JOIN content_packs cp ON cp.id = cpv.content_pack_id
+          JOIN asset_models am ON am.id = cp.asset_model_id
+          WHERE cp.owner_organization_id = ANY(${scopeLiteral}::uuid[])
           ORDER BY tm.title`,
     )) as unknown as Array<{
       id: string;
