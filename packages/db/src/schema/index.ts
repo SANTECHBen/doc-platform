@@ -10,4 +10,5 @@ export * from './workorders';
 export * from './ai';
 export * from './audit';
 export * from './qr';
+export * from './qr-label-templates';
 export * from './embeddings';

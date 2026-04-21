@@ -21,6 +21,7 @@ import {
   registerAdminTrainingAuthoring,
 } from './routes/admin';
 import { registerWorkOrderRoutes } from './routes/workorders';
+import { registerQrTemplateRoutes } from './routes/qr-templates';
 import { registerFileRoutes } from './routes/files';
 
 export async function buildApp(ctx: AppContext) {
@@ -67,6 +68,7 @@ export async function buildApp(ctx: AppContext) {
   await registerAdminAuthoring(app);
   await registerAdminTrainingAuthoring(app);
   await registerWorkOrderRoutes(app);
+  await registerQrTemplateRoutes(app);
   await registerFileRoutes(app);
   await registerAIRoutes(app);
 

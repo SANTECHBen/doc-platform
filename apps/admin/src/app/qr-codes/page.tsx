@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Copy, ExternalLink, Plus, Printer, QrCode as QrCodeIcon } from 'lucide-react';
+import Link from 'next/link';
+import { Check, Copy, ExternalLink, Layers, Plus, Printer, QrCode as QrCodeIcon } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { PageHeader, PageShell } from '@/components/page-shell';
 import { EmptyState } from '@/components/empty-state';
@@ -88,6 +89,15 @@ export default function QrCodesPage() {
       <PageHeader
         title="QR codes"
         description={`Labels resolve via ${PUBLIC_PWA_ORIGIN}/q/<code>. Generate one per instance, then print a sheet to apply on equipment.`}
+        actions={
+          <Link
+            href="/qr-codes/templates"
+            className="inline-flex items-center gap-1.5 rounded border border-line px-3 py-1.5 text-sm text-ink-secondary hover:bg-surface-inset"
+          >
+            <Layers size={14} strokeWidth={2} />
+            Label templates
+          </Link>
+        }
       />
 
       {error && (

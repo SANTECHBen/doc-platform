@@ -1164,3 +1164,101 @@ export async function mintQrCode(params: {
     assetInstance: null,
   };
 }
+
+// ---- QR label templates ----------------------------------------------------
+
+export type QrLabelLayout = 'nameplate' | 'minimal' | 'safety';
+export type QrErrorCorrection = 'L' | 'M' | 'Q' | 'H';
+
+export interface QrLabelFieldsPayload {
+  header: { enabled: boolean; text: string };
+  model: { enabled: boolean; labelOverride: string | null };
+  serial: { enabled: boolean; labelOverride: string | null };
+  site: { enabled: boolean; labelOverride: string | null };
+  location: { enabled: boolean; labelOverride: string | null };
+  description: { enabled: boolean; text: string };
+  idCode: { enabled: boolean; labelOverride: string | null };
+}
+
+export interface AdminQrLabelTemplate {
+  id: string;
+  organizationId: string;
+  organizationName?: string;
+  name: string;
+  isDefault: boolean;
+  layout: QrLabelLayout;
+  accentColor: string;
+  logoStorageKey: string | null;
+  qrSize: number;
+  qrErrorCorrection: QrErrorCorrection;
+  fields: QrLabelFieldsPayload;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function listQrLabelTemplates(): Promise<AdminQrLabelTemplate[]> {
+  const res = await fetch(`${API_BASE}/admin/qr-label-templates`, {
+    cache: 'no-store',
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminQrLabelTemplate[];
+}
+
+export async function getQrLabelTemplate(id: string): Promise<AdminQrLabelTemplate> {
+  const res = await fetch(
+    `${API_BASE}/admin/qr-label-templates/${encodeURIComponent(id)}`,
+    { cache: 'no-store', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminQrLabelTemplate;
+}
+
+export async function createQrLabelTemplate(
+  body: Partial<Omit<AdminQrLabelTemplate, 'id' | 'createdAt' | 'updatedAt' | 'organizationName'>> & {
+    organizationId: string;
+    name: string;
+  },
+): Promise<AdminQrLabelTemplate> {
+  const res = await fetch(`${API_BASE}/admin/qr-label-templates`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminQrLabelTemplate;
+}
+
+export async function updateQrLabelTemplate(
+  id: string,
+  body: Partial<Omit<AdminQrLabelTemplate, 'id' | 'organizationId' | 'createdAt' | 'updatedAt' | 'organizationName'>>,
+): Promise<AdminQrLabelTemplate> {
+  const res = await fetch(
+    `${API_BASE}/admin/qr-label-templates/${encodeURIComponent(id)}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminQrLabelTemplate;
+}
+
+export async function deleteQrLabelTemplate(id: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/qr-label-templates/${encodeURIComponent(id)}`,
+    { method: 'DELETE', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+export const DEFAULT_LABEL_TEMPLATE_FIELDS: QrLabelFieldsPayload = {
+  header: { enabled: false, text: '' },
+  model: { enabled: true, labelOverride: null },
+  serial: { enabled: true, labelOverride: null },
+  site: { enabled: true, labelOverride: null },
+  location: { enabled: true, labelOverride: null },
+  description: { enabled: false, text: '' },
+  idCode: { enabled: true, labelOverride: 'ID' },
+};
