@@ -38,6 +38,12 @@ const HOP_BY_HOP = new Set([
   'cookie',
 ]);
 
+// Response headers to strip in addition to hop-by-hop. Node's fetch auto-
+// decompresses the upstream body, so forwarding content-encoding/content-
+// length as-is would make the browser try to decode already-decoded bytes
+// (ERR_CONTENT_DECODING_FAILED) or truncate on a wrong length.
+const STRIPPED_RESPONSE_HEADERS = new Set(['content-encoding', 'content-length']);
+
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const { path } = await context.params;
   const target = `${UPSTREAM}/${path.map(encodeURIComponent).join('/')}${request.nextUrl.search}`;
@@ -64,10 +70,11 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
     redirect: 'manual',
   });
 
-  // Filter response headers the same way (no hop-by-hop echoes).
   const respHeaders = new Headers();
   upstream.headers.forEach((v, k) => {
-    if (!HOP_BY_HOP.has(k.toLowerCase())) respHeaders.set(k, v);
+    const lk = k.toLowerCase();
+    if (HOP_BY_HOP.has(lk) || STRIPPED_RESPONSE_HEADERS.has(lk)) return;
+    respHeaders.set(k, v);
   });
 
   return new NextResponse(upstream.body, {
