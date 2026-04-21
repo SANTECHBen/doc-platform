@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { schema } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth';
+import { getScope } from '../middleware/scope';
 
 const SeverityEnum = z.enum(['info', 'low', 'medium', 'high', 'critical']);
 const StatusEnum = z.enum([
@@ -128,12 +129,18 @@ export async function registerWorkOrderRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       const auth = requireAuth(request);
+      const scope = await getScope(request, db);
 
       const instance = await db.query.assetInstances.findFirst({
         where: eq(schema.assetInstances.id, request.body.assetInstanceId),
         with: { site: { with: { organization: true } } },
       });
       if (!instance) return reply.notFound('Asset instance not found.');
+      // Scope check: can't open a work order against an instance outside your
+      // org tree. 404 (not 403) so a scoped caller can't probe for existence.
+      if (!scope.all && !scope.orgIds.includes(instance.site.organizationId)) {
+        return reply.notFound('Asset instance not found.');
+      }
 
       const [created] = await db
         .insert(schema.workOrders)
@@ -190,12 +197,18 @@ export async function registerWorkOrderRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       const auth = requireAuth(request);
+      const scope = await getScope(request, db);
 
       const wo = await db.query.workOrders.findFirst({
         where: eq(schema.workOrders.id, request.params.id),
         with: { assetInstance: { with: { site: { with: { organization: true } } } } },
       });
       if (!wo) return reply.notFound();
+      // Scope check: mutating a work order outside your scope is a 404 to
+      // avoid leaking existence of the row.
+      if (!scope.all && !scope.orgIds.includes(wo.assetInstance.site.organizationId)) {
+        return reply.notFound();
+      }
 
       const now = new Date();
       const patch: Partial<typeof schema.workOrders.$inferInsert> = {};
