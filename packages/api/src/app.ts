@@ -6,6 +6,7 @@ import sensible from '@fastify/sensible';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import type { AppContext } from './context';
 import { registerAuth } from './middleware/auth';
+import { registerScanSession } from './middleware/scan-session';
 import { registerAssetRoutes } from './routes/assets';
 import { registerContentRoutes } from './routes/content';
 import { registerAIRoutes } from './routes/ai';
@@ -54,6 +55,7 @@ export async function buildApp(ctx: AppContext) {
   app.decorate('ctx', ctx);
 
   await registerAuth(app);
+  await registerScanSession(app);
   await registerHealthRoutes(app);
   await registerAssetRoutes(app);
   await registerContentRoutes(app);
@@ -81,6 +83,14 @@ declare module 'fastify' {
       organizationId: string;
       /** True for SANTECH staff — bypasses per-org data scoping. */
       platformAdmin?: boolean;
+    };
+    /** Populated by scan-session middleware when a valid X-Scan-Session
+     *  header is present. Represents anonymous, QR-scoped authorization —
+     *  weaker than auth, narrower than a user's org tree. */
+    scanSession?: {
+      qrCode: string;
+      assetInstanceId: string;
+      organizationId: string;
     };
   }
 }

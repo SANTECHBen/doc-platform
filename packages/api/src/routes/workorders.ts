@@ -5,6 +5,10 @@ import { schema } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth';
 import { getScope } from '../middleware/scope';
+import {
+  getEffectiveOrgScope,
+  requireAuthOrScan,
+} from '../middleware/scan-session';
 
 const SeverityEnum = z.enum(['info', 'low', 'medium', 'high', 'critical']);
 const StatusEnum = z.enum([
@@ -30,8 +34,24 @@ export async function registerWorkOrderRoutes(app: FastifyInstance) {
         querystring: z.object({ status: z.enum(['open', 'all']).optional() }),
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { db } = app.ctx;
+      requireAuthOrScan(request);
+      const scope = await getEffectiveOrgScope(request, db);
+      if (!scope) return reply.unauthorized();
+
+      // Verify the caller can see this asset instance before listing its
+      // work orders. Without this, the status filter would quietly return []
+      // for any UUID — an invisible cross-tenant enumeration oracle.
+      const instance = await db.query.assetInstances.findFirst({
+        where: eq(schema.assetInstances.id, request.params.id),
+        with: { site: true },
+      });
+      if (!instance) return reply.notFound();
+      if (!scope.all && !scope.orgIds.includes(instance.site.organizationId)) {
+        return reply.notFound();
+      }
+
       const rows = await db
         .select()
         .from(schema.workOrders)
@@ -128,25 +148,38 @@ export async function registerWorkOrderRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { db } = app.ctx;
-      const auth = requireAuth(request);
-      const scope = await getScope(request, db);
+      // Accept either an authenticated user or a scanner. Scanners get
+      // openedByUserId=null on the row; the audit event still captures the
+      // QR code so we can tie the event back to a scanner later.
+      requireAuthOrScan(request);
+      const scope = await getEffectiveOrgScope(request, db);
+      if (!scope) return reply.unauthorized();
 
       const instance = await db.query.assetInstances.findFirst({
         where: eq(schema.assetInstances.id, request.body.assetInstanceId),
         with: { site: { with: { organization: true } } },
       });
       if (!instance) return reply.notFound('Asset instance not found.');
-      // Scope check: can't open a work order against an instance outside your
-      // org tree. 404 (not 403) so a scoped caller can't probe for existence.
       if (!scope.all && !scope.orgIds.includes(instance.site.organizationId)) {
         return reply.notFound('Asset instance not found.');
+      }
+      // Scan callers can only open work orders against the asset they
+      // scanned — not any other instance in that same org. Otherwise a
+      // cookie from QR A could be used to post work orders against
+      // unrelated assets sharing the org.
+      if (
+        request.scanSession &&
+        !request.auth &&
+        request.scanSession.assetInstanceId !== instance.id
+      ) {
+        return reply.forbidden('Scan session does not cover this asset instance.');
       }
 
       const [created] = await db
         .insert(schema.workOrders)
         .values({
           assetInstanceId: instance.id,
-          openedByUserId: auth.userId,
+          openedByUserId: request.auth?.userId ?? null,
           title: request.body.title,
           description: request.body.description ?? null,
           severity: request.body.severity ?? 'medium',
@@ -158,7 +191,7 @@ export async function registerWorkOrderRoutes(app: FastifyInstance) {
 
       await db.insert(schema.auditEvents).values({
         organizationId: instance.site.organization.id,
-        actorUserId: auth.userId,
+        actorUserId: request.auth?.userId ?? null,
         eventType: 'work_order.opened',
         targetType: 'work_order',
         targetId: created.id,
@@ -166,6 +199,8 @@ export async function registerWorkOrderRoutes(app: FastifyInstance) {
           title: created.title,
           severity: created.severity,
           assetInstanceId: instance.id,
+          source: request.auth ? 'auth' : 'scan',
+          qrCode: request.scanSession?.qrCode ?? null,
         },
         ipAddress: request.ip,
         userAgent: request.headers['user-agent'] ?? null,

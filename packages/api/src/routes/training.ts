@@ -4,15 +4,33 @@ import { z } from 'zod';
 import { schema } from '@platform/db';
 import { UuidSchema, QuizConfigSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth';
+import {
+  getEffectiveOrgScope,
+  requireAuthOrScan,
+} from '../middleware/scan-session';
 
 export async function registerTrainingRoutes(app: FastifyInstance) {
   // List modules in a content-pack version, with compact lesson/activity counts
-  // and the caller's enrollment state if they're authenticated.
+  // and the caller's enrollment state if they're authenticated. Gated on
+  // auth-or-scan + scoped to the version's owning org.
   app.get<{ Params: { versionId: string } }>(
     '/content-pack-versions/:versionId/training-modules',
     { schema: { params: z.object({ versionId: UuidSchema }) } },
-    async (request) => {
+    async (request, reply) => {
       const { db } = app.ctx;
+      requireAuthOrScan(request);
+      const scope = await getEffectiveOrgScope(request, db);
+      if (!scope) return reply.unauthorized();
+
+      const version = await db.query.contentPackVersions.findFirst({
+        where: eq(schema.contentPackVersions.id, request.params.versionId),
+        with: { pack: true },
+      });
+      if (!version) return reply.notFound();
+      if (!scope.all && !scope.orgIds.includes(version.pack.ownerOrganizationId)) {
+        return reply.notFound();
+      }
+
       const modules = await db.query.trainingModules.findMany({
         where: eq(schema.trainingModules.contentPackVersionId, request.params.versionId),
       });
@@ -78,19 +96,28 @@ export async function registerTrainingRoutes(app: FastifyInstance) {
   );
 
   // Full module detail with lessons and activity configs (for rendering a runner).
+  // Gated on auth-or-scan + scoped to the owning content-pack's org.
   app.get<{ Params: { id: string } }>(
     '/training-modules/:id',
     { schema: { params: z.object({ id: UuidSchema }) } },
     async (request, reply) => {
       const { db } = app.ctx;
+      requireAuthOrScan(request);
+      const scope = await getEffectiveOrgScope(request, db);
+      if (!scope) return reply.unauthorized();
+
       const mod = await db.query.trainingModules.findFirst({
         where: eq(schema.trainingModules.id, request.params.id),
         with: {
           lessons: true,
           activities: true,
+          packVersion: { with: { pack: true } },
         },
       });
       if (!mod) return reply.notFound();
+      if (!scope.all && !scope.orgIds.includes(mod.packVersion.pack.ownerOrganizationId)) {
+        return reply.notFound();
+      }
       return {
         id: mod.id,
         title: mod.title,

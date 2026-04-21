@@ -1,6 +1,17 @@
 import { AssetHubPayloadSchema, type AssetHubPayload } from './shared-schema';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3001';
+// Two base URLs by intent:
+//   SERVER_API_BASE — used by server components / route handlers that can
+//     reach the upstream API directly. Needed for /assets/resolve, which
+//     fires during the /q/:code redirect *before* the scan cookie exists,
+//     so there's nothing to proxy.
+//   CLIENT_API_BASE — same-origin proxy path (/api) that runs through the
+//     Next.js route handler at apps/pwa/src/app/api/[...path]. That proxy
+//     reads the HttpOnly scan cookie and forwards it to the upstream API
+//     as X-Scan-Session. Browser code can't read the cookie directly;
+//     cross-origin cookie forwarding is brittle; the proxy solves both.
+const SERVER_API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3001';
+const CLIENT_API_BASE = '/api';
 
 export type AssetResolveSource = 'qr' | 'direct' | 'blocked';
 
@@ -10,7 +21,7 @@ export async function resolveAssetHub(
 ): Promise<AssetHubPayload | null> {
   const qs = source === 'direct' ? '' : `?source=${source}`;
   const res = await fetch(
-    `${API_BASE}/assets/resolve/${encodeURIComponent(qrCode)}${qs}`,
+    `${SERVER_API_BASE}/assets/resolve/${encodeURIComponent(qrCode)}${qs}`,
     {
       // No caching — QR resolution must always reflect current pinned version.
       cache: 'no-store',
@@ -54,7 +65,7 @@ export async function listDocuments(
   lang: string = 'en',
 ): Promise<DocumentListItem[]> {
   const res = await fetch(
-    `${API_BASE}/content-pack-versions/${encodeURIComponent(versionId)}/documents?lang=${lang}`,
+    `${CLIENT_API_BASE}/content-pack-versions/${encodeURIComponent(versionId)}/documents?lang=${lang}`,
     { cache: 'no-store' },
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
@@ -67,7 +78,7 @@ export interface DocumentBody extends DocumentListItem {
 }
 
 export async function getDocument(id: string): Promise<DocumentBody | null> {
-  const res = await fetch(`${API_BASE}/documents/${encodeURIComponent(id)}`, {
+  const res = await fetch(`${CLIENT_API_BASE}/documents/${encodeURIComponent(id)}`, {
     cache: 'no-store',
   });
   if (res.status === 404) return null;
@@ -93,7 +104,7 @@ export async function listTrainingModules(
   devOrgId: string,
 ): Promise<TrainingModuleSummary[]> {
   const res = await fetch(
-    `${API_BASE}/content-pack-versions/${encodeURIComponent(versionId)}/training-modules`,
+    `${CLIENT_API_BASE}/content-pack-versions/${encodeURIComponent(versionId)}/training-modules`,
     {
       cache: 'no-store',
       headers: { 'x-dev-user': `${devUserId}:${devOrgId}` },
@@ -127,7 +138,7 @@ export interface TrainingModuleDetail {
 }
 
 export async function getTrainingModule(id: string): Promise<TrainingModuleDetail | null> {
-  const res = await fetch(`${API_BASE}/training-modules/${encodeURIComponent(id)}`, {
+  const res = await fetch(`${CLIENT_API_BASE}/training-modules/${encodeURIComponent(id)}`, {
     cache: 'no-store',
   });
   if (res.status === 404) return null;
@@ -141,7 +152,7 @@ export async function startEnrollment(params: {
   devUserId: string;
   devOrgId: string;
 }): Promise<{ id: string; status: string; score: number | null }> {
-  const res = await fetch(`${API_BASE}/enrollments`, {
+  const res = await fetch(`${CLIENT_API_BASE}/enrollments`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -177,7 +188,7 @@ export async function submitQuiz(params: {
   devOrgId: string;
 }): Promise<QuizResult> {
   const res = await fetch(
-    `${API_BASE}/enrollments/${encodeURIComponent(params.enrollmentId)}/submit-quiz`,
+    `${CLIENT_API_BASE}/enrollments/${encodeURIComponent(params.enrollmentId)}/submit-quiz`,
     {
       method: 'POST',
       headers: {
@@ -230,8 +241,6 @@ export interface UploadResult {
   url: string;
 }
 
-const API_BASE_FOR_UPLOAD = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3001';
-
 export async function uploadFile(
   file: File,
   devUserId: string,
@@ -239,7 +248,7 @@ export async function uploadFile(
 ): Promise<UploadResult> {
   const form = new FormData();
   form.append('file', file, file.name);
-  const res = await fetch(`${API_BASE_FOR_UPLOAD}/admin/uploads`, {
+  const res = await fetch(`${CLIENT_API_BASE}/admin/uploads`, {
     method: 'POST',
     headers: { 'x-dev-user': `${devUserId}:${devOrgId}` },
     body: form,
@@ -253,7 +262,7 @@ export async function listWorkOrders(
   status: 'open' | 'all' = 'open',
 ): Promise<WorkOrder[]> {
   const res = await fetch(
-    `${API_BASE}/asset-instances/${encodeURIComponent(assetInstanceId)}/work-orders?status=${status}`,
+    `${CLIENT_API_BASE}/asset-instances/${encodeURIComponent(assetInstanceId)}/work-orders?status=${status}`,
     { cache: 'no-store' },
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
@@ -269,7 +278,7 @@ export async function createWorkOrder(params: {
   devUserId: string;
   devOrgId: string;
 }): Promise<WorkOrder> {
-  const res = await fetch(`${API_BASE}/work-orders`, {
+  const res = await fetch(`${CLIENT_API_BASE}/work-orders`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -305,7 +314,7 @@ export interface BomEntry {
 }
 
 export async function listParts(modelId: string): Promise<BomEntry[]> {
-  const res = await fetch(`${API_BASE}/asset-models/${encodeURIComponent(modelId)}/parts`, {
+  const res = await fetch(`${CLIENT_API_BASE}/asset-models/${encodeURIComponent(modelId)}/parts`, {
     cache: 'no-store',
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
@@ -356,7 +365,7 @@ export async function getPartResources(
   partId: string,
   assetInstanceId: string,
 ): Promise<PartResources> {
-  const url = `${API_BASE}/parts/${encodeURIComponent(partId)}/resources?assetInstanceId=${encodeURIComponent(assetInstanceId)}`;
+  const url = `${CLIENT_API_BASE}/parts/${encodeURIComponent(partId)}/resources?assetInstanceId=${encodeURIComponent(assetInstanceId)}`;
   const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return (await res.json()) as PartResources;
@@ -406,7 +415,7 @@ export async function streamChat(
   onEvent: (e: ChatStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/ai/chat`, {
+  const res = await fetch(`${CLIENT_API_BASE}/ai/chat`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',

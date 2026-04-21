@@ -1,18 +1,35 @@
 import type { FastifyInstance } from 'fastify';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { deriveRole, type PartRole } from './admin';
+import {
+  getEffectiveOrgScope,
+  requireAuthOrScan,
+} from '../middleware/scan-session';
 
 export async function registerPartsRoutes(app: FastifyInstance) {
   // Flat BOM listing for an asset model — part metadata joined with
-  // position refs and quantities from the bom_entries table.
+  // position refs and quantities from the bom_entries table. Gated on
+  // auth-or-scan + scoped to the model's owner organization.
   app.get<{ Params: { modelId: string } }>(
     '/asset-models/:modelId/parts',
     { schema: { params: z.object({ modelId: UuidSchema }) } },
-    async (request) => {
+    async (request, reply) => {
       const { db, storage } = app.ctx;
+      requireAuthOrScan(request);
+      const scope = await getEffectiveOrgScope(request, db);
+      if (!scope) return reply.unauthorized();
+
+      const model = await db.query.assetModels.findFirst({
+        where: eq(schema.assetModels.id, request.params.modelId),
+      });
+      if (!model) return reply.notFound();
+      if (!scope.all && !scope.orgIds.includes(model.ownerOrganizationId)) {
+        return reply.notFound();
+      }
+
       const entries = await db.query.bomEntries.findMany({
         where: eq(schema.bomEntries.assetModelId, request.params.modelId),
       });
@@ -65,17 +82,30 @@ export async function registerPartsRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { db, storage } = app.ctx;
       const { partId } = request.params;
+      requireAuthOrScan(request);
+      const scope = await getEffectiveOrgScope(request, db);
+      if (!scope) return reply.unauthorized();
 
       const instance = await db.query.assetInstances.findFirst({
         where: eq(schema.assetInstances.id, request.query.assetInstanceId),
+        with: { site: true },
       });
       if (!instance) return reply.notFound('Asset instance not found.');
+      // Gate by the instance's org — scan sessions are always bound to a
+      // single asset, and authed users must own the instance's site.
+      if (!scope.all && !scope.orgIds.includes(instance.site.organizationId)) {
+        return reply.notFound('Asset instance not found.');
+      }
       const pinnedVersionId = instance.pinnedContentPackVersionId;
 
       const part = await db.query.parts.findFirst({
         where: eq(schema.parts.id, partId),
       });
       if (!part) return reply.notFound('Part not found.');
+      // Parts also carry an owner_organization_id. Same tenant guard.
+      if (!scope.all && !scope.orgIds.includes(part.ownerOrganizationId)) {
+        return reply.notFound('Part not found.');
+      }
 
       // Components are part-of-part and aren't version-scoped — a motor
       // always has its bearings regardless of the asset's pinned content

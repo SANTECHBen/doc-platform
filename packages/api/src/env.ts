@@ -39,6 +39,14 @@ const EnvSchema = z.object({
   // orgs" override. Bootstraps SANTECH staff access without a chicken-and-
   // egg UI.
   PLATFORM_ADMIN_EMAILS: z.string().optional(),
+
+  // Shared HMAC secret with the PWA for verifying scan-session cookies.
+  // The PWA mints eh_scan cookies (<qrCode>.<exp>.<hmac>) with this secret
+  // and forwards the value on every API call as X-Scan-Session. The API
+  // verifies the signature, resolves the QR → org, and uses that org as
+  // the scope for endpoints called on behalf of a scanner (no user auth).
+  // Must match apps/pwa env var of the same name. Minimum 32 chars.
+  PWA_SESSION_SECRET: z.string().min(32).optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
