@@ -18,7 +18,7 @@ import { schema } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { isExtractable, processDocument } from '@platform/ai';
 import { requireAuth } from '../middleware/auth';
-import { getScope, orgIdsLiteral } from '../middleware/scope';
+import { getScope, orgIdsLiteral, requireOrgInScope } from '../middleware/scope';
 import type { Storage } from '../storage';
 
 // Pull a storage key into a Buffer. The extraction pipeline needs bytes in
@@ -295,6 +295,9 @@ export async function registerAdminMutations(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
+      requireOrgInScope(scope, request.params.id);
+
       const patch: Record<string, unknown> = {};
       if (request.body.brandPrimary !== undefined) patch.brandPrimary = request.body.brandPrimary;
       if (request.body.brandOnPrimary !== undefined) patch.brandOnPrimary = request.body.brandOnPrimary;
@@ -340,7 +343,20 @@ export async function registerAdminMutations(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { db } = app.ctx;
-      requireAuth(request);
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      requireOrgInScope(scope, request.params.id);
+
+      // msftTenantId mapping is platform-admin-only. A scoped admin from org
+      // A setting their own msftTenantId to org B's tenant would hijack
+      // future sign-ins from that tenant into their own org. Even though
+      // the DB has a UNIQUE constraint (preventing collision after the
+      // legitimate org has set it), early-claiming is still an attack
+      // vector, so we gate this field explicitly.
+      if (request.body.msftTenantId !== undefined && !auth.platformAdmin) {
+        return reply.forbidden('Only platform admins can change Microsoft tenant mapping.');
+      }
+
       const patch: Record<string, unknown> = {};
       if (request.body.requireScanAccess !== undefined) {
         patch.requireScanAccess = request.body.requireScanAccess;
@@ -388,13 +404,28 @@ export async function registerAdminMutations(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { db } = app.ctx;
-      requireAuth(request);
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
 
       // Non-OEM orgs should declare a parent in the tenancy chain.
       if (request.body.type !== 'oem' && !request.body.parentOrganizationId) {
         return reply.badRequest(
           'Non-OEM organizations must specify a parent organization.',
         );
+      }
+
+      // Scope guard: root (OEM, no parent) orgs can only be created by
+      // platform admins — otherwise anyone could spin up a new standalone
+      // tenant and escape scope. Non-root orgs must attach under a parent
+      // that's already in the caller's scope tree.
+      if (!request.body.parentOrganizationId) {
+        if (!auth.platformAdmin) {
+          return reply.forbidden(
+            'Only platform admins can create root (OEM) organizations.',
+          );
+        }
+      } else {
+        requireOrgInScope(scope, request.body.parentOrganizationId);
       }
 
       const [created] = await db
@@ -442,6 +473,8 @@ export async function registerAdminMutations(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
+      requireOrgInScope(scope, request.body.organizationId);
 
       const [created] = await db
         .insert(schema.sites)
@@ -487,6 +520,8 @@ export async function registerAdminMutations(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
+      requireOrgInScope(scope, request.body.ownerOrganizationId);
 
       const owner = await db.query.organizations.findFirst({
         where: eq(schema.organizations.id, request.body.ownerOrganizationId),
@@ -524,6 +559,12 @@ export async function registerAdminMutations(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
+      const model = await db.query.assetModels.findFirst({
+        where: eq(schema.assetModels.id, request.params.id),
+      });
+      if (!model) return reply.notFound();
+      requireOrgInScope(scope, model.ownerOrganizationId);
       const [updated] = await db
         .update(schema.assetModels)
         .set({ imageStorageKey: request.body.imageStorageKey })
@@ -546,6 +587,12 @@ export async function registerAdminMutations(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
+      const part = await db.query.parts.findFirst({
+        where: eq(schema.parts.id, request.params.id),
+      });
+      if (!part) return reply.notFound();
+      requireOrgInScope(scope, part.ownerOrganizationId);
       const [updated] = await db
         .update(schema.parts)
         .set({ imageStorageKey: request.body.imageStorageKey })
@@ -580,6 +627,15 @@ export async function registerAdminMutations(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
+
+      // Instances live at a site; the site's org is what owns the row for
+      // scoping purposes. Verify the caller can administer that site's org.
+      const site = await db.query.sites.findFirst({
+        where: eq(schema.sites.id, request.body.siteId),
+      });
+      if (!site) return reply.badRequest('Site not found.');
+      requireOrgInScope(scope, site.organizationId);
 
       // If no pinned version is provided, auto-pin to the latest published
       // base ContentPack for this asset model. Safe default so technicians who
@@ -613,10 +669,13 @@ export async function registerAdminMutations(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
       const instance = await db.query.assetInstances.findFirst({
         where: eq(schema.assetInstances.id, request.params.id),
+        with: { site: true },
       });
       if (!instance) return reply.notFound();
+      requireOrgInScope(scope, instance.site.organizationId);
       const versionId = await findLatestPublishedVersionId(db, instance.assetModelId);
       if (!versionId) {
         return reply.badRequest(
@@ -648,6 +707,13 @@ export async function registerAdminMutations(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
+      const instance = await db.query.assetInstances.findFirst({
+        where: eq(schema.assetInstances.id, request.params.id),
+        with: { site: true },
+      });
+      if (!instance) return reply.notFound();
+      requireOrgInScope(scope, instance.site.organizationId);
       const [updated] = await db
         .update(schema.assetInstances)
         .set({ pinnedContentPackVersionId: request.body.pinnedContentPackVersionId })
@@ -682,6 +748,13 @@ export async function registerAdminMutations(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
+
+      const site = await db.query.sites.findFirst({
+        where: eq(schema.sites.id, request.body.siteId),
+      });
+      if (!site) return reply.badRequest('Site not found.');
+      requireOrgInScope(scope, site.organizationId);
 
       const pinnedVersionId =
         request.body.pinnedContentPackVersionId ??
@@ -851,10 +924,13 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
       const version = await db.query.contentPackVersions.findFirst({
         where: eq(schema.contentPackVersions.id, request.params.versionId),
+        with: { pack: true },
       });
       if (!version) return reply.notFound();
+      requireOrgInScope(scope, version.pack.ownerOrganizationId);
       if (version.status !== 'draft') {
         return reply.badRequest('Can only author modules in a draft version.');
       }
@@ -893,6 +969,16 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
+      const module = await db.query.trainingModules.findFirst({
+        where: eq(schema.trainingModules.id, request.params.moduleId),
+        with: { packVersion: { with: { pack: true } } },
+      });
+      if (!module) return reply.notFound();
+      requireOrgInScope(scope, module.packVersion.pack.ownerOrganizationId);
+      if (module.packVersion.status !== 'draft') {
+        return reply.badRequest('Can only author lessons in a draft version.');
+      }
       const [created] = await db
         .insert(schema.lessons)
         .values({
@@ -946,6 +1032,16 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
+      const module = await db.query.trainingModules.findFirst({
+        where: eq(schema.trainingModules.id, request.params.moduleId),
+        with: { packVersion: { with: { pack: true } } },
+      });
+      if (!module) return reply.notFound();
+      requireOrgInScope(scope, module.packVersion.pack.ownerOrganizationId);
+      if (module.packVersion.status !== 'draft') {
+        return reply.badRequest('Can only author activities in a draft version.');
+      }
       const [created] = await db
         .insert(schema.activities)
         .values({
@@ -969,11 +1065,13 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
       const module = await db.query.trainingModules.findFirst({
         where: eq(schema.trainingModules.id, request.params.id),
         with: { packVersion: { with: { pack: true } } },
       });
       if (!module) return reply.notFound();
+      requireOrgInScope(scope, module.packVersion.pack.ownerOrganizationId);
       const [lessonRows, activityRows] = await Promise.all([
         db.query.lessons.findMany({
           where: eq(schema.lessons.trainingModuleId, module.id),
@@ -1039,11 +1137,13 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
       const module = await db.query.trainingModules.findFirst({
         where: eq(schema.trainingModules.id, request.params.id),
-        with: { packVersion: true },
+        with: { packVersion: { with: { pack: true } } },
       });
       if (!module) return reply.notFound();
+      requireOrgInScope(scope, module.packVersion.pack.ownerOrganizationId);
       if (module.packVersion.status !== 'draft') {
         return reply.badRequest('Can only edit modules in a draft version.');
       }
@@ -1073,11 +1173,13 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
       const module = await db.query.trainingModules.findFirst({
         where: eq(schema.trainingModules.id, request.params.id),
-        with: { packVersion: true },
+        with: { packVersion: { with: { pack: true } } },
       });
       if (!module) return reply.notFound();
+      requireOrgInScope(scope, module.packVersion.pack.ownerOrganizationId);
       if (module.packVersion.status !== 'draft') {
         return reply.badRequest('Can only delete modules in a draft version.');
       }
@@ -1107,11 +1209,13 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
       const lesson = await db.query.lessons.findFirst({
         where: eq(schema.lessons.id, request.params.id),
-        with: { module: { with: { packVersion: true } } },
+        with: { module: { with: { packVersion: { with: { pack: true } } } } },
       });
       if (!lesson) return reply.notFound();
+      requireOrgInScope(scope, lesson.module.packVersion.pack.ownerOrganizationId);
       if (lesson.module.packVersion.status !== 'draft') {
         return reply.badRequest('Can only edit lessons in a draft version.');
       }
@@ -1136,11 +1240,13 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
       const lesson = await db.query.lessons.findFirst({
         where: eq(schema.lessons.id, request.params.id),
-        with: { module: { with: { packVersion: true } } },
+        with: { module: { with: { packVersion: { with: { pack: true } } } } },
       });
       if (!lesson) return reply.notFound();
+      requireOrgInScope(scope, lesson.module.packVersion.pack.ownerOrganizationId);
       if (lesson.module.packVersion.status !== 'draft') {
         return reply.badRequest('Can only delete lessons in a draft version.');
       }
@@ -1189,11 +1295,13 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
       const activity = await db.query.activities.findFirst({
         where: eq(schema.activities.id, request.params.id),
-        with: { module: { with: { packVersion: true } } },
+        with: { module: { with: { packVersion: { with: { pack: true } } } } },
       });
       if (!activity) return reply.notFound();
+      requireOrgInScope(scope, activity.module.packVersion.pack.ownerOrganizationId);
       if (activity.module.packVersion.status !== 'draft') {
         return reply.badRequest('Can only edit activities in a draft version.');
       }
@@ -1220,11 +1328,13 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
       const activity = await db.query.activities.findFirst({
         where: eq(schema.activities.id, request.params.id),
-        with: { module: { with: { packVersion: true } } },
+        with: { module: { with: { packVersion: { with: { pack: true } } } } },
       });
       if (!activity) return reply.notFound();
+      requireOrgInScope(scope, activity.module.packVersion.pack.ownerOrganizationId);
       if (activity.module.packVersion.status !== 'draft') {
         return reply.badRequest('Can only delete activities in a draft version.');
       }
@@ -1282,6 +1392,8 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
+      requireOrgInScope(scope, request.body.ownerOrganizationId);
       const [created] = await db
         .insert(schema.parts)
         .values({
@@ -1357,6 +1469,19 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
+      const model = await db.query.assetModels.findFirst({
+        where: eq(schema.assetModels.id, request.params.modelId),
+      });
+      if (!model) return reply.notFound();
+      requireOrgInScope(scope, model.ownerOrganizationId);
+      // Also ensure the part being attached is in scope — prevents pulling
+      // another org's parts into your BOM.
+      const part = await db.query.parts.findFirst({
+        where: eq(schema.parts.id, request.body.partId),
+      });
+      if (!part) return reply.badRequest('Part not found.');
+      requireOrgInScope(scope, part.ownerOrganizationId);
       const [created] = await db
         .insert(schema.bomEntries)
         .values({
@@ -1378,6 +1503,13 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
+      const entry = await db.query.bomEntries.findFirst({
+        where: eq(schema.bomEntries.id, request.params.id),
+        with: { assetModel: true },
+      });
+      if (!entry) return reply.notFound();
+      requireOrgInScope(scope, entry.assetModel.ownerOrganizationId);
       await db.delete(schema.bomEntries).where(eq(schema.bomEntries.id, request.params.id));
       return { ok: true };
     },
@@ -1453,10 +1585,23 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
       const { partId } = request.params;
       if (partId === request.body.childPartId) {
         return reply.badRequest('A part cannot be its own component.');
       }
+      // Both parent and child must live in an org the caller can admin —
+      // otherwise a scoped admin could wire another tenant's parts into
+      // their own hierarchy (or inject their parts into a tenant's tree).
+      const both = await db.query.parts.findMany({
+        where: inArray(schema.parts.id, [partId, request.body.childPartId]),
+      });
+      const parent = both.find((p) => p.id === partId);
+      const child = both.find((p) => p.id === request.body.childPartId);
+      if (!parent || !child) return reply.notFound();
+      requireOrgInScope(scope, parent.ownerOrganizationId);
+      requireOrgInScope(scope, child.ownerOrganizationId);
+
       const [created] = await db
         .insert(schema.partComponents)
         .values({
@@ -1478,6 +1623,16 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
+      const link = await db.query.partComponents.findFirst({
+        where: eq(schema.partComponents.id, request.params.id),
+      });
+      if (!link) return reply.notFound();
+      const parent = await db.query.parts.findFirst({
+        where: eq(schema.parts.id, link.parentPartId),
+      });
+      if (!parent) return reply.notFound();
+      requireOrgInScope(scope, parent.ownerOrganizationId);
       await db
         .delete(schema.partComponents)
         .where(eq(schema.partComponents.id, request.params.id));
@@ -1577,8 +1732,29 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
       const documentId = request.params.documentId;
       const wanted = new Set(request.body.partIds);
+
+      // Doc's org must be in scope.
+      const doc = await db.query.documents.findFirst({
+        where: eq(schema.documents.id, documentId),
+        with: { packVersion: { with: { pack: true } } },
+      });
+      if (!doc) return reply.notFound();
+      requireOrgInScope(scope, doc.packVersion.pack.ownerOrganizationId);
+
+      // Every part being linked must also be in scope — prevents pulling a
+      // competing org's parts into your documents.
+      if (wanted.size > 0) {
+        const parts = await db.query.parts.findMany({
+          where: inArray(schema.parts.id, [...wanted]),
+        });
+        if (parts.length !== wanted.size) {
+          return reply.notFound('One or more parts not found.');
+        }
+        for (const p of parts) requireOrgInScope(scope, p.ownerOrganizationId);
+      }
 
       await db.transaction(async (tx) => {
         const existing = await tx.query.partDocuments.findMany({
@@ -1689,8 +1865,28 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
       const moduleId = request.params.moduleId;
       const wanted = new Set(request.body.partIds);
+
+      // Module's org must be in scope.
+      const module = await db.query.trainingModules.findFirst({
+        where: eq(schema.trainingModules.id, moduleId),
+        with: { packVersion: { with: { pack: true } } },
+      });
+      if (!module) return reply.notFound();
+      requireOrgInScope(scope, module.packVersion.pack.ownerOrganizationId);
+
+      // Every part being linked must also be in scope.
+      if (wanted.size > 0) {
+        const parts = await db.query.parts.findMany({
+          where: inArray(schema.parts.id, [...wanted]),
+        });
+        if (parts.length !== wanted.size) {
+          return reply.notFound('One or more parts not found.');
+        }
+        for (const p of parts) requireOrgInScope(scope, p.ownerOrganizationId);
+      }
 
       await db.transaction(async (tx) => {
         const existing = await tx.query.partTrainingModules.findMany({
@@ -1732,6 +1928,8 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     async (request) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
+      if (!scope.all && scope.orgIds.length === 0) return [];
       const filter = request.query.status ?? 'open';
       const openStatuses = ['open', 'acknowledged', 'in_progress', 'blocked'];
       const closedStatuses = ['resolved', 'closed'];
@@ -1750,8 +1948,15 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
           assignedTo: true,
         },
       });
-      rows.sort((a, b) => b.openedAt.getTime() - a.openedAt.getTime());
-      return rows.map((w) => ({
+      // Filter in memory: the work-orders table doesn't carry an org column,
+      // so we join through asset_instance → site → org. For platform admins
+      // (scope.all), we keep everything; for scoped users, drop rows whose
+      // instance's org isn't in scope.
+      const scopedRows = scope.all
+        ? rows
+        : rows.filter((w) => scope.orgIds.includes(w.assetInstance.site.organizationId));
+      scopedRows.sort((a, b) => b.openedAt.getTime() - a.openedAt.getTime());
+      return scopedRows.map((w) => ({
         id: w.id,
         title: w.title,
         description: w.description,
@@ -1853,11 +2058,13 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
 
       const assetModel = await db.query.assetModels.findFirst({
         where: eq(schema.assetModels.id, request.body.assetModelId),
       });
       if (!assetModel) return reply.badRequest('Asset model not found.');
+      requireOrgInScope(scope, assetModel.ownerOrganizationId);
       if (request.body.layerType !== 'base' && !request.body.basePackId) {
         return reply.badRequest('Overlay packs must reference a base pack.');
       }
@@ -1912,6 +2119,13 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
+
+      const pack = await db.query.contentPacks.findFirst({
+        where: eq(schema.contentPacks.id, request.params.packId),
+      });
+      if (!pack) return reply.notFound();
+      requireOrgInScope(scope, pack.ownerOrganizationId);
 
       const versions = await db.query.contentPackVersions.findMany({
         where: eq(schema.contentPackVersions.contentPackId, request.params.packId),
@@ -1979,11 +2193,14 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
 
       const version = await db.query.contentPackVersions.findFirst({
         where: eq(schema.contentPackVersions.id, request.params.versionId),
+        with: { pack: true },
       });
       if (!version) return reply.notFound();
+      requireOrgInScope(scope, version.pack.ownerOrganizationId);
       if (version.status !== 'draft') {
         return reply.badRequest(
           `Cannot add documents to a ${version.status} version. Open a new draft first.`,
@@ -2051,11 +2268,14 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
 
       const doc = await db.query.documents.findFirst({
         where: eq(schema.documents.id, request.params.id),
+        with: { packVersion: { with: { pack: true } } },
       });
       if (!doc) return reply.notFound();
+      requireOrgInScope(scope, doc.packVersion.pack.ownerOrganizationId);
       // Note: we allow resetting a 'processing' doc. If a real job is mid-
       // flight (same container, same process), it'll race with the new job
       // and the transactional chunk-swap at the end picks a deterministic
@@ -2107,11 +2327,13 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
       const doc = await db.query.documents.findFirst({
         where: eq(schema.documents.id, request.params.id),
-        with: { packVersion: true },
+        with: { packVersion: { with: { pack: true } } },
       });
       if (!doc) return reply.notFound();
+      requireOrgInScope(scope, doc.packVersion.pack.ownerOrganizationId);
       if (doc.packVersion.status !== 'draft') {
         return reply.badRequest('Cannot edit documents on a published version.');
       }
@@ -2141,11 +2363,13 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
       const doc = await db.query.documents.findFirst({
         where: eq(schema.documents.id, request.params.id),
-        with: { packVersion: true },
+        with: { packVersion: { with: { pack: true } } },
       });
       if (!doc) return reply.notFound();
+      requireOrgInScope(scope, doc.packVersion.pack.ownerOrganizationId);
       if (doc.packVersion.status !== 'draft') {
         return reply.badRequest('Cannot remove documents from a published version.');
       }
@@ -2163,11 +2387,13 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       const auth = requireAuth(request);
+      const scope = await getScope(request, db);
       const version = await db.query.contentPackVersions.findFirst({
         where: eq(schema.contentPackVersions.id, request.params.id),
         with: { pack: true },
       });
       if (!version) return reply.notFound();
+      requireOrgInScope(scope, version.pack.ownerOrganizationId);
       const pinned = await db.query.assetInstances.findFirst({
         where: eq(schema.assetInstances.pinnedContentPackVersionId, version.id),
       });
@@ -2207,10 +2433,12 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
       const pack = await db.query.contentPacks.findFirst({
         where: eq(schema.contentPacks.id, request.params.id),
       });
       if (!pack) return reply.notFound();
+      requireOrgInScope(scope, pack.ownerOrganizationId);
       const versions = await db.query.contentPackVersions.findMany({
         where: eq(schema.contentPackVersions.contentPackId, pack.id),
       });
@@ -2240,12 +2468,14 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       const auth = requireAuth(request);
+      const scope = await getScope(request, db);
 
       const version = await db.query.contentPackVersions.findFirst({
         where: eq(schema.contentPackVersions.id, request.params.versionId),
         with: { pack: { with: { assetModel: true } } },
       });
       if (!version) return reply.notFound();
+      requireOrgInScope(scope, version.pack.ownerOrganizationId);
       if (version.status !== 'draft') {
         return reply.badRequest(`Version is already ${version.status}.`);
       }

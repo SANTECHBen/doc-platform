@@ -49,3 +49,19 @@ export async function getScope(request: FastifyRequest, db: Database): Promise<S
 export function orgIdsLiteral(scope: Scope): string {
   return `{${scope.orgIds.join(',')}}`;
 }
+
+/**
+ * Throw 404 if the target org isn't in the caller's scope. Used on mutation
+ * endpoints to block writes against resources in other orgs. 404 (not 403)
+ * is deliberate — a scoped caller probing unknown IDs should not be able
+ * to distinguish "exists elsewhere" from "doesn't exist".
+ *
+ * Platform admins (scope.all) bypass the check.
+ */
+export function requireOrgInScope(scope: Scope, orgId: string): void {
+  if (scope.all) return;
+  if (scope.orgIds.includes(orgId)) return;
+  const err = new Error('Not found') as Error & { statusCode: number };
+  err.statusCode = 404;
+  throw err;
+}

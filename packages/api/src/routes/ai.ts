@@ -10,6 +10,7 @@ import {
 } from '@platform/ai';
 import { AIChatRequestSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth';
+import { getScope, requireOrgInScope } from '../middleware/scope';
 
 export async function registerAIRoutes(app: FastifyInstance) {
   // Server-Sent Events stream of a grounded troubleshooter turn.
@@ -32,6 +33,11 @@ export async function registerAIRoutes(app: FastifyInstance) {
       with: { model: true, site: true, pinnedContentPackVersion: true },
     });
     if (!instance) return reply.notFound('Asset instance not found.');
+    // Scope guard: the asset's owning org must be in the caller's scope.
+    // Otherwise a signed-in user could ask the troubleshooter about any
+    // other org's asset and pull knowledge out of its content pack.
+    const scope = await getScope(request, db);
+    requireOrgInScope(scope, instance.site.organizationId);
     if (!instance.pinnedContentPackVersionId) {
       return reply.badRequest('Asset has no pinned ContentPack version — AI chat unavailable.');
     }
