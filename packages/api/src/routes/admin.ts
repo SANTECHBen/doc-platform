@@ -19,6 +19,7 @@ import { UuidSchema } from '@platform/shared';
 import { isExtractable, processDocument } from '@platform/ai';
 import { requireAuth } from '../middleware/auth';
 import { getScope, orgIdsLiteral, requireOrgInScope } from '../middleware/scope';
+import { createRateLimiter } from '../middleware/ratelimit';
 import type { Storage } from '../storage';
 
 // Pull a storage key into a Buffer. The extraction pipeline needs bytes in
@@ -2003,9 +2004,24 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
   // Multipart upload. Returns storage metadata the admin app feeds into document
   // creation. File content is stored content-addressed; callers get back a key
   // they can write to documents.storageKey.
+  //
+  // Rate-limited per user: uploads are the one admin endpoint that writes
+  // non-trivial bytes to S3 on the caller's behalf. Without a cap, a
+  // compromised or script-abusive admin account could drive storage costs
+  // to the moon. 60/hour per user is comfortable for a human authoring
+  // session and hostile to a loop.
+  const uploadLimiter = createRateLimiter({ limit: 60, windowMs: 60 * 60 * 1000 });
   app.post('/admin/uploads', async (request, reply) => {
     const { storage } = app.ctx;
-    requireAuth(request);
+    const auth = requireAuth(request);
+
+    const rl = uploadLimiter.check(auth.userId);
+    if (!rl.allowed) {
+      reply.header('Retry-After', rl.retryAfterSec);
+      return reply.tooManyRequests(
+        `Upload rate limit reached. Try again in ${rl.retryAfterSec}s.`,
+      );
+    }
 
     const file = await request.file();
     if (!file) return reply.badRequest('No file provided.');
