@@ -149,25 +149,29 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const scopeLiteral = orgIdsLiteral(scope);
     const rows = (await db.execute(
       scope.all
-        ? sql`SELECT q.id, q.code, q.label, q.active, q.created_at,
+        ? sql`SELECT q.id, q.code, q.label, q.active, q.created_at, q.preferred_template_id,
                  ai.id AS instance_id, ai.serial_number,
                  am.display_name AS model_display_name,
                  am.category AS model_category,
-                 s.name AS site_name
+                 s.name AS site_name,
+                 tpl.name AS preferred_template_name
               FROM qr_codes q
               LEFT JOIN asset_instances ai ON ai.id = q.asset_instance_id
               LEFT JOIN asset_models am ON am.id = ai.asset_model_id
               LEFT JOIN sites s ON s.id = ai.site_id
+              LEFT JOIN qr_label_templates tpl ON tpl.id = q.preferred_template_id
               ORDER BY q.created_at DESC`
-        : sql`SELECT q.id, q.code, q.label, q.active, q.created_at,
+        : sql`SELECT q.id, q.code, q.label, q.active, q.created_at, q.preferred_template_id,
                  ai.id AS instance_id, ai.serial_number,
                  am.display_name AS model_display_name,
                  am.category AS model_category,
-                 s.name AS site_name
+                 s.name AS site_name,
+                 tpl.name AS preferred_template_name
               FROM qr_codes q
               JOIN asset_instances ai ON ai.id = q.asset_instance_id
               JOIN asset_models am ON am.id = ai.asset_model_id
               JOIN sites s ON s.id = ai.site_id
+              LEFT JOIN qr_label_templates tpl ON tpl.id = q.preferred_template_id
               WHERE s.organization_id = ANY(${scopeLiteral}::uuid[])
               ORDER BY q.created_at DESC`,
     )) as unknown as Array<{
@@ -176,11 +180,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       label: string | null;
       active: boolean;
       created_at: string;
+      preferred_template_id: string | null;
       instance_id: string | null;
       serial_number: string | null;
       model_display_name: string | null;
       model_category: string | null;
       site_name: string | null;
+      preferred_template_name: string | null;
     }>;
     return rows.map((r) => ({
       id: r.id,
@@ -188,6 +194,9 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       label: r.label,
       active: r.active,
       createdAt: r.created_at,
+      preferredTemplate: r.preferred_template_id
+        ? { id: r.preferred_template_id, name: r.preferred_template_name ?? 'Unknown' }
+        : null,
       assetInstance: r.instance_id
         ? {
             id: r.instance_id,
@@ -201,13 +210,16 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   });
 
   // Mint a new QR code for an asset instance.
-  app.post<{ Body: { assetInstanceId: string; label?: string } }>(
+  app.post<{
+    Body: { assetInstanceId: string; label?: string; preferredTemplateId?: string | null };
+  }>(
     '/admin/qr-codes',
     {
       schema: {
         body: z.object({
           assetInstanceId: UuidSchema,
           label: z.string().max(120).optional(),
+          preferredTemplateId: UuidSchema.nullable().optional(),
         }),
       },
     },
@@ -227,6 +239,17 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         return reply.notFound('Asset instance not found.');
       }
 
+      // If a template is provided, verify it lives in the caller's scope.
+      // Otherwise a scoped admin could reference another org's template by
+      // ID and leak the styling fingerprint.
+      if (request.body.preferredTemplateId) {
+        const tpl = await db.query.qrLabelTemplates.findFirst({
+          where: eq(schema.qrLabelTemplates.id, request.body.preferredTemplateId),
+        });
+        if (!tpl) return reply.badRequest('Template not found.');
+        requireOrgInScope(scope, tpl.organizationId);
+      }
+
       const code = generateQrCode();
       const [created] = await db
         .insert(schema.qrCodes)
@@ -234,11 +257,97 @@ export async function registerAdminRoutes(app: FastifyInstance) {
           code,
           assetInstanceId: instance.id,
           label: request.body.label ?? null,
+          preferredTemplateId: request.body.preferredTemplateId ?? null,
           active: true,
         })
         .returning();
       if (!created) return reply.internalServerError('Failed to mint QR code.');
       return created;
+    },
+  );
+
+  // Update a QR code's label and/or preferred template. Lets an admin
+  // re-brand a printed code's preferred design without re-minting — useful
+  // when a new template rolls out and existing codes should reprint with it.
+  app.patch<{
+    Params: { id: string };
+    Body: { label?: string | null; preferredTemplateId?: string | null };
+  }>(
+    '/admin/qr-codes/:id',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema }),
+        body: z.object({
+          label: z.string().max(120).nullable().optional(),
+          preferredTemplateId: UuidSchema.nullable().optional(),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const scope = await getScope(request, db);
+
+      const qr = await db.query.qrCodes.findFirst({
+        where: eq(schema.qrCodes.id, request.params.id),
+        with: { assetInstance: { with: { site: true } } },
+      });
+      if (!qr) return reply.notFound();
+      // Scope gate: the QR's owning org is the instance's site's org.
+      // Orphaned QRs (no asset) are visible only to platform admins, which
+      // matches the listing rules.
+      if (!scope.all) {
+        if (!qr.assetInstance) return reply.notFound();
+        requireOrgInScope(scope, qr.assetInstance.site.organizationId);
+      }
+
+      if (request.body.preferredTemplateId) {
+        const tpl = await db.query.qrLabelTemplates.findFirst({
+          where: eq(schema.qrLabelTemplates.id, request.body.preferredTemplateId),
+        });
+        if (!tpl) return reply.badRequest('Template not found.');
+        requireOrgInScope(scope, tpl.organizationId);
+      }
+
+      const patch: Record<string, unknown> = { updatedAt: new Date() };
+      if (request.body.label !== undefined) patch.label = request.body.label;
+      if (request.body.preferredTemplateId !== undefined) {
+        patch.preferredTemplateId = request.body.preferredTemplateId;
+      }
+
+      const [updated] = await db
+        .update(schema.qrCodes)
+        .set(patch)
+        .where(eq(schema.qrCodes.id, qr.id))
+        .returning();
+      return updated;
+    },
+  );
+
+  // Delete a QR code. Hard delete is fine — the linked asset instance,
+  // audit events, and content packs all carry on. Scanning the sticker
+  // after delete just 404s, which is the correct signal when a sticker
+  // has been retired (e.g. equipment decommissioned).
+  app.delete<{ Params: { id: string } }>(
+    '/admin/qr-codes/:id',
+    { schema: { params: z.object({ id: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const scope = await getScope(request, db);
+
+      const qr = await db.query.qrCodes.findFirst({
+        where: eq(schema.qrCodes.id, request.params.id),
+        with: { assetInstance: { with: { site: true } } },
+      });
+      if (!qr) return reply.notFound();
+      if (!scope.all) {
+        if (!qr.assetInstance) return reply.notFound();
+        requireOrgInScope(scope, qr.assetInstance.site.organizationId);
+      }
+
+      await db.delete(schema.qrCodes).where(eq(schema.qrCodes.id, qr.id));
+      return { ok: true };
     },
   );
 }

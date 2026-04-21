@@ -1,6 +1,7 @@
 import { pgTable, uuid, text, timestamp, boolean, index } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import { assetInstances } from './assets';
+import { qrLabelTemplates } from './qr-label-templates';
 
 // A QrCode encodes an opaque short ID (not a serial number, not a URL with PII).
 // Resolution is server-side, which means QR stickers can be:
@@ -22,6 +23,15 @@ export const qrCodes = pgTable(
     // Labels visible to admins on the sticker management page.
     label: text('label'),
     active: boolean('active').notNull().default(true),
+    // Sticky per-QR template preference. When null, printing falls back to
+    // whatever the operator picks at print time (or the built-in nameplate
+    // if no picker selection). SET NULL on template delete so losing a
+    // template doesn't break scans — the code still resolves, it just
+    // prints with the fallback design.
+    preferredTemplateId: uuid('preferred_template_id').references(
+      () => qrLabelTemplates.id,
+      { onDelete: 'set null' },
+    ),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
     revokedReason: text('revoked_reason'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -36,6 +46,10 @@ export const qrCodesRelations = relations(qrCodes, ({ one }) => ({
   assetInstance: one(assetInstances, {
     fields: [qrCodes.assetInstanceId],
     references: [assetInstances.id],
+  }),
+  preferredTemplate: one(qrLabelTemplates, {
+    fields: [qrCodes.preferredTemplateId],
+    references: [qrLabelTemplates.id],
   }),
 }));
 

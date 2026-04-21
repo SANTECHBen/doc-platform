@@ -16,11 +16,13 @@ import { QrLabel, QR_LABEL_CSS, type QrLabelTemplate } from '@/components/qr-lab
 // sticker renders via the shared <QrLabel> component using a chosen
 // template, so the editor preview and the printed output stay in sync.
 //
-// Template selection precedence:
-//   1. Explicit ?templateId=<id> query param (from the picker)
-//   2. Org's default template (isDefault=true)
-//   3. Built-in nameplate fallback so the page still renders in orgs with
-//      no saved templates.
+// Template selection precedence (per sticker):
+//   1. URL ?templateId=<id>     — force-all override from the picker.
+//   2. QR code's preferredTemplate — each sticker uses its own sticky choice.
+//   3. Built-in nameplate fallback — when a code has no preference and no
+//      override is set.
+// The picker on this page has three modes: "Per-QR preference" (default),
+// a named template (forces all), or "Built-in nameplate" (forces all).
 export default function PrintSheetPage() {
   return (
     <Suspense fallback={<p className="p-6 text-ink-tertiary">Loading…</p>}>
@@ -29,6 +31,11 @@ export default function PrintSheetPage() {
   );
 }
 
+// Sentinel string for the "use each code's own template" choice. Empty
+// string is already taken by the built-in fallback, so we use a distinct
+// token that won't collide with any UUID.
+const PER_QR = '__per_qr__';
+
 function PrintSheetInner() {
   const params = useSearchParams();
   const ids = params.getAll('id');
@@ -36,7 +43,9 @@ function PrintSheetInner() {
 
   const [codes, setCodes] = useState<AdminQrCode[] | null>(null);
   const [templates, setTemplates] = useState<AdminQrLabelTemplate[] | null>(null);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  // Override mode: either PER_QR (use each code's own), '' (force built-in),
+  // or a specific template UUID (force that template for all).
+  const [overrideMode, setOverrideMode] = useState<string>(PER_QR);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -45,16 +54,15 @@ function PrintSheetInner() {
         const selected = allCodes.filter((c) => ids.includes(c.id));
         setCodes(selected);
         setTemplates(tpls);
-        // Resolve initial template: query param wins, else org default, else
-        // first available, else null (fallback design renders).
-        const def =
-          (templateIdParam && tpls.find((t) => t.id === templateIdParam)) ||
-          tpls.find((t) => t.isDefault) ||
-          tpls[0];
-        setSelectedTemplateId(def?.id ?? null);
+        // URL override wins if present; otherwise default to per-QR so the
+        // sticky preference on each code takes effect out of the box.
+        if (templateIdParam && tpls.find((t) => t.id === templateIdParam)) {
+          setOverrideMode(templateIdParam);
+        } else {
+          setOverrideMode(PER_QR);
+        }
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-    // ids.join makes the array comparable as a string for dep tracking.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ids.join(','), templateIdParam]);
 
@@ -65,29 +73,36 @@ function PrintSheetInner() {
     }
   }, [codes]);
 
-  const template: QrLabelTemplate = useMemo(() => {
-    const t = templates?.find((x) => x.id === selectedTemplateId);
-    if (t) {
+  // Resolve the effective template for a single code. In force modes the
+  // override applies to every sticker; in PER_QR mode each code uses its
+  // own preferredTemplate (or the built-in fallback if unset).
+  const templateFor = useMemo(() => {
+    return (c: AdminQrCode): QrLabelTemplate => {
+      const tplId =
+        overrideMode === PER_QR
+          ? c.preferredTemplate?.id ?? null
+          : overrideMode || null;
+      const tpl = tplId ? templates?.find((x) => x.id === tplId) ?? null : null;
+      if (tpl) {
+        return {
+          layout: tpl.layout,
+          accentColor: tpl.accentColor,
+          logoUrl: null,
+          qrSize: tpl.qrSize,
+          qrErrorCorrection: tpl.qrErrorCorrection,
+          fields: tpl.fields,
+        };
+      }
       return {
-        layout: t.layout,
-        accentColor: t.accentColor,
-        logoUrl: null, // logo upload wiring is a separate piece of work
-        qrSize: t.qrSize,
-        qrErrorCorrection: t.qrErrorCorrection,
-        fields: t.fields,
+        layout: 'nameplate',
+        accentColor: '#0B5FBF',
+        logoUrl: null,
+        qrSize: 92,
+        qrErrorCorrection: 'M',
+        fields: DEFAULT_LABEL_TEMPLATE_FIELDS,
       };
-    }
-    // Built-in fallback: current nameplate look so orgs without templates
-    // still get a useful sheet.
-    return {
-      layout: 'nameplate',
-      accentColor: '#0B5FBF',
-      logoUrl: null,
-      qrSize: 92,
-      qrErrorCorrection: 'M',
-      fields: DEFAULT_LABEL_TEMPLATE_FIELDS,
     };
-  }, [templates, selectedTemplateId]);
+  }, [overrideMode, templates]);
 
   if (error) return <p className="p-6 text-signal-fault">{error}</p>;
   if (!codes) return <p className="p-6 text-ink-tertiary">Loading…</p>;
@@ -135,15 +150,16 @@ function PrintSheetInner() {
           <label className="flex items-center gap-2 text-ink-secondary">
             <span>Template</span>
             <select
-              value={selectedTemplateId ?? ''}
-              onChange={(e) => setSelectedTemplateId(e.target.value || null)}
+              value={overrideMode}
+              onChange={(e) => setOverrideMode(e.target.value)}
               className="rounded border border-line bg-surface-raised px-2 py-1"
             >
-              <option value="">Built-in nameplate</option>
+              <option value={PER_QR}>Per-QR preference</option>
+              <option value="">Built-in nameplate (force all)</option>
               {(templates ?? []).map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
-                  {t.isDefault ? ' (default)' : ''}
+                  {t.isDefault ? ' (default)' : ''} — force all
                 </option>
               ))}
             </select>
@@ -167,7 +183,7 @@ function PrintSheetInner() {
             };
             return (
               <div key={c.id}>
-                <QrLabel template={template} data={data} />
+                <QrLabel template={templateFor(c)} data={data} />
               </div>
             );
           })}

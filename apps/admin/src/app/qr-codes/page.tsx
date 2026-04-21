@@ -2,16 +2,18 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Check, Copy, ExternalLink, Layers, Plus, Printer, QrCode as QrCodeIcon } from 'lucide-react';
+import { Check, Copy, ExternalLink, Layers, Plus, Printer, QrCode as QrCodeIcon, Trash2 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { PageHeader, PageShell } from '@/components/page-shell';
 import { EmptyState } from '@/components/empty-state';
 import { useToast } from '@/components/toast';
 import {
+  deleteQrCode,
   listAssetInstances,
   listQrCodes,
   listQrLabelTemplates,
   mintQrCode,
+  updateQrCode,
   PUBLIC_PWA_ORIGIN,
   type AdminAssetInstance,
   type AdminQrCode,
@@ -23,11 +25,13 @@ export default function QrCodesPage() {
   const [instances, setInstances] = useState<AdminAssetInstance[] | null>(null);
   const [templates, setTemplates] = useState<AdminQrLabelTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const [newQrTemplateId, setNewQrTemplateId] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [minting, setMinting] = useState(false);
   const [selectedInstanceId, setSelectedInstanceId] = useState('');
   const [label, setLabel] = useState('');
   const [selectedCodeIds, setSelectedCodeIds] = useState<Set<string>>(new Set());
+  const toast = useToast();
 
   useEffect(() => {
     Promise.all([listQrCodes(), listAssetInstances(), listQrLabelTemplates()])
@@ -38,8 +42,13 @@ export default function QrCodesPage() {
         if (i[0]) setSelectedInstanceId(i[0].id);
         // Pre-select the org default so printing picks it up without a
         // second click. Falls back to the first template, then empty.
+        // Same default applies to the new-QR template picker so freshly
+        // generated codes inherit the org's preferred design.
         const def = tpls.find((t) => t.isDefault) ?? tpls[0];
-        if (def) setSelectedTemplateId(def.id);
+        if (def) {
+          setSelectedTemplateId(def.id);
+          setNewQrTemplateId(def.id);
+        }
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
@@ -52,6 +61,7 @@ export default function QrCodesPage() {
       await mintQrCode({
         assetInstanceId: selectedInstanceId,
         label: label.trim() || undefined,
+        preferredTemplateId: newQrTemplateId || null,
       });
       setLabel('');
       const refreshed = await listQrCodes();
@@ -60,6 +70,52 @@ export default function QrCodesPage() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setMinting(false);
+    }
+  }
+
+  async function onChangeTemplate(codeId: string, templateId: string) {
+    try {
+      await updateQrCode(codeId, { preferredTemplateId: templateId || null });
+      setCodes((prev) =>
+        (prev ?? []).map((c) =>
+          c.id === codeId
+            ? {
+                ...c,
+                preferredTemplate: templateId
+                  ? {
+                      id: templateId,
+                      name: templates.find((t) => t.id === templateId)?.name ?? 'Unknown',
+                    }
+                  : null,
+              }
+            : c,
+        ),
+      );
+      toast.success('Template updated');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function onDelete(codeId: string, code: string) {
+    if (
+      !confirm(
+        `Delete QR code ${code}? Any printed sticker with this code will stop resolving (scans will 404). This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await deleteQrCode(codeId);
+      setCodes((prev) => (prev ?? []).filter((c) => c.id !== codeId));
+      setSelectedCodeIds((prev) => {
+        const next = new Set(prev);
+        next.delete(codeId);
+        return next;
+      });
+      toast.success(`Deleted ${code}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -120,8 +176,8 @@ export default function QrCodesPage() {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-tertiary">
           Generate new label
         </h2>
-        <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end">
-          <label className="flex flex-1 flex-col gap-1 text-sm">
+        <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end md:flex-wrap">
+          <label className="flex flex-1 min-w-[240px] flex-col gap-1 text-sm">
             <span className="text-ink-secondary">Asset instance</span>
             <select
               value={selectedInstanceId}
@@ -135,7 +191,7 @@ export default function QrCodesPage() {
               ))}
             </select>
           </label>
-          <label className="flex flex-1 flex-col gap-1 text-sm">
+          <label className="flex flex-1 min-w-[180px] flex-col gap-1 text-sm">
             <span className="text-ink-secondary">Caption (shown on label)</span>
             <input
               value={label}
@@ -143,6 +199,22 @@ export default function QrCodesPage() {
               placeholder="Aisle 1 east"
               className="rounded border border-line bg-surface-raised px-2 py-1.5"
             />
+          </label>
+          <label className="flex flex-1 min-w-[180px] flex-col gap-1 text-sm">
+            <span className="text-ink-secondary">Label template</span>
+            <select
+              value={newQrTemplateId}
+              onChange={(e) => setNewQrTemplateId(e.target.value)}
+              className="rounded border border-line bg-surface-raised px-2 py-1.5"
+            >
+              <option value="">No preference (use print-time picker)</option>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                  {t.isDefault ? ' (default)' : ''}
+                </option>
+              ))}
+            </select>
           </label>
           <button
             onClick={onMint}
@@ -214,6 +286,8 @@ export default function QrCodesPage() {
                 <th className="px-4 py-2">Asset</th>
                 <th className="px-4 py-2">Site</th>
                 <th className="px-4 py-2">Label</th>
+                <th className="px-4 py-2">Template</th>
+                <th className="w-10 px-4 py-2"></th>
               </tr>
             </thead>
             <tbody>
@@ -251,6 +325,31 @@ export default function QrCodesPage() {
                     </td>
                     <td className="px-4 py-3">{c.assetInstance?.siteName ?? '—'}</td>
                     <td className="px-4 py-3 text-ink-secondary">{c.label ?? '—'}</td>
+                    <td className="px-4 py-3">
+                      <select
+                        value={c.preferredTemplate?.id ?? ''}
+                        onChange={(e) => onChangeTemplate(c.id, e.target.value)}
+                        className="w-full rounded border border-line bg-surface-raised px-2 py-1 text-xs"
+                      >
+                        <option value="">No preference</option>
+                        {templates.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                            {t.isDefault ? ' (default)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => onDelete(c.id, c.code)}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded text-ink-tertiary hover:bg-signal-fault/10 hover:text-signal-fault"
+                        title="Delete QR code"
+                        aria-label="Delete QR code"
+                      >
+                        <Trash2 size={13} strokeWidth={2} />
+                      </button>
+                    </td>
                   </tr>
                 );
               })}

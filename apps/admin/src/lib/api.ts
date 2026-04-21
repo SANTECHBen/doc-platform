@@ -49,6 +49,7 @@ export interface AdminQrCode {
   label: string | null;
   active: boolean;
   createdAt: string;
+  preferredTemplate: { id: string; name: string } | null;
   assetInstance: {
     id: string;
     serialNumber: string;
@@ -1140,6 +1141,7 @@ export async function listInstancesForModel(modelId: string): Promise<ModelInsta
 export async function mintQrCode(params: {
   assetInstanceId: string;
   label?: string;
+  preferredTemplateId?: string | null;
 }): Promise<AdminQrCode> {
   const res = await fetch(`${API_BASE}/admin/qr-codes`, {
     method: 'POST',
@@ -1161,8 +1163,29 @@ export async function mintQrCode(params: {
     label: raw.label,
     active: raw.active,
     createdAt: raw.createdAt,
+    preferredTemplate: null,
     assetInstance: null,
   };
+}
+
+export async function updateQrCode(
+  id: string,
+  body: { label?: string | null; preferredTemplateId?: string | null },
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/admin/qr-codes/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+export async function deleteQrCode(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/admin/qr-codes/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }
 
 // ---- QR label templates ----------------------------------------------------
