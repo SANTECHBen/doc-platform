@@ -3218,7 +3218,7 @@ export async function registerAdminListings(app: FastifyInstance) {
       scope.all
         ? sql`SELECT u.id, u.email, u.display_name, u.disabled, u.created_at,
                  o.id AS home_org_id, o.name AS home_org_name,
-                 COALESCE(ARRAY_AGG(DISTINCT m.role) FILTER (WHERE m.role IS NOT NULL), ARRAY[]::text[]) AS roles,
+                 COALESCE(ARRAY_AGG(DISTINCT m.role::text) FILTER (WHERE m.role IS NOT NULL), ARRAY[]::text[]) AS roles,
                  (SELECT count(*) FROM memberships WHERE user_id = u.id)::int AS membership_count
           FROM users u
           JOIN organizations o ON o.id = u.home_organization_id
@@ -3227,7 +3227,7 @@ export async function registerAdminListings(app: FastifyInstance) {
           ORDER BY u.display_name`
         : sql`SELECT u.id, u.email, u.display_name, u.disabled, u.created_at,
                  o.id AS home_org_id, o.name AS home_org_name,
-                 COALESCE(ARRAY_AGG(DISTINCT m.role) FILTER (WHERE m.role IS NOT NULL), ARRAY[]::text[]) AS roles,
+                 COALESCE(ARRAY_AGG(DISTINCT m.role::text) FILTER (WHERE m.role IS NOT NULL), ARRAY[]::text[]) AS roles,
                  (SELECT count(*) FROM memberships WHERE user_id = u.id)::int AS membership_count
           FROM users u
           JOIN organizations o ON o.id = u.home_organization_id
