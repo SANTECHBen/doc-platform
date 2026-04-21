@@ -406,6 +406,12 @@ export const QR_LABEL_CSS = `
   margin-top: auto;
   flex-shrink: 0;
 }
+/* When the ID-code footer is toggled off, the QR otherwise sits flush with
+   the sticker's bottom padding and visually kisses the border. Add a small
+   extra gap in that case. */
+.qr-sticker:not(:has(.qr-sticker-footer)) .qr-sticker-qr-col {
+  padding-bottom: 5pt;
+}
 .qr-sticker-qr {
   padding: 2.5pt;
   background: white;

@@ -48,7 +48,8 @@
       "Bash(xargs grep *)",
       "Read(//c/c/doc-platform/packages/**)",
       "Read(//c/c/doc-platform/packages/db/**)",
-      "Bash(pnpm run *)"
+      "Bash(pnpm run *)",
+      "Bash(git reset *)"
     ]
   }
 }

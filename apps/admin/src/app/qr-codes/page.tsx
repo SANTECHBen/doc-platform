@@ -10,15 +10,19 @@ import { useToast } from '@/components/toast';
 import {
   listAssetInstances,
   listQrCodes,
+  listQrLabelTemplates,
   mintQrCode,
   PUBLIC_PWA_ORIGIN,
   type AdminAssetInstance,
   type AdminQrCode,
+  type AdminQrLabelTemplate,
 } from '@/lib/api';
 
 export default function QrCodesPage() {
   const [codes, setCodes] = useState<AdminQrCode[] | null>(null);
   const [instances, setInstances] = useState<AdminAssetInstance[] | null>(null);
+  const [templates, setTemplates] = useState<AdminQrLabelTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [minting, setMinting] = useState(false);
   const [selectedInstanceId, setSelectedInstanceId] = useState('');
@@ -26,11 +30,16 @@ export default function QrCodesPage() {
   const [selectedCodeIds, setSelectedCodeIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    Promise.all([listQrCodes(), listAssetInstances()])
-      .then(([c, i]) => {
+    Promise.all([listQrCodes(), listAssetInstances(), listQrLabelTemplates()])
+      .then(([c, i, tpls]) => {
         setCodes(c);
         setInstances(i);
+        setTemplates(tpls);
         if (i[0]) setSelectedInstanceId(i[0].id);
+        // Pre-select the org default so printing picks it up without a
+        // second click. Falls back to the first template, then empty.
+        const def = tpls.find((t) => t.isDefault) ?? tpls[0];
+        if (def) setSelectedTemplateId(def.id);
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
@@ -81,6 +90,7 @@ export default function QrCodesPage() {
     if (selectedCodes.length === 0) return;
     const params = new URLSearchParams();
     for (const c of selectedCodes) params.append('id', c.id);
+    if (selectedTemplateId) params.set('templateId', selectedTemplateId);
     window.open(`/qr-codes/print?${params.toString()}`, '_blank');
   }
 
@@ -163,6 +173,24 @@ export default function QrCodesPage() {
             >
               Clear
             </button>
+            {templates.length > 0 && (
+              <label className="flex items-center gap-2 text-sm text-ink-secondary">
+                <span className="hidden sm:inline">Template</span>
+                <select
+                  value={selectedTemplateId}
+                  onChange={(e) => setSelectedTemplateId(e.target.value)}
+                  className="rounded border border-line bg-surface-raised px-2 py-1 text-sm"
+                >
+                  <option value="">Built-in nameplate</option>
+                  {templates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                      {t.isDefault ? ' (default)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <button
               onClick={openPrintSheet}
               disabled={selectedCodes.length === 0}
