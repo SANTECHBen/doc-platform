@@ -2010,17 +2010,23 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
   // compromised or script-abusive admin account could drive storage costs
   // to the moon. 60/hour per user is comfortable for a human authoring
   // session and hostile to a loop.
+  //
+  // Platform admins (SANTECH staff) bypass the cap — they already skip
+  // per-org scoping and are the tier we trust for bulk authoring and
+  // backfills that would otherwise trip the limit.
   const uploadLimiter = createRateLimiter({ limit: 60, windowMs: 60 * 60 * 1000 });
   app.post('/admin/uploads', async (request, reply) => {
     const { storage } = app.ctx;
     const auth = requireAuth(request);
 
-    const rl = uploadLimiter.check(auth.userId);
-    if (!rl.allowed) {
-      reply.header('Retry-After', rl.retryAfterSec);
-      return reply.tooManyRequests(
-        `Upload rate limit reached. Try again in ${rl.retryAfterSec}s.`,
-      );
+    if (!auth.platformAdmin) {
+      const rl = uploadLimiter.check(auth.userId);
+      if (!rl.allowed) {
+        reply.header('Retry-After', rl.retryAfterSec);
+        return reply.tooManyRequests(
+          `Upload rate limit reached. Try again in ${rl.retryAfterSec}s.`,
+        );
+      }
     }
 
     const file = await request.file();
