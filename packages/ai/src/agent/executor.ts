@@ -311,7 +311,12 @@ interface ApplyOutcome {
 
 function refOrThrow(map: Map<string, string>, clientId: string, field: string): string {
   const id = map.get(clientId);
-  if (!id) throw new Error(`Unresolved reference ${field}=${clientId}`);
+  if (!id) {
+    throw new Error(
+      `Unresolved reference ${field}=${clientId}. The proposal references this clientId but no matching node exists in the tree. ` +
+        `Likely cause: the agent omitted the node thinking it would dedup against an existing entity — but every referenced node must be emitted; the executor performs dedup at apply time.`,
+    );
+  }
   return id;
 }
 

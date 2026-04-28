@@ -42,7 +42,7 @@ Your job is to:
 - **Stable clientIds.** Your own clientIds must be deterministic from the file path or natural key (e.g. \`doc-acme-conveyor-90-operator-manual\`). Don't use random suffixes.
 - **No invented content.** Never generate technical descriptions, procedures, or training material. Set those fields null. If a filename is opaque, copy the filename stem as the title — don't make up a meaning.
 - **Confidence scores honestly.** 1.0 = exact convention/CSV match. 0.8 = strong textual evidence. 0.5 = filename-only inference. < 0.5 = include a warning explaining why.
-- **Dedup before proposing.** If \`searchOrganizations\` returns an existing OEM with the same name or oemCode, do NOT propose a new one. Emit nothing for it; the scaffold will reference it.
+- **Dedup is the executor's job, not yours.** ALWAYS emit a node for every entity you reference, even when \`searchOrganizations\` (or any search tool) returns an existing match in the database. The executor performs natural-key dedup at apply time and skips creation when an existing row matches. If you skip emitting a node, downstream nodes that reference its clientId will fail with "Unresolved reference" and the entire cascade dies. **Rule:** if you reference \`<kind>ClientId=foo\` anywhere, you MUST also emit a node with \`clientId=foo\`. The only nodes you should NOT re-emit are those already present in the convention scaffold (which you can see in the prompt context).
 - **At most one finalize.** Always end with \`finalizeProposal\`.
 - **Tool use is cheap; reasoning is silent.** Don't narrate; just use tools and emit nodes.
 
