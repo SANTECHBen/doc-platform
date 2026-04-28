@@ -47,6 +47,32 @@ const EnvSchema = z.object({
   // the scope for endpoints called on behalf of a scanner (no user auth).
   // Must match apps/pwa env var of the same name. Minimum 32 chars.
   PWA_SESSION_SECRET: z.string().min(32).optional(),
+
+  // ---- Onboarding Agent ---------------------------------------------------
+
+  // Master toggle. The agent's routes and worker are only registered when
+  // this is '1'. Lets us deploy the code dark and flip it on once Mux + AI
+  // Gateway secrets are wired in the target environment.
+  AGENT_ENABLED: z.string().optional(),
+
+  // AI Gateway. Used by the agent loop (separate from ANTHROPIC_API_KEY,
+  // which still backs the existing /ai/chat troubleshooter).
+  AI_GATEWAY_API_KEY: z.string().optional(),
+  // Override the primary agent model. Default: anthropic/claude-sonnet-4-7
+  // routed via Vercel AI Gateway.
+  AGENT_MODEL: z.string().default('anthropic/claude-sonnet-4-7'),
+
+  // HMAC secret for short-lived stream tokens (SSE auth). EventSource
+  // can't set headers, so the propose/execute POST mints a token bound
+  // to (runId, userId, purpose) for 5 minutes; the GET stream endpoint
+  // validates it. Min 32 chars.
+  STREAM_TOKEN_SECRET: z.string().min(32).optional(),
+
+  // Mux. Required when AGENT_ENABLED=1 and videos are part of any run.
+  MUX_TOKEN_ID: z.string().optional(),
+  MUX_TOKEN_SECRET: z.string().optional(),
+  MUX_WEBHOOK_SECRET: z.string().optional(),
+  MUX_PLAYBACK_POLICY: z.enum(['public', 'signed']).default('public'),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -68,6 +94,29 @@ export function loadEnv(): Env {
         `S3_BUCKET is set but missing required siblings: ${missing.join(', ')}`,
       );
       process.exit(1);
+    }
+  }
+  if (env.AGENT_ENABLED === '1') {
+    // STREAM_TOKEN_SECRET is required at boot — every SSE handshake mints
+    // a token, so this would crash on the first request anyway.
+    if (!env.STREAM_TOKEN_SECRET) {
+      console.error('AGENT_ENABLED=1 requires STREAM_TOKEN_SECRET (32+ chars)');
+      process.exit(1);
+    }
+    // AI_GATEWAY_API_KEY and MUX_* are checked at request time. Warn here
+    // so the omission is visible, but don't block boot — that lets the
+    // admin try the convention parser and review UI before all secrets
+    // are wired.
+    const missing: string[] = [];
+    if (!env.AI_GATEWAY_API_KEY) missing.push('AI_GATEWAY_API_KEY');
+    if (!env.MUX_TOKEN_ID) missing.push('MUX_TOKEN_ID');
+    if (!env.MUX_TOKEN_SECRET) missing.push('MUX_TOKEN_SECRET');
+    if (!env.MUX_WEBHOOK_SECRET) missing.push('MUX_WEBHOOK_SECRET');
+    if (missing.length > 0) {
+      console.warn(
+        `[agent] AGENT_ENABLED=1 but missing optional secrets: ${missing.join(', ')}. ` +
+          `LLM/Mux features will fail at request time until set.`,
+      );
     }
   }
   return env;
