@@ -46,7 +46,10 @@ export interface AgentLoopOptions {
    */
   maxSteps?: number;
   /**
-   * Wall-clock cap in milliseconds. Aborts the loop if exceeded. Default 240s.
+   * Wall-clock cap in milliseconds. Aborts the loop if exceeded. Default 600s.
+   * Sized for folders with up to ~30 images (vision is the slow path; each
+   * classify call is 5-10s wall-clock with Sonnet). Bigger folders should
+   * override.
    */
   timeoutMs?: number;
 }
@@ -83,7 +86,7 @@ export async function runAgentLoop(
     existingEntities,
     model = DEFAULT_MODEL,
     maxSteps = 80,
-    timeoutMs = 240_000,
+    timeoutMs = 600_000,
   } = options;
 
   // Compose a wall-clock abort signal on top of the caller's signal.
