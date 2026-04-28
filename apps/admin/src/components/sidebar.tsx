@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  Bot,
   Boxes,
   Building2,
   FileStack,
@@ -34,6 +35,7 @@ const NAV: Nav[] = [
   { href: '/parts', label: 'Parts', icon: Wrench, match: /^\/parts/ },
   { href: '/work-orders', label: 'Work orders', icon: AlertTriangle, match: /^\/work-orders/ },
   { href: '/qr-codes', label: 'QR codes', icon: QrCode, match: /^\/qr-codes/ },
+  { href: '/agent', label: 'Onboarding agent', icon: Bot, match: /^\/agent/ },
   { href: '/users', label: 'Users', icon: Users, match: /^\/users/ },
   { href: '/audit', label: 'Audit log', icon: ScrollText, match: /^\/audit/ },
 ];

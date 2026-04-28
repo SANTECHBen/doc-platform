@@ -7,3 +7,4 @@ export * from './embeddings';
 export * from './chunking';
 export * from './pipeline';
 export * from './extract/index.js';
+export * from './agent/index.js';
