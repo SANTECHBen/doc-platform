@@ -58,9 +58,12 @@ const EnvSchema = z.object({
   // AI Gateway. Used by the agent loop (separate from ANTHROPIC_API_KEY,
   // which still backs the existing /ai/chat troubleshooter).
   AI_GATEWAY_API_KEY: z.string().optional(),
-  // Override the primary agent model. Default: anthropic/claude-sonnet-4-7
-  // routed via Vercel AI Gateway.
-  AGENT_MODEL: z.string().default('anthropic/claude-sonnet-4-7'),
+  // Override the primary agent model. Default: anthropic/claude-sonnet-4.6
+  // routed via Vercel AI Gateway. NOTE: Vercel uses dot-separated versions
+  // (claude-sonnet-4.6) not dash (claude-sonnet-4-6) — the gateway provider
+  // rejects unknown IDs locally without making an HTTP call, which surfaces
+  // as a confusing "No output generated" error in the AI SDK.
+  AGENT_MODEL: z.string().default('anthropic/claude-sonnet-4.6'),
 
   // HMAC secret for short-lived stream tokens (SSE auth). EventSource
   // can't set headers, so the propose/execute POST mints a token bound
