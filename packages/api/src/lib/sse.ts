@@ -36,6 +36,31 @@ export function startSse(
   reply: FastifyReply,
   opts: SseOptions = {},
 ): SseStream {
+  // Mirror any headers Fastify already queued on `reply` (notably the
+  // CORS plugin's Access-Control-Allow-* headers) onto reply.raw — once we
+  // hijack and flushHeaders, anything left on the Fastify reply wrapper is
+  // discarded. Without this, the browser blocks the EventSource as a CORS
+  // failure even though the response itself is fine.
+  for (const [name, value] of Object.entries(reply.getHeaders())) {
+    if (value === undefined) continue;
+    if (Array.isArray(value)) reply.raw.setHeader(name, value as string[]);
+    else reply.raw.setHeader(name, value as string | number);
+  }
+  // Belt and suspenders: ensure CORS allows the admin origin even if the
+  // CORS plugin missed (e.g. when the request didn't trip onRequest before
+  // hijack ran).
+  const origin = request.headers.origin;
+  if (origin && !reply.raw.hasHeader('access-control-allow-origin')) {
+    const allowed = [
+      request.server.ctx.env.PUBLIC_ADMIN_ORIGIN,
+      request.server.ctx.env.PUBLIC_PWA_ORIGIN,
+    ];
+    if (allowed.includes(origin)) {
+      reply.raw.setHeader('Access-Control-Allow-Origin', origin);
+      reply.raw.setHeader('Access-Control-Allow-Credentials', 'true');
+      reply.raw.setHeader('Vary', 'Origin');
+    }
+  }
   reply.raw.setHeader('Content-Type', 'text/event-stream');
   reply.raw.setHeader('Cache-Control', 'no-cache, no-transform');
   reply.raw.setHeader('Connection', 'keep-alive');
