@@ -102,6 +102,10 @@ export default function AgentRunDetailPage({
   const [pubToggles, setPubToggles] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
   const sseRef = useRef<{ close: () => void } | null>(null);
+  // Guards against infinite re-attach when attachStream fails — once we've
+  // tried for a given (status, purpose) tuple, don't auto-retry on the same
+  // detail render. Cleared when status transitions.
+  const attachedForRef = useRef<string | null>(null);
 
   // Initial fetch.
   async function refresh() {
@@ -130,19 +134,33 @@ export default function AgentRunDetailPage({
   }, [runId]);
 
   // Auto-attach to propose stream if status is proposing or scaffolding.
+  // Guarded against infinite re-attach: we record `attachedForRef` per
+  // (status, purpose) tuple so a failure doesn't ping-pong with the
+  // useEffect re-fire driven by setStreaming(false).
   useEffect(() => {
     if (!detail) return;
-    if (
-      (detail.run.status === 'proposing' || detail.run.status === 'uploading') &&
-      !streaming
-    ) {
-      void attachStream('propose');
+    const status = detail.run.status;
+    if ((status === 'proposing' || status === 'uploading') && !streaming) {
+      const key = `propose:${status}`;
+      if (attachedForRef.current !== key) {
+        attachedForRef.current = key;
+        void attachStream('propose');
+      }
     }
-    if (detail.run.status === 'executing' && !streaming && executionId) {
-      void attachStream('execute');
+    if (status === 'executing' && !streaming && executionId) {
+      const key = `execute:${executionId}`;
+      if (attachedForRef.current !== key) {
+        attachedForRef.current = key;
+        void attachStream('execute');
+      }
+    }
+    // Once we've moved past those streaming states, allow re-attach for
+    // the next phase.
+    if (status === 'awaiting_review' || status === 'completed' || status === 'failed') {
+      attachedForRef.current = null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detail?.run.status]);
+  }, [detail?.run.status, executionId]);
 
   function logEvent(type: string, data: Record<string, unknown>, id: number | null) {
     setLog((prev) => [

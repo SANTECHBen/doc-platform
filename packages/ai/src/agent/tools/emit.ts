@@ -14,23 +14,41 @@ import type { AgentToolContext } from './context.js';
 // which doesn't compress nicely. Instead the tool's input is loose and we
 // validate inside the execute function. This also lets us produce friendlier
 // error messages when the LLM fumbles a payload shape.
+//
+// IMPORTANT: Anthropic's tool-call serialization with z.unknown() (and
+// z.record/z.any) often delivers the value as a JSON-stringified object
+// rather than a parsed object. Accept both. We also document the expected
+// top-level shape via `z.object()` keys so the model gets a useful JSON
+// schema hint instead of a totally opaque "any" field.
 
 const EmitInputSchema = z.object({
   node: z
-    .unknown()
+    .union([z.record(z.string(), z.unknown()), z.string()])
     .describe(
-      'A complete proposal node. Must include: clientId (stable, kebab-case), kind, confidence (0-1), sourceFiles[], rationale, fromConvention=false, payload (kind-specific). Refer to the schema in the system prompt.',
+      'A complete proposal node. Strongly prefer a JSON object literal; a JSON-encoded string is also accepted as a fallback. Required fields: clientId (stable kebab-case), kind, confidence (0-1), sourceFiles[], rationale, fromConvention=false, payload (kind-specific). Refer to the schema in the system prompt.',
     ),
 });
+
+// Belt-and-suspenders: some providers/serializations deliver the object as
+// a JSON string. Accept both — JSON-decode if we get a string.
+function coerceNode(input: unknown): unknown {
+  if (typeof input !== 'string') return input;
+  try {
+    return JSON.parse(input);
+  } catch {
+    return input; // let the downstream validator surface the error
+  }
+}
 
 export function emitProposalNodeTool(ctx: AgentToolContext) {
   return tool({
     description:
-      "Emit one proposal node into the plan. Call this for every entity you want to add (or amend) — organizations, sites, asset models, parts, BOM entries, content packs, content pack versions, documents, training modules, lessons, asset instances, QR codes, and publish toggles. The node must follow the schema described in the system prompt. clientIds must be unique per run; if you re-emit the same clientId, the later emission overwrites earlier values for that node. Don't re-emit nodes that already came from the convention scaffold.",
+      "Emit one proposal node into the plan. Call this for every entity you want to add (or amend) — organizations, sites, asset models, parts, BOM entries, content packs, content pack versions, documents, training modules, lessons, asset instances, QR codes, and publish toggles. Pass the node as a JSON object literal (preferred) or a stringified JSON object — both are accepted. The node must follow the schema described in the system prompt. clientIds must be unique per run; if you re-emit the same clientId, the later emission overwrites earlier values for that node. Don't re-emit nodes that already came from the convention scaffold.",
     inputSchema: EmitInputSchema,
     execute: async ({ node }) => {
       ctx.emitEvent({ type: 'tool_call', data: { name: 'emitProposalNode' } });
-      const parsed = ProposalNodeSchema.safeParse(node);
+      const coerced = coerceNode(node);
+      const parsed = ProposalNodeSchema.safeParse(coerced);
       if (!parsed.success) {
         ctx.emitEvent({
           type: 'tool_result',

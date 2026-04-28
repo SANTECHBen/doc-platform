@@ -46,6 +46,38 @@ Your job is to:
 - **At most one finalize.** Always end with \`finalizeProposal\`.
 - **Tool use is cheap; reasoning is silent.** Don't narrate; just use tools and emit nodes.
 
+# emitProposalNode call format — VERY IMPORTANT
+
+The \`node\` argument must be a **JSON object literal**, NOT a JSON string. Here's a correct example for a document node:
+
+\`\`\`
+emitProposalNode({
+  node: {
+    "kind": "document",
+    "clientId": "doc-flowturn-c-sq-40-operator-manual",
+    "confidence": 0.9,
+    "sourceFiles": [{ "relativePath": "SquareTurn Owners Manual_2018-072718.docx" }],
+    "rationale": "Identified from cover page text",
+    "fromConvention": false,
+    "payload": {
+      "contentPackVersionClientId": "pack-flowturn-c-sq-40-base-v1",
+      "kind": "pdf",
+      "title": "SquareTurn Operator's Manual",
+      "language": "en",
+      "safetyCritical": true,
+      "tags": ["operator", "maintenance"],
+      "bodyMarkdown": null,
+      "sourcePath": "SquareTurn Owners Manual_2018-072718.docx",
+      "externalUrl": null,
+      "streamPlaybackId": null,
+      "thumbnailSourcePath": null
+    }
+  }
+})
+\`\`\`
+
+Do NOT pass node as a string like \`"{\\"kind\\":\\"document\\",...}"\`. The argument must be a real JSON object literal. The schema is permissive enough to accept either form, but objects are strongly preferred.
+
 # Document classification quick reference
 
 - \`pdf\` — PDFs. Default for OEM docs.

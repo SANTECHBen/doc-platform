@@ -361,9 +361,15 @@ export async function registerAdminAgent(app: FastifyInstance) {
       where: eq(schema.agentRuns.id, id),
     });
     if (!run || run.createdByUserId !== auth.userId) return reply.notFound();
-    if (run.status === 'proposing' || run.status === 'executing') {
+    // Idempotent: if a propose phase is already in flight, just mint a
+    // fresh stream token and let the caller subscribe. Avoids a 409 →
+    // React-rerender → infinite reattach loop on the run page when the
+    // user reloads mid-propose. We only refuse to start a NEW propose
+    // when execute is in progress.
+    if (run.status === 'executing') {
       return reply.conflict(`Run already ${run.status}`);
     }
+    const alreadyProposing = run.status === 'proposing';
 
     const streamToken = tokens.mint({
       runId: id,
@@ -371,14 +377,16 @@ export async function registerAdminAgent(app: FastifyInstance) {
       purpose: 'propose',
     });
 
-    // Fire-and-forget: agent loop runs async, broadcasting via agentBus.
-    setImmediate(() => {
-      runProposePhase({ app, runId: id }).catch((err) => {
-        app.log.error({ err, runId: id }, 'runProposePhase rejected');
+    if (!alreadyProposing) {
+      // Fire-and-forget: agent loop runs async, broadcasting via agentBus.
+      setImmediate(() => {
+        runProposePhase({ app, runId: id }).catch((err) => {
+          app.log.error({ err, runId: id }, 'runProposePhase rejected');
+        });
       });
-    });
+    }
 
-    return { runId: id, streamToken };
+    return { runId: id, streamToken, resumed: alreadyProposing };
   });
 
   // -------------------------------------------------------------------------
