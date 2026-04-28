@@ -272,9 +272,13 @@ export async function uploadAgentFile(
         }
       };
       xhr.onerror = () => reject(new Error('Network error'));
+      // IMPORTANT: relativePath must be appended BEFORE the file. Fastify's
+      // multipart parser exposes only fields received before the first file
+      // via `request.file().fields`; anything after the file is discarded
+      // when the handler returns. Reversing the order = "Missing relativePath".
       const form = new FormData();
-      form.append('file', scanned.file, scanned.relativePath.split('/').pop() ?? 'file');
       form.append('relativePath', scanned.relativePath);
+      form.append('file', scanned.file, scanned.relativePath.split('/').pop() ?? 'file');
       xhr.send(form);
     });
   });
