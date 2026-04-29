@@ -60,33 +60,33 @@ export interface SetupStatus {
   nextStep: SetupStep | null;
 }
 
+// Per-tenant-type step model. SANTECH separates *authoring* tenants (OEMs,
+// integrators, dealers — they create asset models and content) from
+// *deployment* tenants (end_customers — they have physical sites and
+// scannable equipment). The Setup Status card only shows steps that
+// actually apply to the tenant's role.
+//
+// OEM: pure authoring. Owns asset model SKUs and base content packs.
+// No physical sites/instances/QR codes (their equipment lives at customer
+// sites, owned by end_customer rows there).
+//
+// Integrator / Dealer: overlay authoring. Author dealer_overlay content
+// packs against OEM base packs (e.g. DMW&H's commissioning notes for a
+// FedEx install). Asset models are technically possible (a custom
+// integrated assembly) but optional.
+//
+// End-customer: deployment tenant. Has sites, hosts asset instances of
+// OEM-owned models, mints QR labels for technicians to scan in the field.
+// Doesn't author content (other than rare site_overlay packs not modeled
+// here). The asset model that anchors each instance comes from an OEM
+// org elsewhere in the system, not from the end_customer's own row.
 const REQUIRED_BY_TYPE: Record<
   OrganizationSummary['organization']['type'],
   Set<SetupStepId>
 > = {
-  oem: new Set([
-    'organization',
-    'site',
-    'asset_model',
-    // parts_bom intentionally omitted — optional
-    'content_published',
-    'asset_instance',
-    'qr_code',
-  ]),
-  dealer: new Set([
-    'organization',
-    'site',
-    'content_published',
-    'asset_instance',
-    'qr_code',
-  ]),
-  integrator: new Set([
-    'organization',
-    'site',
-    'content_published',
-    'asset_instance',
-    'qr_code',
-  ]),
+  oem: new Set(['organization', 'asset_model', 'content_published']),
+  dealer: new Set(['organization', 'content_published']),
+  integrator: new Set(['organization', 'content_published']),
   end_customer: new Set(['organization', 'site', 'asset_instance', 'qr_code']),
 };
 
@@ -96,28 +96,19 @@ const VISIBLE_BY_TYPE: Record<
 > = {
   oem: new Set([
     'organization',
-    'site',
     'asset_model',
-    'parts_bom',
+    'parts_bom', // optional
     'content_published',
-    'asset_instance',
-    'qr_code',
   ]),
   dealer: new Set([
     'organization',
-    'site',
-    'asset_model', // dealers can overlay; show but mark optional
+    'asset_model', // optional — captive dealers may own a SKU
     'content_published',
-    'asset_instance',
-    'qr_code',
   ]),
   integrator: new Set([
     'organization',
-    'site',
-    'asset_model',
+    'asset_model', // optional — same as dealer
     'content_published',
-    'asset_instance',
-    'qr_code',
   ]),
   end_customer: new Set(['organization', 'site', 'asset_instance', 'qr_code']),
 };
