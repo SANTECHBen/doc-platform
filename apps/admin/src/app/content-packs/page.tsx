@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { FileStack, Plus } from 'lucide-react';
 import { EmptyState } from '@/components/empty-state';
@@ -13,6 +14,7 @@ import {
   ErrorBanner,
   Field,
   PrimaryButton,
+  SecondaryButton,
   Select,
   TextInput,
 } from '@/components/form';
@@ -20,9 +22,12 @@ import {
   createContentPack,
   listAdminAssetModels,
   listContentPacks,
+  listOrganizations,
   type AdminAssetModel,
   type AdminContentPack,
+  type AdminOrganization,
 } from '@/lib/api';
+import { nextStepAfterSave } from '@/lib/setup-status';
 
 const LAYER_TONE = {
   base: 'info',
@@ -38,16 +43,27 @@ const STATUS_TONE = {
 } as const;
 
 export default function ContentPacksPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const continueOrgId = searchParams?.get('continue') ?? null;
   const [rows, setRows] = useState<AdminContentPack[] | null>(null);
   const [models, setModels] = useState<AdminAssetModel[]>([]);
+  const [continueOrg, setContinueOrg] = useState<AdminOrganization | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
 
   async function refresh() {
     try {
-      const [packs, mm] = await Promise.all([listContentPacks(), listAdminAssetModels()]);
+      const [packs, mm, orgs] = await Promise.all([
+        listContentPacks(),
+        listAdminAssetModels(),
+        continueOrgId ? listOrganizations() : Promise.resolve([] as AdminOrganization[]),
+      ]);
       setRows(packs);
       setModels(mm);
+      if (continueOrgId) {
+        setContinueOrg(orgs.find((o) => o.id === continueOrgId) ?? null);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -55,7 +71,17 @@ export default function ContentPacksPage() {
 
   useEffect(() => {
     void refresh();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [continueOrgId]);
+
+  useEffect(() => {
+    if (continueOrgId && models.length > 0) setOpen(true);
+  }, [continueOrgId, models.length]);
+
+  // Filter the model picker to this tenant's models when in continue mode.
+  const modelsForPicker = continueOrgId
+    ? models.filter((m) => m.owner.id === continueOrgId)
+    : models;
 
   return (
     <PageShell crumbs={[{ label: 'Content packs' }]}>
@@ -145,12 +171,29 @@ export default function ContentPacksPage() {
         </div>
       )}
 
-      <Drawer title="New content pack" open={open} onClose={() => setOpen(false)}>
+      <Drawer
+        title={continueOrg ? `New content pack for ${continueOrg.name}` : 'New content pack'}
+        open={open}
+        onClose={() => setOpen(false)}
+      >
         <NewPackForm
-          models={models}
-          onCreated={async () => {
+          models={modelsForPicker}
+          continueOrg={continueOrg}
+          onCreated={async (continueSetup, packId) => {
             setOpen(false);
             await refresh();
+            if (continueSetup && continueOrg) {
+              // Take the user to the new pack's detail page so they can add
+              // documents and publish. Carry the continue param so subsequent
+              // navigation (TODO: pack publish action) can route back.
+              if (packId) {
+                router.push(`/content-packs/${packId}?continue=${continueOrg.id}`);
+              } else {
+                const next =
+                  nextStepAfterSave('content_published', continueOrg.type) ?? 'asset_instance';
+                router.push(`/tenants/${continueOrg.id}?step=${next}`);
+              }
+            }
           }}
         />
       </Drawer>
@@ -160,10 +203,12 @@ export default function ContentPacksPage() {
 
 function NewPackForm({
   models,
+  continueOrg,
   onCreated,
 }: {
   models: AdminAssetModel[];
-  onCreated: () => Promise<void>;
+  continueOrg: AdminOrganization | null;
+  onCreated: (continueSetup: boolean, packId?: string) => Promise<void>;
 }) {
   const [assetModelId, setAssetModelId] = useState(models[0]?.id ?? '');
   const [layerType, setLayerType] =
@@ -174,6 +219,7 @@ function NewPackForm({
   const [slugEdited, setSlugEdited] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [continueAfter, setContinueAfter] = useState(false);
   const toast = useToast();
 
   const selectedModel = models.find((m) => m.id === assetModelId);
@@ -213,14 +259,14 @@ function NewPackForm({
     setError(null);
     setSubmitting(true);
     try {
-      await createContentPack({
+      const result = await createContentPack({
         assetModelId,
         name: name.trim(),
         slug: slug.trim(),
         layerType,
       });
       toast.success(`${name.trim()} created`, 'Draft v1.0.0 is ready for authoring.');
-      await onCreated();
+      await onCreated(continueAfter, result.pack.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -275,9 +321,26 @@ function NewPackForm({
         A draft v1.0.0 will be created alongside the pack. Add documents to the draft,
         then publish when ready.
       </p>
-      <div className="mt-2 flex justify-end gap-2">
-        <PrimaryButton type="submit" disabled={submitting}>
-          {submitting ? 'Creating…' : 'Create content pack'}
+      <div className="mt-2 flex flex-wrap justify-end gap-2">
+        {continueOrg && (
+          <SecondaryButton
+            type="submit"
+            disabled={submitting}
+            onClick={() => setContinueAfter(true)}
+          >
+            {submitting && continueAfter ? 'Saving…' : 'Save & continue setup'}
+          </SecondaryButton>
+        )}
+        <PrimaryButton
+          type="submit"
+          disabled={submitting}
+          onClick={() => setContinueAfter(false)}
+        >
+          {submitting && !continueAfter
+            ? 'Creating…'
+            : continueOrg
+            ? 'Save'
+            : 'Create content pack'}
         </PrimaryButton>
       </div>
     </form>

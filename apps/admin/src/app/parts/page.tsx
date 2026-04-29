@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { ImagePlus, Layers, Package, Plus, Trash2, Wrench, X } from 'lucide-react';
 import { PageHeader, PageShell, Pill } from '@/components/page-shell';
@@ -8,6 +9,7 @@ import {
   ErrorBanner,
   Field,
   PrimaryButton,
+  SecondaryButton,
   Select,
   TextInput,
   Textarea,
@@ -26,8 +28,12 @@ import {
   type AdminPart,
   type PartComponent,
 } from '@/lib/api';
+import { nextStepAfterSave } from '@/lib/setup-status';
 
 export default function PartsPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const continueOrgId = searchParams?.get('continue') ?? null;
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<AdminPart[] | null>(null);
   const [oems, setOems] = useState<AdminOrganization[]>([]);
@@ -47,6 +53,12 @@ export default function PartsPage() {
   useEffect(() => {
     void refresh();
   }, []);
+
+  useEffect(() => {
+    if (continueOrgId && oems.length > 0) setDrawerOpen(true);
+  }, [continueOrgId, oems.length]);
+
+  const continueOrg = continueOrgId ? oems.find((o) => o.id === continueOrgId) ?? null : null;
 
   const filtered = rows ? filter(rows, query) : null;
 
@@ -109,15 +121,20 @@ export default function PartsPage() {
       )}
 
       <Drawer
-        title="New part"
+        title={continueOrg ? `New part for ${continueOrg.name}` : 'New part'}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
       >
         <NewPartForm
           oems={oems}
-          onCreated={async () => {
+          lockedOrg={continueOrg}
+          onCreated={async (continueSetup) => {
             setDrawerOpen(false);
             await refresh();
+            if (continueSetup && continueOrg) {
+              const next = nextStepAfterSave('parts_bom', continueOrg.type) ?? 'content_published';
+              router.push(`/tenants/${continueOrg.id}?step=${next}`);
+            }
           }}
         />
       </Drawer>
@@ -127,12 +144,14 @@ export default function PartsPage() {
 
 function NewPartForm({
   oems,
+  lockedOrg,
   onCreated,
 }: {
   oems: AdminOrganization[];
-  onCreated: () => Promise<void>;
+  lockedOrg: AdminOrganization | null;
+  onCreated: (continueSetup: boolean) => Promise<void>;
 }) {
-  const [ownerId, setOwnerId] = useState(oems[0]?.id ?? '');
+  const [ownerId, setOwnerId] = useState(lockedOrg?.id ?? oems[0]?.id ?? '');
   const [oemPartNumber, setOemPartNumber] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [description, setDescription] = useState('');
@@ -142,6 +161,7 @@ function NewPartForm({
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [continueAfter, setContinueAfter] = useState(false);
   const toast = useToast();
 
   async function onImagePicked(e: React.ChangeEvent<HTMLInputElement>) {
@@ -176,7 +196,7 @@ function NewPartForm({
         imageStorageKey: imageStorageKey ?? undefined,
       });
       toast.success('Part created', `${oemPartNumber.trim()} added to catalog.`);
-      await onCreated();
+      await onCreated(continueAfter);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -187,15 +207,24 @@ function NewPartForm({
   return (
     <form onSubmit={submit} className="flex flex-col gap-4">
       <ErrorBanner error={error} />
-      <Field label="OEM" required>
-        <Select value={ownerId} onChange={(e) => setOwnerId(e.target.value)} required>
-          {oems.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.name}
-            </option>
-          ))}
-        </Select>
-      </Field>
+      {lockedOrg ? (
+        <Field label="OEM">
+          <div className="flex items-center gap-2 rounded border border-line-subtle bg-surface-inset px-3 py-2 text-sm">
+            <span className="font-medium">{lockedOrg.name}</span>
+            <span className="text-xs text-ink-tertiary">(continuing setup for this tenant)</span>
+          </div>
+        </Field>
+      ) : (
+        <Field label="OEM" required>
+          <Select value={ownerId} onChange={(e) => setOwnerId(e.target.value)} required>
+            {oems.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
       <Field label="OEM part number" required>
         <TextInput
           value={oemPartNumber}
@@ -265,9 +294,22 @@ function NewPartForm({
           </label>
         )}
       </Field>
-      <div className="mt-2 flex justify-end gap-2">
-        <PrimaryButton type="submit" disabled={submitting || uploading}>
-          {submitting ? 'Creating…' : 'Create part'}
+      <div className="mt-2 flex flex-wrap justify-end gap-2">
+        {lockedOrg && (
+          <SecondaryButton
+            type="submit"
+            disabled={submitting || uploading}
+            onClick={() => setContinueAfter(true)}
+          >
+            {submitting && continueAfter ? 'Saving…' : 'Save & continue setup'}
+          </SecondaryButton>
+        )}
+        <PrimaryButton
+          type="submit"
+          disabled={submitting || uploading}
+          onClick={() => setContinueAfter(false)}
+        >
+          {submitting && !continueAfter ? 'Creating…' : lockedOrg ? 'Save' : 'Create part'}
         </PrimaryButton>
       </div>
     </form>

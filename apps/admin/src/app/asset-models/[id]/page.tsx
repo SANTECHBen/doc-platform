@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { use, useEffect, useMemo, useState } from 'react';
 import { Package, Plus, Trash2, Upload } from 'lucide-react';
 import { PageHeader, PageShell } from '@/components/page-shell';
@@ -40,6 +41,9 @@ export default function AssetModelDetail({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const continueOrgId = searchParams?.get('continue') ?? null;
   const [model, setModel] = useState<AdminAssetModel | null>(null);
   const [instances, setInstances] = useState<ModelInstance[] | null>(null);
   const [sites, setSites] = useState<AdminSite[]>([]);
@@ -47,6 +51,12 @@ export default function AssetModelDetail({
   const [newOpen, setNewOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const toast = useToast();
+
+  // Auto-open the Add instance drawer when arriving via the Setup status
+  // "Continue: deploy an asset instance" CTA from the tenant detail.
+  useEffect(() => {
+    if (continueOrgId && sites.length > 0) setNewOpen(true);
+  }, [continueOrgId, sites.length]);
 
   async function refresh() {
     try {
@@ -193,10 +203,21 @@ export default function AssetModelDetail({
       <Drawer title="Add instance" open={newOpen} onClose={() => setNewOpen(false)}>
         <NewInstanceForm
           assetModelId={id}
-          sites={sites}
-          onCreated={async () => {
+          sites={
+            // When walking through tenant setup, narrow the site picker to the
+            // tenant's own sites to avoid mistakenly assigning the instance to
+            // a sibling org's site.
+            continueOrgId
+              ? sites.filter((s) => s.organizationId === continueOrgId)
+              : sites
+          }
+          continueMode={!!continueOrgId}
+          onCreated={async (continueSetup) => {
             setNewOpen(false);
             await refresh();
+            if (continueSetup && continueOrgId) {
+              router.push(`/tenants/${continueOrgId}?step=qr_code`);
+            }
           }}
         />
       </Drawer>
@@ -222,17 +243,20 @@ export default function AssetModelDetail({
 function NewInstanceForm({
   assetModelId,
   sites,
+  continueMode,
   onCreated,
 }: {
   assetModelId: string;
   sites: AdminSite[];
-  onCreated: () => Promise<void>;
+  continueMode: boolean;
+  onCreated: (continueSetup: boolean) => Promise<void>;
 }) {
   const [siteId, setSiteId] = useState(sites[0]?.id ?? '');
   const [serialNumber, setSerialNumber] = useState('');
   const [installedAt, setInstalledAt] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [continueAfter, setContinueAfter] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -245,7 +269,7 @@ function NewInstanceForm({
         serialNumber: serialNumber.trim(),
         installedAt: installedAt ? new Date(installedAt).toISOString() : undefined,
       });
-      await onCreated();
+      await onCreated(continueAfter);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -284,9 +308,22 @@ function NewInstanceForm({
         The instance will auto-pin to the latest published base ContentPack for this model,
         if one exists.
       </p>
-      <div className="mt-2 flex justify-end gap-2">
-        <PrimaryButton type="submit" disabled={submitting}>
-          {submitting ? 'Creating…' : 'Create instance'}
+      <div className="mt-2 flex flex-wrap justify-end gap-2">
+        {continueMode && (
+          <SecondaryButton
+            type="submit"
+            disabled={submitting}
+            onClick={() => setContinueAfter(true)}
+          >
+            {submitting && continueAfter ? 'Saving…' : 'Save & continue setup'}
+          </SecondaryButton>
+        )}
+        <PrimaryButton
+          type="submit"
+          disabled={submitting}
+          onClick={() => setContinueAfter(false)}
+        >
+          {submitting && !continueAfter ? 'Creating…' : continueMode ? 'Save' : 'Create instance'}
         </PrimaryButton>
       </div>
     </form>

@@ -99,6 +99,40 @@ export async function getMetrics(): Promise<AdminMetrics> {
   return (await res.json()) as AdminMetrics;
 }
 
+// Per-tenant setup summary — backs the SetupStatusCard on the tenant
+// detail page. Mirrors the shape returned by GET /admin/organizations/:id/summary.
+export interface OrganizationSummary {
+  organization: {
+    id: string;
+    name: string;
+    type: 'oem' | 'dealer' | 'integrator' | 'end_customer';
+    oemCode: string | null;
+    createdAt: string;
+  };
+  siteCount: number;
+  siteSample: Array<{ id: string; name: string }>;
+  assetModelCount: number;
+  assetModelSample: Array<{ id: string; modelCode: string; displayName: string }>;
+  partCount: number;
+  bomEntryCount: number;
+  contentPackCount: number;
+  contentPackVersionPublishedCount: number;
+  contentPackVersionDraftCount: number;
+  documentCount: number;
+  trainingModuleCount: number;
+  assetInstanceCount: number;
+  qrCodeCount: number;
+}
+
+export async function getOrganizationSummary(id: string): Promise<OrganizationSummary> {
+  const res = await fetch(
+    `${API_BASE}/admin/organizations/${encodeURIComponent(id)}/summary`,
+    { cache: 'no-store', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as OrganizationSummary;
+}
+
 export interface AdminOrganization {
   id: string;
   type: 'oem' | 'dealer' | 'integrator' | 'end_customer';

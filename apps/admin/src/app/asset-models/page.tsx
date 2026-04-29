@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Boxes, ImagePlus, Plus, X } from 'lucide-react';
 import { EmptyState } from '@/components/empty-state';
@@ -13,6 +14,7 @@ import {
   ErrorBanner,
   Field,
   PrimaryButton,
+  SecondaryButton,
   Select,
   TextInput,
   Textarea,
@@ -25,6 +27,7 @@ import {
   type AdminAssetModel,
   type AdminOrganization,
 } from '@/lib/api';
+import { nextStepAfterSave } from '@/lib/setup-status';
 
 // Broad MHE/IA equipment families — the seed uses 'asrs'. These are suggested
 // values; the field accepts any lowercase string.
@@ -42,6 +45,9 @@ const COMMON_CATEGORIES = [
 ];
 
 export default function AssetModelsPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const continueOrgId = searchParams?.get('continue') ?? null;
   const [rows, setRows] = useState<AdminAssetModel[] | null>(null);
   const [oems, setOems] = useState<AdminOrganization[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +66,13 @@ export default function AssetModelsPage() {
   useEffect(() => {
     void refresh();
   }, []);
+
+  // Auto-open the drawer when arriving from a tenant's "Continue setup" CTA.
+  useEffect(() => {
+    if (continueOrgId && oems.length > 0) setDrawerOpen(true);
+  }, [continueOrgId, oems.length]);
+
+  const continueOrg = continueOrgId ? oems.find((o) => o.id === continueOrgId) ?? null : null;
 
   return (
     <PageShell crumbs={[{ label: 'Asset models' }]}>
@@ -155,12 +168,21 @@ export default function AssetModelsPage() {
         </div>
       )}
 
-      <Drawer title="New asset model" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
+      <Drawer
+        title={continueOrg ? `New asset model for ${continueOrg.name}` : 'New asset model'}
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+      >
         <NewAssetModelForm
           oems={oems}
-          onCreated={async () => {
+          lockedOrg={continueOrg}
+          onCreated={async (continueSetup) => {
             setDrawerOpen(false);
             await refresh();
+            if (continueSetup && continueOrg) {
+              const next = nextStepAfterSave('asset_model', continueOrg.type) ?? 'parts_bom';
+              router.push(`/tenants/${continueOrg.id}?step=${next}`);
+            }
           }}
         />
       </Drawer>
@@ -170,12 +192,14 @@ export default function AssetModelsPage() {
 
 function NewAssetModelForm({
   oems,
+  lockedOrg,
   onCreated,
 }: {
   oems: AdminOrganization[];
-  onCreated: () => Promise<void>;
+  lockedOrg: AdminOrganization | null;
+  onCreated: (continueSetup: boolean) => Promise<void>;
 }) {
-  const [ownerOrganizationId, setOwner] = useState(oems[0]?.id ?? '');
+  const [ownerOrganizationId, setOwner] = useState(lockedOrg?.id ?? oems[0]?.id ?? '');
   const [modelCode, setModelCode] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [category, setCategory] = useState('conveyor');
@@ -185,6 +209,7 @@ function NewAssetModelForm({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [continueAfter, setContinueAfter] = useState(false);
   const toast = useToast();
 
   async function onImagePicked(e: React.ChangeEvent<HTMLInputElement>) {
@@ -217,7 +242,7 @@ function NewAssetModelForm({
         imageStorageKey: imageStorageKey ?? undefined,
       });
       toast.success(`${displayName.trim()} created`, `Model code ${modelCode.trim()}`);
-      await onCreated();
+      await onCreated(continueAfter);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -228,15 +253,24 @@ function NewAssetModelForm({
   return (
     <form onSubmit={submit} className="flex flex-col gap-4">
       <ErrorBanner error={error} />
-      <Field label="OEM" required>
-        <Select value={ownerOrganizationId} onChange={(e) => setOwner(e.target.value)} required>
-          {oems.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.name}
-            </option>
-          ))}
-        </Select>
-      </Field>
+      {lockedOrg ? (
+        <Field label="OEM">
+          <div className="flex items-center gap-2 rounded border border-line-subtle bg-surface-inset px-3 py-2 text-sm">
+            <span className="font-medium">{lockedOrg.name}</span>
+            <span className="text-xs text-ink-tertiary">(continuing setup for this tenant)</span>
+          </div>
+        </Field>
+      ) : (
+        <Field label="OEM" required>
+          <Select value={ownerOrganizationId} onChange={(e) => setOwner(e.target.value)} required>
+            {oems.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
       <Field
         label="Model code"
         required
@@ -321,9 +355,26 @@ function NewAssetModelForm({
         )}
       </Field>
 
-      <div className="mt-2 flex justify-end gap-2">
-        <PrimaryButton type="submit" disabled={submitting || uploading}>
-          {submitting ? 'Creating…' : 'Create asset model'}
+      <div className="mt-2 flex flex-wrap justify-end gap-2">
+        {lockedOrg && (
+          <SecondaryButton
+            type="submit"
+            disabled={submitting || uploading}
+            onClick={() => setContinueAfter(true)}
+          >
+            {submitting && continueAfter ? 'Saving…' : 'Save & continue setup'}
+          </SecondaryButton>
+        )}
+        <PrimaryButton
+          type="submit"
+          disabled={submitting || uploading}
+          onClick={() => setContinueAfter(false)}
+        >
+          {submitting && !continueAfter
+            ? 'Creating…'
+            : lockedOrg
+            ? 'Save'
+            : 'Create asset model'}
         </PrimaryButton>
       </div>
     </form>

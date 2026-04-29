@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Check, Copy, ExternalLink, Layers, Plus, Printer, QrCode as QrCodeIcon, Trash2 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { PageHeader, PageShell } from '@/components/page-shell';
 import { EmptyState } from '@/components/empty-state';
+import { NextStepHint } from '@/components/next-step-hint';
 import { useToast } from '@/components/toast';
 import {
   deleteQrCode,
@@ -21,6 +23,9 @@ import {
 } from '@/lib/api';
 
 export default function QrCodesPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const continueOrgId = searchParams?.get('continue') ?? null;
   const [codes, setCodes] = useState<AdminQrCode[] | null>(null);
   const [instances, setInstances] = useState<AdminAssetInstance[] | null>(null);
   const [templates, setTemplates] = useState<AdminQrLabelTemplate[]>([]);
@@ -33,13 +38,26 @@ export default function QrCodesPage() {
   const [selectedCodeIds, setSelectedCodeIds] = useState<Set<string>>(new Set());
   const toast = useToast();
 
+  // When walking through tenant setup, narrow the picker to that tenant's
+  // instances so the admin can't accidentally mint a QR for the wrong org.
+  const visibleInstances = useMemo(() => {
+    if (!instances) return [];
+    if (!continueOrgId) return instances;
+    return instances.filter((i) => i.organization.id === continueOrgId);
+  }, [instances, continueOrgId]);
+
   useEffect(() => {
     Promise.all([listQrCodes(), listAssetInstances(), listQrLabelTemplates()])
       .then(([c, i, tpls]) => {
         setCodes(c);
         setInstances(i);
         setTemplates(tpls);
-        if (i[0]) setSelectedInstanceId(i[0].id);
+        // Pre-select an instance from the continue org when present.
+        const firstForOrg = continueOrgId
+          ? i.find((x) => x.organization.id === continueOrgId)
+          : null;
+        if (firstForOrg) setSelectedInstanceId(firstForOrg.id);
+        else if (i[0]) setSelectedInstanceId(i[0].id);
         // Pre-select the org default so printing picks it up without a
         // second click. Falls back to the first template, then empty.
         // Same default applies to the new-QR template picker so freshly
@@ -53,7 +71,7 @@ export default function QrCodesPage() {
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
 
-  async function onMint() {
+  async function onMint(continueAfter = false) {
     if (!selectedInstanceId) return;
     setMinting(true);
     setError(null);
@@ -66,6 +84,10 @@ export default function QrCodesPage() {
       setLabel('');
       const refreshed = await listQrCodes();
       setCodes(refreshed);
+      if (continueAfter && continueOrgId) {
+        toast.success('QR code minted', 'Tenant setup complete.');
+        router.push(`/tenants/${continueOrgId}`);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -166,6 +188,7 @@ export default function QrCodesPage() {
         }
       />
 
+      <NextStepHint page="qr-codes" />
       {error && (
         <div className="rounded-md border border-signal-fault/40 bg-signal-fault/10 p-3 text-sm text-signal-fault">
           {error}
@@ -184,7 +207,7 @@ export default function QrCodesPage() {
               onChange={(e) => setSelectedInstanceId(e.target.value)}
               className="rounded border border-line bg-surface-raised px-2 py-1.5"
             >
-              {(instances ?? []).map((i) => (
+              {visibleInstances.map((i) => (
                 <option key={i.id} value={i.id}>
                   {i.assetModel.displayName} · {i.serialNumber} · {i.site.name}
                 </option>
@@ -216,13 +239,24 @@ export default function QrCodesPage() {
               ))}
             </select>
           </label>
-          <button
-            onClick={onMint}
-            disabled={minting || !selectedInstanceId}
-            className="h-[34px] shrink-0 rounded btn-primary disabled:opacity-50"
-          >
-            {minting ? 'Generating…' : 'Generate'}
-          </button>
+          <div className="flex shrink-0 gap-2">
+            {continueOrgId && (
+              <button
+                onClick={() => onMint(true)}
+                disabled={minting || !selectedInstanceId}
+                className="h-[34px] shrink-0 rounded border border-line px-3 text-sm text-ink-secondary hover:bg-surface-inset disabled:opacity-50"
+              >
+                {minting ? 'Generating…' : 'Generate & finish setup'}
+              </button>
+            )}
+            <button
+              onClick={() => onMint(false)}
+              disabled={minting || !selectedInstanceId}
+              className="h-[34px] shrink-0 rounded btn-primary disabled:opacity-50"
+            >
+              {minting ? 'Generating…' : 'Generate'}
+            </button>
+          </div>
         </div>
       </section>
 

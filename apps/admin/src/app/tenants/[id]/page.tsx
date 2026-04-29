@@ -1,12 +1,20 @@
 'use client';
 
 import Link from 'next/link';
-import { use, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { use, useEffect, useMemo, useState } from 'react';
 import { MapPin, Palette, Plus, Upload } from 'lucide-react';
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader, PageShell, Pill } from '@/components/page-shell';
+import { SetupStatusCard } from '@/components/setup-status-card';
 import { useToast } from '@/components/toast';
-import { uploadFile, updateOrgBranding, updateOrgPrivacy } from '@/lib/api';
+import {
+  uploadFile,
+  updateOrgBranding,
+  updateOrgPrivacy,
+  getOrganizationSummary,
+  type OrganizationSummary,
+} from '@/lib/api';
 import {
   Drawer,
   ErrorBanner,
@@ -20,9 +28,12 @@ import {
   listSitesForOrg,
   type AdminOrganization,
 } from '@/lib/api';
+import { computeSetupStatus, type SetupStepId } from '@/lib/setup-status';
 
 export default function OrgDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const searchParams = useSearchParams();
+  const stepFromUrl = searchParams?.get('step') as SetupStepId | null;
   const [org, setOrg] = useState<AdminOrganization | null>(null);
   const [children, setChildren] = useState<AdminOrganization[]>([]);
   const [sites, setSites] = useState<
@@ -36,18 +47,37 @@ export default function OrgDetail({ params }: { params: Promise<{ id: string }> 
       timezone: string;
     }>
   >([]);
+  const [summary, setSummary] = useState<OrganizationSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   async function refresh() {
     try {
-      const [orgs, s] = await Promise.all([listOrganizations(), listSitesForOrg(id)]);
+      const [orgs, s, sum] = await Promise.all([
+        listOrganizations(),
+        listSitesForOrg(id),
+        getOrganizationSummary(id).catch(() => null),
+      ]);
       const found = orgs.find((o) => o.id === id) ?? null;
       setOrg(found);
       setChildren(orgs.filter((o) => o.parent?.id === id));
       setSites(s);
+      if (sum) setSummary(sum);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  const setupStatus = useMemo(
+    () => (summary ? computeSetupStatus(summary) : null),
+    [summary],
+  );
+
+  function scrollToAnchor(anchor: string) {
+    if (anchor === 'sites') {
+      document.getElementById('sites-section')?.scrollIntoView({ behavior: 'smooth' });
+      // Open the Add site drawer when admin asked specifically for the site step.
+      if (sites.length === 0) setDrawerOpen(true);
     }
   }
 
@@ -85,7 +115,15 @@ export default function OrgDetail({ params }: { params: Promise<{ id: string }> 
         </p>
       )}
 
-      <section className="mb-8">
+      {setupStatus && (
+        <SetupStatusCard
+          status={setupStatus}
+          highlightStepId={stepFromUrl}
+          onScrollTo={scrollToAnchor}
+        />
+      )}
+
+      <section id="sites-section" className="mb-8">
         <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-tertiary">
           Sites ({sites.length})
         </h2>

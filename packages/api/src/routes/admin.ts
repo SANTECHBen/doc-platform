@@ -2790,6 +2790,135 @@ export async function registerAdminListings(app: FastifyInstance) {
     };
   });
 
+  // Per-tenant setup summary. Powers the SetupStatusCard on the tenant
+  // detail page — admin reads this to see "what's left to do for Flow-Turn"
+  // without bouncing through 7 separate listing pages. Returns small counts
+  // and a couple of name samples for the UI's sub-detail lines.
+  //
+  // Cost: ~10 indexed counts. All filtered to the single org id; cheap.
+  app.get<{ Params: { id: string } }>(
+    '/admin/organizations/:id/summary',
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const scope = await getScope(request, db);
+      const orgId = request.params.id;
+      requireOrgInScope(scope, orgId);
+
+      const org = await db.query.organizations.findFirst({
+        where: eq(schema.organizations.id, orgId),
+      });
+      if (!org) return reply.notFound();
+
+      const [
+        siteCount,
+        assetModelCount,
+        partCount,
+        bomEntryCount,
+        contentPackCount,
+        contentPackVersionPublishedCount,
+        contentPackVersionDraftCount,
+        documentCount,
+        trainingModuleCount,
+        assetInstanceCount,
+        qrCodeCount,
+        siteSampleRows,
+        assetModelSampleRows,
+      ] = await Promise.all([
+        scalar(db, sql`SELECT count(*)::int AS n FROM sites WHERE organization_id = ${orgId}`),
+        scalar(
+          db,
+          sql`SELECT count(*)::int AS n FROM asset_models WHERE owner_organization_id = ${orgId}`,
+        ),
+        scalar(db, sql`SELECT count(*)::int AS n FROM parts WHERE owner_organization_id = ${orgId}`),
+        scalar(
+          db,
+          sql`SELECT count(*)::int AS n FROM bom_entries be
+              JOIN asset_models m ON m.id = be.asset_model_id
+              WHERE m.owner_organization_id = ${orgId}`,
+        ),
+        scalar(
+          db,
+          sql`SELECT count(*)::int AS n FROM content_packs WHERE owner_organization_id = ${orgId}`,
+        ),
+        scalar(
+          db,
+          sql`SELECT count(*)::int AS n FROM content_pack_versions cpv
+              JOIN content_packs cp ON cp.id = cpv.content_pack_id
+              WHERE cpv.status = 'published' AND cp.owner_organization_id = ${orgId}`,
+        ),
+        scalar(
+          db,
+          sql`SELECT count(*)::int AS n FROM content_pack_versions cpv
+              JOIN content_packs cp ON cp.id = cpv.content_pack_id
+              WHERE cpv.status = 'draft' AND cp.owner_organization_id = ${orgId}`,
+        ),
+        scalar(
+          db,
+          sql`SELECT count(*)::int AS n FROM documents d
+              JOIN content_pack_versions cpv ON cpv.id = d.content_pack_version_id
+              JOIN content_packs cp ON cp.id = cpv.content_pack_id
+              WHERE cp.owner_organization_id = ${orgId}`,
+        ),
+        scalar(
+          db,
+          sql`SELECT count(*)::int AS n FROM training_modules tm
+              JOIN content_pack_versions cpv ON cpv.id = tm.content_pack_version_id
+              JOIN content_packs cp ON cp.id = cpv.content_pack_id
+              WHERE cp.owner_organization_id = ${orgId}`,
+        ),
+        scalar(
+          db,
+          sql`SELECT count(*)::int AS n FROM asset_instances ai
+              JOIN sites s ON s.id = ai.site_id
+              WHERE s.organization_id = ${orgId}`,
+        ),
+        scalar(
+          db,
+          sql`SELECT count(*)::int AS n FROM qr_codes q
+              JOIN asset_instances ai ON ai.id = q.asset_instance_id
+              JOIN sites s ON s.id = ai.site_id
+              WHERE q.active = true AND s.organization_id = ${orgId}`,
+        ),
+        db.execute(
+          sql`SELECT id, name FROM sites WHERE organization_id = ${orgId} ORDER BY created_at LIMIT 3`,
+        ),
+        db.execute(
+          sql`SELECT id, model_code AS "modelCode", display_name AS "displayName"
+              FROM asset_models WHERE owner_organization_id = ${orgId}
+              ORDER BY created_at LIMIT 3`,
+        ),
+      ]);
+
+      return {
+        organization: {
+          id: org.id,
+          name: org.name,
+          type: org.type,
+          oemCode: org.oemCode,
+          createdAt: org.createdAt,
+        },
+        siteCount,
+        siteSample: siteSampleRows as Array<{ id: string; name: string }>,
+        assetModelCount,
+        assetModelSample: assetModelSampleRows as Array<{
+          id: string;
+          modelCode: string;
+          displayName: string;
+        }>,
+        partCount,
+        bomEntryCount,
+        contentPackCount,
+        contentPackVersionPublishedCount,
+        contentPackVersionDraftCount,
+        documentCount,
+        trainingModuleCount,
+        assetInstanceCount,
+        qrCodeCount,
+      };
+    },
+  );
+
   // Organizations with denormalized counts for the listing page.
   app.get('/admin/organizations', async (request) => {
     const { db } = app.ctx;
