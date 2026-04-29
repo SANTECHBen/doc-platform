@@ -100,9 +100,14 @@ export default function OrgDetail({ params }: { params: Promise<{ id: string }> 
         title={org.name}
         description={`${org.type.replace('_', ' ')} · ${org.slug}${org.oemCode ? ` · ${org.oemCode}` : ''}`}
         actions={
-          <PrimaryButton onClick={() => setDrawerOpen(true)}>
-            <Plus size={14} strokeWidth={2} /> Add site
-          </PrimaryButton>
+          // Sites are only meaningful for end-customers (deployment tenants).
+          // OEMs/integrators/dealers are authoring tenants and don't host
+          // physical equipment under their own org.
+          org.type === 'end_customer' ? (
+            <PrimaryButton onClick={() => setDrawerOpen(true)}>
+              <Plus size={14} strokeWidth={2} /> Add site
+            </PrimaryButton>
+          ) : null
         }
       />
 
@@ -123,43 +128,45 @@ export default function OrgDetail({ params }: { params: Promise<{ id: string }> 
         />
       )}
 
-      <section id="sites-section" className="mb-8">
-        <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-tertiary">
-          Sites ({sites.length})
-        </h2>
-        {sites.length === 0 ? (
-          <p className="rounded-md border border-dashed border-line p-4 text-center text-sm text-ink-tertiary">
-            No sites yet. Add one to deploy asset instances.
-          </p>
-        ) : (
-          <div className="overflow-hidden rounded-md border border-line-subtle bg-surface-raised">
-            <table className="data-table">
-              <thead className="bg-surface-inset text-left text-xs uppercase tracking-wide text-ink-tertiary">
-                <tr>
-                  <th className="px-4 py-2">Name</th>
-                  <th className="px-4 py-2">Code</th>
-                  <th className="px-4 py-2">Location</th>
-                  <th className="px-4 py-2">Timezone</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sites.map((s) => (
-                  <tr key={s.id} className="border-t border-line-subtle">
-                    <td className="px-4 py-3 font-medium text-ink-primary">{s.name}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-ink-secondary">
-                      {s.code ?? '—'}
-                    </td>
-                    <td className="px-4 py-3 text-ink-secondary">
-                      {[s.city, s.region, s.country].filter(Boolean).join(', ') || '—'}
-                    </td>
-                    <td className="px-4 py-3 text-ink-secondary">{s.timezone}</td>
+      {org.type === 'end_customer' && (
+        <section id="sites-section" className="mb-8">
+          <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-tertiary">
+            Sites ({sites.length})
+          </h2>
+          {sites.length === 0 ? (
+            <p className="rounded-md border border-dashed border-line p-4 text-center text-sm text-ink-tertiary">
+              No sites yet. Add one to deploy asset instances.
+            </p>
+          ) : (
+            <div className="overflow-hidden rounded-md border border-line-subtle bg-surface-raised">
+              <table className="data-table">
+                <thead className="bg-surface-inset text-left text-xs uppercase tracking-wide text-ink-tertiary">
+                  <tr>
+                    <th className="px-4 py-2">Name</th>
+                    <th className="px-4 py-2">Code</th>
+                    <th className="px-4 py-2">Location</th>
+                    <th className="px-4 py-2">Timezone</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+                </thead>
+                <tbody>
+                  {sites.map((s) => (
+                    <tr key={s.id} className="border-t border-line-subtle">
+                      <td className="px-4 py-3 font-medium text-ink-primary">{s.name}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-ink-secondary">
+                        {s.code ?? '—'}
+                      </td>
+                      <td className="px-4 py-3 text-ink-secondary">
+                        {[s.city, s.region, s.country].filter(Boolean).join(', ') || '—'}
+                      </td>
+                      <td className="px-4 py-3 text-ink-secondary">{s.timezone}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
 
       {children.length > 0 && (
         <section className="mb-8">
@@ -202,19 +209,21 @@ export default function OrgDetail({ params }: { params: Promise<{ id: string }> 
 
       <PrivacySection org={org} onChanged={refresh} />
 
-      <Drawer
-        title={`Add site to ${org.name}`}
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-      >
-        <NewSiteForm
-          orgId={id}
-          onCreated={async () => {
-            setDrawerOpen(false);
-            await refresh();
-          }}
-        />
-      </Drawer>
+      {org.type === 'end_customer' && (
+        <Drawer
+          title={`Add site to ${org.name}`}
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+        >
+          <NewSiteForm
+            orgId={id}
+            onCreated={async () => {
+              setDrawerOpen(false);
+              await refresh();
+            }}
+          />
+        </Drawer>
+      )}
     </PageShell>
   );
 }
