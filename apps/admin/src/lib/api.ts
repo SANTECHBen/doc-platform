@@ -549,10 +549,16 @@ export async function uploadFile(
 ): Promise<UploadResult> {
   // Use XHR so we can surface progress during large video uploads. The fetch
   // API does not expose an upload progress event.
+  //
+  // IMPORTANT: authHeaders() is async (it fetches the NextAuth session to
+  // get the current MS ID token). Resolve it BEFORE the synchronous XHR
+  // setup — otherwise we iterate Promise's own properties and send the
+  // request with no Authorization header, which the API rejects with 401.
+  const headers = await authHeaders();
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${API_BASE}/admin/uploads`, true);
-    for (const [k, v] of Object.entries(authHeaders())) {
+    for (const [k, v] of Object.entries(headers)) {
       xhr.setRequestHeader(k, v);
     }
     xhr.upload.onprogress = (e) => {
