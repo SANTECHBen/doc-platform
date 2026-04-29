@@ -5,13 +5,30 @@ import { organizationTypeEnum } from './enums';
 // An Organization is a tenant. Type drives capability:
 //   oem           → can author base ContentPacks, owns AssetModels it manufactures.
 //   dealer        → can overlay an OEM's ContentPack for its end-customer sites.
-//   integrator    → like dealer, typically a systems integrator (Bastian, Fortna).
+//   integrator    → systems integrator that combines equipment from many OEMs at
+//                   end-customer sites (e.g., Western Industrial, Bastian, Fortna).
+//                   Can author dealer_overlay packs targeting any OEM's base pack.
 //   end_customer  → consumes content at its sites; cannot author base content.
 //
-// The parentOrganizationId models the resale chain:
-//   Dematic (oem) → Bastian (integrator) → Acme Logistics (end_customer)
-// A dealer/integrator/end_customer MUST have a parent (the upstream in the chain).
-// OEMs have no parent.
+// parentOrganizationId models the *single contractual / service chain* — who you
+// call when something breaks, who can author overlays for this org. NOT a model
+// of "which OEM's equipment is on site" (that's tracked through asset_models →
+// asset_instances → sites, which is many-to-many between OEMs and end-customers).
+//
+// Parent rules:
+//   oem         — no parent. They're top-level by definition.
+//   integrator  — usually no parent. Independent companies that work with many
+//                 OEMs and don't sit "under" any single one. Optional in the API.
+//   dealer      — usually no parent (multi-OEM resellers) or one OEM parent
+//                 (captive dealers). Optional in the API.
+//   end_customer — required parent: whoever installed/services them (typically
+//                 the integrator, or the OEM directly if no middleman).
+//
+// Example (the SANTECH FedEx case):
+//   FedEx (end_customer)
+//     parent → Western Industrial (integrator, no parent)
+//   Equipment from Flow-Turn, Honeywell, Intralox, SICK is associated to FedEx
+//   via asset_instances at FedEx's sites — not via parent chains.
 export const organizations = pgTable('organizations', {
   id: uuid('id').primaryKey().defaultRandom(),
   type: organizationTypeEnum('type').notNull(),

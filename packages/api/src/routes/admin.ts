@@ -517,21 +517,24 @@ export async function registerAdminMutations(app: FastifyInstance) {
       const auth = requireAuth(request);
       const scope = await getScope(request, db);
 
-      // Non-OEM orgs should declare a parent in the tenancy chain.
-      if (request.body.type !== 'oem' && !request.body.parentOrganizationId) {
+      // Only end_customers must declare a parent — they're always installed
+      // by someone (integrator or OEM direct). OEMs and integrators are
+      // top-level by default; dealers usually are too. See organizations.ts
+      // schema comments for the full model.
+      if (request.body.type === 'end_customer' && !request.body.parentOrganizationId) {
         return reply.badRequest(
-          'Non-OEM organizations must specify a parent organization.',
+          'End-customer organizations must specify a parent — typically the integrator or OEM that installed them.',
         );
       }
 
-      // Scope guard: root (OEM, no parent) orgs can only be created by
+      // Scope guard: top-level (no parent) orgs can only be created by
       // platform admins — otherwise anyone could spin up a new standalone
-      // tenant and escape scope. Non-root orgs must attach under a parent
-      // that's already in the caller's scope tree.
+      // tenant and escape scope. Non-top-level orgs must attach under a
+      // parent that's already in the caller's scope tree.
       if (!request.body.parentOrganizationId) {
         if (!auth.platformAdmin) {
           return reply.forbidden(
-            'Only platform admins can create root (OEM) organizations.',
+            'Only platform admins can create top-level organizations (OEMs and independent integrators/dealers).',
           );
         }
       } else {
