@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Drawer, ErrorBanner, PrimaryButton, SecondaryButton } from '@/components/form';
@@ -102,6 +103,23 @@ export function SectionsTab({
   return (
     <div className="space-y-4">
       <ErrorBanner error={error} />
+
+      {isPublished && (
+        <div className="flex items-start gap-3 rounded-md border border-signal-warn/40 bg-signal-warn/10 px-4 py-3 text-sm">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-signal-warn" />
+          <div className="flex-1">
+            <p className="font-medium text-signal-warn">
+              This content pack version is published — sections are read-only.
+            </p>
+            <p className="mt-0.5 text-ink-secondary">
+              Open <Link href={`/content-packs/${doc.contentPackId}`} className="underline">
+              {doc.contentPackName}</Link> and click <strong>New draft version</strong> to
+              author sections. Existing sections stay attached to v
+              {doc.contentPackVersionNumber}.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center justify-between">
         <p className="text-sm text-ink-secondary">
