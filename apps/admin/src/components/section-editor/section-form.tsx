@@ -148,117 +148,138 @@ export function SectionForm({
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-5">
-      <ErrorBanner error={error} />
-
-      {!editing && allowedKinds.length > 1 && (
-        <Field label="Section type" required>
-          <Select
-            value={kind}
-            onChange={(e) => setKind(e.target.value as DocumentSectionKind)}
-          >
-            {allowedKinds.includes('page_range') && (
-              <option value="page_range">Page range</option>
+    <form onSubmit={onSubmit} className="flex h-full flex-col">
+      {/* Two-column workspace: picker (left, ~60%) + metadata/parts (right, ~40%).
+          Action bar pinned to the bottom across the full width. */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* LEFT — anchor picker workspace */}
+        <section className="flex w-3/5 min-w-0 flex-col overflow-y-auto border-r border-line bg-surface p-6">
+          <div className="mb-3 flex items-center gap-2">
+            <span className="caption">Anchor</span>
+            {!editing && allowedKinds.length > 1 ? (
+              <Select
+                value={kind}
+                onChange={(e) => setKind(e.target.value as DocumentSectionKind)}
+                className="ml-auto max-w-xs"
+              >
+                {allowedKinds.includes('page_range') && (
+                  <option value="page_range">Page range</option>
+                )}
+                {allowedKinds.includes('text_range') && (
+                  <option value="text_range">Text excerpt</option>
+                )}
+                {allowedKinds.includes('time_range') && (
+                  <option value="time_range">Time range</option>
+                )}
+              </Select>
+            ) : (
+              <span className="ml-auto text-sm text-ink-secondary">
+                {kind === 'page_range' && 'Page range'}
+                {kind === 'text_range' && 'Text excerpt'}
+                {kind === 'time_range' && 'Time range'}
+              </span>
             )}
-            {allowedKinds.includes('text_range') && (
-              <option value="text_range">Text excerpt</option>
-            )}
-            {allowedKinds.includes('time_range') && (
-              <option value="time_range">Time range</option>
-            )}
-          </Select>
-        </Field>
-      )}
+          </div>
 
-      <Field label="Title" required>
-        <TextInput
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="e.g. Flight Removal procedure"
-          required
-        />
-      </Field>
-
-      <Field label="Description" hint="Optional context shown to the technician.">
-        <Textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          rows={2}
-        />
-      </Field>
-
-      {kind === 'page_range' && (
-        <PageRangePicker
-          doc={doc}
-          pageStart={pageStart}
-          pageEnd={pageEnd}
-          onChange={(s, e) => {
-            setPageStart(s);
-            setPageEnd(e);
-          }}
-        />
-      )}
-      {kind === 'text_range' && (
-        <TextRangePicker
-          doc={doc}
-          anchorExcerpt={anchorExcerpt}
-          anchorContextBefore={anchorContextBefore}
-          anchorContextAfter={anchorContextAfter}
-          textPageHint={textPageHint}
-          onChange={(v) => {
-            setAnchorExcerpt(v.excerpt);
-            setAnchorContextBefore(v.contextBefore);
-            setAnchorContextAfter(v.contextAfter);
-            setTextPageHint(v.pageHint);
-          }}
-        />
-      )}
-      {kind === 'time_range' && (
-        <TimeRangePicker
-          doc={doc}
-          startSeconds={timeStart}
-          endSeconds={timeEnd}
-          onChange={(s, e) => {
-            setTimeStart(s);
-            setTimeEnd(e);
-          }}
-        />
-      )}
-
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Ordering hint" hint="Lower numbers render first.">
-          <TextInput
-            type="number"
-            value={orderingHint}
-            onChange={(e) => setOrderingHint(Number(e.target.value) || 0)}
-          />
-        </Field>
-        <Field label="Safety">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={safetyCritical}
-              onChange={(e) => setSafetyCritical(e.target.checked)}
+          {kind === 'page_range' && (
+            <PageRangePicker
+              doc={doc}
+              pageStart={pageStart}
+              pageEnd={pageEnd}
+              onChange={(s, e) => {
+                setPageStart(s);
+                setPageEnd(e);
+              }}
             />
-            Safety-critical
-          </label>
-        </Field>
+          )}
+          {kind === 'text_range' && (
+            <TextRangePicker
+              doc={doc}
+              anchorExcerpt={anchorExcerpt}
+              anchorContextBefore={anchorContextBefore}
+              anchorContextAfter={anchorContextAfter}
+              textPageHint={textPageHint}
+              onChange={(v) => {
+                setAnchorExcerpt(v.excerpt);
+                setAnchorContextBefore(v.contextBefore);
+                setAnchorContextAfter(v.contextAfter);
+                setTextPageHint(v.pageHint);
+              }}
+            />
+          )}
+          {kind === 'time_range' && (
+            <TimeRangePicker
+              doc={doc}
+              startSeconds={timeStart}
+              endSeconds={timeEnd}
+              onChange={(s, e) => {
+                setTimeStart(s);
+                setTimeEnd(e);
+              }}
+            />
+          )}
+        </section>
+
+        {/* RIGHT — metadata + parts */}
+        <aside className="flex w-2/5 min-w-[360px] flex-col overflow-y-auto p-6">
+          <ErrorBanner error={error} />
+
+          <div className="space-y-5">
+            <Field label="Title" required>
+              <TextInput
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g. Flight Removal procedure"
+                required
+              />
+            </Field>
+
+            <Field label="Description" hint="Optional context shown to the technician.">
+              <Textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={3}
+              />
+            </Field>
+
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Ordering hint" hint="Lower numbers render first.">
+                <TextInput
+                  type="number"
+                  value={orderingHint}
+                  onChange={(e) => setOrderingHint(Number(e.target.value) || 0)}
+                />
+              </Field>
+              <Field label="Safety">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={safetyCritical}
+                    onChange={(e) => setSafetyCritical(e.target.checked)}
+                  />
+                  Safety-critical
+                </label>
+              </Field>
+            </div>
+          </div>
+
+          <div className="mt-6 border-t border-line pt-4">
+            <h3 className="mb-3 text-sm font-medium text-ink-primary">Linked parts</h3>
+            {allParts ? (
+              <PartsPicker
+                allParts={allParts}
+                selected={linkedPartIds}
+                onChange={setLinkedPartIds}
+              />
+            ) : (
+              <p className="text-sm text-ink-tertiary">Loading parts…</p>
+            )}
+          </div>
+        </aside>
       </div>
 
-      <div className="border-t border-line pt-4">
-        <h3 className="mb-3 text-sm font-medium text-ink-primary">Linked parts</h3>
-        {allParts ? (
-          <PartsPicker
-            allParts={allParts}
-            selected={linkedPartIds}
-            onChange={setLinkedPartIds}
-          />
-        ) : (
-          <p className="text-sm text-ink-tertiary">Loading parts…</p>
-        )}
-      </div>
-
-      <div className="flex items-center justify-end gap-2 border-t border-line pt-4">
+      {/* Bottom action bar — full width, pinned */}
+      <div className="flex items-center justify-end gap-2 border-t border-line bg-surface-raised px-6 py-3">
         <SecondaryButton type="button" onClick={onCancel}>
           Cancel
         </SecondaryButton>

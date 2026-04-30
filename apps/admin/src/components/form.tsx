@@ -119,6 +119,43 @@ export function Drawer({
   );
 }
 
+// Full-screen overlay for editors that need real estate (multi-pane forms,
+// PDF previews, video players, etc.). Locks body scroll and traps the user
+// until they save/cancel. Children are responsible for layout inside.
+export function FullPageOverlay({
+  title,
+  subtitle,
+  open,
+  onClose,
+  children,
+}: {
+  title: string;
+  subtitle?: ReactNode;
+  open: boolean;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-surface-base">
+      <header className="flex items-center justify-between border-b border-line bg-surface-raised px-6 py-3">
+        <div className="min-w-0">
+          <h2 className="truncate text-lg font-semibold text-ink-primary">{title}</h2>
+          {subtitle && <p className="truncate text-xs text-ink-tertiary">{subtitle}</p>}
+        </div>
+        <button
+          onClick={onClose}
+          className="rounded p-1.5 text-ink-tertiary hover:bg-surface hover:text-ink-primary"
+          aria-label="Close"
+        >
+          ✕
+        </button>
+      </header>
+      <div className="flex-1 overflow-hidden">{children}</div>
+    </div>
+  );
+}
+
 export function ErrorBanner({ error }: { error: string | null }) {
   if (!error) return null;
   return (

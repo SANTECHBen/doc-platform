@@ -19,7 +19,7 @@ export function PageRangePicker({
   onChange: (start: number, end: number) => void;
 }) {
   return (
-    <div className="space-y-3">
+    <div className="flex h-full flex-col gap-3">
       <div className="grid grid-cols-2 gap-4">
         <Field label="From page" required>
           <TextInput
@@ -43,13 +43,13 @@ export function PageRangePicker({
         </Field>
       </div>
       {doc.fileUrl && doc.kind === 'pdf' && (
-        <div className="rounded border border-line-subtle bg-surface">
+        <div className="flex min-h-0 flex-1 flex-col rounded border border-line-subtle bg-surface">
           <iframe
             src={`${doc.fileUrl}#page=${pageStart}`}
             title={`${doc.title} preview`}
-            className="h-[480px] w-full rounded bg-white"
+            className="min-h-[480px] flex-1 w-full rounded bg-white"
           />
-          <p className="px-3 py-1.5 text-xs text-ink-tertiary">
+          <p className="border-t border-line-subtle px-3 py-1.5 text-xs text-ink-tertiary">
             Preview opens to page {pageStart}. Verify pages {pageStart}–{pageEnd} render the
             content you want before saving.
           </p>

@@ -3,7 +3,12 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Pencil, Plus, Trash2 } from 'lucide-react';
-import { Drawer, ErrorBanner, PrimaryButton, SecondaryButton } from '@/components/form';
+import {
+  ErrorBanner,
+  FullPageOverlay,
+  PrimaryButton,
+  SecondaryButton,
+} from '@/components/form';
 import { Pill } from '@/components/page-shell';
 import { useToast } from '@/components/toast';
 import {
@@ -161,8 +166,9 @@ export function SectionsTab({
         </ul>
       )}
 
-      <Drawer
-        title={editing ? 'Edit section' : 'New section'}
+      <FullPageOverlay
+        title={editing ? `Edit section — ${editing.title}` : 'New section'}
+        subtitle={`${doc.title} · ${doc.kind.replace(/_/g, ' ')}`}
         open={drawerOpen}
         onClose={() => {
           setDrawerOpen(false);
@@ -179,7 +185,7 @@ export function SectionsTab({
             setEditing(null);
           }}
         />
-      </Drawer>
+      </FullPageOverlay>
     </div>
   );
 }

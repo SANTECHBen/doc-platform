@@ -101,7 +101,7 @@ export function TextRangePicker({
       >
         <textarea
           ref={taRef}
-          rows={10}
+          rows={18}
           defaultValue={sourceText}
           // Read-only-ish: we don't want admins editing the source from here.
           // But native selection requires the textarea to be focusable, so
