@@ -36,7 +36,7 @@ export interface AgentLoopOptions {
     }>;
   };
   /**
-   * Override the default model. Defaults to 'anthropic/claude-sonnet-4-7'
+   * Override the default model. Defaults to 'anthropic/claude-opus-4.7'
    * routed through the AI Gateway. Tests pass a mock LanguageModel here.
    */
   model?: LanguageModel | string;
@@ -74,7 +74,7 @@ export interface AgentLoopResult {
   error?: string;
 }
 
-const DEFAULT_MODEL = 'anthropic/claude-sonnet-4-7';
+const DEFAULT_MODEL = 'anthropic/claude-opus-4.7';
 
 export async function runAgentLoop(
   options: AgentLoopOptions,

@@ -6,8 +6,12 @@ const EnvSchema = z.object({
   API_PORT: z.coerce.number().int().default(3001),
   DATABASE_URL: z.string().url(),
   ANTHROPIC_API_KEY: z.string().min(1),
-  ANTHROPIC_MODEL: z.string().default('claude-opus-4-7'),
-  EMBEDDING_MODEL: z.string().default('voyage-3'),
+  // Chat / troubleshooter model. Sonnet 4.6 is the cost/accuracy sweet spot
+  // for grounded RAG — Opus 4.7's edge on open-ended reasoning rarely shows
+  // up when the LLM is given retrieved context and asked to answer. Roughly
+  // 5x cheaper per turn than Opus.
+  ANTHROPIC_MODEL: z.string().default('claude-sonnet-4-6'),
+  EMBEDDING_MODEL: z.string().default('voyage-3-large'),
 
   // Public origins — allowed by CORS, used in presented URLs.
   PUBLIC_PWA_ORIGIN: z.string().url().default('http://localhost:3000'),
@@ -58,12 +62,16 @@ const EnvSchema = z.object({
   // AI Gateway. Used by the agent loop (separate from ANTHROPIC_API_KEY,
   // which still backs the existing /ai/chat troubleshooter).
   AI_GATEWAY_API_KEY: z.string().optional(),
-  // Override the primary agent model. Default: anthropic/claude-sonnet-4.6
-  // routed via Vercel AI Gateway. NOTE: Vercel uses dot-separated versions
-  // (claude-sonnet-4.6) not dash (claude-sonnet-4-6) — the gateway provider
-  // rejects unknown IDs locally without making an HTTP call, which surfaces
-  // as a confusing "No output generated" error in the AI SDK.
-  AGENT_MODEL: z.string().default('anthropic/claude-sonnet-4.6'),
+  // Override the primary agent model. Default: anthropic/claude-opus-4.7
+  // routed via Vercel AI Gateway. The onboarding agent does open-ended
+  // autonomous reasoning (folder triage, BOM inference, vision-on-photos)
+  // where Opus's edge over Sonnet is real. Runs occasionally (per new
+  // customer onboarding) so the cost stays bounded.
+  // NOTE: Vercel uses dot-separated versions (claude-opus-4.7) not dash
+  // (claude-opus-4-7) — the gateway provider rejects unknown IDs locally
+  // without making an HTTP call, which surfaces as a confusing "No output
+  // generated" error in the AI SDK.
+  AGENT_MODEL: z.string().default('anthropic/claude-opus-4.7'),
 
   // HMAC secret for short-lived stream tokens (SSE auth). EventSource
   // can't set headers, so the propose/execute POST mints a token bound

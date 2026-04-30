@@ -11,12 +11,18 @@
 
 const VOYAGE_API = 'https://api.voyageai.com/v1';
 
-// voyage-3 is 1024 dims — must match the `vector(1024)` column in document_chunks.
-// If you ever move to voyage-3-large (1024) or voyage-code-3 (1024) the dim is
-// the same; voyage-3-xl is 2048 and would require a schema change.
-export const EMBEDDING_MODEL = 'voyage-3';
+// voyage-3-large is 1024 dims by default — matches the `vector(1024)` column
+// in document_chunks. Top of MTEB leaderboard for English technical retrieval,
+// chosen over voyage-3 (small) for SANTECH's OEM/maintenance content where
+// part numbers, procedures, and equipment terminology benefit from the larger
+// model's training. voyage-3-xl is 2048 dim and would require a schema change.
+//
+// Rerank: rerank-2 (full) instead of rerank-2-lite — meaningfully more
+// accurate, marginal cost increase. Reranking dominates retrieval precision,
+// so spending here pays off more than spending on the embedder alone.
+export const EMBEDDING_MODEL = 'voyage-3-large';
 export const EMBEDDING_DIMS = 1024;
-export const RERANK_MODEL = 'rerank-2-lite';
+export const RERANK_MODEL = 'rerank-2';
 
 // Voyage's batch ceiling for voyage-3 is 128 inputs per request. We chunk
 // larger jobs into parallel batches rather than hitting this limit.

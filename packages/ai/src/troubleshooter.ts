@@ -108,7 +108,7 @@ export async function answerGrounded(params: {
   const retrieved = await params.retriever.retrieve({
     query: params.userMessage,
     contentPackVersionIds: params.contentPackVersionIds,
-    topK: params.topK ?? 8,
+    topK: params.topK ?? 12,
   });
   const chunks = await params.enrichWithSafetyFlags(retrieved);
   return runTroubleshooter(params.anthropic, params.model, {

@@ -208,15 +208,15 @@ Extract in 2–3 sentences the key observable facts: any visible fault codes, al
     const retriever = createHybridRetriever({
       db,
       options: {
-        topK: 8,
-        candidatesPerLeg: 30,
+        topK: 12,
+        candidatesPerLeg: 40,
         skipRerank: !process.env.VOYAGE_API_KEY,
       },
     });
     const retrieved = await retriever.retrieve({
       query: retrievalQuery,
       contentPackVersionIds: [conversation.contentPackVersionId],
-      topK: 8,
+      topK: 12,
       documentIds: scopedDocumentIds,
     });
     const chunks: SafetyFlaggedChunk[] = await enrichSafety(db, retrieved);
