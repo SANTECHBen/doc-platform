@@ -116,12 +116,18 @@ export function SectionsTab({
       </div>
 
       {sections.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-md border border-dashed border-line bg-surface-raised p-12 text-center">
-          <p className="text-sm font-medium text-ink-primary">No sections yet</p>
-          <p className="max-w-md text-xs text-ink-tertiary">
-            Add a section to define a page range, text excerpt, or video time range, then
-            link it to the parts it documents.
+        <div className="flex flex-col items-center gap-3 rounded-md border border-dashed border-line bg-surface-raised p-12 text-center">
+          <p className="text-base font-semibold text-ink-primary">No sections yet</p>
+          <p className="max-w-md text-sm text-ink-tertiary">
+            Sections are anchors on this document — a page range, a text excerpt, or a
+            video time range — that you link to specific parts. When a tech scans a part
+            QR, only its linked sections render.
           </p>
+          {!isPublished && (
+            <PrimaryButton type="button" onClick={openCreate} className="mt-2">
+              <Plus className="size-4" /> Add your first section
+            </PrimaryButton>
+          )}
         </div>
       ) : (
         <ul className="space-y-2">
