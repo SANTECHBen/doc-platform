@@ -903,9 +903,10 @@ function DocumentRow({
       {!editing && (
         <Link
           href={`/documents/${doc.id}?tab=sections`}
-          className="rounded px-1.5 py-1 text-xs text-ink-tertiary hover:bg-surface-raised hover:text-ink-primary"
-          title="Open sections editor"
+          className="inline-flex items-center gap-1 rounded border border-line bg-surface-raised px-2 py-1 text-xs font-medium text-ink-primary hover:border-brand/40 hover:bg-brand/5"
+          title="Open sections editor — anchor parts to specific pages or excerpts"
         >
+          <FilePlus2 size={12} strokeWidth={2} />
           Sections
         </Link>
       )}
@@ -913,12 +914,13 @@ function DocumentRow({
         <button
           type="button"
           onClick={() => setLinkPartsOpen(true)}
-          className="p-1 text-ink-tertiary hover:text-ink-primary"
-          aria-label="Link parts"
+          className="inline-flex items-center gap-1 rounded border border-line bg-surface-raised px-2 py-1 text-xs text-ink-secondary hover:border-brand/40 hover:bg-brand/5 hover:text-ink-primary"
+          aria-label="Link parts to whole document"
           disabled={busy}
-          title="Link parts to this document"
+          title="Link parts to the WHOLE document (legacy fallback when no sections are authored)"
         >
-          <Link2 size={14} />
+          <Link2 size={12} strokeWidth={2} />
+          Link parts
         </button>
       )}
       {editable && !editing && (
