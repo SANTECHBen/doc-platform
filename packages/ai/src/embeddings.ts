@@ -51,21 +51,38 @@ function requireApiKey(): string {
 }
 
 async function voyageFetch<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${VOYAGE_API}${path}`, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${requireApiKey()}`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    // Voyage returns JSON error bodies; include the status + body so we
-    // get actionable logs instead of "Voyage failed".
+  // Retry 429s with exponential backoff. Free-tier Voyage allows only 3 RPM
+  // for embeddings — without backoff the parallel-batch path inside embedBatch
+  // hammers the limit and fails. With backoff we get through on free tier
+  // for moderate-size docs (slowly), and paid tiers don't notice.
+  const maxAttempts = 5;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const res = await fetch(`${VOYAGE_API}${path}`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${requireApiKey()}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) return (await res.json()) as T;
+
+    if (res.status === 429 && attempt < maxAttempts) {
+      // 1s, 2s, 4s, 8s — tunable. Also honor Retry-After when Voyage sends it.
+      const retryAfter = Number(res.headers.get('retry-after'));
+      const delayMs = Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1000
+        : 1000 * Math.pow(2, attempt - 1);
+      // Drain body so the connection releases.
+      await res.text().catch(() => '');
+      await new Promise((r) => setTimeout(r, delayMs));
+      continue;
+    }
+
     const text = await res.text().catch(() => '(no body)');
     throw new Error(`Voyage ${path} ${res.status}: ${text}`);
   }
-  return (await res.json()) as T;
+  throw new Error(`Voyage ${path}: exhausted retries`);
 }
 
 /**
@@ -81,20 +98,24 @@ export async function embedBatch(
 ): Promise<number[][]> {
   if (inputs.length === 0) return [];
 
-  // Split oversized batches, run in parallel.
+  // Split oversized batches. We send sequentially rather than in parallel
+  // because Voyage's free-tier rate limit is 3 RPM — parallel batches
+  // immediately trip 429. The retry-with-backoff inside voyageFetch handles
+  // transient limits; sequential dispatch keeps us under the limit on the
+  // happy path. Throughput cost is negligible for typical docs (1–3 batches).
   const batches: string[][] = [];
   for (let i = 0; i < inputs.length; i += EMBED_BATCH_SIZE) {
     batches.push(inputs.slice(i, i + EMBED_BATCH_SIZE));
   }
-  const results = await Promise.all(
-    batches.map((batch) =>
-      voyageFetch<VoyageEmbeddingsResponse>('/embeddings', {
-        input: batch,
-        model: EMBEDDING_MODEL,
-        input_type: inputType,
-      }),
-    ),
-  );
+  const results: VoyageEmbeddingsResponse[] = [];
+  for (const batch of batches) {
+    const r = await voyageFetch<VoyageEmbeddingsResponse>('/embeddings', {
+      input: batch,
+      model: EMBEDDING_MODEL,
+      input_type: inputType,
+    });
+    results.push(r);
+  }
 
   // Flatten, honoring each batch's internal `index` ordering.
   const out: number[][] = [];

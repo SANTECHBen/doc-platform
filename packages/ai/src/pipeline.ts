@@ -83,65 +83,88 @@ export async function processDocument(params: PipelineParams): Promise<PipelineR
       pages: extraction.pages,
     });
 
-    // Embed in batches. Voyage supports 128/request; embedBatch shards
-    // automatically. `input_type: 'document'` tags these as corpus vectors.
-    const embeddings =
-      chunks.length > 0
-        ? await embedBatch(
-            chunks.map((c) => c.content),
-            'document',
-          )
-        : [];
+    // Phase 1: save the extracted markdown immediately. This is the most
+    // valuable artifact — admin section authoring (text-range picker) only
+    // needs this, not embeddings. By committing it before attempting
+    // embeddings, a Voyage rate-limit or transient outage doesn't mark the
+    // doc as failed when the hard work succeeded.
+    await db
+      .update(schema.documents)
+      .set({
+        extractionStatus: 'ready',
+        extractionError: null,
+        extractedText: extraction.markdown,
+        extractedAt: new Date(),
+      })
+      .where(eq(schema.documents.id, documentId));
 
-    if (embeddings.length !== chunks.length) {
-      throw new Error(
-        `embedding count mismatch: ${embeddings.length} vectors for ${chunks.length} chunks`,
-      );
-    }
+    // Phase 2 (best-effort): embed chunks, swap them in atomically. A failure
+    // here leaves the doc in 'ready' state with a soft warning — chat/RAG
+    // won't have new vectors for this doc until the next reprocess, but
+    // sections + the admin doc detail page still work.
+    let chunksWritten = 0;
+    let embedNotes: string[] = [];
+    try {
+      const embeddings =
+        chunks.length > 0
+          ? await embedBatch(
+              chunks.map((c) => c.content),
+              'document',
+            )
+          : [];
 
-    // Swap in new chunks atomically — delete old, insert new, update doc.
-    // If any step throws, the transaction rolls back and the document stays
-    // on its previous chunks (processing flag flips to failed afterwards).
-    await db.transaction(async (tx) => {
-      await tx
-        .delete(schema.documentChunks)
-        .where(eq(schema.documentChunks.documentId, documentId));
-
-      if (chunks.length > 0) {
-        await tx.insert(schema.documentChunks).values(
-          chunks.map((c, i) => ({
-            documentId,
-            contentPackVersionId: doc.contentPackVersionId,
-            chunkIndex: i,
-            content: c.content,
-            charStart: c.charStart,
-            charEnd: c.charEnd,
-            page: c.page,
-            embedding: embeddings[i]!,
-            metadata: {
-              sectionPath: c.sectionPath,
-              rawContent: c.rawContent,
-            },
-          })),
+      if (embeddings.length !== chunks.length) {
+        throw new Error(
+          `embedding count mismatch: ${embeddings.length} vectors for ${chunks.length} chunks`,
         );
       }
 
-      await tx
+      await db.transaction(async (tx) => {
+        await tx
+          .delete(schema.documentChunks)
+          .where(eq(schema.documentChunks.documentId, documentId));
+
+        if (chunks.length > 0) {
+          await tx.insert(schema.documentChunks).values(
+            chunks.map((c, i) => ({
+              documentId,
+              contentPackVersionId: doc.contentPackVersionId,
+              chunkIndex: i,
+              content: c.content,
+              charStart: c.charStart,
+              charEnd: c.charEnd,
+              page: c.page,
+              embedding: embeddings[i]!,
+              metadata: {
+                sectionPath: c.sectionPath,
+                rawContent: c.rawContent,
+              },
+            })),
+          );
+        }
+      });
+      chunksWritten = chunks.length;
+    } catch (embedErr) {
+      const embedMsg = formatError(embedErr);
+      embedNotes = [
+        `embeddings deferred: ${embedMsg}`,
+        'Document is fully usable for section authoring; chat/RAG retrieval against this doc will be empty until the next reprocess succeeds.',
+      ];
+      // Surface the soft warning in extractionError without flipping status.
+      // Admin UI only treats extractionError as fatal when status is 'failed'.
+      await db
         .update(schema.documents)
         .set({
-          extractionStatus: 'ready',
-          extractionError: null,
-          extractedText: extraction.markdown,
-          extractedAt: new Date(),
+          extractionError: `embeddings deferred — ${embedMsg}`,
         })
         .where(eq(schema.documents.id, documentId));
-    });
+    }
 
     return {
       status: 'ready',
-      chunksWritten: chunks.length,
+      chunksWritten,
       qualityScore: extraction.meta.quality,
-      notes: extraction.meta.notes,
+      notes: [...extraction.meta.notes, ...embedNotes],
     };
   } catch (err) {
     const msg = err instanceof ExtractionError ? err.message : formatError(err);
@@ -167,50 +190,66 @@ async function processMarkdownDocument(
       documentTitle: doc.title,
     });
 
-    const embeddings =
-      chunks.length > 0
-        ? await embedBatch(
-            chunks.map((c) => c.content),
-            'document',
-          )
-        : [];
+    // Phase 1: save extractedText immediately, same rationale as the binary
+    // extraction path — sections work off bodyMarkdown/extractedText, not
+    // off embeddings.
+    await db
+      .update(schema.documents)
+      .set({
+        extractionStatus: 'ready',
+        extractionError: null,
+        extractedText: doc.bodyMarkdown,
+        extractedAt: new Date(),
+      })
+      .where(eq(schema.documents.id, doc.id));
 
-    await db.transaction(async (tx) => {
-      await tx
-        .delete(schema.documentChunks)
-        .where(eq(schema.documentChunks.documentId, doc.id));
+    // Phase 2 (best-effort): embed + write chunks.
+    let chunksWritten = 0;
+    try {
+      const embeddings =
+        chunks.length > 0
+          ? await embedBatch(
+              chunks.map((c) => c.content),
+              'document',
+            )
+          : [];
 
-      if (chunks.length > 0) {
-        await tx.insert(schema.documentChunks).values(
-          chunks.map((c, i) => ({
-            documentId: doc.id,
-            contentPackVersionId: doc.contentPackVersionId,
-            chunkIndex: i,
-            content: c.content,
-            charStart: c.charStart,
-            charEnd: c.charEnd,
-            page: null,
-            embedding: embeddings[i]!,
-            metadata: {
-              sectionPath: c.sectionPath,
-              rawContent: c.rawContent,
-            },
-          })),
-        );
-      }
+      await db.transaction(async (tx) => {
+        await tx
+          .delete(schema.documentChunks)
+          .where(eq(schema.documentChunks.documentId, doc.id));
 
-      await tx
+        if (chunks.length > 0) {
+          await tx.insert(schema.documentChunks).values(
+            chunks.map((c, i) => ({
+              documentId: doc.id,
+              contentPackVersionId: doc.contentPackVersionId,
+              chunkIndex: i,
+              content: c.content,
+              charStart: c.charStart,
+              charEnd: c.charEnd,
+              page: null,
+              embedding: embeddings[i]!,
+              metadata: {
+                sectionPath: c.sectionPath,
+                rawContent: c.rawContent,
+              },
+            })),
+          );
+        }
+      });
+      chunksWritten = chunks.length;
+    } catch (embedErr) {
+      const embedMsg = formatError(embedErr);
+      await db
         .update(schema.documents)
         .set({
-          extractionStatus: 'ready',
-          extractionError: null,
-          extractedText: doc.bodyMarkdown,
-          extractedAt: new Date(),
+          extractionError: `embeddings deferred — ${embedMsg}`,
         })
         .where(eq(schema.documents.id, doc.id));
-    });
+    }
 
-    return { status: 'ready', chunksWritten: chunks.length, qualityScore: 1.0 };
+    return { status: 'ready', chunksWritten, qualityScore: 1.0 };
   } catch (err) {
     const msg = formatError(err);
     await markFailed(db, doc.id, msg);
