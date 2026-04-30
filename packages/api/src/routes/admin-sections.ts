@@ -261,7 +261,6 @@ export async function registerAdminSections(app: FastifyInstance) {
         contentPackVersionStatus: d.packVersion.status,
         ownerOrganizationId: ctx.ownerOrganizationId,
         createdAt: d.createdAt.toISOString(),
-        updatedAt: d.updatedAt.toISOString(),
       };
     },
   );

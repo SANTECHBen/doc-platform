@@ -1358,7 +1358,6 @@ export interface AdminDocumentDetail {
   contentPackVersionStatus: 'draft' | 'in_review' | 'published' | 'archived';
   ownerOrganizationId: string;
   createdAt: string;
-  updatedAt: string;
 }
 
 export interface AdminDocumentSection {
