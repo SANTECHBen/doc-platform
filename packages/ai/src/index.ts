@@ -8,3 +8,4 @@ export * from './chunking';
 export * from './pipeline';
 export * from './extract/index.js';
 export * from './agent/index.js';
+export * from './sections/index.js';

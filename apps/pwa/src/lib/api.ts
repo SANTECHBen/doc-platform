@@ -321,6 +321,25 @@ export async function listParts(modelId: string): Promise<BomEntry[]> {
   return (await res.json()) as BomEntry[];
 }
 
+export type PwaSectionKind = 'page_range' | 'text_range' | 'time_range';
+
+export interface PwaDocumentSection {
+  id: string;
+  kind: PwaSectionKind;
+  title: string;
+  description: string | null;
+  safetyCritical: boolean;
+  orderingHint: number;
+  pageStart: number | null;
+  pageEnd: number | null;
+  textPageHint: number | null;
+  anchorExcerpt: string | null;
+  anchorContextBefore: string | null;
+  anchorContextAfter: string | null;
+  timeStartSeconds: number | null;
+  timeEndSeconds: number | null;
+}
+
 export interface PartResources {
   part: {
     id: string;
@@ -339,6 +358,11 @@ export interface PartResources {
     safetyCritical: boolean;
     language: string;
     orderingHint: number;
+    /** null → render the full doc (legacy / no sections defined).
+     *  array → strict-fallback: render only these sections. The API
+     *  already filtered to those linking to this part and excluded any
+     *  that are flagged for re-validation. */
+    sections: PwaDocumentSection[] | null;
   }>;
   trainingModules: Array<{
     id: string;

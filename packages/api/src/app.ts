@@ -24,6 +24,7 @@ import { registerWorkOrderRoutes } from './routes/workorders';
 import { registerQrTemplateRoutes } from './routes/qr-templates';
 import { registerFileRoutes } from './routes/files';
 import { registerAdminAgent } from './routes/admin-agent';
+import { registerAdminSections } from './routes/admin-sections';
 
 export async function buildApp(ctx: AppContext) {
   const app = Fastify({
@@ -73,6 +74,7 @@ export async function buildApp(ctx: AppContext) {
   await registerFileRoutes(app);
   await registerAIRoutes(app);
   await registerAdminAgent(app);
+  await registerAdminSections(app);
 
   return app;
 }

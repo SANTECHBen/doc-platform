@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { ImagePlus, Layers, Package, Plus, Trash2, Wrench, X } from 'lucide-react';
@@ -21,11 +22,13 @@ import {
   listAdminParts,
   listOrganizations,
   listPartComponents,
+  listSectionsForPart,
   removePartComponent,
   updatePartImage,
   uploadFile,
   type AdminOrganization,
   type AdminPart,
+  type AdminPartSection,
   type PartComponent,
 } from '@/lib/api';
 import { nextStepAfterSave } from '@/lib/setup-status';
@@ -319,6 +322,7 @@ function NewPartForm({
 function PartRow({ part, onRefresh }: { part: AdminPart; onRefresh: () => Promise<void> }) {
   const [uploading, setUploading] = useState(false);
   const [componentsOpen, setComponentsOpen] = useState(false);
+  const [sectionsOpen, setSectionsOpen] = useState(false);
   const toast = useToast();
 
   async function onImagePicked(e: React.ChangeEvent<HTMLInputElement>) {
@@ -436,6 +440,14 @@ function PartRow({ part, onRefresh }: { part: AdminPart; onRefresh: () => Promis
             <Layers size={12} strokeWidth={2} />
             Components
           </button>
+          <button
+            type="button"
+            onClick={() => setSectionsOpen(true)}
+            className="inline-flex items-center gap-1 rounded border border-line px-2 py-1 text-xs text-ink-secondary hover:bg-surface-inset hover:text-ink-primary"
+            title="Document sections linked to this part"
+          >
+            Sections
+          </button>
         </div>
       </td>
       <Drawer
@@ -444,6 +456,13 @@ function PartRow({ part, onRefresh }: { part: AdminPart; onRefresh: () => Promis
         onClose={() => setComponentsOpen(false)}
       >
         <ComponentsPanel part={part} />
+      </Drawer>
+      <Drawer
+        title={`Sections linked to ${part.displayName}`}
+        open={sectionsOpen}
+        onClose={() => setSectionsOpen(false)}
+      >
+        <PartSectionsPanel partId={part.id} />
       </Drawer>
     </tr>
   );
@@ -743,5 +762,65 @@ function filter(rows: AdminPart[], query: string): AdminPart[] {
       .join(' ')
       .toLowerCase()
       .includes(q),
+  );
+}
+
+// Lists all document sections that link to this part. Each row shows the
+// section title, kind, parent document, and a deep link to the document's
+// sections tab so the admin can edit it in place.
+function PartSectionsPanel({ partId }: { partId: string }) {
+  const [rows, setRows] = useState<AdminPartSection[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setRows(null);
+    setError(null);
+    listSectionsForPart(partId)
+      .then((r) => {
+        if (!cancelled) setRows(r);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [partId]);
+
+  if (error) return <p className="text-sm text-signal-fault">{error}</p>;
+  if (!rows) return <p className="text-sm text-ink-tertiary">Loading…</p>;
+  if (rows.length === 0) {
+    return (
+      <p className="text-sm text-ink-tertiary">
+        No document sections link to this part yet. Open a document and add a section.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="space-y-2">
+      {rows.map((s) => (
+        <li
+          key={s.id}
+          className="rounded-md border border-line-subtle bg-surface-raised p-3"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-medium text-ink-primary">{s.title}</p>
+              <p className="mt-0.5 truncate text-xs text-ink-tertiary">
+                {s.documentTitle} · {s.kind.replace(/_/g, ' ')}
+              </p>
+            </div>
+            <Link
+              href={`/documents/${s.documentId}?tab=sections`}
+              className="shrink-0 rounded border border-line px-2 py-1 text-xs text-ink-secondary hover:bg-surface-inset hover:text-ink-primary"
+            >
+              Open
+            </Link>
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }

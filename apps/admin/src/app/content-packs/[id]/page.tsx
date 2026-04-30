@@ -901,6 +901,15 @@ function DocumentRow({
       {doc.safetyCritical && <Pill tone="warning">safety</Pill>}
       <ExtractionBadge status={doc.extractionStatus} />
       {!editing && (
+        <Link
+          href={`/documents/${doc.id}?tab=sections`}
+          className="rounded px-1.5 py-1 text-xs text-ink-tertiary hover:bg-surface-raised hover:text-ink-primary"
+          title="Open sections editor"
+        >
+          Sections
+        </Link>
+      )}
+      {!editing && (
         <button
           type="button"
           onClick={() => setLinkPartsOpen(true)}

@@ -32,8 +32,10 @@ import {
   type DocumentBody,
   type PartResources,
   type PartRole,
+  type PwaDocumentSection,
 } from '@/lib/api';
 import { ChatTab } from './chat-tab';
+import { SectionRenderer } from '@/components/section-renderer';
 
 interface LightboxTarget {
   src: string;
@@ -344,7 +346,10 @@ function PartDetailOverlay({
   const [active, setActive] = useState<PartTabKey>('overview');
   const [data, setData] = useState<PartResources | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [openDoc, setOpenDoc] = useState<DocumentBody | null>(null);
+  const [openDoc, setOpenDoc] = useState<{
+    body: DocumentBody;
+    sections: PwaDocumentSection[] | null;
+  } | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
 
   // Cache part metadata by ID so the breadcrumb can render every ancestor's
@@ -437,10 +442,10 @@ function PartDetailOverlay({
     };
   }, [currentPartId, hub.assetInstance.id]);
 
-  async function openDocument(docId: string) {
+  async function openDocument(docId: string, sections: PwaDocumentSection[] | null) {
     try {
       const body = await getDocument(docId);
-      if (body) setOpenDoc(body);
+      if (body) setOpenDoc({ body, sections });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -568,7 +573,13 @@ function PartDetailOverlay({
           onClose={() => setLightboxOpen(false)}
         />
       )}
-      {openDoc && <PartDocView doc={openDoc} onBack={() => setOpenDoc(null)} />}
+      {openDoc && (
+        <PartDocView
+          doc={openDoc.body}
+          sections={openDoc.sections}
+          onBack={() => setOpenDoc(null)}
+        />
+      )}
     </div>
   );
 }
@@ -860,7 +871,7 @@ function PartDocumentsPane({
   onOpenDocument,
 }: {
   data: PartResources | null;
-  onOpenDocument: (id: string) => void;
+  onOpenDocument: (id: string, sections: PwaDocumentSection[] | null) => void;
 }) {
   if (!data) return <p className="py-8 text-center text-sm text-ink-tertiary">Loading…</p>;
   if (data.documents.length === 0) {
@@ -878,7 +889,7 @@ function PartDocumentsPane({
           <li key={d.id}>
             <button
               type="button"
-              onClick={() => onOpenDocument(d.id)}
+              onClick={() => onOpenDocument(d.id, d.sections)}
               className="flex w-full items-center gap-3 rounded-md border border-line bg-surface-raised px-4 py-3 text-left transition hover:border-brand/40"
             >
               <Icon
@@ -1028,13 +1039,23 @@ function ComponentsPane({
 // shell as the main Documents tab but omits the chrome around it — it's
 // already inside the part overlay stack. Stacks on top of the part overlay
 // with a higher z-index; tapping back returns to the part view.
-function PartDocView({ doc, onBack }: { doc: DocumentBody; onBack: () => void }) {
+function PartDocView({
+  doc,
+  sections,
+  onBack,
+}: {
+  doc: DocumentBody;
+  sections: PwaDocumentSection[] | null;
+  onBack: () => void;
+}) {
+  const sectionMode = sections != null && sections.length > 0;
   const isFramed =
-    doc.kind === 'pdf' ||
-    doc.kind === 'schematic' ||
-    doc.kind === 'slides' ||
-    doc.kind === 'video' ||
-    doc.kind === 'external_video';
+    !sectionMode &&
+    (doc.kind === 'pdf' ||
+      doc.kind === 'schematic' ||
+      doc.kind === 'slides' ||
+      doc.kind === 'video' ||
+      doc.kind === 'external_video');
 
   return (
     <div
@@ -1067,6 +1088,15 @@ function PartDocView({ doc, onBack }: { doc: DocumentBody; onBack: () => void })
         </button>
       </header>
       <div className={isFramed ? 'doc-overlay-frame' : 'doc-overlay-scroll'}>
+        {sectionMode && (
+          <div className="flex flex-col gap-1 pb-6">
+            {sections!.map((s) => (
+              <SectionRenderer key={s.id} doc={doc} section={s} />
+            ))}
+          </div>
+        )}
+        {!sectionMode && (
+          <>
         {(doc.kind === 'markdown' || doc.kind === 'structured_procedure') &&
           doc.bodyMarkdown && (
             <div className="markdown-body text-base">
@@ -1109,6 +1139,8 @@ function PartDocView({ doc, onBack }: { doc: DocumentBody; onBack: () => void })
               Download
             </a>
           </div>
+        )}
+          </>
         )}
       </div>
     </div>

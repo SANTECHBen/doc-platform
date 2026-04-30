@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
@@ -188,18 +188,83 @@ export async function registerPartsRoutes(app: FastifyInstance) {
           : Promise.resolve([] as Array<typeof schema.trainingModules.$inferSelect>),
       ]);
 
-      // Filter to the pinned version — docs/modules from other versions
-      // aren't authored for this instance's pinned state.
-      const documents = linkedDocs
-        .filter((d) => d.contentPackVersionId === pinnedVersionId)
-        .map((d) => ({
-          id: d.id,
-          title: d.title,
-          kind: d.kind,
-          safetyCritical: d.safetyCritical,
-          language: d.language,
-          orderingHint: d.orderingHint,
-        }))
+      // Section-aware projection: for each linked doc, if it has authored
+      // sections, emit only sections that link to this part (strict fallback).
+      // A doc with sections-but-not-linking-to-this-part is omitted entirely.
+      const docsForVersion = linkedDocs.filter(
+        (d) => d.contentPackVersionId === pinnedVersionId,
+      );
+      const docIdsForSections = docsForVersion.map((d) => d.id);
+
+      const allSectionsForDocs =
+        docIdsForSections.length > 0
+          ? await db.query.documentSections.findMany({
+              where: inArray(schema.documentSections.documentId, docIdsForSections),
+            })
+          : [];
+
+      // Which sections link to THIS part (filtered to the candidate pool)?
+      const allSectionIds = allSectionsForDocs.map((s) => s.id);
+      const partSectionLinks =
+        allSectionIds.length > 0
+          ? await db.query.partDocumentSections.findMany({
+              where: and(
+                eq(schema.partDocumentSections.partId, partId),
+                inArray(schema.partDocumentSections.documentSectionId, allSectionIds),
+              ),
+            })
+          : [];
+      const linkedSectionIds = new Set(partSectionLinks.map((l) => l.documentSectionId));
+
+      // Group sections by document, and bucket "doc has any sections" so we
+      // can apply the strict-fallback omission rule.
+      const sectionsByDoc = new Map<string, typeof allSectionsForDocs>();
+      const docHasAnySections = new Set<string>();
+      for (const s of allSectionsForDocs) {
+        docHasAnySections.add(s.documentId);
+        const arr = sectionsByDoc.get(s.documentId) ?? [];
+        arr.push(s);
+        sectionsByDoc.set(s.documentId, arr);
+      }
+
+      const documents = docsForVersion
+        .map((d) => {
+          const allSections = sectionsByDoc.get(d.id) ?? [];
+          const hasSections = docHasAnySections.has(d.id);
+
+          if (!hasSections) {
+            // Legacy: doc has no authored sections. Render full doc on PWA.
+            return {
+              id: d.id,
+              title: d.title,
+              kind: d.kind,
+              safetyCritical: d.safetyCritical,
+              language: d.language,
+              orderingHint: d.orderingHint,
+              sections: null as ReturnType<typeof toPwaSection>[] | null,
+            };
+          }
+
+          // Strict fallback: doc has sections; emit only those linking to
+          // this part AND not flagged for re-validation.
+          const linked = allSections
+            .filter((s) => linkedSectionIds.has(s.id))
+            .filter((s) => !s.needsRevalidation);
+          if (linked.length === 0) return null; // omit doc entirely
+
+          return {
+            id: d.id,
+            title: d.title,
+            kind: d.kind,
+            safetyCritical: d.safetyCritical,
+            language: d.language,
+            orderingHint: d.orderingHint,
+            sections: linked
+              .map(toPwaSection)
+              .sort(comparePwaSections),
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null)
         .sort((a, b) => a.orderingHint - b.orderingHint || a.title.localeCompare(b.title));
 
       const trainingModules = linkedModules
@@ -247,6 +312,59 @@ function mapPart(
     imageUrl: p.imageStorageKey ? storage.publicUrl(p.imageStorageKey) : null,
     role,
   };
+}
+
+// PWA-shape section DTO. Strips admin-only fields (needs_revalidation,
+// revalidation_reason, audit metadata, ownership snapshots) so the PWA only
+// gets what it needs to render. Tech users never see flagged sections —
+// they're filtered out at the query layer above.
+function toPwaSection(s: typeof schema.documentSections.$inferSelect): {
+  id: string;
+  kind: typeof s.kind;
+  title: string;
+  description: string | null;
+  safetyCritical: boolean;
+  orderingHint: number;
+  pageStart: number | null;
+  pageEnd: number | null;
+  textPageHint: number | null;
+  anchorExcerpt: string | null;
+  anchorContextBefore: string | null;
+  anchorContextAfter: string | null;
+  timeStartSeconds: number | null;
+  timeEndSeconds: number | null;
+} {
+  return {
+    id: s.id,
+    kind: s.kind,
+    title: s.title,
+    description: s.description,
+    safetyCritical: s.safetyCritical,
+    orderingHint: s.orderingHint,
+    pageStart: s.pageStart,
+    pageEnd: s.pageEnd,
+    textPageHint: s.textPageHint,
+    anchorExcerpt: s.anchorExcerpt,
+    anchorContextBefore: s.anchorContextBefore,
+    anchorContextAfter: s.anchorContextAfter,
+    timeStartSeconds: s.timeStartSeconds,
+    timeEndSeconds: s.timeEndSeconds,
+  };
+}
+
+// Sort sections within one document for the PWA: safety-critical first, then
+// authoring order, then natural anchor position (pageStart / timeStart) so
+// the rendering order is intuitive when ordering_hint is left at 0.
+function comparePwaSections(
+  a: ReturnType<typeof toPwaSection>,
+  b: ReturnType<typeof toPwaSection>,
+): number {
+  if (a.safetyCritical !== b.safetyCritical) return a.safetyCritical ? -1 : 1;
+  if (a.orderingHint !== b.orderingHint) return a.orderingHint - b.orderingHint;
+  const aPos = a.pageStart ?? a.timeStartSeconds ?? 0;
+  const bPos = b.pageStart ?? b.timeStartSeconds ?? 0;
+  if (aPos !== bPos) return aPos - bPos;
+  return a.title.localeCompare(b.title);
 }
 
 // Batch-derive the structural role for a set of part IDs. A single SQL query

@@ -1325,3 +1325,219 @@ export const DEFAULT_LABEL_TEMPLATE_FIELDS: QrLabelFieldsPayload = {
   description: { enabled: false, text: '' },
   idCode: { enabled: true, labelOverride: 'ID' },
 };
+
+// ---------------------------------------------------------------------------
+// Document Sections
+// ---------------------------------------------------------------------------
+
+export type DocumentSectionKind = 'page_range' | 'text_range' | 'time_range';
+
+export interface AdminDocumentDetail {
+  id: string;
+  title: string;
+  kind: DocumentKind;
+  contentType: string;
+  originalFilename: string | null;
+  sizeBytes: number | null;
+  bodyMarkdown: string | null;
+  extractedText: string | null;
+  extractionStatus: string;
+  extractionError: string | null;
+  extractedAt: string | null;
+  safetyCritical: boolean;
+  language: string | null;
+  orderingHint: number;
+  storageKey: string | null;
+  thumbnailStorageKey: string | null;
+  fileUrl: string | null;
+  thumbnailUrl: string | null;
+  contentPackVersionId: string;
+  contentPackId: string;
+  contentPackName: string;
+  contentPackVersionNumber: number;
+  contentPackVersionStatus: 'draft' | 'in_review' | 'published' | 'archived';
+  ownerOrganizationId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminDocumentSection {
+  id: string;
+  documentId: string;
+  kind: DocumentSectionKind;
+  title: string;
+  description: string | null;
+  safetyCritical: boolean;
+  orderingHint: number;
+  pageStart: number | null;
+  pageEnd: number | null;
+  textPageHint: number | null;
+  anchorExcerpt: string | null;
+  anchorContextBefore: string | null;
+  anchorContextAfter: string | null;
+  timeStartSeconds: number | null;
+  timeEndSeconds: number | null;
+  needsRevalidation: boolean;
+  revalidationReason: string | null;
+  sourceExtractionAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type CreateSectionInput =
+  | {
+      kind: 'page_range';
+      title: string;
+      description?: string | null;
+      safetyCritical?: boolean;
+      orderingHint?: number;
+      pageStart: number;
+      pageEnd: number;
+    }
+  | {
+      kind: 'text_range';
+      title: string;
+      description?: string | null;
+      safetyCritical?: boolean;
+      orderingHint?: number;
+      anchorExcerpt: string;
+      anchorContextBefore?: string | null;
+      anchorContextAfter?: string | null;
+      textPageHint?: number | null;
+    }
+  | {
+      kind: 'time_range';
+      title: string;
+      description?: string | null;
+      safetyCritical?: boolean;
+      orderingHint?: number;
+      timeStartSeconds: number;
+      timeEndSeconds: number;
+    };
+
+export interface UpdateSectionInput {
+  title?: string;
+  description?: string | null;
+  safetyCritical?: boolean;
+  orderingHint?: number;
+  pageStart?: number;
+  pageEnd?: number;
+  anchorExcerpt?: string;
+  anchorContextBefore?: string | null;
+  anchorContextAfter?: string | null;
+  textPageHint?: number | null;
+  timeStartSeconds?: number;
+  timeEndSeconds?: number;
+  needsRevalidation?: boolean;
+  revalidationReason?: string | null;
+}
+
+export interface AdminPartSection extends AdminDocumentSection {
+  documentTitle: string;
+  documentKind: DocumentKind;
+}
+
+export async function getAdminDocument(documentId: string): Promise<AdminDocumentDetail> {
+  const res = await fetch(
+    `${API_BASE}/admin/documents/${encodeURIComponent(documentId)}`,
+    { cache: 'no-store', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminDocumentDetail;
+}
+
+export async function listSectionsForDocument(
+  documentId: string,
+): Promise<AdminDocumentSection[]> {
+  const res = await fetch(
+    `${API_BASE}/admin/documents/${encodeURIComponent(documentId)}/sections`,
+    { cache: 'no-store', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminDocumentSection[];
+}
+
+export async function createSection(
+  documentId: string,
+  input: CreateSectionInput,
+): Promise<AdminDocumentSection> {
+  const res = await fetch(
+    `${API_BASE}/admin/documents/${encodeURIComponent(documentId)}/sections`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminDocumentSection;
+}
+
+export async function updateSection(
+  sectionId: string,
+  input: UpdateSectionInput,
+): Promise<AdminDocumentSection> {
+  const res = await fetch(
+    `${API_BASE}/admin/document-sections/${encodeURIComponent(sectionId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminDocumentSection;
+}
+
+export async function deleteSection(sectionId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/document-sections/${encodeURIComponent(sectionId)}`,
+    { method: 'DELETE', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+export async function listPartsForSection(sectionId: string): Promise<LinkedPart[]> {
+  const res = await fetch(
+    `${API_BASE}/admin/document-sections/${encodeURIComponent(sectionId)}/parts`,
+    { cache: 'no-store', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as LinkedPart[];
+}
+
+export async function setPartsForSection(
+  sectionId: string,
+  partIds: string[],
+): Promise<{ ok: true; count: number; added: number; removed: number }> {
+  const res = await fetch(
+    `${API_BASE}/admin/document-sections/${encodeURIComponent(sectionId)}/parts`,
+    {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ partIds }),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { ok: true; count: number; added: number; removed: number };
+}
+
+export async function listSectionsForPart(partId: string): Promise<AdminPartSection[]> {
+  const res = await fetch(
+    `${API_BASE}/admin/parts/${encodeURIComponent(partId)}/sections`,
+    { cache: 'no-store', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminPartSection[];
+}
+
+export async function revalidateDocumentSections(
+  documentId: string,
+): Promise<{ accepted: number; flagged: number; total: number }> {
+  const res = await fetch(
+    `${API_BASE}/admin/documents/${encodeURIComponent(documentId)}/sections/revalidate`,
+    { method: 'POST', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { accepted: number; flagged: number; total: number };
+}

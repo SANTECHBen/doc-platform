@@ -85,6 +85,13 @@
       "when": 1777386753055,
       "tag": "0011_tiresome_rage",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1777556538874,
+      "tag": "0012_rich_golden_guardian",
+      "breakpoints": true
     }
   ]
 }
