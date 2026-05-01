@@ -111,20 +111,30 @@ export default function AssetModelDetail({
       />
       {sites.length === 0 && (
         <div className="mb-4 rounded border border-signal-warn/40 bg-signal-warn/10 p-3 text-sm text-signal-warn">
-          <p className="font-medium">No deployable sites in scope yet.</p>
+          <p className="font-medium">No sites in scope yet.</p>
           <p className="mt-1 text-ink-secondary">
-            Asset instances are <strong>physical units installed at a customer site</strong>{' '}
-            (e.g., the IntelliSort sorter on the floor at FedEx Memphis Secondary 25).
-            OEMs like {model.owner.name} don't usually have sites — the site lives at
-            the end-customer (or integrator) that owns the deployed equipment.
+            An asset instance is a <strong>physical unit at a specific location</strong>{' '}
+            so techs scanning its QR know which unit they're servicing. The location can
+            be any of:
           </p>
+          <ul className="ml-5 mt-1 list-disc text-ink-secondary">
+            <li>
+              <strong>The OEM's own site</strong> — factory floor, demo unit, showroom,
+              pre-deployment inventory. Use this when the QR ships with the product
+              before it's sold/installed.
+            </li>
+            <li>
+              <strong>An integrator's site</strong> — staging / commissioning facility.
+            </li>
+            <li>
+              <strong>An end-customer's site</strong> — the deployed location (e.g.,
+              "FedEx Memphis Secondary 25"). Most common for live equipment.
+            </li>
+          </ul>
           <p className="mt-2 text-ink-secondary">
-            Next:{' '}
-            <a className="underline" href="/tenants">
-              create or open the end-customer org
-            </a>
-            , add a site to it (e.g., "Memphis Secondary 25"), then come back here and
-            click Add instance — the site dropdown will list it.
+            Open <a className="underline" href={`/tenants/${model.owner.id}`}>{model.owner.name}</a>{' '}
+            (or any other tenant in scope) and add a site there, then come back to
+            click Add instance.
           </p>
         </div>
       )}

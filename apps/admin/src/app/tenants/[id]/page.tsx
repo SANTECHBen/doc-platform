@@ -100,14 +100,14 @@ export default function OrgDetail({ params }: { params: Promise<{ id: string }> 
         title={org.name}
         description={`${org.type.replace('_', ' ')} · ${org.slug}${org.oemCode ? ` · ${org.oemCode}` : ''}`}
         actions={
-          // Sites are only meaningful for end-customers (deployment tenants).
-          // OEMs/integrators/dealers are authoring tenants and don't host
-          // physical equipment under their own org.
-          org.type === 'end_customer' ? (
-            <PrimaryButton onClick={() => setDrawerOpen(true)}>
-              <Plus size={14} strokeWidth={2} /> Add site
-            </PrimaryButton>
-          ) : null
+          // Sites are most common at end-customers but valid on any org type:
+          // OEMs (factory floor / demo unit / pre-deployment inventory),
+          // integrators (staging facility), and end-customers (deployed
+          // location). Asset instances reference a site, so any org that
+          // physically hosts equipment needs at least one site.
+          <PrimaryButton onClick={() => setDrawerOpen(true)}>
+            <Plus size={14} strokeWidth={2} /> Add site
+          </PrimaryButton>
         }
       />
 
@@ -128,45 +128,47 @@ export default function OrgDetail({ params }: { params: Promise<{ id: string }> 
         />
       )}
 
-      {org.type === 'end_customer' && (
-        <section id="sites-section" className="mb-8">
-          <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-tertiary">
-            Sites ({sites.length})
-          </h2>
-          {sites.length === 0 ? (
-            <p className="rounded-md border border-dashed border-line p-4 text-center text-sm text-ink-tertiary">
-              No sites yet. Add one to deploy asset instances.
-            </p>
-          ) : (
-            <div className="overflow-hidden rounded-md border border-line-subtle bg-surface-raised">
-              <table className="data-table">
-                <thead className="bg-surface-inset text-left text-xs uppercase tracking-wide text-ink-tertiary">
-                  <tr>
-                    <th className="px-4 py-2">Name</th>
-                    <th className="px-4 py-2">Code</th>
-                    <th className="px-4 py-2">Location</th>
-                    <th className="px-4 py-2">Timezone</th>
+      <section id="sites-section" className="mb-8">
+        <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-tertiary">
+          Sites ({sites.length})
+        </h2>
+        {sites.length === 0 ? (
+          <p className="rounded-md border border-dashed border-line p-4 text-center text-sm text-ink-tertiary">
+            {org.type === 'oem'
+              ? 'No sites yet. Add one if you have units pre-deployment (factory floor, demo unit, showroom). Or skip — sites typically live on end-customers.'
+              : org.type === 'integrator'
+              ? 'No sites yet. Add one for staging / commissioning facilities, or skip — sites typically live on end-customers.'
+              : 'No sites yet. Add one to deploy asset instances.'}
+          </p>
+        ) : (
+          <div className="overflow-hidden rounded-md border border-line-subtle bg-surface-raised">
+            <table className="data-table">
+              <thead className="bg-surface-inset text-left text-xs uppercase tracking-wide text-ink-tertiary">
+                <tr>
+                  <th className="px-4 py-2">Name</th>
+                  <th className="px-4 py-2">Code</th>
+                  <th className="px-4 py-2">Location</th>
+                  <th className="px-4 py-2">Timezone</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sites.map((s) => (
+                  <tr key={s.id} className="border-t border-line-subtle">
+                    <td className="px-4 py-3 font-medium text-ink-primary">{s.name}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-ink-secondary">
+                      {s.code ?? '—'}
+                    </td>
+                    <td className="px-4 py-3 text-ink-secondary">
+                      {[s.city, s.region, s.country].filter(Boolean).join(', ') || '—'}
+                    </td>
+                    <td className="px-4 py-3 text-ink-secondary">{s.timezone}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {sites.map((s) => (
-                    <tr key={s.id} className="border-t border-line-subtle">
-                      <td className="px-4 py-3 font-medium text-ink-primary">{s.name}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-ink-secondary">
-                        {s.code ?? '—'}
-                      </td>
-                      <td className="px-4 py-3 text-ink-secondary">
-                        {[s.city, s.region, s.country].filter(Boolean).join(', ') || '—'}
-                      </td>
-                      <td className="px-4 py-3 text-ink-secondary">{s.timezone}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      )}
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       {children.length > 0 && (
         <section className="mb-8">
@@ -209,21 +211,19 @@ export default function OrgDetail({ params }: { params: Promise<{ id: string }> 
 
       <PrivacySection org={org} onChanged={refresh} />
 
-      {org.type === 'end_customer' && (
-        <Drawer
-          title={`Add site to ${org.name}`}
-          open={drawerOpen}
-          onClose={() => setDrawerOpen(false)}
-        >
-          <NewSiteForm
-            orgId={id}
-            onCreated={async () => {
-              setDrawerOpen(false);
-              await refresh();
-            }}
-          />
-        </Drawer>
-      )}
+      <Drawer
+        title={`Add site to ${org.name}`}
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+      >
+        <NewSiteForm
+          orgId={id}
+          onCreated={async () => {
+            setDrawerOpen(false);
+            await refresh();
+          }}
+        />
+      </Drawer>
     </PageShell>
   );
 }
