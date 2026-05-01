@@ -110,9 +110,23 @@ export default function AssetModelDetail({
         }
       />
       {sites.length === 0 && (
-        <p className="mb-4 rounded border border-signal-warn/40 bg-signal-warn/10 p-3 text-sm text-signal-warn">
-          Create at least one site before adding instances.
-        </p>
+        <div className="mb-4 rounded border border-signal-warn/40 bg-signal-warn/10 p-3 text-sm text-signal-warn">
+          <p className="font-medium">No deployable sites in scope yet.</p>
+          <p className="mt-1 text-ink-secondary">
+            Asset instances are <strong>physical units installed at a customer site</strong>{' '}
+            (e.g., the IntelliSort sorter on the floor at FedEx Memphis Secondary 25).
+            OEMs like {model.owner.name} don't usually have sites — the site lives at
+            the end-customer (or integrator) that owns the deployed equipment.
+          </p>
+          <p className="mt-2 text-ink-secondary">
+            Next:{' '}
+            <a className="underline" href="/tenants">
+              create or open the end-customer org
+            </a>
+            , add a site to it (e.g., "Memphis Secondary 25"), then come back here and
+            click Add instance — the site dropdown will list it.
+          </p>
+        </div>
       )}
 
       <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-tertiary">
