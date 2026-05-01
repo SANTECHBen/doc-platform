@@ -52,25 +52,21 @@ export function PdfSection({
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // pdfjs uses fetch() under the hood, which enforces CORS. The R2 public
-  // bucket URL (doc.fileUrl) doesn't return Access-Control-Allow-Origin so
-  // direct fetch is blocked. Route through the PWA's same-origin /api proxy
-  // → API /files/<key> instead, which returns the file with the API's CORS
-  // headers. The legacy <iframe src={doc.fileUrl}> path keeps using the
-  // direct CDN URL because iframes don't enforce CORS.
-  const pdfSource = doc.storageKey
-    ? `/api/files/${doc.storageKey}`
-    : doc.fileUrl;
-
+  // R2's public bucket has CORS configured for the PWA origin so pdfjs can
+  // fetch directly from the edge CDN with native HTTP range support — much
+  // faster than routing through the API proxy. If you ever change buckets
+  // or origins, verify CORS via:
+  //   curl -I -H "Origin: <pwa-origin>" <r2-public-url>
+  // and look for Access-Control-Allow-Origin in the response.
   useEffect(() => {
     ensureWorker();
-    if (!pdfSource) {
+    if (!doc.fileUrl) {
       setError('PDF file URL is missing.');
       return;
     }
     let cancelled = false;
     let loaded: PDFDocumentProxy | null = null;
-    loadDocument({ source: pdfSource })
+    loadDocument({ source: doc.fileUrl })
       .then((p) => {
         if (cancelled) {
           void p.destroy();
@@ -86,7 +82,7 @@ export function PdfSection({
       cancelled = true;
       if (loaded) void loaded.destroy();
     };
-  }, [pdfSource]);
+  }, [doc.fileUrl]);
 
   const pages = useMemo<number[]>(() => {
     if (section.kind === 'page_range') {
