@@ -14,33 +14,15 @@ import {
   loadDocument,
   PdfPage,
   SectionHighlight,
-  setupPdfjsWorker,
   locateExcerptInPage,
   rectsForSpan,
   type PDFDocumentProxy,
 } from '@platform/viewer';
 import type { DocumentBody, PwaDocumentSection } from '@/lib/api';
 
-// Configure pdfjs worker once. Vite/webpack/turbopack support `?url` imports
-// for worker files; in Next 15 we use a runtime URL relative to the public
-// CDN (pdfjs-dist ships the worker as part of the package).
-let workerConfigured = false;
-function ensureWorker() {
-  if (workerConfigured) return;
-  if (typeof window === 'undefined') return;
-  // Use the worker bundled with pdfjs-dist via a static import URL. Falls
-  // back to in-thread rendering if the URL is unreachable.
-  try {
-    const url = new URL(
-      'pdfjs-dist/build/pdf.worker.min.mjs',
-      import.meta.url,
-    ).toString();
-    setupPdfjsWorker(url);
-    workerConfigured = true;
-  } catch {
-    /* fall through — kernel uses in-thread rendering as fallback */
-  }
-}
+// pdfjs worker URL is set inside @platform/viewer's pdf-kernel — defaults
+// to a CDN that ships pdfjs-dist's worker. Host apps can override via
+// setupPdfjsWorker(url) if they want to self-host.
 
 export function PdfSection({
   doc,
@@ -59,7 +41,6 @@ export function PdfSection({
   //   curl -I -H "Origin: <pwa-origin>" <r2-public-url>
   // and look for Access-Control-Allow-Origin in the response.
   useEffect(() => {
-    ensureWorker();
     if (!doc.fileUrl) {
       setError('PDF file URL is missing.');
       return;

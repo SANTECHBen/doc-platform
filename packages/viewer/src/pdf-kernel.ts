@@ -28,15 +28,23 @@ let pdfjsModule: typeof import('pdfjs-dist') | null = null;
 let pdfjsLoadingPromise: Promise<typeof import('pdfjs-dist')> | null = null;
 let workerSrcConfigured = false;
 
+// Default worker URL — pinned to the version installed in this workspace.
+// pdfjs-dist v5 always tries to load a worker module (even disableWorker
+// mode dynamic-imports the fake worker), so we need a resolvable URL even
+// when the host app's bundler doesn't bundle the worker as an asset. CDN
+// has reliable CORS for cross-origin script imports.
+const DEFAULT_WORKER_URL =
+  'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/build/pdf.worker.min.mjs';
+
+let workerUrl: string | null = DEFAULT_WORKER_URL;
+
 /**
- * Set the worker URL. Must be called from the host app at startup, before
- * any PDF loading. Ignored if called more than once.
+ * Override the worker URL. Optional — kernel uses a CDN default if you
+ * don't call this. Ignored if called more than once.
  */
 export function setupPdfjsWorker(url: string): void {
   if (workerSrcConfigured) return;
   if (typeof window === 'undefined') return;
-  // We assign as soon as pdfjs is loaded; if it isn't yet, this is captured
-  // and applied on first load.
   workerUrl = url;
   workerSrcConfigured = true;
   if (pdfjsModule) {
@@ -44,18 +52,18 @@ export function setupPdfjsWorker(url: string): void {
   }
 }
 
-let workerUrl: string | null = null;
-
 /**
  * Lazy-load pdfjs-dist. Returns null on the server. Caches the module
- * promise so concurrent callers share one import.
+ * promise so concurrent callers share one import. Always sets a worker
+ * URL (default CDN unless overridden via setupPdfjsWorker) because pdfjs
+ * v5 dynamic-imports the worker even in disableWorker mode.
  */
 export async function getPdfjs(): Promise<typeof import('pdfjs-dist') | null> {
   if (typeof window === 'undefined') return null;
   if (pdfjsModule) return pdfjsModule;
   if (pdfjsLoadingPromise) return pdfjsLoadingPromise;
   pdfjsLoadingPromise = import('pdfjs-dist').then((mod) => {
-    if (workerUrl) mod.GlobalWorkerOptions.workerSrc = workerUrl;
+    mod.GlobalWorkerOptions.workerSrc = workerUrl ?? DEFAULT_WORKER_URL;
     pdfjsModule = mod;
     return mod;
   });
@@ -81,11 +89,6 @@ export async function loadDocument(opts: LoadDocumentOptions): Promise<PDFDocume
     typeof opts.source === 'string'
       ? { url: opts.source }
       : { data: opts.source };
-
-  // Fall back to in-thread rendering if no worker URL was set up.
-  if (!workerUrl) {
-    (params as { disableWorker?: boolean }).disableWorker = true;
-  }
 
   if (opts.authHeader) {
     (params as { httpHeaders?: Record<string, string> }).httpHeaders = {
