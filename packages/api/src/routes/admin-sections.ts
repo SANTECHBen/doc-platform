@@ -41,6 +41,8 @@ const PageRangeBody = z.object({
   orderingHint: z.number().int().optional(),
   pageStart: z.number().int().min(1),
   pageEnd: z.number().int().min(1),
+  startY: z.number().min(0).max(1).nullable().optional(),
+  endY: z.number().min(0).max(1).nullable().optional(),
 });
 
 const TextRangeBody = z.object({
@@ -80,6 +82,8 @@ const SectionPatchBody = z
     // Anchor refinements — caller may switch picks within the same kind.
     pageStart: z.number().int().min(1).optional(),
     pageEnd: z.number().int().min(1).optional(),
+    startY: z.number().min(0).max(1).nullable().optional(),
+    endY: z.number().min(0).max(1).nullable().optional(),
     anchorExcerpt: z.string().min(1).max(8000).optional(),
     anchorContextBefore: z.string().max(2000).nullable().optional(),
     anchorContextAfter: z.string().max(2000).nullable().optional(),
@@ -111,6 +115,8 @@ function rowToDTO(row: SectionRow): {
   orderingHint: number;
   pageStart: number | null;
   pageEnd: number | null;
+  startY: number | null;
+  endY: number | null;
   textPageHint: number | null;
   anchorExcerpt: string | null;
   anchorContextBefore: string | null;
@@ -133,6 +139,8 @@ function rowToDTO(row: SectionRow): {
     orderingHint: row.orderingHint,
     pageStart: row.pageStart,
     pageEnd: row.pageEnd,
+    startY: row.startY,
+    endY: row.endY,
     textPageHint: row.textPageHint,
     anchorExcerpt: row.anchorExcerpt,
     anchorContextBefore: row.anchorContextBefore,
@@ -343,6 +351,8 @@ export async function registerAdminSections(app: FastifyInstance) {
       if (body.kind === 'page_range') {
         insertValues.pageStart = body.pageStart;
         insertValues.pageEnd = body.pageEnd;
+        if (body.startY !== undefined) insertValues.startY = body.startY;
+        if (body.endY !== undefined) insertValues.endY = body.endY;
       } else if (body.kind === 'text_range') {
         insertValues.anchorExcerpt = body.anchorExcerpt;
         insertValues.anchorContextBefore = body.anchorContextBefore ?? null;
@@ -418,6 +428,8 @@ export async function registerAdminSections(app: FastifyInstance) {
       if (ctx.section.kind === 'page_range') {
         if (b.pageStart !== undefined) patch.pageStart = b.pageStart;
         if (b.pageEnd !== undefined) patch.pageEnd = b.pageEnd;
+        if (b.startY !== undefined) patch.startY = b.startY;
+        if (b.endY !== undefined) patch.endY = b.endY;
         const ps = (patch.pageStart as number | undefined) ?? ctx.section.pageStart;
         const pe = (patch.pageEnd as number | undefined) ?? ctx.section.pageEnd;
         if (ps != null && pe != null && ps > pe) {
@@ -446,6 +458,8 @@ export async function registerAdminSections(app: FastifyInstance) {
       const reAnchored =
         b.pageStart !== undefined ||
         b.pageEnd !== undefined ||
+        b.startY !== undefined ||
+        b.endY !== undefined ||
         b.anchorExcerpt !== undefined ||
         b.anchorContextBefore !== undefined ||
         b.anchorContextAfter !== undefined ||

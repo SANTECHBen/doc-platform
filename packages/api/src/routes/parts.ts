@@ -374,6 +374,8 @@ function toPwaSection(s: typeof schema.documentSections.$inferSelect): {
   orderingHint: number;
   pageStart: number | null;
   pageEnd: number | null;
+  startY: number | null;
+  endY: number | null;
   textPageHint: number | null;
   anchorExcerpt: string | null;
   anchorContextBefore: string | null;
@@ -390,6 +392,8 @@ function toPwaSection(s: typeof schema.documentSections.$inferSelect): {
     orderingHint: s.orderingHint,
     pageStart: s.pageStart,
     pageEnd: s.pageEnd,
+    startY: s.startY,
+    endY: s.endY,
     textPageHint: s.textPageHint,
     anchorExcerpt: s.anchorExcerpt,
     anchorContextBefore: s.anchorContextBefore,

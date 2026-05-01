@@ -56,6 +56,11 @@ export const documentSections = pgTable(
     // page_range (PDF / DOCX / PPTX / schematic)
     pageStart: integer('page_start'),
     pageEnd: integer('page_end'),
+    // Optional sub-page Y anchors (0..1 fractional). When set, the renderer
+    // crops the start page above startY and the end page below endY. Lets
+    // admins isolate one procedure when multiple share a single page.
+    startY: doublePrecision('start_y'),
+    endY: doublePrecision('end_y'),
 
     // text_range (markdown / structured_procedure / PDF text-layer refinement)
     // Anchor strategy: store the verbatim excerpt + ~200 chars of surrounding

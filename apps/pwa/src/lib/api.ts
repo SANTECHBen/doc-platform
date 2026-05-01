@@ -336,6 +336,10 @@ export interface PwaDocumentSection {
   orderingHint: number;
   pageStart: number | null;
   pageEnd: number | null;
+  /** 0..1 fractional crop on the first page (top-down). null = no crop. */
+  startY: number | null;
+  /** 0..1 fractional crop on the last page (top-down). null = no crop. */
+  endY: number | null;
   textPageHint: number | null;
   anchorExcerpt: string | null;
   anchorContextBefore: string | null;

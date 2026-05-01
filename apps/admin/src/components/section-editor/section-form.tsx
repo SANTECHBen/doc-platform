@@ -48,6 +48,8 @@ export function SectionForm({
 
   const [pageStart, setPageStart] = useState<number>(editing?.pageStart ?? 1);
   const [pageEnd, setPageEnd] = useState<number>(editing?.pageEnd ?? 1);
+  const [startY, setStartY] = useState<number | null>(editing?.startY ?? null);
+  const [endY, setEndY] = useState<number | null>(editing?.endY ?? null);
 
   const [anchorExcerpt, setAnchorExcerpt] = useState(editing?.anchorExcerpt ?? '');
   const [anchorContextBefore, setAnchorContextBefore] = useState(
@@ -106,7 +108,25 @@ export function SectionForm({
         setError('pageStart must be >= 1 and pageEnd must be >= pageStart.');
         return null;
       }
-      return { kind: 'page_range', ...common, pageStart, pageEnd };
+      if (
+        pageStart === pageEnd &&
+        startY != null &&
+        endY != null &&
+        startY >= endY
+      ) {
+        setError(
+          'When start and end pages are the same, the start cut must be above the end cut.',
+        );
+        return null;
+      }
+      return {
+        kind: 'page_range',
+        ...common,
+        pageStart,
+        pageEnd,
+        startY,
+        endY,
+      };
     }
     if (kind === 'text_range') {
       if (!anchorExcerpt.trim()) {
@@ -186,9 +206,13 @@ export function SectionForm({
               doc={doc}
               pageStart={pageStart}
               pageEnd={pageEnd}
-              onChange={(s, e) => {
-                setPageStart(s);
-                setPageEnd(e);
+              startY={startY}
+              endY={endY}
+              onChange={(v) => {
+                setPageStart(v.pageStart);
+                setPageEnd(v.pageEnd);
+                setStartY(v.startY);
+                setEndY(v.endY);
               }}
             />
           )}

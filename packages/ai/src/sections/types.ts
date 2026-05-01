@@ -21,6 +21,10 @@ export interface DocumentSectionDTO {
   // page_range
   pageStart: number | null;
   pageEnd: number | null;
+  /** Optional fractional Y crop on the first page (0..1). */
+  startY: number | null;
+  /** Optional fractional Y crop on the last page (0..1). */
+  endY: number | null;
 
   // text_range
   textPageHint: number | null;
@@ -51,6 +55,10 @@ export type DocumentSectionCreateInput =
       orderingHint?: number;
       pageStart: number;
       pageEnd: number;
+      /** Optional fractional Y crop on the first page (0..1). */
+      startY?: number | null;
+      /** Optional fractional Y crop on the last page (0..1). */
+      endY?: number | null;
     }
   | {
       kind: 'text_range';

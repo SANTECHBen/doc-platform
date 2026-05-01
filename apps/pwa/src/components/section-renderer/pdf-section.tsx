@@ -174,9 +174,35 @@ function PdfSectionPage({
     };
   }, [pdf, pageNumber, section]);
 
+  // Compute the Y crop bounds for THIS page. startY applies only to the
+  // first page of the section's range; endY only to the last page. Pages
+  // in between (or the same page when start === end) get both.
+  const isFirstPage = pageNumber === (section.pageStart ?? 1);
+  const isLastPage = pageNumber === (section.pageEnd ?? section.pageStart ?? 1);
+  const cropTop = isFirstPage ? section.startY : null;
+  const cropBottom = isLastPage ? section.endY : null;
+  const hasCrop = cropTop != null || cropBottom != null;
+
+  // CSS clip-path: keep [topPct..bottomPct] vertical band, hide the rest.
+  // top pct = 100 * cropTop, bottom pct = 100 * cropBottom (default 100).
+  const topPct = (cropTop ?? 0) * 100;
+  const bottomPct = (cropBottom ?? 1) * 100;
+  const cropStyle: React.CSSProperties = hasCrop
+    ? {
+        clipPath: `inset(${topPct}% 0 ${100 - bottomPct}% 0)`,
+        WebkitClipPath: `inset(${topPct}% 0 ${100 - bottomPct}% 0)`,
+        // Negative-margin trick: collapse the hidden vertical strips so the
+        // visible band sits flush in its container without empty space.
+        marginTop: `-${topPct}%`,
+        marginBottom: `-${100 - bottomPct}%`,
+      }
+    : {};
+
   return (
-    <PdfPage doc={pdf} pageNumber={pageNumber} scale={1.4} enableTextLayer={false}>
-      {highlightRects.length > 0 && <SectionHighlight rects={highlightRects} />}
-    </PdfPage>
+    <div style={cropStyle}>
+      <PdfPage doc={pdf} pageNumber={pageNumber} scale={1.4} enableTextLayer={false}>
+        {highlightRects.length > 0 && <SectionHighlight rects={highlightRects} />}
+      </PdfPage>
+    </div>
   );
 }

@@ -1370,6 +1370,10 @@ export interface AdminDocumentSection {
   orderingHint: number;
   pageStart: number | null;
   pageEnd: number | null;
+  /** Optional fractional crop on the first page (0..1, top-down). */
+  startY: number | null;
+  /** Optional fractional crop on the last page (0..1, top-down). */
+  endY: number | null;
   textPageHint: number | null;
   anchorExcerpt: string | null;
   anchorContextBefore: string | null;
@@ -1392,6 +1396,8 @@ export type CreateSectionInput =
       orderingHint?: number;
       pageStart: number;
       pageEnd: number;
+      startY?: number | null;
+      endY?: number | null;
     }
   | {
       kind: 'text_range';
@@ -1421,6 +1427,8 @@ export interface UpdateSectionInput {
   orderingHint?: number;
   pageStart?: number;
   pageEnd?: number;
+  startY?: number | null;
+  endY?: number | null;
   anchorExcerpt?: string;
   anchorContextBefore?: string | null;
   anchorContextAfter?: string | null;
