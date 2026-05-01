@@ -12,23 +12,11 @@
 
 import { useEffect, useState } from 'react';
 import { ChevronRight, ListTree } from 'lucide-react';
-import { setupPdfjsWorker, loadDocument, getOutlineEntries, type OutlineEntry } from '@platform/viewer';
+import { loadDocument, getOutlineEntries, type OutlineEntry } from '@platform/viewer';
 
-let workerConfigured = false;
-function ensureWorker() {
-  if (workerConfigured) return;
-  if (typeof window === 'undefined') return;
-  try {
-    const url = new URL(
-      'pdfjs-dist/build/pdf.worker.min.mjs',
-      import.meta.url,
-    ).toString();
-    setupPdfjsWorker(url);
-    workerConfigured = true;
-  } catch {
-    /* fall through */
-  }
-}
+// Outline picker only reads PDF metadata (no page rendering) so we let
+// pdfjs run in-thread via the kernel's disableWorker fallback. Avoids
+// shipping or bundler-resolving a worker file in the admin app.
 
 export function PdfOutlinePicker({
   fileUrl,
@@ -49,7 +37,6 @@ export function PdfOutlinePicker({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    ensureWorker();
     let cancelled = false;
     setLoading(true);
     setError(null);
