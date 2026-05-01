@@ -468,15 +468,25 @@ function BomPanel({ assetModelId }: { assetModelId: string }) {
   return (
     <section className="mt-8">
       <div className="mb-2 flex items-center justify-between">
-        <h2 className="text-xs font-medium uppercase tracking-wide text-ink-tertiary">
-          Bill of materials ({entries?.length ?? 0})
-        </h2>
+        <div>
+          <h2 className="text-xs font-medium uppercase tracking-wide text-ink-tertiary">
+            Bill of materials ({entries?.length ?? 0})
+          </h2>
+          <p className="text-xs text-ink-tertiary">
+            Pulls from the global{' '}
+            <a className="underline" href="/parts">
+              parts catalog
+            </a>{' '}
+            — this list is which parts make up THIS model, with quantity + position.
+          </p>
+        </div>
         <button
           type="button"
           onClick={() => setAddOpen(true)}
           className="btn btn-secondary btn-sm"
+          title="Attach an existing catalog part to this model's BOM"
         >
-          <Plus size={13} strokeWidth={2} /> Add part
+          <Plus size={13} strokeWidth={2} /> Add part to BOM
         </button>
       </div>
 
