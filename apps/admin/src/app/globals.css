@@ -135,7 +135,17 @@
     -webkit-user-select: text;
     user-select: text;
   }
-  ::selection { background: rgba(var(--brand-soft-v), 0.35); }
+  /* High-contrast selection highlight — the prior 0.35-alpha brand-soft was
+     too pale to see on most surfaces, leading users to think selection was
+     broken when it was actually working invisibly. */
+  ::selection {
+    background: rgb(var(--brand) / 0.85);
+    color: rgb(var(--brand-ink));
+  }
+  ::-moz-selection {
+    background: rgb(var(--brand) / 0.85);
+    color: rgb(var(--brand-ink));
+  }
 
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: rgb(var(--surface-inset)); }
