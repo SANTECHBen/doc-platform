@@ -74,6 +74,10 @@ export async function listDocuments(
 
 export interface DocumentBody extends DocumentListItem {
   bodyMarkdown: string | null;
+  /** AI-extracted markdown for binary docs (PDFs etc.). Populated by the
+   *  extraction pipeline. Used by text-range section rendering as the
+   *  reader-friendly text representation when bodyMarkdown isn't set. */
+  extractedText: string | null;
   fileUrl: string | null;
 }
 

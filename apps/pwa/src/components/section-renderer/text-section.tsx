@@ -22,7 +22,11 @@ export function TextSection({
   doc: DocumentBody;
   section: PwaDocumentSection;
 }): React.ReactElement {
-  const source = doc.bodyMarkdown ?? '';
+  // bodyMarkdown for hand-authored markdown / structured procedures;
+  // extractedText for AI-extracted PDFs / DOCX / PPTX. Strip page markers
+  // so they don't render as visible HTML comments mid-paragraph.
+  const rawSource = doc.bodyMarkdown ?? doc.extractedText ?? '';
+  const source = rawSource.replace(/<!--\s*page:\d+\s*-->\s*/g, '');
   const excerpt = section.anchorExcerpt ?? '';
 
   const slice = useMemo<{ before: string; match: string; after: string } | null>(() => {
