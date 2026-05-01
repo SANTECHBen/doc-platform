@@ -50,15 +50,53 @@ function SectionBody({ doc, section }: SectionRendererProps): React.ReactElement
   if (section.kind === 'page_range') {
     return <PdfSection doc={doc} section={section} />;
   }
-  if (section.kind === 'text_range') {
-    if (doc.kind === 'pdf') {
-      // PDF text-range — render the PDF page (text_page_hint or pageStart fallback)
-      // with an excerpt highlight. PdfSection handles both.
-      return <PdfSection doc={doc} section={section} />;
-    }
-    return <TextSection doc={doc} section={section} />;
+  if (section.kind === 'time_range') {
+    return <VideoSection doc={doc} section={section} />;
   }
-  return <VideoSection doc={doc} section={section} />;
+  // text_range: always show the verbatim excerpt as a styled callout up top
+  // (so the tech sees the exact text the admin selected, regardless of
+  // whether the PDF text-layer highlight lands). For PDF source docs we ALSO
+  // render the original page below for visual context. For markdown sources
+  // the TextSection already handles its own surrounding-context render.
+  if (doc.kind === 'pdf') {
+    return (
+      <div className="flex flex-col gap-3">
+        <ExcerptCallout section={section} />
+        <PdfSection doc={doc} section={section} />
+      </div>
+    );
+  }
+  return <TextSection doc={doc} section={section} />;
+}
+
+function ExcerptCallout({ section }: { section: PwaDocumentSection }): React.ReactElement | null {
+  const excerpt = section.anchorExcerpt;
+  if (!excerpt) return null;
+  const before = section.anchorContextBefore?.trim();
+  const after = section.anchorContextAfter?.trim();
+  return (
+    <div className="mx-4 rounded-md border-l-4 border-brand bg-brand/5 px-4 py-3">
+      <p className="caption mb-1 text-ink-tertiary">From the manual</p>
+      <p className="text-base leading-relaxed text-ink-primary">
+        {before && (
+          <span className="text-ink-tertiary">…{tail(before, 80)} </span>
+        )}
+        <span className="rounded bg-yellow-200/40 px-0.5 font-medium text-ink-primary">
+          {excerpt}
+        </span>
+        {after && (
+          <span className="text-ink-tertiary"> {head(after, 80)}…</span>
+        )}
+      </p>
+    </div>
+  );
+}
+
+function tail(s: string, n: number): string {
+  return s.length > n ? '…' + s.slice(s.length - n) : s;
+}
+function head(s: string, n: number): string {
+  return s.length > n ? s.slice(0, n) + '…' : s;
 }
 
 function anchorSummary(s: PwaDocumentSection): string {
