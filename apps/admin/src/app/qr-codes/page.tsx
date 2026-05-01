@@ -206,13 +206,26 @@ export default function QrCodesPage() {
               value={selectedInstanceId}
               onChange={(e) => setSelectedInstanceId(e.target.value)}
               className="rounded border border-line bg-surface-raised px-2 py-1.5"
+              disabled={visibleInstances.length === 0}
             >
+              {visibleInstances.length === 0 && (
+                <option value="">— no asset instances available —</option>
+              )}
               {visibleInstances.map((i) => (
                 <option key={i.id} value={i.id}>
                   {i.assetModel.displayName} · {i.serialNumber} · {i.site.name}
                 </option>
               ))}
             </select>
+            {visibleInstances.length === 0 && instances !== null && (
+              <span className="mt-1 text-xs text-signal-warn">
+                You need at least one asset instance to mint a QR. Open{' '}
+                <a href="/asset-models" className="underline">
+                  Asset models
+                </a>
+                , pick the model, then add an instance with a site and serial number.
+              </span>
+            )}
           </label>
           <label className="flex flex-1 min-w-[180px] flex-col gap-1 text-sm">
             <span className="text-ink-secondary">Caption (shown on label)</span>
