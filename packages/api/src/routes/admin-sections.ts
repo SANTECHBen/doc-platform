@@ -317,11 +317,10 @@ export async function registerAdminSections(app: FastifyInstance) {
       const scope = await getScope(request, db);
       const ctx = await loadDocumentForWrite(db, request.params.documentId, scope);
       if (!ctx) return reply.notFound();
-      if (!ctx.isDraft) {
-        return reply.badRequest(
-          'Cannot create sections on a published version. Create a new draft version.',
-        );
-      }
+      // Sections are additive overlays — adding/editing them on a published
+      // version is intentionally allowed. Existing techs scanning a part see
+      // any newly-linked sections immediately, which is the desired behavior
+      // for incremental documentation improvements.
       const body = request.body;
 
       // Per-kind validation that goes beyond Zod's discriminated union.
@@ -409,9 +408,7 @@ export async function registerAdminSections(app: FastifyInstance) {
       const scope = await getScope(request, db);
       const ctx = await loadSectionForWrite(db, request.params.sectionId, scope);
       if (!ctx) return reply.notFound();
-      if (!ctx.isDraft) {
-        return reply.badRequest('Cannot edit sections on a published version.');
-      }
+      // Allowed on published versions — see PATCH note above.
       const b = request.body;
       const patch: Record<string, unknown> = { updatedAt: new Date() };
 
@@ -508,9 +505,7 @@ export async function registerAdminSections(app: FastifyInstance) {
       const scope = await getScope(request, db);
       const ctx = await loadSectionForWrite(db, request.params.sectionId, scope);
       if (!ctx) return reply.notFound();
-      if (!ctx.isDraft) {
-        return reply.badRequest('Cannot delete sections on a published version.');
-      }
+      // Allowed on published versions — sections are additive overlays.
       await db
         .delete(schema.documentSections)
         .where(eq(schema.documentSections.id, ctx.section.id));
@@ -591,9 +586,7 @@ export async function registerAdminSections(app: FastifyInstance) {
       const scope = await getScope(request, db);
       const ctx = await loadSectionForWrite(db, request.params.sectionId, scope);
       if (!ctx) return reply.notFound();
-      if (!ctx.isDraft) {
-        return reply.badRequest('Cannot modify section links on a published version.');
-      }
+      // Allowed on published versions — section ↔ part links are additive.
       const wanted = new Set(request.body.partIds);
 
       if (wanted.size > 0) {

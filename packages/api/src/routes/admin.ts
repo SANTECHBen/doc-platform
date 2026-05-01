@@ -2376,11 +2376,13 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
       });
       if (!version) return reply.notFound();
       requireOrgInScope(scope, version.pack.ownerOrganizationId);
-      if (version.status !== 'draft') {
-        return reply.badRequest(
-          `Cannot add documents to a ${version.status} version. Open a new draft first.`,
-        );
-      }
+      // Adding a new document to a published version is allowed — it's
+      // additive content. Existing techs scanning their pinned version see
+      // the new doc on next refresh, which is the desired behavior for
+      // incremental documentation. Edit/replace/delete of EXISTING docs on
+      // published versions still requires a new draft (handled in those
+      // routes specifically) since those mutations break what techs already
+      // see at scan-time.
 
       // Require that the kind has the right payload. Prevents orphan rows with
       // no renderable content.

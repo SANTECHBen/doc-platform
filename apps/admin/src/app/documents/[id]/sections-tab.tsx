@@ -118,17 +118,17 @@ export function SectionsTab({
       <ErrorBanner error={error} />
 
       {isPublished && (
-        <div className="flex items-start gap-3 rounded-md border border-signal-warn/40 bg-signal-warn/10 px-4 py-3 text-sm">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-signal-warn" />
+        <div className="flex items-start gap-3 rounded-md border border-signal-info/40 bg-signal-info/10 px-4 py-3 text-sm">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-signal-info" />
           <div className="flex-1">
-            <p className="font-medium text-signal-warn">
-              This content pack version is published — sections are read-only.
+            <p className="font-medium text-signal-info">
+              This pack version is published — sections you add or edit go live to techs
+              immediately.
             </p>
             <p className="mt-0.5 text-ink-secondary">
-              Open <Link href={`/content-packs/${doc.contentPackId}`} className="underline">
-              {doc.contentPackName}</Link> and click <strong>New draft version</strong> to
-              author sections. Existing sections stay attached to v
-              {doc.contentPackVersionNumber}.
+              Sections are additive overlays, so authoring on a published version is
+              allowed. Document file replacements (new uploads, deletes) still require a
+              new draft.
             </p>
           </div>
         </div>
@@ -139,11 +139,9 @@ export function SectionsTab({
           Sections are admin-authored anchors on this document. Each section can be linked
           to one or more parts; technicians scanning a part QR see only its linked sections.
         </p>
-        {!isPublished && (
-          <PrimaryButton type="button" onClick={openCreate}>
-            <Plus className="size-4" /> Add section
-          </PrimaryButton>
-        )}
+        <PrimaryButton type="button" onClick={openCreate}>
+          <Plus className="size-4" /> Add section
+        </PrimaryButton>
       </div>
 
       {sections.length === 0 ? (
@@ -154,11 +152,9 @@ export function SectionsTab({
             video time range — that you link to specific parts. When a tech scans a part
             QR, only its linked sections render.
           </p>
-          {!isPublished && (
-            <PrimaryButton type="button" onClick={openCreate} className="mt-2">
-              <Plus className="size-4" /> Add your first section
-            </PrimaryButton>
-          )}
+          <PrimaryButton type="button" onClick={openCreate} className="mt-2">
+            <Plus className="size-4" /> Add your first section
+          </PrimaryButton>
         </div>
       ) : (
         <ul className="space-y-2">
@@ -235,26 +231,22 @@ function SectionRow({
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {!isPublished && (
-            <>
-              <button
-                type="button"
-                onClick={onEdit}
-                className="rounded p-1.5 text-ink-tertiary hover:bg-surface hover:text-ink-primary"
-                aria-label="Edit"
-              >
-                <Pencil className="size-4" />
-              </button>
-              <button
-                type="button"
-                onClick={onDelete}
-                className="rounded p-1.5 text-ink-tertiary hover:bg-signal-fault/10 hover:text-signal-fault"
-                aria-label="Delete"
-              >
-                <Trash2 className="size-4" />
-              </button>
-            </>
-          )}
+          <button
+            type="button"
+            onClick={onEdit}
+            className="rounded p-1.5 text-ink-tertiary hover:bg-surface hover:text-ink-primary"
+            aria-label="Edit"
+          >
+            <Pencil className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            className="rounded p-1.5 text-ink-tertiary hover:bg-signal-fault/10 hover:text-signal-fault"
+            aria-label="Delete"
+          >
+            <Trash2 className="size-4" />
+          </button>
         </div>
       </div>
     </li>
