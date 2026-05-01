@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Field, SecondaryButton, TextInput } from '@/components/form';
 import type { AdminDocumentDetail } from '@/lib/api';
+import { PdfOutlinePicker } from './pdf-outline-picker';
 
 // Page range picker — numeric inputs for start/end pages plus an optional
 // "Refine boundaries" panel for sub-page Y crops. Use Y crops when a
@@ -24,6 +25,7 @@ export function PageRangePicker({
   startY,
   endY,
   onChange,
+  onSuggestTitle,
 }: {
   doc: AdminDocumentDetail;
   pageStart: number;
@@ -36,6 +38,9 @@ export function PageRangePicker({
     startY: number | null;
     endY: number | null;
   }) => void;
+  /** Called when the admin picks an outline entry — the entry's title is
+   *  a strong default for the section title. Parent can prefill if empty. */
+  onSuggestTitle?: (title: string) => void;
 }) {
   const [refineOpen, setRefineOpen] = useState(startY != null || endY != null);
 
@@ -57,6 +62,21 @@ export function PageRangePicker({
 
   return (
     <div className="flex h-full flex-col gap-3">
+      {doc.fileUrl && doc.kind === 'pdf' && (
+        <PdfOutlinePicker
+          fileUrl={doc.fileUrl}
+          onPick={(picked) => {
+            onChange({
+              pageStart: picked.pageStart,
+              pageEnd: picked.pageEnd,
+              startY: picked.startY,
+              endY: picked.endY,
+            });
+            onSuggestTitle?.(picked.title);
+          }}
+        />
+      )}
+
       <div className="grid grid-cols-2 gap-4">
         <Field label="From page" required>
           <TextInput

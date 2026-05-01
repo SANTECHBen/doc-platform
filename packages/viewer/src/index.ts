@@ -8,10 +8,12 @@ export {
   renderPageToCanvas,
   getPageTextLayer,
   rangeToPageOffsets,
+  getOutlineEntries,
   type LoadDocumentOptions,
   type PageDimensions,
   type PageTextLayer,
   type TextRun,
+  type OutlineEntry,
   type PDFDocumentProxy,
   type PDFPageProxy,
 } from './pdf-kernel.js';

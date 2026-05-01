@@ -293,6 +293,117 @@ function locateOffset(
   return run.charStart + Math.min(offsetInNode, run.text.length);
 }
 
+// ---------------------------------------------------------------------------
+// Outline (TOC bookmarks)
+// ---------------------------------------------------------------------------
+
+/**
+ * Flattened outline entry — a section/chapter from the PDF's built-in
+ * outline tree (what a user sees in Acrobat/pdfjs's sidebar). `pageNumber`
+ * is 1-indexed; `yFraction` is 0..1 from top of page (0 = top, 1 = bottom).
+ */
+export interface OutlineEntry {
+  /** Display title of the entry — e.g. "4.11 Debris Detection Device Adjustment". */
+  title: string;
+  /** Depth in the outline tree (0 = top-level). */
+  depth: number;
+  /** 1-indexed page where this section starts. null if dest can't resolve. */
+  pageNumber: number | null;
+  /** 0..1 fractional Y on that page where this section starts. null if N/A. */
+  yFraction: number | null;
+}
+
+/**
+ * Load + flatten the PDF's outline (TOC bookmarks). Returns a depth-ordered
+ * list of entries with resolved page/Y positions. Returns [] if the PDF
+ * has no outline.
+ */
+export async function getOutlineEntries(
+  pdf: PDFDocumentProxy,
+): Promise<OutlineEntry[]> {
+  const tree = await pdf.getOutline();
+  if (!tree || tree.length === 0) return [];
+
+  const out: OutlineEntry[] = [];
+  // Walk depth-first, pushing one entry per node.
+  async function walk(
+    nodes: Awaited<ReturnType<PDFDocumentProxy['getOutline']>>,
+    depth: number,
+  ): Promise<void> {
+    if (!nodes) return;
+    for (const node of nodes) {
+      const resolved = await resolveDest(pdf, node.dest);
+      out.push({
+        title: node.title,
+        depth,
+        pageNumber: resolved?.pageNumber ?? null,
+        yFraction: resolved?.yFraction ?? null,
+      });
+      if (node.items && node.items.length > 0) {
+        await walk(node.items, depth + 1);
+      }
+    }
+  }
+  await walk(tree, 0);
+  return out;
+}
+
+/**
+ * Resolve a pdfjs outline destination (string ref or explicit array) to a
+ * page number + fractional Y on the page. Returns null when the dest
+ * doesn't carry enough info (no page, or unrecognized form).
+ */
+async function resolveDest(
+  pdf: PDFDocumentProxy,
+  dest: string | unknown[] | null,
+): Promise<{ pageNumber: number; yFraction: number | null } | null> {
+  if (!dest) return null;
+  let arr: unknown[] | null = null;
+  if (typeof dest === 'string') {
+    const resolved = await pdf.getDestination(dest);
+    if (!resolved) return null;
+    arr = resolved as unknown[];
+  } else if (Array.isArray(dest)) {
+    arr = dest;
+  }
+  if (!arr || arr.length === 0) return null;
+
+  // arr[0] is a pageRef; turn into a 1-indexed page number.
+  let pageIndex: number;
+  try {
+    pageIndex = await pdf.getPageIndex(arr[0] as Parameters<typeof pdf.getPageIndex>[0]);
+  } catch {
+    return null;
+  }
+  const pageNumber = pageIndex + 1;
+
+  // arr[1] is the destination "type". Common cases:
+  //   ['XYZ', x, y, zoom] — pdfjs y is in PDF coords (bottom-up), so to
+  //     get top-down fraction we need the page height.
+  //   ['Fit'] — fits whole page; no Y. Treat as start of page.
+  //   ['FitH', y] — y is in PDF coords (bottom-up).
+  //   Others — fall through to start of page.
+  const type = (arr[1] as { name?: string } | undefined)?.name;
+  let pdfY: number | null = null;
+  if (type === 'XYZ' && typeof arr[3] === 'number') pdfY = arr[3];
+  else if (type === 'FitH' && typeof arr[2] === 'number') pdfY = arr[2];
+  else if (type === 'FitV' || type === 'Fit') pdfY = null;
+
+  if (pdfY == null) return { pageNumber, yFraction: 0 };
+
+  // Convert PDF coords (origin bottom-left, y up) to top-down fraction.
+  let pageHeight: number;
+  try {
+    const page = await pdf.getPage(pageNumber);
+    const v = page.getViewport({ scale: 1 });
+    pageHeight = v.height;
+  } catch {
+    return { pageNumber, yFraction: 0 };
+  }
+  const yFraction = Math.max(0, Math.min(1, (pageHeight - pdfY) / pageHeight));
+  return { pageNumber, yFraction };
+}
+
 // Re-export pdfjs types the host components need without forcing them to
 // import from pdfjs-dist directly.
 export type { PDFDocumentProxy, PDFPageProxy };

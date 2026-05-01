@@ -214,6 +214,9 @@ export function SectionForm({
                 setStartY(v.startY);
                 setEndY(v.endY);
               }}
+              onSuggestTitle={(t) => {
+                if (!title.trim()) setTitle(t);
+              }}
             />
           )}
           {kind === 'text_range' && (
