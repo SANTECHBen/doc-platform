@@ -160,19 +160,39 @@ export async function registerPartsRoutes(app: FastifyInstance) {
         };
       }
 
-      // Join part_documents → documents → filter to pinned version. Same for
-      // training. Two small queries — fine at this scale; if it grows we can
-      // fold into a single JOIN.
-      const [docLinks, moduleLinks] = await Promise.all([
+      // Doc-level part links (legacy partDocuments) AND section-level
+      // part links (new partDocumentSections). A doc is reachable if EITHER
+      // path links it to this part. Without the section path here, sections
+      // would be invisible for docs that were never linked at the legacy
+      // doc level — which is exactly the typical sections-only authoring
+      // workflow.
+      const [docLinks, sectionLinks, moduleLinks] = await Promise.all([
         db.query.partDocuments.findMany({
           where: eq(schema.partDocuments.partId, partId),
+        }),
+        db.query.partDocumentSections.findMany({
+          where: eq(schema.partDocumentSections.partId, partId),
         }),
         db.query.partTrainingModules.findMany({
           where: eq(schema.partTrainingModules.partId, partId),
         }),
       ]);
 
-      const docIds = [...new Set(docLinks.map((l) => l.documentId))];
+      // Resolve section-link target documents to widen the candidate pool.
+      const sectionLinkIds = [...new Set(sectionLinks.map((l) => l.documentSectionId))];
+      const sectionRowsForLinks =
+        sectionLinkIds.length > 0
+          ? await db.query.documentSections.findMany({
+              where: inArray(schema.documentSections.id, sectionLinkIds),
+            })
+          : [];
+      const docIdsFromSectionLinks = [
+        ...new Set(sectionRowsForLinks.map((s) => s.documentId)),
+      ];
+
+      const docIds = [
+        ...new Set([...docLinks.map((l) => l.documentId), ...docIdsFromSectionLinks]),
+      ];
       const moduleIds = [...new Set(moduleLinks.map((l) => l.trainingModuleId))];
 
       const [linkedDocs, linkedModules] = await Promise.all([
