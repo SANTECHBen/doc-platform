@@ -124,7 +124,14 @@
        reset combinations apply user-select: none transitively; this is the
        belt-and-suspenders default. Components that explicitly need to
        suppress selection (e.g., side-nav buttons) can add `select-none`
-       on the specific element. */
+       on the specific element. !important to win against any inherited
+       Tailwind utility or library-injected rule. */
+    -webkit-user-select: text !important;
+    user-select: text !important;
+  }
+  /* Make sure the document tree (html, root container) doesn't suppress
+     selection either — defensive against transitive inheritance. */
+  html {
     -webkit-user-select: text;
     user-select: text;
   }
