@@ -1,6 +1,24 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Workspace TS packages consumed at runtime — Next must transpile these
+  // because they ship as .ts/.tsx source (no build step). Without this,
+  // webpack resolves `./components/pdf-page.js` literally and fails — the
+  // actual file is `.tsx`. Discovered after every PWA deploy for 11 hours
+  // failed with this exact error and reverted to a pre-sections build.
+  transpilePackages: ['@platform/viewer'],
+  // The viewer package writes ESM-style `.js` import suffixes in its source
+  // (Node ESM convention), but the actual files are `.tsx`/`.ts`. Webpack
+  // doesn't natively rewrite the suffix — extensionAlias makes it try .tsx
+  // and .ts before .js so the workspace package resolves cleanly.
+  webpack: (config) => {
+    config.resolve.extensionAlias = {
+      ...(config.resolve.extensionAlias ?? {}),
+      '.js': ['.tsx', '.ts', '.js'],
+      '.jsx': ['.tsx', '.jsx'],
+    };
+    return config;
+  },
   experimental: {
     // typedRoutes: true,
   },
