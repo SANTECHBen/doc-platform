@@ -1048,7 +1048,18 @@ function PartDocView({
   sections: PwaDocumentSection[] | null;
   onBack: () => void;
 }) {
+  // Sections-aware render decision. Logged client-side so we can diagnose
+  // missing-section reports from real techs without server-side context.
   const sectionMode = sections != null && sections.length > 0;
+  if (typeof window !== 'undefined') {
+    // eslint-disable-next-line no-console
+    console.log('[PartDocView]', {
+      docId: doc.id,
+      docKind: doc.kind,
+      sectionsArg: sections,
+      sectionMode,
+    });
+  }
   const isFramed =
     !sectionMode &&
     (doc.kind === 'pdf' ||
