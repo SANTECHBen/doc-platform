@@ -25,10 +25,18 @@ import {
 import { SectionForm } from '@/components/section-editor/section-form';
 
 // Map document.kind → which section kinds make sense for it.
+//
+// text_range was previously offered for PDF and markdown sources but the
+// match between AI-extracted markdown and the original document was
+// fragile — and didn't solve the real authoring need (cropping within a
+// page when a procedure ends mid-page). It's now hidden from authoring
+// for PDFs; markdown/structured_procedure still get it because that's
+// their only sensible section kind. Existing text_range rows in the DB
+// remain readable (PWA still renders them); just no new ones via UI.
 function allowedSectionKinds(docKind: AdminDocumentDetail['kind']): DocumentSectionKind[] {
   switch (docKind) {
     case 'pdf':
-      return ['page_range', 'text_range'];
+      return ['page_range'];
     case 'schematic':
     case 'slides':
       return ['page_range'];
