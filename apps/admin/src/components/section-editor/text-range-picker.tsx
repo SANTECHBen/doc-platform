@@ -93,22 +93,21 @@ export function TextRangePicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function captureSelection() {
-    setWarning(null);
-    const r = livePreview ?? readSelection();
-    if (!r) {
-      setWarning('Highlight some text in the source pane first.');
-      return;
-    }
-    const { start, end } = r;
+  // Build the captured anchor object for a given selection range. Pure —
+  // returns null on too-short selections so callers can show a warning.
+  function buildCaptureFromRange(
+    start: number,
+    end: number,
+  ): {
+    excerpt: string;
+    contextBefore: string;
+    contextAfter: string;
+    pageHint: number | null;
+  } | null {
     const excerpt = sourceText.slice(start, end);
-    if (excerpt.length < 8) {
-      setWarning('Selection is too short. Pick at least a full phrase.');
-      return;
-    }
+    if (excerpt.length < 8) return null;
     const before = sourceText.slice(Math.max(0, start - CONTEXT_CHARS), start);
     const after = sourceText.slice(end, end + CONTEXT_CHARS);
-
     let pageHint: number | null = null;
     if (hasMarkers) {
       const re = /<!--\s*page:(\d+)\s*-->/g;
@@ -120,8 +119,41 @@ export function TextRangePicker({
       }
       pageHint = lastMatchedPage;
     }
+    return { excerpt, contextBefore: before, contextAfter: after, pageHint };
+  }
 
-    onChange({ excerpt, contextBefore: before, contextAfter: after, pageHint });
+  // Auto-capture: when the user releases the mouse anywhere with a valid
+  // selection inside the source pane, push the anchor up to the parent.
+  // No "Capture selection" click required. The explicit button stays as a
+  // manual fallback for keyboard-only selection.
+  useEffect(() => {
+    function onMouseUp() {
+      const r = readSelection();
+      if (!r) return;
+      const captured = buildCaptureFromRange(r.start, r.end);
+      if (captured) {
+        setWarning(null);
+        onChange(captured);
+      }
+    }
+    document.addEventListener('mouseup', onMouseUp);
+    return () => document.removeEventListener('mouseup', onMouseUp);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceText, hasMarkers]);
+
+  function captureSelection() {
+    setWarning(null);
+    const r = livePreview ?? readSelection();
+    if (!r) {
+      setWarning('Highlight some text in the source pane first.');
+      return;
+    }
+    const captured = buildCaptureFromRange(r.start, r.end);
+    if (!captured) {
+      setWarning('Selection is too short. Pick at least a full phrase.');
+      return;
+    }
+    onChange(captured);
   }
 
   if (!sourceText) {
@@ -139,8 +171,8 @@ export function TextRangePicker({
         label="Source text"
         hint={
           hasMarkers
-            ? 'Click into the pane, drag to highlight a phrase, then "Capture selection". Page hint is auto-detected from markers.'
-            : 'Click into the pane, drag to highlight a phrase, then "Capture selection".'
+            ? 'Drag to highlight a phrase — it is captured automatically when you release. Page hint is auto-detected from `<!-- page:N -->` markers.'
+            : 'Drag to highlight a phrase — it is captured automatically when you release the mouse.'
         }
       >
         <pre
