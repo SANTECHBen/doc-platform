@@ -247,6 +247,33 @@ export async function registerPartsRoutes(app: FastifyInstance) {
         sectionsByDoc.set(s.documentId, arr);
       }
 
+      // Diagnostic: log the section-resolution decision per doc so we can
+      // debug missing sections from production logs without a debugger.
+      app.log.info(
+        {
+          partId,
+          assetInstanceId: instance.id,
+          pinnedVersionId,
+          docLinkCount: docLinks.length,
+          sectionLinkCount: sectionLinks.length,
+          sectionLinkIds: [...sectionLinks.map((l) => l.documentSectionId)],
+          docIdsConsidered: docIds,
+          docsForVersion: docsForVersion.map((d) => ({
+            id: d.id,
+            title: d.title,
+            cpvId: d.contentPackVersionId,
+            sectionsOnDoc: sectionsByDoc.get(d.id)?.length ?? 0,
+            sectionsLinkedToPart: (sectionsByDoc.get(d.id) ?? []).filter((s) =>
+              linkedSectionIds.has(s.id),
+            ).length,
+            anyFlaggedForRevalidation: (sectionsByDoc.get(d.id) ?? []).some(
+              (s) => s.needsRevalidation,
+            ),
+          })),
+        },
+        'parts/resources section resolution',
+      );
+
       const documents = docsForVersion
         .map((d) => {
           const allSections = sectionsByDoc.get(d.id) ?? [];
