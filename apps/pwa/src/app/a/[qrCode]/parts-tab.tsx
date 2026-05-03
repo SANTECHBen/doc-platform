@@ -16,7 +16,6 @@ import {
   Paperclip,
   Presentation,
   Search,
-  ShieldAlert,
   Video,
   Wrench,
   X,
@@ -543,7 +542,6 @@ function PartDetailOverlay({
         {PART_TABS.map((t) => {
           const Icon = t.icon;
           const isActive = active === t.key;
-          const count = partTabCount(data, t.key);
           return (
             <button
               key={t.key}
@@ -556,9 +554,6 @@ function PartDetailOverlay({
             >
               <Icon size={22} strokeWidth={isActive ? 2.25 : 1.75} />
               <span>{t.label}</span>
-              {count !== null && count > 0 && (
-                <span className="app-tabbar-count tabular-nums">{count}</span>
-              )}
             </button>
           );
         })}
@@ -583,20 +578,6 @@ function PartDetailOverlay({
       )}
     </div>
   );
-}
-
-function partTabCount(data: PartResources | null, key: PartTabKey): number | null {
-  if (!data) return null;
-  switch (key) {
-    case 'documents':
-      return data.documents.length;
-    case 'components':
-      return data.components.length;
-    case 'training':
-      return data.trainingModules.length;
-    default:
-      return null;
-  }
 }
 
 // Matches the equipment-page nameplate shell: milled-aluminum plate with
@@ -876,7 +857,6 @@ type DocEntry = {
   title: string;
   subtitle: string;
   kind: string;
-  safetyCritical: boolean;
   // What gets passed to PartDocView. A single-element array scopes the
   // viewer to one section; null = render the full document (legacy docs
   // with no sections defined).
@@ -908,7 +888,6 @@ function PartDocumentsPane({
         subtitle:
           kindLabel(d.kind) + (d.language !== 'en' ? ` · ${d.language.toUpperCase()}` : ''),
         kind: d.kind,
-        safetyCritical: d.safetyCritical,
         sections: d.sections,
         sortKey: [d.orderingHint, 0],
       }];
@@ -919,7 +898,6 @@ function PartDocumentsPane({
       title: s.title || 'Untitled section',
       subtitle: d.title,
       kind: d.kind,
-      safetyCritical: d.safetyCritical || s.safetyCritical,
       sections: [s],
       sortKey: [d.orderingHint, s.orderingHint] as [number, number],
     }));
@@ -959,12 +937,6 @@ function PartDocumentsPane({
                   {e.subtitle}
                 </div>
               </div>
-              {e.safetyCritical && (
-                <span className="pill pill-safety">
-                  <ShieldAlert size={10} strokeWidth={2.5} />
-                  Safety
-                </span>
-              )}
               <ChevronRight size={16} strokeWidth={2} className="shrink-0 text-ink-tertiary" />
             </button>
           </li>

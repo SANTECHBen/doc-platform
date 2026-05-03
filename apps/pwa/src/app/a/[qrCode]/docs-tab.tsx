@@ -108,12 +108,6 @@ export function DocsTab({ versionId }: { versionId: string | null }) {
                     </span>
                   </div>
                 )}
-                {d.safetyCritical && (
-                  <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-sm bg-signal-safety/15 px-2 py-0.5 text-caption font-semibold uppercase text-signal-safety backdrop-blur-sm">
-                    <ShieldAlert size={11} strokeWidth={2.5} />
-                    Safety
-                  </span>
-                )}
               </div>
               <div className="flex flex-1 flex-col gap-2 p-4">
                 <span className="inline-flex items-center gap-1.5 caption">

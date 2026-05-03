@@ -79,7 +79,6 @@ function TabBar({
       {TABS.map((t) => {
         const Icon = t.icon;
         const isActive = active === t.key;
-        const count = countFor(hub, t.key);
         return (
           <button
             key={t.key}
@@ -91,9 +90,6 @@ function TabBar({
           >
             <Icon size={22} strokeWidth={isActive ? 2.25 : 1.75} />
             <span>{t.label}</span>
-            {count !== null && count > 0 && (
-              <span className="app-tabbar-count tabular-nums">{count}</span>
-            )}
           </button>
         );
       })}
@@ -115,19 +111,6 @@ function formatInstalledAt(iso: string | null | undefined): string {
   if (!iso) return '—';
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? '—' : INSTALLED_FMT.format(d);
-}
-
-function countFor(hub: AssetHubPayload, key: TabKey): number | null {
-  switch (key) {
-    case 'docs':
-      return hub.tabs.docs.count;
-    case 'training':
-      return hub.tabs.training.count;
-    case 'parts':
-      return hub.tabs.parts.count;
-    default:
-      return null;
-  }
 }
 
 function OverviewSpecs({

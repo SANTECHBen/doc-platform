@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ArrowUp, Camera, ChevronDown, FileText, ShieldAlert, Sparkles, Square, Trash2, X } from 'lucide-react';
+import { ArrowUp, Camera, ChevronDown, FileText, Sparkles, Square, Trash2, X } from 'lucide-react';
 import type { AssetHubPayload } from '@/lib/shared-schema';
 import { streamChat, uploadFile, type ChatCitation, type UploadResult } from '@/lib/api';
 
@@ -473,12 +473,6 @@ function SourcesList({ sources }: { sources: ChatCitation[] }) {
               <div className="flex-1">
                 <div className="source-title">
                   {c.documentTitle}
-                  {c.safetyCritical && (
-                    <span className="pill pill-safety">
-                      <ShieldAlert size={10} strokeWidth={2.5} />
-                      Safety
-                    </span>
-                  )}
                 </div>
                 <div className="source-quote">“{c.quote}”</div>
               </div>

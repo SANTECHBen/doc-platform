@@ -11,7 +11,7 @@
 // section should have been flagged + filtered before reaching here.
 
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, FileText, ShieldAlert } from 'lucide-react';
+import { ChevronDown, ChevronUp, FileText } from 'lucide-react';
 import type { DocumentBody, PwaDocumentSection } from '@/lib/api';
 import { PdfSection } from './pdf-section';
 import { TextSection } from './text-section';
@@ -27,12 +27,6 @@ export function SectionRenderer({ doc, section }: SectionRendererProps): React.R
     <article className="border-b border-line py-5 first:pt-2 last:border-0">
       <header className="mb-2 flex flex-wrap items-center gap-2 px-4">
         <h3 className="text-base font-semibold text-ink-primary">{section.title}</h3>
-        {section.safetyCritical && (
-          <span className="pill pill-safety">
-            <ShieldAlert size={10} strokeWidth={2.5} />
-            Safety
-          </span>
-        )}
         <span className="ml-auto text-xs text-ink-tertiary">
           {anchorSummary(section)}
         </span>
