@@ -35,6 +35,7 @@ import {
 } from '@/lib/api';
 import { ChatTab } from './chat-tab';
 import { SectionRenderer } from '@/components/section-renderer';
+import { RowListSkeleton } from '@/components/skeleton';
 
 interface LightboxTarget {
   src: string;
@@ -116,7 +117,7 @@ export function PartsTab({
         {error}
       </p>
     );
-  if (!rows) return <p className="py-8 text-center text-sm text-ink-tertiary">Loading…</p>;
+  if (!rows) return <RowListSkeleton />;
   if (rows.length === 0)
     return (
       <p className="py-8 text-center text-sm text-ink-tertiary">
@@ -801,7 +802,7 @@ function PartOverviewPane({
   componentCount: number;
 }) {
   if (!part) {
-    return <p className="py-12 text-center text-sm text-ink-tertiary">Loading…</p>;
+    return <RowListSkeleton />;
   }
   return (
     <div className="flex flex-col gap-4">
@@ -877,7 +878,7 @@ function PartDocumentsPane({
   data: PartResources | null;
   onOpenDocument: (id: string, sections: PwaDocumentSection[] | null) => void;
 }) {
-  if (!data) return <p className="py-8 text-center text-sm text-ink-tertiary">Loading…</p>;
+  if (!data) return <RowListSkeleton />;
 
   const entries: DocEntry[] = data.documents.flatMap((d) => {
     if (d.sections == null || d.sections.length === 0) {
@@ -947,7 +948,7 @@ function PartDocumentsPane({
 }
 
 function PartTrainingPane({ data }: { data: PartResources | null }) {
-  if (!data) return <p className="py-8 text-center text-sm text-ink-tertiary">Loading…</p>;
+  if (!data) return <RowListSkeleton />;
   if (data.trainingModules.length === 0) {
     return (
       <p className="py-10 text-center text-sm text-ink-tertiary">

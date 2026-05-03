@@ -33,3 +33,27 @@ export function DocListSkeleton() {
     </ul>
   );
 }
+
+// Matches the row-style cards used by section/training/component lists in
+// the part overlay: bordered surface-raised row with a 18px icon area, a
+// title line, and a meta line. Fades each row slightly so eye lands on
+// the first.
+export function RowListSkeleton({ count = 4 }: { count?: number }) {
+  return (
+    <ul className="flex flex-col gap-1.5">
+      {Array.from({ length: count }).map((_, i) => (
+        <li
+          key={i}
+          className="flex items-center gap-3 rounded-md border border-line bg-surface-raised px-4 py-3"
+          style={{ opacity: 1 - i * 0.15 }}
+        >
+          <Skeleton className="h-[18px] w-[18px] shrink-0" />
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <Skeleton className="h-3.5 w-2/3" />
+            <Skeleton className="h-3 w-1/3" />
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}

@@ -59,6 +59,9 @@
 
   --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* Sticky offset for the top tabbar so it sits below the .app-topbar. */
+  --app-topbar-h: 57px;
 }
 
 /* Light is the default. Dark opts in via [data-theme="dark"]. */
@@ -115,6 +118,9 @@
 
   --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* Sticky offset for the top tabbar so it sits below the .app-topbar. */
+  --app-topbar-h: 57px;
 }
 
 /* =========================================================================
@@ -244,17 +250,27 @@
   -webkit-backdrop-filter: saturate(1.4) blur(14px);
   border-top: 1px solid rgb(var(--line-subtle));
 }
-/* Top variant — sticks under the top app header instead of pinning to viewport bottom. */
+/* Top variant — sticks UNDER the top app header. The topbar itself uses
+   position:sticky; top:0 with z-index:40, so the tabbar sits below it
+   spatially by offsetting top by --app-topbar-h. */
 .app-tabbar.app-tabbar-top {
   position: sticky;
-  top: 0;
+  top: var(--app-topbar-h);
   bottom: auto;
   padding: 6px 4px;
   border-top: none;
   border-bottom: 1px solid rgb(var(--line-subtle));
+  z-index: 30;
 }
 .app-tabbar.app-tabbar-top .app-tabbar-item[data-active='true']::before {
   inset: auto 12% 4px 12%;
+}
+
+/* Density: comfortable mode bumps html font-size ~12.5% so every
+   rem-based dimension (Tailwind defaults, paddings, gaps, font sizes)
+   scales up. Designed for techs in PPE/gloves. Compact is the default. */
+:root[data-density='comfortable'] {
+  font-size: 18px;
 }
 .app-tabbar-item {
   display: flex;

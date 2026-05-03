@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google';
 import { ToastProvider } from '@/components/toast';
 import { themeBootScript } from '@/components/theme-toggle';
+import { densityBootScript } from '@/components/density-toggle';
 import './globals.css';
 
 const sans = IBM_Plex_Sans({
@@ -53,6 +54,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
+        <script dangerouslySetInnerHTML={{ __html: densityBootScript }} />
       </head>
       <body className="min-h-screen bg-surface-base font-sans text-ink-primary antialiased">
         <ToastProvider>{children}</ToastProvider>

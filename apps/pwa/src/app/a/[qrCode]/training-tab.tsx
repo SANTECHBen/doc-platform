@@ -13,6 +13,7 @@ import {
   type TrainingModuleDetail,
   type QuizResult,
 } from '@/lib/api';
+import { RowListSkeleton } from '@/components/skeleton';
 
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
 const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
@@ -47,7 +48,7 @@ export function TrainingTab({ hub }: { hub: AssetHubPayload }) {
     );
   }
   if (error) return <p className="py-6 text-center text-sm text-rose-300">{error}</p>;
-  if (!modules) return <p className="py-6 text-center text-sm text-slate-400">Loading…</p>;
+  if (!modules) return <RowListSkeleton />;
   if (modules.length === 0)
     return <p className="py-6 text-center text-sm text-slate-400">No modules published yet.</p>;
 
@@ -166,8 +167,7 @@ function ModuleRunner({
   }, [moduleId, hub.assetInstance.id]);
 
   if (error) return <p className="py-6 text-center text-sm text-rose-300">{error}</p>;
-  if (!detail || !enrollmentId)
-    return <p className="py-6 text-center text-sm text-slate-400">Loading…</p>;
+  if (!detail || !enrollmentId) return <RowListSkeleton count={3} />;
 
   if (result) {
     return (
