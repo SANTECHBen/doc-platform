@@ -870,6 +870,26 @@ function PartOverviewPane({
   );
 }
 
+type DocEntry = {
+  key: string;
+  docId: string;
+  title: string;
+  subtitle: string;
+  kind: string;
+  safetyCritical: boolean;
+  // What gets passed to PartDocView. A single-element array scopes the
+  // viewer to one section; null = render the full document (legacy docs
+  // with no sections defined).
+  sections: PwaDocumentSection[] | null;
+  // [doc orderingHint, section orderingHint] — preserves authoring order
+  // both across docs and within each doc.
+  sortKey: [number, number];
+};
+
+// Each section is surfaced as its own card so techs see scoped, named
+// procedures instead of one umbrella doc that opens into a long stack.
+// Docs with sections === null (or empty after filtering) fall back to a
+// single whole-doc card.
 function PartDocumentsPane({
   data,
   onOpenDocument,
@@ -878,22 +898,52 @@ function PartDocumentsPane({
   onOpenDocument: (id: string, sections: PwaDocumentSection[] | null) => void;
 }) {
   if (!data) return <p className="py-8 text-center text-sm text-ink-tertiary">Loading…</p>;
-  if (data.documents.length === 0) {
+
+  const entries: DocEntry[] = data.documents.flatMap((d) => {
+    if (d.sections == null || d.sections.length === 0) {
+      return [{
+        key: d.id,
+        docId: d.id,
+        title: d.title,
+        subtitle:
+          kindLabel(d.kind) + (d.language !== 'en' ? ` · ${d.language.toUpperCase()}` : ''),
+        kind: d.kind,
+        safetyCritical: d.safetyCritical,
+        sections: d.sections,
+        sortKey: [d.orderingHint, 0],
+      }];
+    }
+    return d.sections.map((s) => ({
+      key: `${d.id}:${s.id}`,
+      docId: d.id,
+      title: s.title || 'Untitled section',
+      subtitle: d.title,
+      kind: d.kind,
+      safetyCritical: d.safetyCritical || s.safetyCritical,
+      sections: [s],
+      sortKey: [d.orderingHint, s.orderingHint] as [number, number],
+    }));
+  });
+
+  entries.sort((a, b) => a.sortKey[0] - b.sortKey[0] || a.sortKey[1] - b.sortKey[1]);
+
+  if (entries.length === 0) {
     return (
       <p className="py-10 text-center text-sm text-ink-tertiary">
         No documents linked to this part yet.
       </p>
     );
   }
+
   return (
     <ul className="flex flex-col gap-1.5">
-      {data.documents.map((d) => {
-        const Icon = kindIcon(d.kind);
+      {entries.map((e) => {
+        const Icon = kindIcon(e.kind);
         return (
-          <li key={d.id}>
+          <li key={e.key}>
             <button
               type="button"
-              onClick={() => onOpenDocument(d.id, d.sections)}
+              onClick={() => onOpenDocument(e.docId, e.sections)}
               className="flex w-full items-center gap-3 rounded-md border border-line bg-surface-raised px-4 py-3 text-left transition hover:border-brand/40"
             >
               <Icon
@@ -903,14 +953,13 @@ function PartDocumentsPane({
               />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-ink-primary">
-                  {d.title}
+                  {e.title}
                 </div>
-                <div className="text-xs text-ink-tertiary">
-                  {kindLabel(d.kind)}
-                  {d.language !== 'en' && ` · ${d.language.toUpperCase()}`}
+                <div className="truncate text-xs text-ink-tertiary">
+                  {e.subtitle}
                 </div>
               </div>
-              {d.safetyCritical && (
+              {e.safetyCritical && (
                 <span className="pill pill-safety">
                   <ShieldAlert size={10} strokeWidth={2.5} />
                   Safety
