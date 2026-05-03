@@ -244,6 +244,18 @@
   -webkit-backdrop-filter: saturate(1.4) blur(14px);
   border-top: 1px solid rgb(var(--line-subtle));
 }
+/* Top variant — sticks under the top app header instead of pinning to viewport bottom. */
+.app-tabbar.app-tabbar-top {
+  position: sticky;
+  top: 0;
+  bottom: auto;
+  padding: 6px 4px;
+  border-top: none;
+  border-bottom: 1px solid rgb(var(--line-subtle));
+}
+.app-tabbar.app-tabbar-top .app-tabbar-item[data-active='true']::before {
+  inset: auto 12% 4px 12%;
+}
 .app-tabbar-item {
   display: flex;
   flex-direction: column;

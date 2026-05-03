@@ -511,7 +511,8 @@ function PartDetailOverlay({
             <PartOverviewPane
               part={data?.part ?? null}
               bomRow={bomRow}
-              docCount={data?.documents.length ?? 0}
+              data={data}
+              onOpenDocument={openDocument}
               trainingCount={data?.trainingModules.length ?? 0}
               componentCount={data?.components.length ?? 0}
             />
@@ -806,13 +807,15 @@ function PartNameplate({
 function PartOverviewPane({
   part,
   bomRow,
-  docCount,
+  data,
+  onOpenDocument,
   trainingCount,
   componentCount,
 }: {
   part: PartResources['part'] | null;
   bomRow: BomEntry | undefined;
-  docCount: number;
+  data: PartResources | null;
+  onOpenDocument: (id: string, sections: PwaDocumentSection[] | null) => void;
   trainingCount: number;
   componentCount: number;
 }) {
@@ -829,12 +832,13 @@ function PartOverviewPane({
         </section>
       )}
 
+      <section className="flex flex-col gap-2">
+        <span className="caption">Documents</span>
+        <PartDocumentsPane data={data} onOpenDocument={onOpenDocument} />
+      </section>
+
       <div className="spec-panel">
         <div className="spec-grid">
-          <div className="spec-field">
-            <span className="cap">Documents</span>
-            <span className="val mono">{docCount}</span>
-          </div>
           <div className="spec-field">
             <span className="cap">Training</span>
             <span className="val mono">{trainingCount}</span>

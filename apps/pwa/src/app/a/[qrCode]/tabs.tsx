@@ -34,6 +34,8 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
 
   return (
     <>
+      <TabBar hub={hub} active={active} setActive={setActive} position="top" />
+
       <div key={active} className="tab-pane flex flex-col gap-4">
         {active === 'overview' ? (
           <div className="spec-panel">
@@ -55,30 +57,47 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
         )}
       </div>
 
-      <nav className="app-tabbar" role="tablist" aria-label="Sections">
-        {TABS.map((t) => {
-          const Icon = t.icon;
-          const isActive = active === t.key;
-          const count = countFor(hub, t.key);
-          return (
-            <button
-              key={t.key}
-              role="tab"
-              aria-selected={isActive}
-              data-active={isActive}
-              onClick={() => setActive(t.key)}
-              className="app-tabbar-item"
-            >
-              <Icon size={22} strokeWidth={isActive ? 2.25 : 1.75} />
-              <span>{t.label}</span>
-              {count !== null && count > 0 && (
-                <span className="app-tabbar-count tabular-nums">{count}</span>
-              )}
-            </button>
-          );
-        })}
-      </nav>
+      <TabBar hub={hub} active={active} setActive={setActive} position="bottom" />
     </>
+  );
+}
+
+function TabBar({
+  hub,
+  active,
+  setActive,
+  position,
+}: {
+  hub: AssetHubPayload;
+  active: TabKey;
+  setActive: (k: TabKey) => void;
+  position: 'top' | 'bottom';
+}) {
+  const className = `app-tabbar${position === 'top' ? ' app-tabbar-top' : ''}`;
+  return (
+    <nav className={className} role="tablist" aria-label="Sections">
+      {TABS.map((t) => {
+        const Icon = t.icon;
+        const isActive = active === t.key;
+        const count = countFor(hub, t.key);
+        return (
+          <button
+            key={t.key}
+            role="tab"
+            aria-selected={isActive}
+            data-active={isActive}
+            onClick={() => setActive(t.key)}
+            className="app-tabbar-item"
+          >
+            <Icon size={22} strokeWidth={isActive ? 2.25 : 1.75} />
+            <span>{t.label}</span>
+            {count !== null && count > 0 && (
+              <span className="app-tabbar-count tabular-nums">{count}</span>
+            )}
+          </button>
+        );
+      })}
+    </nav>
   );
 }
 

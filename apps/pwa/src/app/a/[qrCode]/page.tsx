@@ -1,7 +1,6 @@
 import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { ThemeToggle } from '@/components/theme-toggle';
-import { FullscreenButton } from '@/components/fullscreen-button';
 import { ScanWall } from '@/components/scan-wall';
 import { AssetHubTabs } from './tabs';
 import { resolveAssetHub } from '@/lib/api';
@@ -114,7 +113,6 @@ export default async function AssetHubPage({
             {hub.brand.displayName}
           </span>
         </div>
-        <FullscreenButton />
         <ThemeToggle />
       </header>
 
