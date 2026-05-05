@@ -58,14 +58,21 @@ export interface DocumentListItem {
   contentType?: string | null;
   sizeBytes?: number | null;
   thumbnailUrl?: string | null;
+  /** Populated only when the caller passes `withSections=true`. null =
+   *  legacy doc with no authored sections (render full doc); array =
+   *  authored sections, post-revalidation filter, sorted. */
+  sections?: PwaDocumentSection[] | null;
 }
 
 export async function listDocuments(
   versionId: string,
   lang: string = 'en',
+  withSections: boolean = false,
 ): Promise<DocumentListItem[]> {
+  const qs = new URLSearchParams({ lang });
+  if (withSections) qs.set('withSections', '1');
   const res = await fetch(
-    `${CLIENT_API_BASE}/content-pack-versions/${encodeURIComponent(versionId)}/documents?lang=${lang}`,
+    `${CLIENT_API_BASE}/content-pack-versions/${encodeURIComponent(versionId)}/documents?${qs.toString()}`,
     { cache: 'no-store' },
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);

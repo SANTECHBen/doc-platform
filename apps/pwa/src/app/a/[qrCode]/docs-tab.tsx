@@ -22,17 +22,80 @@ import {
 } from 'lucide-react';
 import { DocListSkeleton } from '@/components/skeleton';
 import { EmptyState } from '@/components/empty-state';
-import { listDocuments, getDocument, type DocumentListItem, type DocumentBody } from '@/lib/api';
+import { SectionRenderer } from '@/components/section-renderer';
+import {
+  listDocuments,
+  getDocument,
+  type DocumentListItem,
+  type DocumentBody,
+  type PwaDocumentSection,
+} from '@/lib/api';
+
+// One renderable card. Either represents an entire doc (legacy: no
+// authored sections) or a single section of a doc. Tapping always opens
+// the doc viewer; for section entries we pass `sections=[s]` so the
+// viewer scopes itself to that one section.
+type DocEntry = {
+  key: string;
+  docId: string;
+  title: string; // primary heading
+  parentDocTitle: string | null; // shown above the title only for section entries
+  kind: DocumentListItem['kind'];
+  language: string;
+  thumbnailUrl: string | null;
+  tags: string[]; // surfaced only on whole-doc entries
+  sections: PwaDocumentSection[] | null; // null = whole doc, [s] = scoped to that section
+};
+
+function buildEntries(docs: DocumentListItem[]): DocEntry[] {
+  const out: DocEntry[] = [];
+  for (const d of docs) {
+    const sections = d.sections;
+    if (!sections || sections.length === 0) {
+      out.push({
+        key: d.id,
+        docId: d.id,
+        title: d.title,
+        parentDocTitle: null,
+        kind: d.kind,
+        language: d.language,
+        thumbnailUrl: d.thumbnailUrl ?? null,
+        tags: d.tags,
+        sections: sections ?? null,
+      });
+      continue;
+    }
+    for (const s of sections) {
+      out.push({
+        key: `${d.id}:${s.id}`,
+        docId: d.id,
+        title: s.title || 'Untitled section',
+        parentDocTitle: d.title,
+        kind: d.kind,
+        language: d.language,
+        thumbnailUrl: d.thumbnailUrl ?? null,
+        tags: [], // section cards don't repeat doc-level tags
+        sections: [s],
+      });
+    }
+  }
+  return out;
+}
+
+interface OpenDoc {
+  doc: DocumentBody;
+  sections: PwaDocumentSection[] | null;
+}
 
 export function DocsTab({ versionId }: { versionId: string | null }) {
   const [docs, setDocs] = useState<DocumentListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState<DocumentBody | null>(null);
+  const [open, setOpen] = useState<OpenDoc | null>(null);
 
   useEffect(() => {
     if (!versionId) return;
     let cancelled = false;
-    listDocuments(versionId)
+    listDocuments(versionId, 'en', true)
       .then((rows) => {
         if (!cancelled) setDocs(rows);
       })
@@ -66,27 +129,35 @@ export function DocsTab({ versionId }: { versionId: string | null }) {
   }
 
   if (open) {
-    return <DocView doc={open} onBack={() => setOpen(null)} />;
+    return (
+      <DocView
+        doc={open.doc}
+        sections={open.sections}
+        onBack={() => setOpen(null)}
+      />
+    );
   }
+
+  const entries = buildEntries(docs);
 
   return (
     <ul className="grid grid-cols-1 gap-2.5 md:grid-cols-2 lg:grid-cols-3">
-      {docs.map((d) => {
-        const Icon = kindIcon(d.kind);
-        const tint = kindTint(d.kind);
+      {entries.map((e) => {
+        const Icon = kindIcon(e.kind);
+        const tint = kindTint(e.kind);
         return (
-          <li key={d.id}>
+          <li key={e.key}>
             <button
               onClick={async () => {
-                const full = await getDocument(d.id);
-                if (full) setOpen(full);
+                const full = await getDocument(e.docId);
+                if (full) setOpen({ doc: full, sections: e.sections });
               }}
               className="group flex h-full w-full flex-col overflow-hidden rounded-md border border-line-subtle bg-surface-raised text-left transition hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-[0_4px_14px_-4px_rgba(11,95,191,0.25)]"
             >
               <div className="relative flex aspect-[16/9] w-full items-center justify-center overflow-hidden">
-                {d.thumbnailUrl ? (
+                {e.thumbnailUrl ? (
                   <img
-                    src={d.thumbnailUrl}
+                    src={e.thumbnailUrl}
                     alt=""
                     className="h-full w-full object-cover"
                   />
@@ -104,7 +175,7 @@ export function DocsTab({ versionId }: { versionId: string | null }) {
                       <Icon size={28} strokeWidth={2} />
                     </div>
                     <span className="doc-thumb-label" style={{ color: tint.fg }}>
-                      {kindLabel(d.kind)}
+                      {kindLabel(e.kind)}
                     </span>
                   </div>
                 )}
@@ -112,15 +183,20 @@ export function DocsTab({ versionId }: { versionId: string | null }) {
               <div className="flex flex-1 flex-col gap-2 p-4">
                 <span className="inline-flex items-center gap-1.5 caption">
                   <Icon size={12} strokeWidth={2} />
-                  {kindLabel(d.kind)}
-                  {d.language !== 'en' && ` · ${d.language.toUpperCase()}`}
+                  {kindLabel(e.kind)}
+                  {e.language !== 'en' && ` · ${e.language.toUpperCase()}`}
+                  {e.parentDocTitle && (
+                    <span className="ml-1 truncate text-ink-tertiary normal-case">
+                      · {e.parentDocTitle}
+                    </span>
+                  )}
                 </span>
                 <h3 className="text-base font-medium text-ink-primary group-hover:text-brand">
-                  {d.title}
+                  {e.title}
                 </h3>
-                {d.tags.length > 0 && (
+                {e.tags.length > 0 && (
                   <div className="mt-auto flex flex-wrap gap-1 pt-1">
-                    {d.tags.map((t) => (
+                    {e.tags.map((t) => (
                       <span
                         key={t}
                         className="rounded-sm border border-line-subtle bg-surface-inset px-1.5 py-0.5 font-mono text-xs text-ink-tertiary"
@@ -261,7 +337,15 @@ function ErrorState({ text }: { text: string }) {
   );
 }
 
-function DocView({ doc, onBack }: { doc: DocumentBody; onBack: () => void }) {
+function DocView({
+  doc,
+  sections,
+  onBack,
+}: {
+  doc: DocumentBody;
+  sections: PwaDocumentSection[] | null;
+  onBack: () => void;
+}) {
   const Icon = kindIcon(doc.kind);
   // Lock body scroll while the overlay is up so only the doc content scrolls.
   useEffect(() => {
@@ -272,15 +356,26 @@ function DocView({ doc, onBack }: { doc: DocumentBody; onBack: () => void }) {
     };
   }, []);
 
+  // Sections-aware: when a non-empty array is passed, only render those
+  // sections (scoped view). null/empty falls back to the kind-specific
+  // full-doc renderer.
+  const sectionMode = sections != null && sections.length > 0;
+
   const isFramed =
-    doc.kind === 'pdf' ||
-    doc.kind === 'schematic' ||
-    doc.kind === 'slides' ||
-    doc.kind === 'video' ||
-    doc.kind === 'external_video';
+    !sectionMode &&
+    (doc.kind === 'pdf' ||
+      doc.kind === 'schematic' ||
+      doc.kind === 'slides' ||
+      doc.kind === 'video' ||
+      doc.kind === 'external_video');
+
+  // For a single-section view, prefer the section title in the header so
+  // the user knows what they're scoped to.
+  const headerTitle =
+    sectionMode && sections!.length === 1 ? sections![0]!.title : doc.title;
 
   return (
-    <div className="doc-overlay" role="dialog" aria-modal="true" aria-label={doc.title}>
+    <div className="doc-overlay" role="dialog" aria-modal="true" aria-label={headerTitle}>
       <header className="doc-overlay-bar">
         <button
           type="button"
@@ -294,8 +389,13 @@ function DocView({ doc, onBack }: { doc: DocumentBody; onBack: () => void }) {
           <span className="inline-flex items-center gap-1.5 caption">
             <Icon size={12} strokeWidth={2} />
             {kindLabel(doc.kind)}
+            {sectionMode && sections!.length === 1 && (
+              <span className="ml-1 truncate text-ink-tertiary normal-case">
+                · {doc.title}
+              </span>
+            )}
           </span>
-          <h2 className="truncate text-base font-semibold">{doc.title}</h2>
+          <h2 className="truncate text-base font-semibold">{headerTitle}</h2>
         </div>
         <button
           type="button"
@@ -320,7 +420,15 @@ function DocView({ doc, onBack }: { doc: DocumentBody; onBack: () => void }) {
             </div>
           </div>
         )}
-        <DocContent doc={doc} />
+        {sectionMode ? (
+          <div className="flex flex-col gap-1 pb-6">
+            {sections!.map((s) => (
+              <SectionRenderer key={s.id} doc={doc} section={s} />
+            ))}
+          </div>
+        ) : (
+          <DocContent doc={doc} />
+        )}
       </div>
     </div>
   );

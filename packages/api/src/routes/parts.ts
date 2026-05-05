@@ -8,6 +8,7 @@ import {
   getEffectiveOrgScope,
   requireAuthOrScan,
 } from '../middleware/scan-session';
+import { toPwaSection, comparePwaSections } from '../lib/pwa-sections';
 
 export async function registerPartsRoutes(app: FastifyInstance) {
   // Flat BOM listing for an asset model — part metadata joined with
@@ -359,63 +360,6 @@ function mapPart(
     imageUrl: p.imageStorageKey ? storage.publicUrl(p.imageStorageKey) : null,
     role,
   };
-}
-
-// PWA-shape section DTO. Strips admin-only fields (needs_revalidation,
-// revalidation_reason, audit metadata, ownership snapshots) so the PWA only
-// gets what it needs to render. Tech users never see flagged sections —
-// they're filtered out at the query layer above.
-function toPwaSection(s: typeof schema.documentSections.$inferSelect): {
-  id: string;
-  kind: typeof s.kind;
-  title: string;
-  description: string | null;
-  safetyCritical: boolean;
-  orderingHint: number;
-  pageStart: number | null;
-  pageEnd: number | null;
-  startY: number | null;
-  endY: number | null;
-  textPageHint: number | null;
-  anchorExcerpt: string | null;
-  anchorContextBefore: string | null;
-  anchorContextAfter: string | null;
-  timeStartSeconds: number | null;
-  timeEndSeconds: number | null;
-} {
-  return {
-    id: s.id,
-    kind: s.kind,
-    title: s.title,
-    description: s.description,
-    safetyCritical: s.safetyCritical,
-    orderingHint: s.orderingHint,
-    pageStart: s.pageStart,
-    pageEnd: s.pageEnd,
-    startY: s.startY,
-    endY: s.endY,
-    textPageHint: s.textPageHint,
-    anchorExcerpt: s.anchorExcerpt,
-    anchorContextBefore: s.anchorContextBefore,
-    anchorContextAfter: s.anchorContextAfter,
-    timeStartSeconds: s.timeStartSeconds,
-    timeEndSeconds: s.timeEndSeconds,
-  };
-}
-
-// Sort sections within one document for the PWA: safety-critical first, then
-// authoring order, then natural anchor position (pageStart / timeStart) so
-// the rendering order is intuitive when ordering_hint is left at 0.
-function comparePwaSections(
-  a: ReturnType<typeof toPwaSection>,
-  b: ReturnType<typeof toPwaSection>,
-): number {
-  if (a.safetyCritical !== b.safetyCritical) return a.safetyCritical ? -1 : 1;
-  if (a.orderingHint !== b.orderingHint) return a.orderingHint - b.orderingHint;
-  const aPos = a.pageStart ?? a.timeStartSeconds ?? 0;
-  const bPos = b.pageStart ?? b.timeStartSeconds ?? 0;
-  if (aPos !== bPos) return aPos - bPos;
-  return a.title.localeCompare(b.title);
 }
 
 // Batch-derive the structural role for a set of part IDs. A single SQL query
