@@ -38,6 +38,11 @@ export const AssetHubPayloadSchema = z.object({
       publishedAt: z.string().datetime().nullable(),
     })
     .nullable(),
+  // The always-draft "Field captures" pack's version for this asset model,
+  // when one exists. The PWA fetches docs from BOTH this and the pinned
+  // version above so field-authored procedures show up alongside OEM
+  // content. Lazy-created on the first field-procedure capture.
+  fieldCapturesVersionId: UuidSchema.nullable(),
   // Compact tabs summary for the hub UI.
   tabs: z.object({
     docs: z.object({ count: z.number().int() }),

@@ -1354,10 +1354,38 @@ export interface AdminDocumentDetail {
   contentPackVersionId: string;
   contentPackId: string;
   contentPackName: string;
+  /** 'authored' = OEM/dealer/site overlay packs (draft → published lifecycle).
+   *  'field_captures' = always-draft pack with tech-captured procedures. */
+  contentPackKind: 'authored' | 'field_captures';
   contentPackVersionNumber: number;
   contentPackVersionStatus: 'draft' | 'in_review' | 'published' | 'archived';
   ownerOrganizationId: string;
+  /** Set when an admin/senior tech has reviewed + promoted a field-captured
+   *  doc. Null on OEM-authored docs (publish lifecycle handles them). */
+  fieldVerifiedAt: string | null;
+  fieldVerifiedByUserId: string | null;
+  fieldVerifiedByDisplayName: string | null;
+  /** Set when the doc is scoped to one specific asset instance (rather than
+   *  the whole asset model). Null = model-wide. */
+  scopeAssetInstanceId: string | null;
   createdAt: string;
+}
+
+export async function verifyFieldDocument(documentId: string): Promise<{
+  documentId: string;
+  fieldVerifiedAt: string;
+  fieldVerifiedByUserId: string;
+}> {
+  const res = await fetch(
+    `${API_BASE}/admin/documents/${encodeURIComponent(documentId)}/verify`,
+    { method: 'POST', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as {
+    documentId: string;
+    fieldVerifiedAt: string;
+    fieldVerifiedByUserId: string;
+  };
 }
 
 export interface AdminDocumentSection {

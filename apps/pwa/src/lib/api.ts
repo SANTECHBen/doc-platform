@@ -62,15 +62,31 @@ export interface DocumentListItem {
    *  legacy doc with no authored sections (render full doc); array =
    *  authored sections, post-revalidation filter, sorted. */
   sections?: PwaDocumentSection[] | null;
+  // ---- Procedure mode v2 — field-authored documents ----
+  /** 'oem' = doc lives in an authored content pack. 'field' = captured
+   *  by a tech via the PWA on site. Drives the UNVERIFIED chip. */
+  source?: 'oem' | 'field';
+  /** Only meaningful when source='field'. true after an admin promotes. */
+  verified?: boolean;
+  capturedByUserId?: string | null;
+  capturedByDisplayName?: string | null;
+  /** Set when this doc is scoped to one asset instance only. */
+  scopeAssetInstanceId?: string | null;
 }
 
 export async function listDocuments(
   versionId: string,
   lang: string = 'en',
   withSections: boolean = false,
+  assetInstanceId?: string,
 ): Promise<DocumentListItem[]> {
   const qs = new URLSearchParams({ lang });
   if (withSections) qs.set('withSections', '1');
+  // assetInstanceId is required when querying a field-captures version so
+  // instance-scoped procedures don't leak to other instances of the same
+  // model. Sending it for OEM versions is harmless (model-wide docs are
+  // unaffected by the filter).
+  if (assetInstanceId) qs.set('assetInstanceId', assetInstanceId);
   const res = await fetch(
     `${CLIENT_API_BASE}/content-pack-versions/${encodeURIComponent(versionId)}/documents?${qs.toString()}`,
     { cache: 'no-store' },
@@ -688,6 +704,99 @@ export async function finishProcedureRun(
     throw err;
   }
   return (await res.json()) as ProcedureRunDto;
+}
+
+// ---------------------------------------------------------------------------
+// Field-authored procedures (procedure mode v2). Capture-as-you-go from
+// the PWA on site — the first run of a brand-new procedure IS the
+// authoring. See packages/api/src/routes/field-procedures.ts.
+// ---------------------------------------------------------------------------
+
+export async function startFieldProcedure(params: {
+  assetInstanceId: string;
+  title?: string;
+  devUserId: string;
+  devOrgId: string;
+}): Promise<ProcedureBundle> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/asset-instances/${encodeURIComponent(params.assetInstanceId)}/field-procedures`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...authHeaders(params.devUserId, params.devOrgId),
+      },
+      body: JSON.stringify({ title: params.title }),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as ProcedureBundle;
+}
+
+export async function addAuthoringStep(params: {
+  runId: string;
+  step: {
+    kind: ProcedureStepKind;
+    title: string;
+    bodyMarkdown?: string | null;
+    safetyCritical?: boolean;
+    requiresPhoto?: boolean;
+    minPhotoCount?: number;
+    measurementSpec?: ProcedureMeasurementSpec | null;
+  };
+  devUserId: string;
+  devOrgId: string;
+}): Promise<ProcedureStepDto> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/procedure-runs/${encodeURIComponent(params.runId)}/authoring-steps`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...authHeaders(params.devUserId, params.devOrgId),
+      },
+      body: JSON.stringify(params.step),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as ProcedureStepDto;
+}
+
+export async function finalizeAuthoring(params: {
+  runId: string;
+  title: string;
+  scopeAssetInstanceOnly: boolean;
+  linkedPartIds: string[];
+  devUserId: string;
+  devOrgId: string;
+}): Promise<{
+  ok: true;
+  documentId: string;
+  title: string;
+  scopeAssetInstanceId: string | null;
+}> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/procedure-runs/${encodeURIComponent(params.runId)}/authoring-finalize`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...authHeaders(params.devUserId, params.devOrgId),
+      },
+      body: JSON.stringify({
+        title: params.title,
+        scopeAssetInstanceOnly: params.scopeAssetInstanceOnly,
+        linkedPartIds: params.linkedPartIds,
+      }),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as {
+    ok: true;
+    documentId: string;
+    title: string;
+    scopeAssetInstanceId: string | null;
+  };
 }
 
 export async function abandonProcedureRun(params: {

@@ -50,6 +50,7 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
             {active === 'docs' && (
               <DocsTab
                 versionId={hub.pinnedContentPackVersion?.id ?? null}
+                fieldCapturesVersionId={hub.fieldCapturesVersionId ?? null}
                 assetInstanceId={hub.assetInstance.id}
               />
             )}

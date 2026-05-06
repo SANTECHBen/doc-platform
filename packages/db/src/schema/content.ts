@@ -7,13 +7,16 @@ import {
   integer,
   boolean,
   unique,
+  uniqueIndex,
   index,
 } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 import { organizations } from './organizations';
-import { assetModels } from './assets';
+import { assetModels, assetInstances } from './assets';
+import { users } from './users';
 import {
   contentPackStatusEnum,
+  contentPackKindEnum,
   contentLayerTypeEnum,
   documentKindEnum,
   extractionStatusEnum,
@@ -39,6 +42,13 @@ export const contentPacks = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: 'restrict' }),
     layerType: contentLayerTypeEnum('layer_type').notNull(),
+    // 'authored' = OEM-curated content with the standard draft → published
+    // version lifecycle. 'field_captures' = the always-draft pack each
+    // asset model gets so techs can author procedures from the PWA on
+    // site. Field-captures packs are auto-created on first capture; PWA
+    // reads from BOTH kinds and renders an UNVERIFIED chip on field rows
+    // until an admin promotes them.
+    kind: contentPackKindEnum('kind').notNull().default('authored'),
     // For overlays: which base pack do we layer onto.
     basePackId: uuid('base_pack_id').references((): any => contentPacks.id, {
       onDelete: 'restrict',
@@ -51,6 +61,11 @@ export const contentPacks = pgTable(
   (t) => ({
     uniqOwnerSlug: unique().on(t.ownerOrganizationId, t.slug),
     assetModelIdx: index('content_packs_asset_model_idx').on(t.assetModelId),
+    // At most one field_captures pack per asset model. Partial — leaves
+    // room for many authored packs (base, dealer overlays, site overlays).
+    fieldCapturesUniq: uniqueIndex('content_packs_field_captures_uniq')
+      .on(t.assetModelId)
+      .where(sql`kind = 'field_captures'`),
   }),
 );
 
@@ -126,11 +141,31 @@ export const documents = pgTable(
     extractedText: text('extracted_text'),
     // When extraction last completed successfully. Also nudged on reprocess.
     extractedAt: timestamp('extracted_at', { withTimezone: true }),
+    // ---------- Field-authored documents (procedure mode v2) ----------
+    // Set when an admin/senior tech reviews a field-captured doc and
+    // promotes it. Null on OEM-authored docs (verification is implicit
+    // via the publish lifecycle). Together with the parent pack's
+    // kind='field_captures', drives the UNVERIFIED chip in the PWA.
+    fieldVerifiedAt: timestamp('field_verified_at', { withTimezone: true }),
+    fieldVerifiedByUserId: uuid('field_verified_by_user_id').references(
+      () => users.id,
+      { onDelete: 'set null' },
+    ),
+    // When set, the doc is only visible/runnable on this specific asset
+    // instance, not the whole asset model. Default null = model-wide.
+    // Captured docs default to null (model-wide); the tech can flip
+    // "This unit only" at Finish for a serial-specific quirk.
+    scopeAssetInstanceId: uuid('scope_asset_instance_id').references(
+      () => assetInstances.id,
+      { onDelete: 'cascade' },
+    ),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     packIdx: index('documents_pack_version_idx').on(t.contentPackVersionId),
     locGroupIdx: index('documents_localization_group_idx').on(t.localizationGroupId),
+    // For the instance-scope filter on the PWA docs query.
+    scopeInstanceIdx: index('documents_scope_instance_idx').on(t.scopeAssetInstanceId),
   }),
 );
 

@@ -2,15 +2,25 @@
 
 import Link from 'next/link';
 import { use, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowLeft, FileText, Link2, ListChecks, RefreshCw } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  CheckCircle2,
+  FileText,
+  Link2,
+  ListChecks,
+  RefreshCw,
+  ShieldCheck,
+} from 'lucide-react';
 import { PageHeader, PageShell, Pill } from '@/components/page-shell';
 import { useToast } from '@/components/toast';
-import { ErrorBanner, SecondaryButton } from '@/components/form';
+import { ErrorBanner, PrimaryButton, SecondaryButton } from '@/components/form';
 import {
   getAdminDocument,
   listProcedureSteps,
   listSectionsForDocument,
   revalidateDocumentSections,
+  verifyFieldDocument,
   type AdminDocumentDetail,
   type AdminDocumentSection,
   type AdminProcedureStep,
@@ -90,6 +100,21 @@ export default function DocumentDetailPage({
     }
   }
 
+  const [verifyBusy, setVerifyBusy] = useState(false);
+  async function onPromote() {
+    if (verifyBusy) return;
+    setVerifyBusy(true);
+    try {
+      await verifyFieldDocument(id);
+      toast.success('Promoted to verified', 'Field-captured procedure is now verified.');
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setVerifyBusy(false);
+    }
+  }
+
   if (!doc) {
     return (
       <PageShell crumbs={[{ label: 'Content packs', href: '/content-packs' }, { label: 'Document' }]}>
@@ -99,6 +124,8 @@ export default function DocumentDetailPage({
   }
 
   const isPublished = doc.contentPackVersionStatus !== 'draft';
+  const isFieldCaptured = doc.contentPackKind === 'field_captures';
+  const isVerified = doc.fieldVerifiedAt !== null;
 
   const crumbs = [
     { label: 'Content packs', href: '/content-packs' },
@@ -119,11 +146,24 @@ export default function DocumentDetailPage({
               {doc.contentPackVersionStatus}
             </Pill>
             <Pill>{doc.kind.replace(/_/g, ' ')}</Pill>
+            {isFieldCaptured && (
+              <Pill tone={isVerified ? 'success' : 'warning'}>
+                {isVerified ? 'verified · field' : 'unverified · field'}
+              </Pill>
+            )}
             {doc.safetyCritical && <Pill tone="warning">safety-critical</Pill>}
-            {doc.extractionStatus !== 'ready' && (
+            {doc.extractionStatus !== 'ready' && doc.extractionStatus !== 'not_applicable' && (
               <Pill tone={doc.extractionStatus === 'failed' ? 'danger' : 'info'}>
                 extraction: {doc.extractionStatus}
               </Pill>
+            )}
+            {isVerified && doc.fieldVerifiedByDisplayName && (
+              <span className="text-xs text-ink-tertiary">
+                Verified by {doc.fieldVerifiedByDisplayName}
+                {doc.fieldVerifiedAt
+                  ? ` on ${new Date(doc.fieldVerifiedAt).toLocaleDateString()}`
+                  : ''}
+              </span>
             )}
           </span>
         }
@@ -134,14 +174,22 @@ export default function DocumentDetailPage({
                 <ArrowLeft className="size-4" /> Back to pack
               </SecondaryButton>
             </Link>
-            <SecondaryButton
-              type="button"
-              onClick={onRevalidate}
-              disabled={revalBusy || (sections ?? []).length === 0}
-            >
-              <RefreshCw className={`size-4 ${revalBusy ? 'animate-spin' : ''}`} />
-              Re-validate sections
-            </SecondaryButton>
+            {isFieldCaptured && !isVerified && (
+              <PrimaryButton type="button" onClick={onPromote} disabled={verifyBusy}>
+                <ShieldCheck className="size-4" />
+                {verifyBusy ? 'Promoting…' : 'Promote to verified'}
+              </PrimaryButton>
+            )}
+            {!isFieldCaptured && (
+              <SecondaryButton
+                type="button"
+                onClick={onRevalidate}
+                disabled={revalBusy || (sections ?? []).length === 0}
+              >
+                <RefreshCw className={`size-4 ${revalBusy ? 'animate-spin' : ''}`} />
+                Re-validate sections
+              </SecondaryButton>
+            )}
           </div>
         }
       />

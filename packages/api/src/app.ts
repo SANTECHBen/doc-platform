@@ -27,6 +27,7 @@ import { registerAdminAgent } from './routes/admin-agent';
 import { registerAdminSections } from './routes/admin-sections';
 import { registerProcedureRoutes } from './routes/procedures';
 import { registerAdminProcedureSteps } from './routes/admin-procedure-steps';
+import { registerFieldProcedureRoutes } from './routes/field-procedures';
 
 export async function buildApp(ctx: AppContext) {
   const app = Fastify({
@@ -79,6 +80,7 @@ export async function buildApp(ctx: AppContext) {
   await registerAdminSections(app);
   await registerProcedureRoutes(app);
   await registerAdminProcedureSteps(app);
+  await registerFieldProcedureRoutes(app);
 
   return app;
 }

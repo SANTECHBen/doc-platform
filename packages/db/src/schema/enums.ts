@@ -113,3 +113,13 @@ export const procedureRunStatusEnum = pgEnum('procedure_run_status', [
   'completed',
   'abandoned',
 ]);
+
+// Content pack kind discriminator. 'authored' = OEM/dealer/site-overlay
+// packs whose contents are explicitly written + version-published.
+// 'field_captures' = the always-draft pack each asset model gets so techs
+// can document procedures from the PWA on site. The PWA reads from BOTH
+// kinds; cards from field_captures get an UNVERIFIED chip until promoted.
+export const contentPackKindEnum = pgEnum('content_pack_kind', [
+  'authored',
+  'field_captures',
+]);

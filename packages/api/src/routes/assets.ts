@@ -51,32 +51,47 @@ export async function registerAssetRoutes(app: FastifyInstance) {
       });
       if (!instance) return reply.notFound('Asset instance not found.');
 
-      const [docCount, trainingCount, partsCount, openWoCount] = await Promise.all([
-        instance.pinnedContentPackVersionId
-          ? countRows(
-              db,
-              sql`SELECT count(*)::int AS n FROM documents
-                  WHERE content_pack_version_id = ${instance.pinnedContentPackVersionId}`,
+      const [docCount, trainingCount, partsCount, openWoCount, fieldCapturesVersionId] =
+        await Promise.all([
+          instance.pinnedContentPackVersionId
+            ? countRows(
+                db,
+                sql`SELECT count(*)::int AS n FROM documents
+                    WHERE content_pack_version_id = ${instance.pinnedContentPackVersionId}`,
+              )
+            : Promise.resolve(0),
+          instance.pinnedContentPackVersionId
+            ? countRows(
+                db,
+                sql`SELECT count(*)::int AS n FROM training_modules
+                    WHERE content_pack_version_id = ${instance.pinnedContentPackVersionId}`,
+              )
+            : Promise.resolve(0),
+          countRows(
+            db,
+            sql`SELECT count(*)::int AS n FROM bom_entries WHERE asset_model_id = ${instance.assetModelId}`,
+          ),
+          countRows(
+            db,
+            sql`SELECT count(*)::int AS n FROM work_orders
+                WHERE asset_instance_id = ${instance.id}
+                  AND status IN ('open','acknowledged','in_progress','blocked')`,
+          ),
+          // Lookup the field-captures pack's version for this asset model.
+          // Lazy-created on first capture; null until then. Schema guarantees
+          // at most one field_captures pack per model (partial unique index).
+          db
+            .execute<{ version_id: string | null }>(
+              sql`SELECT cpv.id AS version_id
+                  FROM content_packs cp
+                  JOIN content_pack_versions cpv ON cpv.content_pack_id = cp.id
+                  WHERE cp.kind = 'field_captures'
+                    AND cp.asset_model_id = ${instance.assetModelId}
+                  ORDER BY cpv.version_number DESC
+                  LIMIT 1`,
             )
-          : Promise.resolve(0),
-        instance.pinnedContentPackVersionId
-          ? countRows(
-              db,
-              sql`SELECT count(*)::int AS n FROM training_modules
-                  WHERE content_pack_version_id = ${instance.pinnedContentPackVersionId}`,
-            )
-          : Promise.resolve(0),
-        countRows(
-          db,
-          sql`SELECT count(*)::int AS n FROM bom_entries WHERE asset_model_id = ${instance.assetModelId}`,
-        ),
-        countRows(
-          db,
-          sql`SELECT count(*)::int AS n FROM work_orders
-              WHERE asset_instance_id = ${instance.id}
-                AND status IN ('open','acknowledged','in_progress','blocked')`,
-        ),
-      ]);
+            .then((rows) => (rows[0]?.version_id ?? null) as string | null),
+        ]);
 
       const oem = instance.model.owner;
       const brandDisplayName = oem.displayNameOverride ?? oem.name;
@@ -118,6 +133,7 @@ export async function registerAssetRoutes(app: FastifyInstance) {
                 instance.pinnedContentPackVersion.publishedAt?.toISOString() ?? null,
             }
           : null,
+        fieldCapturesVersionId,
         tabs: {
           docs: { count: docCount },
           training: { count: trainingCount },

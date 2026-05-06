@@ -28,7 +28,9 @@ import NoDocuments from '@/components/illustrations/no-documents';
 import NoSearchResults from '@/components/illustrations/no-search-results';
 import { SectionRenderer } from '@/components/section-renderer';
 import { ProcedureRunner } from '@/components/procedure-runner/procedure-runner';
+import { ProcedureAuthoringRunner } from '@/components/procedure-runner/procedure-authoring-runner';
 import { AuthPrompt } from '@/components/auth-prompt';
+import { Plus } from 'lucide-react';
 import {
   listDocuments,
   getDocument,
@@ -56,11 +58,18 @@ type DocEntry = {
   //   whole-doc: DOC-{1-indexed doc position in the API response}
   //   section:   SEC-{1-indexed section position within parent doc} · PG XX-YY
   refCode: string;
+  // Field-captured doc surfacing — drives the UNVERIFIED chip + author caption.
+  source: 'oem' | 'field';
+  verified: boolean;
+  capturedByDisplayName: string | null;
 };
 
 function buildEntries(docs: DocumentListItem[]): DocEntry[] {
   const out: DocEntry[] = [];
   docs.forEach((d, di) => {
+    const source = d.source ?? 'oem';
+    const verified = d.verified ?? true;
+    const capturedByDisplayName = d.capturedByDisplayName ?? null;
     const sections = d.sections;
     if (!sections || sections.length === 0) {
       out.push({
@@ -74,6 +83,9 @@ function buildEntries(docs: DocumentListItem[]): DocEntry[] {
         tags: d.tags,
         sections: sections ?? null,
         refCode: formatRefCode(di + 1, null),
+        source,
+        verified,
+        capturedByDisplayName,
       });
       return;
     }
@@ -89,6 +101,9 @@ function buildEntries(docs: DocumentListItem[]): DocEntry[] {
         tags: [], // section cards don't repeat doc-level tags
         sections: [s],
         refCode: formatRefCode(si + 1, s),
+        source,
+        verified,
+        capturedByDisplayName,
       });
     });
   });
@@ -111,32 +126,49 @@ const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
 
 export function DocsTab({
   versionId,
+  fieldCapturesVersionId,
   assetInstanceId,
 }: {
   versionId: string | null;
+  fieldCapturesVersionId: string | null;
   assetInstanceId: string;
 }) {
   const [docs, setDocs] = useState<DocumentListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<OpenDoc | null>(null);
   const [procedureDocId, setProcedureDocId] = useState<string | null>(null);
+  const [authoringActive, setAuthoringActive] = useState(false);
   const [authPromptOpen, setAuthPromptOpen] = useState(false);
   const [query, setQuery] = useState('');
 
+  // Refetch docs from BOTH the pinned OEM version AND the model's
+  // field-captures version. Each row carries its own `source` ('oem' or
+  // 'field') and `verified` flag so cards can render the UNVERIFIED chip.
+  // Re-runs when authoring completes (incrementKey) so the new procedure
+  // shows up without a manual refresh.
+  const [refetchKey, setRefetchKey] = useState(0);
   useEffect(() => {
-    if (!versionId) return;
     let cancelled = false;
-    listDocuments(versionId, 'en', true)
-      .then((rows) => {
-        if (!cancelled) setDocs(rows);
+    const oemP = versionId
+      ? listDocuments(versionId, 'en', true, assetInstanceId)
+      : Promise.resolve([] as DocumentListItem[]);
+    const fieldP = fieldCapturesVersionId
+      ? listDocuments(fieldCapturesVersionId, 'en', true, assetInstanceId)
+      : Promise.resolve([] as DocumentListItem[]);
+    Promise.all([oemP, fieldP])
+      .then(([oem, field]) => {
+        if (cancelled) return;
+        setDocs([...oem, ...field]);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      });
     return () => {
       cancelled = true;
     };
-  }, [versionId]);
+  }, [versionId, fieldCapturesVersionId, assetInstanceId, refetchKey]);
 
-  if (!versionId) {
+  if (!versionId && !fieldCapturesVersionId) {
     return (
       <EmptyState
         illustration={NoRevision}
@@ -148,13 +180,26 @@ export function DocsTab({
   }
   if (error) return <ErrorState text={error} />;
   if (docs === null) return <DocListSkeleton />;
-  if (docs.length === 0) {
+
+  function onTapDocumentProcedure() {
+    if (!DEV_USER_ID) {
+      setAuthPromptOpen(true);
+      return;
+    }
+    setAuthoringActive(true);
+  }
+
+  if (authoringActive) {
     return (
-      <EmptyState
-        illustration={NoDocuments}
-        title="No documents"
-        description="No documents have been published in this revision."
-        tone="neutral"
+      <ProcedureAuthoringRunner
+        assetInstanceId={assetInstanceId}
+        devUserId={DEV_USER_ID}
+        devOrgId={DEV_ORG_ID}
+        onClose={() => {
+          setAuthoringActive(false);
+          // Re-fetch so the just-captured procedure appears in the list.
+          setRefetchKey((k) => k + 1);
+        }}
       />
     );
   }
@@ -166,7 +211,11 @@ export function DocsTab({
         assetInstanceId={assetInstanceId}
         devUserId={DEV_USER_ID}
         devOrgId={DEV_ORG_ID}
-        onClose={() => setProcedureDocId(null)}
+        onClose={() => {
+          setProcedureDocId(null);
+          // Re-fetch in case the run touched verification state etc.
+          setRefetchKey((k) => k + 1);
+        }}
       />
     );
   }
@@ -202,6 +251,13 @@ export function DocsTab({
 
   return (
     <div className="flex flex-col gap-3">
+      <button
+        type="button"
+        onClick={onTapDocumentProcedure}
+        className="btn btn-primary self-start"
+      >
+        <Plus size={16} strokeWidth={2} /> Document a procedure
+      </button>
       {showSearch && (
         <label className="search-input">
           <Search size={16} strokeWidth={2} className="text-ink-tertiary" />
@@ -213,7 +269,14 @@ export function DocsTab({
           />
         </label>
       )}
-      {filtered.length === 0 ? (
+      {entries.length === 0 ? (
+        <EmptyState
+          illustration={NoDocuments}
+          title="No documents yet"
+          description="Either nothing has been published in this revision, or no procedures have been captured here yet. Tap “Document a procedure” to capture the first one."
+          tone="neutral"
+        />
+      ) : filtered.length === 0 ? (
         <EmptyState
           illustration={NoSearchResults}
           title="No documents match your search"
@@ -280,6 +343,27 @@ export function DocsTab({
                 <h3 className="text-base font-medium text-ink-primary group-hover:text-brand">
                   {e.title}
                 </h3>
+                {e.source === 'field' && (
+                  <span
+                    className={`inline-flex w-fit items-center gap-1 rounded-sm border px-1.5 py-0.5 font-mono text-[10.5px] uppercase tracking-wider ${
+                      e.verified
+                        ? 'border-signal-ok/40 bg-signal-ok/10 text-signal-ok'
+                        : 'border-signal-warn/40 bg-signal-warn/10 text-signal-warn'
+                    }`}
+                    title={
+                      e.capturedByDisplayName
+                        ? `Captured by ${e.capturedByDisplayName}`
+                        : 'Field-captured'
+                    }
+                  >
+                    {e.verified ? '✓ Verified · Field' : '⚠ Unverified · Field'}
+                    {e.capturedByDisplayName && (
+                      <span className="normal-case font-normal opacity-80">
+                        · {e.capturedByDisplayName}
+                      </span>
+                    )}
+                  </span>
+                )}
                 {e.tags.length > 0 && (
                   <div className="mt-auto flex flex-wrap gap-1 pt-1">
                     {e.tags.map((t) => (

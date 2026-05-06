@@ -241,6 +241,17 @@ export async function registerAdminSections(app: FastifyInstance) {
           pack: typeof schema.contentPacks.$inferSelect;
         };
       };
+      // Resolve the verifier's display name when the doc has been
+      // promoted from field-captures, so the admin UI can show
+      // "Verified by Mike P. on 2026-05-06".
+      let verifiedByDisplayName: string | null = null;
+      if (d.fieldVerifiedByUserId) {
+        const verifier = await db.query.users.findFirst({
+          where: eq(schema.users.id, d.fieldVerifiedByUserId),
+          columns: { displayName: true },
+        });
+        verifiedByDisplayName = verifier?.displayName ?? null;
+      }
       return {
         id: d.id,
         title: d.title,
@@ -265,9 +276,15 @@ export async function registerAdminSections(app: FastifyInstance) {
         contentPackVersionId: d.contentPackVersionId,
         contentPackId: d.packVersion.pack.id,
         contentPackName: d.packVersion.pack.name,
+        contentPackKind: d.packVersion.pack.kind,
         contentPackVersionNumber: d.packVersion.versionNumber,
         contentPackVersionStatus: d.packVersion.status,
         ownerOrganizationId: ctx.ownerOrganizationId,
+        // Procedure mode v2 — field-captured documents.
+        fieldVerifiedAt: d.fieldVerifiedAt ? d.fieldVerifiedAt.toISOString() : null,
+        fieldVerifiedByUserId: d.fieldVerifiedByUserId,
+        fieldVerifiedByDisplayName: verifiedByDisplayName,
+        scopeAssetInstanceId: d.scopeAssetInstanceId,
         createdAt: d.createdAt.toISOString(),
       };
     },

@@ -34,6 +34,10 @@ export const AssetHubPayloadSchema = z.object({
       publishedAt: z.string().datetime().nullable(),
     })
     .nullable(),
+  // Always-draft "Field captures" pack version for this asset model.
+  // Null until the first field-procedure capture lazy-creates it. PWA
+  // fetches docs from BOTH this and pinnedContentPackVersion.
+  fieldCapturesVersionId: UuidSchema.nullable(),
   tabs: z.object({
     docs: z.object({ count: z.number().int() }),
     training: z.object({ count: z.number().int() }),
