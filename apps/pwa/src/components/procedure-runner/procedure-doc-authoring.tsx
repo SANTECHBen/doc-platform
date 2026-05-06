@@ -47,11 +47,19 @@ import {
 } from '@/lib/api';
 import { MicButton } from '@/components/voice-input';
 
+// Step "kind" controls run-time enforcement, NOT what's attached to the
+// authored step. Photos/videos (authored content) are added in the MEDIA
+// section below regardless of kind.
+//
+//   instruction          → tech reads + taps Done
+//   safety_check         → tech acknowledges; runner shows safety banner
+//   photo_required       → runner blocks Done until tech captures evidence photo
+//   measurement_required → runner blocks Done until tech enters a value
 const KIND_OPTIONS: Array<{ value: ProcedureStepKind; label: string }> = [
-  { value: 'instruction', label: 'Instruction' },
-  { value: 'safety_check', label: 'Safety check' },
-  { value: 'photo_required', label: 'Requires photo' },
-  { value: 'measurement_required', label: 'Requires measurement' },
+  { value: 'instruction', label: 'Instruction (read & tap)' },
+  { value: 'safety_check', label: 'Safety acknowledgement' },
+  { value: 'photo_required', label: 'Run-time photo evidence required' },
+  { value: 'measurement_required', label: 'Run-time measurement required' },
 ];
 
 interface LocalSubstep {
@@ -256,16 +264,60 @@ export function ProcedureDocAuthoring({
   async function onAddMedia(stepIdx: number, file: File) {
     if (!bundle) return;
     const step = steps[stepIdx];
-    if (!step?.id) {
-      setError('Save the step before attaching media.');
+    if (!step) return;
+    if (!step.title.trim()) {
+      setError('Give the step a title before attaching media.');
       return;
     }
     setBusy(true);
     setError(null);
     try {
+      // Auto-save the step on the first media attach so the upload
+      // endpoint has a stable stepId. Subsequent attaches reuse the
+      // existing id. This means a step with a title but no other content
+      // gets persisted as soon as the user taps "Add photo / video."
+      let stepId = step.id;
+      if (!stepId) {
+        const stepInput = {
+          kind: step.kind,
+          title: step.title.trim(),
+          bodyMarkdown: step.bodyMarkdown.trim() || null,
+          safetyCritical: step.safetyCritical || step.kind === 'safety_check',
+          requiresPhoto: step.kind === 'photo_required' || step.requiresPhoto,
+          minPhotoCount:
+            step.kind === 'photo_required'
+              ? Math.max(1, step.minPhotoCount)
+              : step.minPhotoCount,
+          measurementSpec: null,
+          media: [] as ProcedureStepMedia[],
+          substeps: step.substeps
+            .filter((ss) => ss.title.trim())
+            .map((ss) => ({
+              title: ss.title.trim(),
+              bodyMarkdown: ss.bodyMarkdown.trim() || null,
+            })),
+        };
+        const created = await addAuthoringStep({
+          runId: bundle.run.id,
+          step: stepInput,
+          devUserId,
+          devOrgId,
+        });
+        stepId = created.id;
+        // Mirror the server-assigned id into local state without losing
+        // unsaved edits the user may have made between starting the
+        // upload and now.
+        setSteps((prev) =>
+          prev.map((s, i) =>
+            i === stepIdx
+              ? { ...s, id: created.id }
+              : s,
+          ),
+        );
+      }
       const out = await uploadStepMedia({
         runId: bundle.run.id,
-        stepId: step.id,
+        stepId,
         file,
         devUserId,
         devOrgId,
@@ -970,70 +1022,79 @@ function StepCard({
                 <span>Safety-critical (renders a banner)</span>
               </label>
 
-              {/* MEDIA */}
-              {step.id ? (
-                <div className="flex flex-col gap-2 rounded border border-line-subtle bg-surface-raised p-2">
-                  <div className="flex items-center justify-between">
-                    <span className="caption">MEDIA</span>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="btn btn-ghost btn-sm"
-                        disabled={busy}
-                      >
-                        <Camera size={12} strokeWidth={2} /> Photo / Video
-                      </button>
-                    </div>
+              {/* MEDIA — author-attached photos and videos for this step. */}
+              <div className="flex flex-col gap-2 rounded border border-line-subtle bg-surface-raised p-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="caption">PHOTOS &amp; VIDEO</span>
+                    <span className="text-xs text-ink-tertiary normal-case">
+                      Attached to the step content (different from run-time
+                      evidence).
+                    </span>
                   </div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*,video/*"
-                    capture="environment"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      e.target.value = '';
-                      if (f) onAddMedia(f);
-                    }}
-                    className="hidden"
-                  />
-                  {step.media.length > 0 && (
-                    <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                      {step.media.map((m, mi) => (
-                        <li
-                          key={`${m.storageKey}-${mi}`}
-                          className="relative aspect-square overflow-hidden rounded border border-line-subtle"
-                        >
-                          {m.kind === 'image' ? (
-                            <img
-                              src={m.url ?? ''}
-                              alt=""
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center bg-surface-inset text-ink-tertiary">
-                              <Video size={20} strokeWidth={1.75} />
-                            </div>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => onRemoveMedia(mi)}
-                            className="absolute right-1 top-1 rounded bg-black/60 p-0.5 text-white"
-                            aria-label="Remove media"
-                          >
-                            <X size={12} strokeWidth={2} />
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="btn btn-secondary btn-sm shrink-0"
+                    disabled={busy || !step.title.trim()}
+                    title={
+                      !step.title.trim()
+                        ? 'Give the step a title first'
+                        : 'Add photo or video'
+                    }
+                  >
+                    <Camera size={12} strokeWidth={2} /> Add photo / video
+                  </button>
                 </div>
-              ) : (
-                <p className="text-xs text-ink-tertiary">
-                  Save the step to attach photos / videos.
-                </p>
-              )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*,video/*"
+                  capture="environment"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = '';
+                    if (f) onAddMedia(f);
+                  }}
+                  className="hidden"
+                />
+                {step.media.length > 0 ? (
+                  <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                    {step.media.map((m, mi) => (
+                      <li
+                        key={`${m.storageKey}-${mi}`}
+                        className="relative aspect-square overflow-hidden rounded border border-line-subtle"
+                      >
+                        {m.kind === 'image' ? (
+                          <img
+                            src={m.url ?? ''}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center bg-surface-inset text-ink-tertiary">
+                            <Video size={20} strokeWidth={1.75} />
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => onRemoveMedia(mi)}
+                          className="absolute right-1 top-1 rounded bg-black/60 p-0.5 text-white"
+                          aria-label="Remove media"
+                        >
+                          <X size={12} strokeWidth={2} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="rounded border border-dashed border-line bg-surface p-3 text-center text-xs text-ink-tertiary">
+                    No photos or video yet. Tap{' '}
+                    <span className="font-medium">Add photo / video</span> to
+                    capture or upload.
+                  </p>
+                )}
+              </div>
 
               {/* SUBSTEPS */}
               <div className="flex flex-col gap-2 rounded border border-line-subtle bg-surface-raised p-2">
