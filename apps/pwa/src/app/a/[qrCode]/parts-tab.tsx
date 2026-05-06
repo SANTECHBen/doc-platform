@@ -6,11 +6,12 @@ import remarkGfm from 'remark-gfm';
 import {
   ChevronLeft,
   ChevronRight,
+  CircuitBoard,
   FileText,
   FileType2,
   GraduationCap,
-  Layers,
   LayoutGrid,
+  ListChecks,
   MessageSquare,
   Package,
   Paperclip,
@@ -33,9 +34,14 @@ import {
   type PartRole,
   type PwaDocumentSection,
 } from '@/lib/api';
+import { formatRefCode } from '@/lib/ref-code';
 import { ChatTab } from './chat-tab';
 import { SectionRenderer } from '@/components/section-renderer';
 import { RowListSkeleton } from '@/components/skeleton';
+import { EmptyState } from '@/components/empty-state';
+import NoParts from '@/components/illustrations/no-parts';
+import NoDocuments from '@/components/illustrations/no-documents';
+import NoSearchResults from '@/components/illustrations/no-search-results';
 
 interface LightboxTarget {
   src: string;
@@ -45,17 +51,25 @@ interface LightboxTarget {
 
 // Derived structural role badge. Rendered wherever a part appears — BOM
 // rows, components list rows, part hub nameplate. 'part' has no badge
-// (it's the default / no hierarchical role).
+// (it's the default / no hierarchical role). SCADA-style glyph + mono caps
+// caption, no pill chrome — the rest of the part row carries the visual
+// weight.
 function RoleBadge({ role }: { role: PartRole }) {
   if (role === 'part') return null;
-  const label =
+  const config =
     role === 'assembly'
-      ? 'Assembly'
+      ? { glyph: '■', label: 'ASSEMBLY' }
       : role === 'sub_assembly'
-      ? 'Sub-assembly'
-      : 'Component';
-  const className = role === 'component' ? 'pill' : 'pill pill-info';
-  return <span className={className}>{label}</span>;
+      ? { glyph: '◧', label: 'SUB-ASSY' }
+      : { glyph: '▪', label: 'COMPONENT' };
+  return (
+    <span className="role-tag">
+      <span className="role-tag-glyph" aria-hidden>
+        {config.glyph}
+      </span>
+      {config.label}
+    </span>
+  );
 }
 
 export function PartsTab({
@@ -120,9 +134,12 @@ export function PartsTab({
   if (!rows) return <RowListSkeleton />;
   if (rows.length === 0)
     return (
-      <p className="py-8 text-center text-sm text-ink-tertiary">
-        No BOM entries for this asset model.
-      </p>
+      <EmptyState
+        illustration={NoParts}
+        title="No parts authored"
+        description="No BOM entries for this asset model yet."
+        tone="neutral"
+      />
     );
 
   return (
@@ -139,7 +156,10 @@ export function PartsTab({
 
       <ul className="flex flex-col gap-2">
         {(filtered ?? []).map((r) => (
-          <li key={r.bomEntryId} className={`part-row ${r.discontinued ? 'opacity-70' : ''}`}>
+          <li
+            key={r.bomEntryId}
+            className={`surface-etched part-row ${r.discontinued ? 'opacity-70' : ''}`}
+          >
             <div className="flex items-start gap-4">
               {r.imageUrl ? (
                 <button
@@ -222,12 +242,16 @@ export function PartsTab({
             </div>
           </li>
         ))}
-        {filtered && filtered.length === 0 && (
-          <li className="py-8 text-center text-sm text-ink-tertiary">
-            No parts match your search.
-          </li>
-        )}
       </ul>
+
+      {filtered && filtered.length === 0 && (
+        <EmptyState
+          illustration={NoSearchResults}
+          title="No parts match your search"
+          description="Try a different part number, name, or cross-reference."
+          tone="neutral"
+        />
+      )}
 
       {openPartId && rows && (
         <PartDetailOverlay
@@ -865,6 +889,8 @@ type DocEntry = {
   // [doc orderingHint, section orderingHint] — preserves authoring order
   // both across docs and within each doc.
   sortKey: [number, number];
+  // Ref code: SEC-XX · PG YY-ZZ for sections, DOC-XXX for whole-doc legacy.
+  refCode: string;
 };
 
 // Each section is surfaced as its own card so techs see scoped, named
@@ -880,7 +906,7 @@ function PartDocumentsPane({
 }) {
   if (!data) return <RowListSkeleton />;
 
-  const entries: DocEntry[] = data.documents.flatMap((d) => {
+  const entries: DocEntry[] = data.documents.flatMap((d, di) => {
     if (d.sections == null || d.sections.length === 0) {
       return [{
         key: d.id,
@@ -891,9 +917,10 @@ function PartDocumentsPane({
         kind: d.kind,
         sections: d.sections,
         sortKey: [d.orderingHint, 0],
+        refCode: formatRefCode(di + 1, null),
       }];
     }
-    return d.sections.map((s) => ({
+    return d.sections.map((s, si) => ({
       key: `${d.id}:${s.id}`,
       docId: d.id,
       title: s.title || 'Untitled section',
@@ -901,6 +928,7 @@ function PartDocumentsPane({
       kind: d.kind,
       sections: [s],
       sortKey: [d.orderingHint, s.orderingHint] as [number, number],
+      refCode: formatRefCode(si + 1, s),
     }));
   });
 
@@ -908,9 +936,12 @@ function PartDocumentsPane({
 
   if (entries.length === 0) {
     return (
-      <p className="py-10 text-center text-sm text-ink-tertiary">
-        No documents linked to this part yet.
-      </p>
+      <EmptyState
+        illustration={NoDocuments}
+        title="No part documents"
+        description="No documents are linked to this part yet."
+        tone="neutral"
+      />
     );
   }
 
@@ -923,19 +954,20 @@ function PartDocumentsPane({
             <button
               type="button"
               onClick={() => onOpenDocument(e.docId, e.sections)}
-              className="flex w-full items-center gap-3 rounded-md border border-line bg-surface-raised px-4 py-3 text-left transition hover:border-brand/40"
+              className="surface-etched flex w-full items-center gap-3 px-4 py-3 text-left"
             >
               <Icon
                 size={18}
-                strokeWidth={2}
+                strokeWidth={1.75}
                 className="shrink-0 text-ink-secondary"
               />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-ink-primary">
                   {e.title}
                 </div>
-                <div className="truncate text-xs text-ink-tertiary">
-                  {e.subtitle}
+                <div className="flex items-baseline gap-2 truncate text-xs text-ink-tertiary">
+                  <span className="font-mono tnum shrink-0">{e.refCode}</span>
+                  <span className="truncate">· {e.subtitle}</span>
                 </div>
               </div>
               <ChevronRight size={16} strokeWidth={2} className="shrink-0 text-ink-tertiary" />
@@ -961,11 +993,11 @@ function PartTrainingPane({ data }: { data: PartResources | null }) {
       {data.trainingModules.map((m) => (
         <li
           key={m.id}
-          className="flex items-center gap-3 rounded-md border border-line bg-surface-raised px-4 py-3"
+          className="surface-etched flex items-center gap-3 px-4 py-3"
         >
           <GraduationCap
             size={18}
-            strokeWidth={2}
+            strokeWidth={1.75}
             className="shrink-0 text-ink-secondary"
           />
           <div className="min-w-0 flex-1">
@@ -975,7 +1007,7 @@ function PartTrainingPane({ data }: { data: PartResources | null }) {
             )}
           </div>
           {m.estimatedMinutes && (
-            <span className="font-mono text-xs text-ink-tertiary">
+            <span className="font-mono text-xs tabular-nums text-ink-tertiary">
               {m.estimatedMinutes}m
             </span>
           )}
@@ -1013,7 +1045,7 @@ function ComponentsPane({
             type="button"
             onClick={() => onDrillInto(c.childPartId)}
             aria-label={`Drill into ${c.displayName}`}
-            className="flex w-full items-center gap-3 rounded-md border border-line bg-surface-raised px-3 py-2.5 text-left transition hover:border-brand/40"
+            className="surface-etched flex w-full items-center gap-3 px-3 py-2.5 text-left"
           >
             {c.imageUrl ? (
               <div
@@ -1125,10 +1157,18 @@ function PartDocView({
         </button>
       </header>
       <div className={isFramed ? 'doc-overlay-frame' : 'doc-overlay-scroll'}>
+        {isFramed && (
+          <>
+            <span className="corner-mark tl" aria-hidden />
+            <span className="corner-mark tr" aria-hidden />
+            <span className="corner-mark bl" aria-hidden />
+            <span className="corner-mark br" aria-hidden />
+          </>
+        )}
         {sectionMode && (
           <div className="flex flex-col gap-1 pb-6">
-            {sections!.map((s) => (
-              <SectionRenderer key={s.id} doc={doc} section={s} />
+            {sections!.map((s, i) => (
+              <SectionRenderer key={s.id} doc={doc} section={s} index={i + 1} />
             ))}
           </div>
         )}
@@ -1232,8 +1272,9 @@ function kindLabel(kind: string): string {
 function kindIcon(kind: string): LucideIcon {
   switch (kind) {
     case 'markdown':
-    case 'structured_procedure':
       return FileText;
+    case 'structured_procedure':
+      return ListChecks;
     case 'pdf':
       return FileType2;
     case 'video':
@@ -1241,7 +1282,7 @@ function kindIcon(kind: string): LucideIcon {
     case 'external_video':
       return Youtube;
     case 'schematic':
-      return Layers;
+      return CircuitBoard;
     case 'slides':
       return Presentation;
     case 'file':

@@ -5,11 +5,11 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
   ChevronLeft,
+  CircuitBoard,
   Download,
   FileText,
   FileType2,
-  FolderOpen,
-  Layers,
+  ListChecks,
   Maximize2,
   Minimize2,
   Paperclip,
@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 import { DocListSkeleton } from '@/components/skeleton';
 import { EmptyState } from '@/components/empty-state';
+import NoRevision from '@/components/illustrations/no-revision';
+import NoDocuments from '@/components/illustrations/no-documents';
 import { SectionRenderer } from '@/components/section-renderer';
 import {
   listDocuments,
@@ -30,6 +32,7 @@ import {
   type DocumentBody,
   type PwaDocumentSection,
 } from '@/lib/api';
+import { formatRefCode } from '@/lib/ref-code';
 
 // One renderable card. Either represents an entire doc (legacy: no
 // authored sections) or a single section of a doc. Tapping always opens
@@ -45,11 +48,15 @@ type DocEntry = {
   thumbnailUrl: string | null;
   tags: string[]; // surfaced only on whole-doc entries
   sections: PwaDocumentSection[] | null; // null = whole doc, [s] = scoped to that section
+  // Ref code for scan-friendly identification:
+  //   whole-doc: DOC-{1-indexed doc position in the API response}
+  //   section:   SEC-{1-indexed section position within parent doc} · PG XX-YY
+  refCode: string;
 };
 
 function buildEntries(docs: DocumentListItem[]): DocEntry[] {
   const out: DocEntry[] = [];
-  for (const d of docs) {
+  docs.forEach((d, di) => {
     const sections = d.sections;
     if (!sections || sections.length === 0) {
       out.push({
@@ -62,10 +69,11 @@ function buildEntries(docs: DocumentListItem[]): DocEntry[] {
         thumbnailUrl: d.thumbnailUrl ?? null,
         tags: d.tags,
         sections: sections ?? null,
+        refCode: formatRefCode(di + 1, null),
       });
-      continue;
+      return;
     }
-    for (const s of sections) {
+    sections.forEach((s, si) => {
       out.push({
         key: `${d.id}:${s.id}`,
         docId: d.id,
@@ -76,9 +84,10 @@ function buildEntries(docs: DocumentListItem[]): DocEntry[] {
         thumbnailUrl: d.thumbnailUrl ?? null,
         tags: [], // section cards don't repeat doc-level tags
         sections: [s],
+        refCode: formatRefCode(si + 1, s),
       });
-    }
-  }
+    });
+  });
   return out;
 }
 
@@ -108,7 +117,7 @@ export function DocsTab({ versionId }: { versionId: string | null }) {
   if (!versionId) {
     return (
       <EmptyState
-        icon={FolderOpen}
+        illustration={NoRevision}
         title="No revision pinned"
         description="No content version is pinned to this asset yet."
         tone="neutral"
@@ -120,7 +129,7 @@ export function DocsTab({ versionId }: { versionId: string | null }) {
   if (docs.length === 0) {
     return (
       <EmptyState
-        icon={FolderOpen}
+        illustration={NoDocuments}
         title="No documents"
         description="No documents have been published in this revision."
         tone="neutral"
@@ -144,7 +153,6 @@ export function DocsTab({ versionId }: { versionId: string | null }) {
     <ul className="grid grid-cols-1 gap-2.5 md:grid-cols-2 lg:grid-cols-3">
       {entries.map((e) => {
         const Icon = kindIcon(e.kind);
-        const tint = kindTint(e.kind);
         return (
           <li key={e.key}>
             <button
@@ -152,9 +160,12 @@ export function DocsTab({ versionId }: { versionId: string | null }) {
                 const full = await getDocument(e.docId);
                 if (full) setOpen({ doc: full, sections: e.sections });
               }}
-              className="group flex h-full w-full flex-col overflow-hidden rounded-md border border-line-subtle bg-surface-raised text-left transition hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-[0_4px_14px_-4px_rgba(11,95,191,0.25)]"
+              className="surface-etched group flex h-full w-full flex-col overflow-hidden text-left"
             >
-              <div className="relative flex aspect-[16/9] w-full items-center justify-center overflow-hidden">
+              <div
+                className="relative flex aspect-[16/9] w-full items-center justify-center overflow-hidden"
+                style={{ background: 'rgb(var(--surface-elevated))' }}
+              >
                 {e.thumbnailUrl ? (
                   <img
                     src={e.thumbnailUrl}
@@ -162,29 +173,22 @@ export function DocsTab({ versionId }: { versionId: string | null }) {
                     className="h-full w-full object-cover"
                   />
                 ) : (
-                  <div
-                    className="doc-thumb-placeholder"
-                    style={{
-                      background: `linear-gradient(135deg, ${tint.bgStart} 0%, ${tint.bgEnd} 100%)`,
-                    }}
-                  >
-                    <div
-                      className="icon-chip icon-chip-lg"
-                      style={{ color: tint.fg, background: tint.chip }}
-                    >
-                      <Icon size={28} strokeWidth={2} />
+                  <div className="doc-thumb-placeholder text-ink-secondary">
+                    <div className="icon-chip icon-chip-lg icon-chip-neutral">
+                      <Icon size={28} strokeWidth={1.5} />
                     </div>
-                    <span className="doc-thumb-label" style={{ color: tint.fg }}>
+                    <span className="doc-thumb-label text-ink-tertiary">
                       {kindLabel(e.kind)}
                     </span>
                   </div>
                 )}
               </div>
               <div className="flex flex-1 flex-col gap-2 p-4">
-                <span className="inline-flex items-center gap-1.5 caption">
-                  <Icon size={12} strokeWidth={2} />
+                <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 caption">
+                  <Icon size={12} strokeWidth={1.75} />
                   {kindLabel(e.kind)}
                   {e.language !== 'en' && ` · ${e.language.toUpperCase()}`}
+                  <span className="tnum normal-case text-ink-tertiary">· {e.refCode}</span>
                   {e.parentDocTitle && (
                     <span className="ml-1 truncate text-ink-tertiary normal-case">
                       · {e.parentDocTitle}
@@ -238,77 +242,12 @@ function kindLabel(kind: string): string {
   }
 }
 
-// Per-kind color scheme for the placeholder. Each pair uses a soft tinted
-// background, a saturated accent for the icon chip, and a readable ink color
-// for the kind label. Designed to read as "intentional card" not "missing
-// image".
-interface KindTint {
-  bgStart: string;
-  bgEnd: string;
-  chip: string;
-  fg: string;
-}
-function kindTint(kind: string): KindTint {
-  switch (kind) {
-    case 'pdf':
-      return {
-        bgStart: 'rgba(220, 38, 38, 0.12)',
-        bgEnd: 'rgba(220, 38, 38, 0.04)',
-        chip: 'rgba(220, 38, 38, 0.16)',
-        fg: '#b91c1c',
-      };
-    case 'video':
-    case 'external_video':
-      return {
-        bgStart: 'rgba(14, 165, 233, 0.14)',
-        bgEnd: 'rgba(14, 165, 233, 0.04)',
-        chip: 'rgba(14, 165, 233, 0.18)',
-        fg: '#0369a1',
-      };
-    case 'slides':
-      return {
-        bgStart: 'rgba(234, 88, 12, 0.12)',
-        bgEnd: 'rgba(234, 88, 12, 0.03)',
-        chip: 'rgba(234, 88, 12, 0.18)',
-        fg: '#c2410c',
-      };
-    case 'schematic':
-      return {
-        bgStart: 'rgba(124, 58, 237, 0.12)',
-        bgEnd: 'rgba(124, 58, 237, 0.03)',
-        chip: 'rgba(124, 58, 237, 0.18)',
-        fg: '#6d28d9',
-      };
-    case 'structured_procedure':
-      return {
-        bgStart: 'rgba(5, 150, 105, 0.12)',
-        bgEnd: 'rgba(5, 150, 105, 0.03)',
-        chip: 'rgba(5, 150, 105, 0.18)',
-        fg: '#047857',
-      };
-    case 'markdown':
-      return {
-        bgStart: 'rgba(37, 108, 211, 0.10)',
-        bgEnd: 'rgba(37, 108, 211, 0.02)',
-        chip: 'rgba(37, 108, 211, 0.16)',
-        fg: '#256CD3',
-      };
-    case 'file':
-    default:
-      return {
-        bgStart: 'rgba(82, 82, 91, 0.10)',
-        bgEnd: 'rgba(82, 82, 91, 0.02)',
-        chip: 'rgba(82, 82, 91, 0.14)',
-        fg: '#52525b',
-      };
-  }
-}
-
 function kindIcon(kind: string): LucideIcon {
   switch (kind) {
     case 'markdown':
-    case 'structured_procedure':
       return FileText;
+    case 'structured_procedure':
+      return ListChecks;
     case 'pdf':
       return FileType2;
     case 'video':
@@ -316,7 +255,7 @@ function kindIcon(kind: string): LucideIcon {
     case 'external_video':
       return Youtube;
     case 'schematic':
-      return Layers;
+      return CircuitBoard;
     case 'slides':
       return Presentation;
     case 'file':
@@ -387,7 +326,7 @@ function DocView({
         </button>
         <div className="doc-overlay-title">
           <span className="inline-flex items-center gap-1.5 caption">
-            <Icon size={12} strokeWidth={2} />
+            <Icon size={12} strokeWidth={1.75} />
             {kindLabel(doc.kind)}
             {sectionMode && sections!.length === 1 && (
               <span className="ml-1 truncate text-ink-tertiary normal-case">
@@ -407,6 +346,14 @@ function DocView({
         </button>
       </header>
       <div className={isFramed ? 'doc-overlay-frame' : 'doc-overlay-scroll'}>
+        {isFramed && (
+          <>
+            <span className="corner-mark tl" aria-hidden />
+            <span className="corner-mark tr" aria-hidden />
+            <span className="corner-mark bl" aria-hidden />
+            <span className="corner-mark br" aria-hidden />
+          </>
+        )}
         {doc.safetyCritical && (
           <div className="mx-auto max-w-3xl rounded-md border border-signal-safety/50 bg-signal-safety/10 p-4 mt-4">
             <div className="flex items-start gap-3">
@@ -422,8 +369,8 @@ function DocView({
         )}
         {sectionMode ? (
           <div className="flex flex-col gap-1 pb-6">
-            {sections!.map((s) => (
-              <SectionRenderer key={s.id} doc={doc} section={s} />
+            {sections!.map((s, i) => (
+              <SectionRenderer key={s.id} doc={doc} section={s} index={i + 1} />
             ))}
           </div>
         ) : (
@@ -557,7 +504,9 @@ function DocContent({ doc }: { doc: DocumentBody }) {
             {doc.originalFilename ?? 'Attached file'}
           </p>
           {doc.sizeBytes && (
-            <p className="mt-1 text-xs text-ink-tertiary">{formatBytes(doc.sizeBytes)}</p>
+            <p className="mt-1 font-mono text-xs tabular-nums text-ink-tertiary">
+              {formatBytes(doc.sizeBytes)}
+            </p>
           )}
         </div>
         <a

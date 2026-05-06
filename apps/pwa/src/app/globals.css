@@ -427,6 +427,7 @@
 /* Framed content (PDF, schematic, video, slides) fills remaining height —
    no nested scroll. The iframe/video handles its own scrolling. */
 .doc-overlay-frame {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -437,6 +438,22 @@
   overscroll-behavior-x: contain;
   overflow-x: hidden;
 }
+/* Schematic chrome — 1px hairline frame around framed content (PDF /
+   schematic / video) and L-shaped corner marks at each corner. The
+   corner-mark primitive is shared with the equipment nameplate; we only
+   widen the inset here so the marks don't crowd embedded iframes. */
+.doc-overlay-frame::before {
+  content: '';
+  position: absolute;
+  inset: 14px;
+  border: 1px solid rgb(var(--line));
+  pointer-events: none;
+  z-index: 1;
+}
+.doc-overlay-frame > .corner-mark.tl { top: 14px; left: 14px; right: auto; bottom: auto; }
+.doc-overlay-frame > .corner-mark.tr { top: 14px; right: 14px; left: auto; bottom: auto; }
+.doc-overlay-frame > .corner-mark.bl { bottom: 14px; left: 14px; right: auto; top: auto; }
+.doc-overlay-frame > .corner-mark.br { bottom: 14px; right: 14px; left: auto; top: auto; }
 .doc-overlay-frame > * { flex: 1; min-height: 0; }
 .doc-overlay-frame iframe,
 .doc-overlay-frame video {
@@ -1098,6 +1115,44 @@
   }
 
   /* ------------------------------------------------------------
+     SURFACE-ETCHED — physical-instrument card chrome.
+     1px highlight on top edge, 1px shadow on bottom edge so the
+     surface reads as an etched panel rather than a floating card.
+     Apply to part rows and document cards.
+     ------------------------------------------------------------ */
+  .surface-etched {
+    background: rgb(var(--surface-raised));
+    border: 1px solid rgb(var(--line));
+    border-radius: 4px;
+    box-shadow:
+      inset 0 1px 0 rgb(var(--surface-plate-top)),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.18);
+    transition: border-color 140ms ease;
+  }
+  .surface-etched:hover { border-color: rgba(var(--brand), 0.4); }
+
+  /* ------------------------------------------------------------
+     ROLE TAG — SCADA-style glyph + mono caps caption.
+     Replaces .pill chrome for part-role badges (assembly etc.);
+     genuine status pills (work-order status, discontinued) keep .pill.
+     ------------------------------------------------------------ */
+  .role-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-secondary));
+  }
+  .role-tag-glyph {
+    color: rgb(var(--ink-primary));
+    font-size: 12px;
+    line-height: 1;
+  }
+
+  /* ------------------------------------------------------------
      LANDING — QR tile + scan button with shine sweep
      ------------------------------------------------------------ */
   .qr-tile {
@@ -1182,14 +1237,10 @@
   }
   .search-input input::placeholder { color: rgb(var(--ink-tertiary)); }
 
+  /* Layout-only — visual chrome comes from .surface-etched applied in JSX. */
   .part-row {
-    background: rgb(var(--surface-raised));
-    border: 1px solid rgb(var(--line));
-    border-radius: 5px;
     padding: 14px 18px;
-    transition: border-color 140ms ease;
   }
-  .part-row:hover { border-color: rgb(var(--line-strong)); }
   .part-num {
     font-family: var(--font-mono);
     font-size: 13.5px;

@@ -13,6 +13,7 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, FileText } from 'lucide-react';
 import type { DocumentBody, PwaDocumentSection } from '@/lib/api';
+import { formatRefCode } from '@/lib/ref-code';
 import { PdfSection } from './pdf-section';
 import { TextSection } from './text-section';
 import { VideoSection } from './video-section';
@@ -20,16 +21,28 @@ import { VideoSection } from './video-section';
 export interface SectionRendererProps {
   doc: DocumentBody;
   section: PwaDocumentSection;
+  /** 1-indexed position of this section within its parent doc's sorted sections. */
+  index: number;
 }
 
-export function SectionRenderer({ doc, section }: SectionRendererProps): React.ReactElement {
+export function SectionRenderer({
+  doc,
+  section,
+  index,
+}: SectionRendererProps): React.ReactElement {
+  const safety = section.safetyCritical;
   return (
-    <article className="border-b border-line py-5 first:pt-2 last:border-0">
-      <header className="mb-2 flex flex-wrap items-center gap-2 px-4">
-        <h3 className="text-base font-semibold text-ink-primary">{section.title}</h3>
-        <span className="ml-auto text-xs text-ink-tertiary">
-          {anchorSummary(section)}
+    <article
+      className={
+        'border-b border-line py-5 first:pt-2 last:border-0' +
+        (safety ? ' border-l-[3px] border-l-signal-safety pl-3' : '')
+      }
+    >
+      <header className="mb-2 flex flex-wrap items-baseline gap-2 px-4">
+        <span className="caption tnum normal-case shrink-0 text-ink-tertiary">
+          {formatRefCode(index, section)}
         </span>
+        <h3 className="text-base font-semibold text-ink-primary">{section.title}</h3>
       </header>
       {section.description && (
         <p className="mb-3 px-4 text-sm text-ink-secondary">{section.description}</p>
@@ -41,7 +54,12 @@ export function SectionRenderer({ doc, section }: SectionRendererProps): React.R
   );
 }
 
-function SectionBody({ doc, section }: SectionRendererProps): React.ReactElement {
+interface SectionBodyProps {
+  doc: DocumentBody;
+  section: PwaDocumentSection;
+}
+
+function SectionBody({ doc, section }: SectionBodyProps): React.ReactElement {
   if (section.kind === 'page_range') {
     return <PdfSection doc={doc} section={section} />;
   }
@@ -60,7 +78,7 @@ function SectionBody({ doc, section }: SectionRendererProps): React.ReactElement
 function TextRangeBody({
   doc,
   section,
-}: SectionRendererProps): React.ReactElement {
+}: SectionBodyProps): React.ReactElement {
   const [showPdf, setShowPdf] = useState(false);
   const isPdf = doc.kind === 'pdf';
   return (
@@ -92,21 +110,3 @@ function TextRangeBody({
   );
 }
 
-function anchorSummary(s: PwaDocumentSection): string {
-  if (s.kind === 'page_range') {
-    if (s.pageStart === s.pageEnd) return `Page ${s.pageStart}`;
-    return `Pages ${s.pageStart}–${s.pageEnd}`;
-  }
-  if (s.kind === 'text_range') {
-    if (s.textPageHint != null) return `Page ${s.textPageHint}`;
-    return 'Text excerpt';
-  }
-  return `${fmtT(s.timeStartSeconds)}–${fmtT(s.timeEndSeconds)}`;
-}
-
-function fmtT(secs: number | null): string {
-  if (secs == null) return '?';
-  const m = Math.floor(secs / 60);
-  const s = Math.floor(secs % 60);
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
