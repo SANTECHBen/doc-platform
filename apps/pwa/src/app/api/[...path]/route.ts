@@ -58,17 +58,42 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   if (scan) headers.set('x-scan-session', scan.value);
 
   const method = request.method.toUpperCase();
-  const body = method === 'GET' || method === 'HEAD' ? undefined : request.body;
+  // Buffer the request body for non-multipart uploads. Streaming via
+  // `duplex: 'half'` is required when the upstream consumes the body
+  // (file uploads), but it's a footgun otherwise: if the upstream
+  // returns early (e.g., 401 before reading the body), Node's fetch
+  // ends up with a half-aborted response stream that NextResponse then
+  // can't forward, surfacing as a 500 to the browser. JSON / text / form
+  // bodies are tiny enough to buffer cleanly. Multipart/octet-stream
+  // keep streaming (with the trade-off of the early-reject footgun for
+  // file uploads — typically fine since file-upload endpoints validate
+  // auth without rejecting).
+  const contentType = request.headers.get('content-type') ?? '';
+  const wantStreaming =
+    contentType.startsWith('multipart/') ||
+    contentType.startsWith('application/octet-stream');
 
-  const upstream = await fetch(target, {
+  let body: BodyInit | undefined;
+  if (method === 'GET' || method === 'HEAD') {
+    body = undefined;
+  } else if (wantStreaming) {
+    body = request.body ?? undefined;
+  } else {
+    // Buffer to a string (or empty for no body). text() handles JSON
+    // and urlencoded fine since both are UTF-8 text on the wire.
+    body = (await request.text()) || undefined;
+  }
+
+  const fetchInit: RequestInit & { duplex?: 'half' } = {
     method,
     headers,
     body,
-    // @ts-expect-error — Next.js fetch extension for streaming request bodies.
-    duplex: body ? 'half' : undefined,
     cache: 'no-store',
     redirect: 'manual',
-  });
+  };
+  if (wantStreaming && body) fetchInit.duplex = 'half';
+
+  const upstream = await fetch(target, fetchInit);
 
   const respHeaders = new Headers();
   upstream.headers.forEach((v, k) => {
