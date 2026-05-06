@@ -300,6 +300,50 @@ export default function ContentPackDetail({
             </div>
           </section>
         ))}
+
+        {pack.fieldCaptures.length > 0 && (
+          <section className="rounded-md border border-line-subtle bg-surface-raised p-4">
+            <header className="mb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-ink-primary">
+                  Field captures ({pack.fieldCaptures.length})
+                </h3>
+                <p className="mt-0.5 text-xs text-ink-tertiary">
+                  Tech-authored procedures captured on this asset model
+                  via the PWA. Edit, promote, or delete from each
+                  procedure&apos;s detail page.
+                </p>
+              </div>
+            </header>
+            <ul className="flex flex-col gap-1.5">
+              {pack.fieldCaptures.map((fc) => (
+                <li
+                  key={fc.id}
+                  className="flex items-center justify-between gap-3 rounded border border-line-subtle bg-surface px-3 py-2 text-sm"
+                >
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <Link
+                      href={`/documents/${fc.id}`}
+                      className="truncate font-medium text-ink-primary hover:text-brand"
+                    >
+                      {fc.title}
+                    </Link>
+                    <p className="font-mono text-xs text-ink-tertiary">
+                      {fc.stepCount} step{fc.stepCount === 1 ? '' : 's'}
+                      {fc.capturedByDisplayName
+                        ? ` · captured by ${fc.capturedByDisplayName}`
+                        : ''}
+                      {fc.scopeAssetInstanceId ? ' · this unit only' : ''}
+                    </p>
+                  </div>
+                  <Pill tone={fc.verified ? 'success' : 'warning'}>
+                    {fc.verified ? 'verified' : 'unverified'}
+                  </Pill>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
 
       <Drawer

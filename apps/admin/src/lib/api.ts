@@ -299,6 +299,20 @@ export interface AdminContentPackDetail {
     }>;
     trainingModules: Array<{ id: string; title: string }>;
   }>;
+  /** Field-authored procedures for this pack's asset model. Sourced from
+   *  the always-draft per-model "field captures" pack and rendered as a
+   *  section parallel to per-version Documents/Training. Empty array on
+   *  packs that don't surface field captures (overlays, field-captures
+   *  packs themselves). */
+  fieldCaptures: Array<{
+    id: string;
+    title: string;
+    verified: boolean;
+    capturedByDisplayName: string | null;
+    stepCount: number;
+    scopeAssetInstanceId: string | null;
+    createdAt: string;
+  }>;
 }
 
 export async function getContentPack(id: string): Promise<AdminContentPackDetail | null> {

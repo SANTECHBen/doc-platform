@@ -3095,6 +3095,10 @@ export async function registerAdminListings(app: FastifyInstance) {
     const scope = await getScope(request, db);
     const scopeLiteral = orgIdsLiteral(scope);
     const rows = (await db.execute(
+      // Field-captures packs are auto-managed (one per asset model,
+      // always-draft, holds tech-authored procedures). They surface as a
+      // section inside the associated OEM pack's detail page rather than
+      // as standalone rows in this list.
       scope.all
         ? sql`SELECT p.id, p.name, p.slug, p.layer_type, p.kind,
                  am.id AS asset_model_id, am.display_name AS asset_model_name,
@@ -3114,7 +3118,8 @@ export async function registerAdminListings(app: FastifyInstance) {
             ORDER BY version_number DESC
             LIMIT 1
           ) latest ON true
-          ORDER BY am.display_name, p.kind, p.name`
+          WHERE p.kind = 'authored'
+          ORDER BY am.display_name, p.name`
         : sql`SELECT p.id, p.name, p.slug, p.layer_type, p.kind,
                  am.id AS asset_model_id, am.display_name AS asset_model_name,
                  o.name AS owner_name,
@@ -3133,8 +3138,9 @@ export async function registerAdminListings(app: FastifyInstance) {
             ORDER BY version_number DESC
             LIMIT 1
           ) latest ON true
-          WHERE p.owner_organization_id = ANY(${scopeLiteral}::uuid[])
-          ORDER BY am.display_name, p.kind, p.name`,
+          WHERE p.kind = 'authored'
+            AND p.owner_organization_id = ANY(${scopeLiteral}::uuid[])
+          ORDER BY am.display_name, p.name`,
     )) as unknown as Array<{
       id: string;
       name: string;
@@ -3245,6 +3251,67 @@ export async function registerAdminListings(app: FastifyInstance) {
         if (v) v.trainingModules.push({ id: m.id, title: m.title });
       }
 
+      // Field captures — surface the field-authored procedures for this
+      // pack's asset model as a section parallel to per-version Documents
+      // and Training. They live in a separate field-captures pack
+      // (auto-managed) but render here so admins see them in context.
+      // Skipped on packs that are themselves field-captures (would be
+      // recursive) and on overlay packs (only base/authored OEM packs
+      // get the section to keep the UX uncluttered).
+      type FieldCaptureRow = {
+        id: string;
+        title: string;
+        verified: boolean;
+        capturedByDisplayName: string | null;
+        stepCount: number;
+        scopeAssetInstanceId: string | null;
+        createdAt: string;
+      };
+      let fieldCaptures: FieldCaptureRow[] = [];
+      if (pack.kind === 'authored') {
+        const fcRows = (await db.execute(
+          sql`SELECT
+                d.id, d.title, d.field_verified_at, d.scope_asset_instance_id,
+                d.created_at,
+                (SELECT count(*)::int FROM procedure_steps ps WHERE ps.document_id = d.id) AS step_count,
+                u.display_name AS captured_by_display_name
+              FROM documents d
+              JOIN content_pack_versions cpv ON cpv.id = d.content_pack_version_id
+              JOIN content_packs cp ON cp.id = cpv.content_pack_id
+              LEFT JOIN LATERAL (
+                SELECT pr.user_id
+                FROM procedure_runs pr
+                WHERE pr.document_id = d.id
+                ORDER BY pr.started_at ASC
+                LIMIT 1
+              ) first_run ON true
+              LEFT JOIN users u ON u.id = first_run.user_id
+              WHERE cp.asset_model_id = ${pack.assetModelId}
+                AND cp.kind = 'field_captures'
+                AND d.kind = 'structured_procedure'
+              ORDER BY d.created_at DESC`,
+        )) as unknown as Array<{
+          id: string;
+          title: string;
+          field_verified_at: Date | null;
+          scope_asset_instance_id: string | null;
+          created_at: Date;
+          step_count: number;
+          captured_by_display_name: string | null;
+        }>;
+        fieldCaptures = fcRows.map((r) => ({
+          id: r.id,
+          title: r.title,
+          verified: r.field_verified_at !== null,
+          capturedByDisplayName: r.captured_by_display_name,
+          stepCount: r.step_count,
+          scopeAssetInstanceId: r.scope_asset_instance_id,
+          createdAt: r.created_at instanceof Date
+            ? r.created_at.toISOString()
+            : String(r.created_at),
+        }));
+      }
+
       return {
         id: pack.id,
         name: pack.name,
@@ -3256,6 +3323,7 @@ export async function registerAdminListings(app: FastifyInstance) {
           modelCode: pack.assetModel.modelCode,
         },
         versions: [...byVersion.values()].sort((a, b) => b.versionNumber - a.versionNumber),
+        fieldCaptures,
       };
     },
   );
