@@ -440,6 +440,274 @@ export type ChatStreamEvent =
   | { type: 'done'; messageId: string; citations: ChatCitation[]; usage: ChatReply['usage'] }
   | { type: 'error'; message: string };
 
+// ---------------------------------------------------------------------------
+// Procedure runs (PWA runtime). All endpoints require auth — the PWA passes
+// devUserId/devOrgId via x-dev-user in dev; prod OIDC integration is a
+// separate follow-up. See packages/api/src/routes/procedures.ts.
+// ---------------------------------------------------------------------------
+
+export type ProcedureStepKind =
+  | 'instruction'
+  | 'safety_check'
+  | 'photo_required'
+  | 'measurement_required';
+
+export type ProcedureRunStatus =
+  | 'in_progress'
+  | 'paused'
+  | 'completed'
+  | 'abandoned';
+
+export type ProcedureMeasurementSpec =
+  | {
+      kind: 'numeric';
+      label: string;
+      unit: string;
+      min?: number | null;
+      max?: number | null;
+      expected?: number | null;
+      tolerancePct?: number | null;
+    }
+  | {
+      kind: 'pass_fail';
+      label: string;
+      passLabel?: string;
+      failLabel?: string;
+    }
+  | {
+      kind: 'free_text';
+      label: string;
+      placeholder?: string;
+      maxLen?: number;
+    };
+
+export interface ProcedureStepDto {
+  id: string;
+  documentId: string;
+  kind: ProcedureStepKind;
+  title: string;
+  bodyMarkdown: string | null;
+  safetyCritical: boolean;
+  orderingHint: number;
+  requiresPhoto: boolean;
+  minPhotoCount: number;
+  measurementSpec: ProcedureMeasurementSpec | null;
+}
+
+export interface ProcedureRunDto {
+  id: string;
+  documentId: string | null;
+  userId: string;
+  assetInstanceId: string | null;
+  workOrderId: string | null;
+  status: ProcedureRunStatus;
+  abandonedReason: string | null;
+  startedAt: string;
+  completedAt: string | null;
+  lastActivityAt: string;
+  totalActiveMs: number;
+  pausedAt: string | null;
+}
+
+export interface ProcedureStepCompletionDto {
+  id: string;
+  runId: string;
+  stepId: string;
+  outcome: 'completed' | 'skipped';
+  skipReason: string | null;
+  photos: Array<{ key: string; mime: string; caption?: string }>;
+  numericValue: number | null;
+  passFailValue: string | null;
+  textValue: string | null;
+  measurementOutOfSpec: boolean;
+  measurementOverrideReason: string | null;
+  notes: string | null;
+  enteredAt: string;
+  completedAt: string;
+  timeMs: number;
+}
+
+export interface ProcedureBundle {
+  run: ProcedureRunDto;
+  document: {
+    id: string;
+    title: string;
+    kind: string;
+    safetyCritical: boolean;
+  };
+  steps: ProcedureStepDto[];
+  completions: ProcedureStepCompletionDto[];
+}
+
+export type StepCompletionPayload =
+  | {
+      outcome: 'completed';
+      photos: Array<{ key: string; mime: string; caption?: string }>;
+      measurement?:
+        | { kind: 'numeric'; value: number; overrideReason?: string }
+        | { kind: 'pass_fail'; value: 'pass' | 'fail' }
+        | { kind: 'free_text'; value: string }
+        | null;
+      notes?: string;
+      enteredAt: string;
+    }
+  | {
+      outcome: 'skipped';
+      skipReason: string;
+      notes?: string;
+      enteredAt: string;
+    };
+
+function authHeaders(devUserId: string, devOrgId: string): Record<string, string> {
+  return { 'x-dev-user': `${devUserId}:${devOrgId}` };
+}
+
+export async function startProcedureRun(params: {
+  docId: string;
+  assetInstanceId?: string | null;
+  workOrderId?: string | null;
+  devUserId: string;
+  devOrgId: string;
+}): Promise<ProcedureBundle> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/documents/${encodeURIComponent(params.docId)}/procedure-runs`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...authHeaders(params.devUserId, params.devOrgId) },
+      body: JSON.stringify({
+        assetInstanceId: params.assetInstanceId ?? null,
+        workOrderId: params.workOrderId ?? null,
+      }),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as ProcedureBundle;
+}
+
+export async function getProcedureRun(
+  runId: string,
+  devUserId: string,
+  devOrgId: string,
+): Promise<ProcedureBundle> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/procedure-runs/${encodeURIComponent(runId)}`,
+    { cache: 'no-store', headers: authHeaders(devUserId, devOrgId) },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as ProcedureBundle;
+}
+
+export async function patchProcedureStep(params: {
+  runId: string;
+  stepId: string;
+  payload: StepCompletionPayload;
+  devUserId: string;
+  devOrgId: string;
+}): Promise<ProcedureStepCompletionDto> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/procedure-runs/${encodeURIComponent(params.runId)}/steps/${encodeURIComponent(params.stepId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...authHeaders(params.devUserId, params.devOrgId) },
+      body: JSON.stringify(params.payload),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as ProcedureStepCompletionDto;
+}
+
+export async function uploadProcedureStepPhoto(params: {
+  runId: string;
+  stepId: string;
+  file: File;
+  devUserId: string;
+  devOrgId: string;
+}): Promise<{ key: string; mime: string; size: number; url: string }> {
+  const form = new FormData();
+  form.append('file', params.file, params.file.name);
+  const res = await fetch(
+    `${CLIENT_API_BASE}/procedure-runs/${encodeURIComponent(params.runId)}/steps/${encodeURIComponent(params.stepId)}/photo`,
+    {
+      method: 'POST',
+      headers: authHeaders(params.devUserId, params.devOrgId),
+      body: form,
+    },
+  );
+  if (!res.ok) throw new Error(`Upload ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { key: string; mime: string; size: number; url: string };
+}
+
+export async function pauseProcedureRun(
+  runId: string,
+  devUserId: string,
+  devOrgId: string,
+): Promise<ProcedureRunDto> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/procedure-runs/${encodeURIComponent(runId)}/pause`,
+    { method: 'POST', headers: authHeaders(devUserId, devOrgId) },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as ProcedureRunDto;
+}
+
+export async function resumeProcedureRun(
+  runId: string,
+  devUserId: string,
+  devOrgId: string,
+): Promise<ProcedureRunDto> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/procedure-runs/${encodeURIComponent(runId)}/resume`,
+    { method: 'POST', headers: authHeaders(devUserId, devOrgId) },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as ProcedureRunDto;
+}
+
+export async function finishProcedureRun(
+  runId: string,
+  devUserId: string,
+  devOrgId: string,
+): Promise<ProcedureRunDto> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/procedure-runs/${encodeURIComponent(runId)}/finish`,
+    { method: 'POST', headers: authHeaders(devUserId, devOrgId) },
+  );
+  if (!res.ok) {
+    // Surface 409 missingStepIds payload to the caller for inline UI.
+    const text = await res.text();
+    const err: Error & { missingStepIds?: string[]; status?: number } = new Error(
+      `API ${res.status}: ${text}`,
+    );
+    err.status = res.status;
+    try {
+      const parsed = JSON.parse(text) as { missingStepIds?: string[] };
+      if (parsed.missingStepIds) err.missingStepIds = parsed.missingStepIds;
+    } catch {
+      // ignore
+    }
+    throw err;
+  }
+  return (await res.json()) as ProcedureRunDto;
+}
+
+export async function abandonProcedureRun(params: {
+  runId: string;
+  reason: string;
+  devUserId: string;
+  devOrgId: string;
+}): Promise<ProcedureRunDto> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/procedure-runs/${encodeURIComponent(params.runId)}/abandon`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...authHeaders(params.devUserId, params.devOrgId) },
+      body: JSON.stringify({ reason: params.reason }),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as ProcedureRunDto;
+}
+
 export async function streamChat(
   params: {
     assetInstanceId: string;

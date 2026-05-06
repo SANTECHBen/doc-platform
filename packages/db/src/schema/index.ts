@@ -14,3 +14,4 @@ export * from './qr-label-templates';
 export * from './embeddings';
 export * from './agent';
 export * from './document-sections';
+export * from './procedures';

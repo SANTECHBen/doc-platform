@@ -2,21 +2,24 @@
 
 import Link from 'next/link';
 import { use, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowLeft, FileText, Link2, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, FileText, Link2, ListChecks, RefreshCw } from 'lucide-react';
 import { PageHeader, PageShell, Pill } from '@/components/page-shell';
 import { useToast } from '@/components/toast';
 import { ErrorBanner, SecondaryButton } from '@/components/form';
 import {
   getAdminDocument,
+  listProcedureSteps,
   listSectionsForDocument,
   revalidateDocumentSections,
   type AdminDocumentDetail,
   type AdminDocumentSection,
+  type AdminProcedureStep,
 } from '@/lib/api';
 import { SectionsTab } from './sections-tab';
 import { LinkedPartsTab } from './linked-parts-tab';
+import { StepsTab } from './steps-tab';
 
-type Tab = 'overview' | 'sections' | 'linked-parts';
+type Tab = 'overview' | 'sections' | 'linked-parts' | 'steps';
 
 export default function DocumentDetailPage({
   params,
@@ -28,10 +31,15 @@ export default function DocumentDetailPage({
   const { id } = use(params);
   const { tab: tabParam } = use(searchParams);
   const initialTab: Tab =
-    tabParam === 'sections' || tabParam === 'linked-parts' ? tabParam : 'overview';
+    tabParam === 'sections' ||
+    tabParam === 'linked-parts' ||
+    tabParam === 'steps'
+      ? tabParam
+      : 'overview';
 
   const [doc, setDoc] = useState<AdminDocumentDetail | null>(null);
   const [sections, setSections] = useState<AdminDocumentSection[] | null>(null);
+  const [steps, setSteps] = useState<AdminProcedureStep[] | null>(null);
   const [tab, setTab] = useState<Tab>(initialTab);
   const [error, setError] = useState<string | null>(null);
   const [revalBusy, setRevalBusy] = useState(false);
@@ -39,12 +47,17 @@ export default function DocumentDetailPage({
 
   async function refresh() {
     try {
-      const [d, s] = await Promise.all([
-        getAdminDocument(id),
+      // Fetch the doc first so we know whether to load procedure steps. For
+      // every other doc kind, the steps endpoint would 400 / be irrelevant.
+      const d = await getAdminDocument(id);
+      const isProcedure = d.kind === 'structured_procedure';
+      const [s, st] = await Promise.all([
         listSectionsForDocument(id),
+        isProcedure ? listProcedureSteps(id) : Promise.resolve(null),
       ]);
       setDoc(d);
       setSections(s);
+      setSteps(st);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -160,6 +173,11 @@ export default function DocumentDetailPage({
         <TabButton active={tab === 'linked-parts'} onClick={() => setTab('linked-parts')}>
           <Link2 className="size-4" /> Linked parts
         </TabButton>
+        {doc.kind === 'structured_procedure' && (
+          <TabButton active={tab === 'steps'} onClick={() => setTab('steps')}>
+            <ListChecks className="size-4" /> Steps{steps ? ` (${steps.length})` : ''}
+          </TabButton>
+        )}
       </nav>
 
       {tab === 'overview' && <OverviewTab doc={doc} sectionCount={sections?.length ?? 0} />}
@@ -172,6 +190,9 @@ export default function DocumentDetailPage({
         />
       )}
       {tab === 'linked-parts' && <LinkedPartsTab documentId={doc.id} />}
+      {tab === 'steps' && doc.kind === 'structured_procedure' && (
+        <StepsTab doc={doc} steps={steps ?? []} onChanged={refresh} />
+      )}
     </PageShell>
   );
 }

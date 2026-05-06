@@ -48,7 +48,10 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
         ) : (
           <section className="rounded-md border border-line bg-surface-raised p-4 md:p-6">
             {active === 'docs' && (
-              <DocsTab versionId={hub.pinnedContentPackVersion?.id ?? null} />
+              <DocsTab
+                versionId={hub.pinnedContentPackVersion?.id ?? null}
+                assetInstanceId={hub.assetInstance.id}
+              />
             )}
             {active === 'training' && <TrainingTab hub={hub} />}
             {active === 'parts' && <PartsTab hub={hub} qrCode={qrCode} />}

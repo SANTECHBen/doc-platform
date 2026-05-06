@@ -1548,3 +1548,160 @@ export async function revalidateDocumentSections(
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return (await res.json()) as { accepted: number; flagged: number; total: number };
 }
+
+// ---------------------------------------------------------------------------
+// Procedure steps (authoring) — for kind='structured_procedure' documents.
+// Mirrors the document-sections surface; see admin-procedure-steps.ts in
+// the API for the route definitions.
+// ---------------------------------------------------------------------------
+
+export type ProcedureStepKind =
+  | 'instruction'
+  | 'safety_check'
+  | 'photo_required'
+  | 'measurement_required';
+
+export type MeasurementSpec =
+  | {
+      kind: 'numeric';
+      label: string;
+      unit: string;
+      min?: number | null;
+      max?: number | null;
+      expected?: number | null;
+      tolerancePct?: number | null;
+    }
+  | {
+      kind: 'pass_fail';
+      label: string;
+      passLabel?: string;
+      failLabel?: string;
+    }
+  | {
+      kind: 'free_text';
+      label: string;
+      placeholder?: string;
+      maxLen?: number;
+    };
+
+export interface AdminProcedureStep {
+  id: string;
+  documentId: string;
+  kind: ProcedureStepKind;
+  title: string;
+  bodyMarkdown: string | null;
+  safetyCritical: boolean;
+  orderingHint: number;
+  requiresPhoto: boolean;
+  minPhotoCount: number;
+  measurementSpec: MeasurementSpec | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateProcedureStepInput {
+  kind: ProcedureStepKind;
+  title: string;
+  bodyMarkdown?: string | null;
+  safetyCritical?: boolean;
+  orderingHint?: number;
+  requiresPhoto?: boolean;
+  minPhotoCount?: number;
+  measurementSpec?: MeasurementSpec | null;
+}
+
+export type UpdateProcedureStepInput = Partial<CreateProcedureStepInput>;
+
+export async function listProcedureSteps(
+  documentId: string,
+): Promise<AdminProcedureStep[]> {
+  const res = await fetch(
+    `${API_BASE}/admin/documents/${encodeURIComponent(documentId)}/procedure-steps`,
+    { cache: 'no-store', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminProcedureStep[];
+}
+
+export async function createProcedureStep(
+  documentId: string,
+  input: CreateProcedureStepInput,
+): Promise<AdminProcedureStep> {
+  const res = await fetch(
+    `${API_BASE}/admin/documents/${encodeURIComponent(documentId)}/procedure-steps`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminProcedureStep;
+}
+
+export async function updateProcedureStep(
+  stepId: string,
+  input: UpdateProcedureStepInput,
+): Promise<AdminProcedureStep> {
+  const res = await fetch(
+    `${API_BASE}/admin/procedure-steps/${encodeURIComponent(stepId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminProcedureStep;
+}
+
+export async function deleteProcedureStep(stepId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/procedure-steps/${encodeURIComponent(stepId)}`,
+    { method: 'DELETE', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+export async function listPartsForProcedureStep(
+  stepId: string,
+): Promise<LinkedPart[]> {
+  const res = await fetch(
+    `${API_BASE}/admin/procedure-steps/${encodeURIComponent(stepId)}/parts`,
+    { cache: 'no-store', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as LinkedPart[];
+}
+
+export async function setPartsForProcedureStep(
+  stepId: string,
+  partIds: string[],
+): Promise<{ ok: true; count: number; added: number; removed: number }> {
+  const res = await fetch(
+    `${API_BASE}/admin/procedure-steps/${encodeURIComponent(stepId)}/parts`,
+    {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ partIds }),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { ok: true; count: number; added: number; removed: number };
+}
+
+export async function reorderProcedureSteps(
+  documentId: string,
+  orderedIds: string[],
+): Promise<{ ok: true; count: number }> {
+  const res = await fetch(
+    `${API_BASE}/admin/documents/${encodeURIComponent(documentId)}/procedure-steps/reorder`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ orderedIds }),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { ok: true; count: number };
+}

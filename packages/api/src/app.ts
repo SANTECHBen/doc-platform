@@ -25,6 +25,8 @@ import { registerQrTemplateRoutes } from './routes/qr-templates';
 import { registerFileRoutes } from './routes/files';
 import { registerAdminAgent } from './routes/admin-agent';
 import { registerAdminSections } from './routes/admin-sections';
+import { registerProcedureRoutes } from './routes/procedures';
+import { registerAdminProcedureSteps } from './routes/admin-procedure-steps';
 
 export async function buildApp(ctx: AppContext) {
   const app = Fastify({
@@ -75,6 +77,8 @@ export async function buildApp(ctx: AppContext) {
   await registerAIRoutes(app);
   await registerAdminAgent(app);
   await registerAdminSections(app);
+  await registerProcedureRoutes(app);
+  await registerAdminProcedureSteps(app);
 
   return app;
 }

@@ -93,3 +93,23 @@ export const extractionStatusEnum = pgEnum('extraction_status', [
   'ready',          // extracted + chunked + embedded.
   'failed',         // terminal failure; see extractionError for details.
 ]);
+
+// Procedure step authoring kind. Single discriminator drives evidence
+// requirements per step. Future kinds (signature_required, barcode_scan)
+// extend this enum without breaking existing rows.
+export const procedureStepKindEnum = pgEnum('procedure_step_kind', [
+  'instruction',          // read-and-tap; no evidence
+  'safety_check',         // read-and-tap; safetyCritical implied
+  'photo_required',       // must capture >= minPhotoCount photos
+  'measurement_required', // must enter a value matching measurementSpec
+]);
+
+// Run lifecycle. Explicit paused state separates "tech walked away" from
+// "tech ran into a problem" (abandoned). completed/abandoned are terminal.
+// Server enforces transitions; see packages/api/src/routes/procedures.ts.
+export const procedureRunStatusEnum = pgEnum('procedure_run_status', [
+  'in_progress',
+  'paused',
+  'completed',
+  'abandoned',
+]);

@@ -42,6 +42,13 @@ import { EmptyState } from '@/components/empty-state';
 import NoParts from '@/components/illustrations/no-parts';
 import NoDocuments from '@/components/illustrations/no-documents';
 import NoSearchResults from '@/components/illustrations/no-search-results';
+import { ProcedureRunner } from '@/components/procedure-runner/procedure-runner';
+import { AuthPrompt } from '@/components/auth-prompt';
+
+// Identity for procedure runs. Same env vars as docs-tab. See AuthPrompt
+// for the v1 fallback when these aren't set.
+const PWA_DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
+const PWA_DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
 
 interface LightboxTarget {
   src: string;
@@ -374,6 +381,8 @@ function PartDetailOverlay({
     body: DocumentBody;
     sections: PwaDocumentSection[] | null;
   } | null>(null);
+  const [procedureDocId, setProcedureDocId] = useState<string | null>(null);
+  const [authPromptOpen, setAuthPromptOpen] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
 
   // Cache part metadata by ID so the breadcrumb can render every ancestor's
@@ -469,7 +478,19 @@ function PartDetailOverlay({
   async function openDocument(docId: string, sections: PwaDocumentSection[] | null) {
     try {
       const body = await getDocument(docId);
-      if (body) setOpenDoc({ body, sections });
+      if (!body) return;
+      // Procedure docs launch the runner instead of the static viewer.
+      // Auth gate: only on procedure runs (writes); reading other doc
+      // kinds via this overlay stays scan-only.
+      if (body.kind === 'structured_procedure') {
+        if (!PWA_DEV_USER_ID) {
+          setAuthPromptOpen(true);
+          return;
+        }
+        setProcedureDocId(body.id);
+        return;
+      }
+      setOpenDoc({ body, sections });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -599,6 +620,21 @@ function PartDetailOverlay({
           doc={openDoc.body}
           sections={openDoc.sections}
           onBack={() => setOpenDoc(null)}
+        />
+      )}
+      {procedureDocId && (
+        <ProcedureRunner
+          docId={procedureDocId}
+          assetInstanceId={hub.assetInstance.id}
+          devUserId={PWA_DEV_USER_ID}
+          devOrgId={PWA_DEV_ORG_ID}
+          onClose={() => setProcedureDocId(null)}
+        />
+      )}
+      {authPromptOpen && (
+        <AuthPrompt
+          reason="start a procedure"
+          onClose={() => setAuthPromptOpen(false)}
         />
       )}
     </div>

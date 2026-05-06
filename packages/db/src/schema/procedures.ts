@@ -1,0 +1,352 @@
+import {
+  pgTable,
+  uuid,
+  text,
+  timestamp,
+  integer,
+  boolean,
+  doublePrecision,
+  jsonb,
+  unique,
+  uniqueIndex,
+  index,
+} from 'drizzle-orm/pg-core';
+import { relations, sql } from 'drizzle-orm';
+import { documents } from './content';
+import { parts } from './parts';
+import { users } from './users';
+import { assetInstances } from './assets';
+import { agentRuns } from './agent';
+import { workOrders } from './workorders';
+import { procedureStepKindEnum, procedureRunStatusEnum } from './enums';
+
+// Procedure mode — turns kind=structured_procedure documents into
+// interactive checklists.
+//
+// Model split:
+//   procedure_steps             — author-time content. One row per
+//                                 step on a document.
+//   procedure_runs              — runtime instance. One row per
+//                                 (tech, doc, asset) attempt.
+//   procedure_step_completions  — runtime evidence. One row per
+//                                 (run, step), upserted on re-completion.
+//   part_procedure_steps        — many-to-many linking steps to parts,
+//                                 mirrors part_document_sections so the
+//                                 AI / part-scoped retrieval can surface
+//                                 steps as first-class units.
+//
+// CHECK constraints (enforced in the migration, not modeled here):
+//   procedure_steps:
+//     (kind = 'measurement_required') = (measurement_spec IS NOT NULL)
+//     (kind = 'photo_required') -> (requires_photo AND min_photo_count >= 1)
+//   procedure_step_completions:
+//     outcome IN ('completed', 'skipped')
+//     (outcome = 'skipped') = (skip_reason IS NOT NULL)
+
+// Discriminated union for measurement specs. Numeric covers torque/spec
+// values; pass_fail covers visual inspections; free_text covers things
+// like "record the serial number on the replacement part."
+export type MeasurementSpec =
+  | {
+      kind: 'numeric';
+      label: string;
+      unit: string;
+      min?: number | null;
+      max?: number | null;
+      expected?: number | null;
+      tolerancePct?: number | null;
+    }
+  | {
+      kind: 'pass_fail';
+      label: string;
+      passLabel?: string;
+      failLabel?: string;
+    }
+  | {
+      kind: 'free_text';
+      label: string;
+      placeholder?: string;
+      maxLen?: number;
+    };
+
+export const procedureSteps = pgTable(
+  'procedure_steps',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    documentId: uuid('document_id')
+      .notNull()
+      .references(() => documents.id, { onDelete: 'cascade' }),
+
+    kind: procedureStepKindEnum('kind').notNull().default('instruction'),
+
+    // Display + per-step body. bodyMarkdown lets authors embed images,
+    // lists, links to specs in a step. Doc-level bodyMarkdown stays
+    // available read-only as a side panel during authoring (helps split
+    // existing single-blob procedures into steps).
+    title: text('title').notNull(),
+    bodyMarkdown: text('body_markdown'),
+    safetyCritical: boolean('safety_critical').notNull().default(false),
+
+    // Sequencing. Drag-reorder rewrites these spaced by 100 so a single
+    // move doesn't rewrite every row.
+    orderingHint: integer('ordering_hint').notNull().default(0),
+
+    // Evidence requirements. requiresPhoto + minPhotoCount work together;
+    // measurementSpec is null unless kind = 'measurement_required'.
+    requiresPhoto: boolean('requires_photo').notNull().default(false),
+    minPhotoCount: integer('min_photo_count').notNull().default(0),
+    measurementSpec: jsonb('measurement_spec').$type<MeasurementSpec | null>(),
+
+    // Forward-compat: agent-proposed steps land here when the executor
+    // accepts an agent run's step proposal. Null today.
+    proposedByAgentRunId: uuid('proposed_by_agent_run_id').references(
+      () => agentRuns.id,
+      { onDelete: 'set null' },
+    ),
+
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    docIdx: index('procedure_steps_document_idx').on(t.documentId),
+    docOrderIdx: index('procedure_steps_document_order_idx').on(
+      t.documentId,
+      t.orderingHint,
+    ),
+  }),
+);
+
+// Many-to-many between parts and procedure steps. Mirror of
+// part_document_sections — an instructed step about replacing the inner
+// race of a bearing assembly should be addressable both from the bearing
+// part page and from the assembly part page.
+export const partProcedureSteps = pgTable(
+  'part_procedure_steps',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    partId: uuid('part_id')
+      .notNull()
+      .references(() => parts.id, { onDelete: 'cascade' }),
+    procedureStepId: uuid('procedure_step_id')
+      .notNull()
+      .references(() => procedureSteps.id, { onDelete: 'cascade' }),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    uniq: unique('part_procedure_steps_uniq').on(t.partId, t.procedureStepId),
+    partIdx: index('part_procedure_steps_part_idx').on(t.partId),
+    stepIdx: index('part_procedure_steps_step_idx').on(t.procedureStepId),
+  }),
+);
+
+// Runtime: one row created when a tech taps Start. Rows are workspaces,
+// not registrations — we never create empty rows the way enrollments do.
+//
+// userId is NOT NULL: every run has an attributable tech. Reading docs
+// stays scan-only; starting a run requires auth (OIDC). See plan for
+// rationale (competency tracking depends on it).
+//
+// onDelete patterns: documentId set null (run is historical evidence,
+// outliving the doc); userId cascade (removing a user purges their run
+// history); assetInstanceId / workOrderId set null (run survives the
+// associations).
+export const procedureRuns = pgTable(
+  'procedure_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    documentId: uuid('document_id').references(() => documents.id, {
+      onDelete: 'set null',
+    }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    assetInstanceId: uuid('asset_instance_id').references(() => assetInstances.id, {
+      onDelete: 'set null',
+    }),
+    workOrderId: uuid('work_order_id').references(() => workOrders.id, {
+      onDelete: 'set null',
+    }),
+
+    status: procedureRunStatusEnum('status').notNull().default('in_progress'),
+    abandonedReason: text('abandoned_reason'),
+
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    // Last user-driven activity. Powers a v2 idle-run sweeper.
+    lastActivityAt: timestamp('last_activity_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    // Active wall-time excluding paused intervals. Recomputed on
+    // pause/resume; final value frozen on completed/abandoned.
+    totalActiveMs: integer('total_active_ms').notNull().default(0),
+    // Set when status = 'paused', cleared on resume. Lets us account
+    // for active time even if the server restarts mid-pause.
+    pausedAt: timestamp('paused_at', { withTimezone: true }),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    userIdx: index('procedure_runs_user_idx').on(t.userId),
+    docIdx: index('procedure_runs_document_idx').on(t.documentId),
+    assetIdx: index('procedure_runs_asset_idx').on(t.assetInstanceId),
+    // Prevent a tech from accidentally double-starting the same procedure
+    // in two tabs. Partial — completed/abandoned rows don't block re-runs.
+    activeUniq: uniqueIndex('procedure_runs_active_uniq')
+      .on(t.userId, t.documentId, t.assetInstanceId)
+      .where(sql`status IN ('in_progress', 'paused')`),
+  }),
+);
+
+// Per-step evidence within a run. Upsert on (runId, stepId) — re-completion
+// overwrites prior evidence (with audit trail in the audit log).
+//
+// stepId uses onDelete: 'restrict' so an admin can't silently delete a
+// step that has historical run evidence; the admin route returns 409.
+export const procedureStepCompletions = pgTable(
+  'procedure_step_completions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => procedureRuns.id, { onDelete: 'cascade' }),
+    stepId: uuid('step_id')
+      .notNull()
+      .references(() => procedureSteps.id, { onDelete: 'restrict' }),
+
+    // 'completed' | 'skipped'. Free text rather than an enum because the
+    // value space is fully covered by the CHECK constraint and stays
+    // small; matching the workOrders.attachments-as-jsonb precedent of
+    // accepting a small text discriminator without ceremony.
+    outcome: text('outcome').notNull(),
+    skipReason: text('skip_reason'),
+
+    // Mirrors the work_orders.attachments shape exactly so the same
+    // upload helpers fan out cleanly.
+    photos: jsonb('photos')
+      .$type<Array<{ key: string; mime: string; caption?: string }>>()
+      .notNull()
+      .default([]),
+
+    // Typed columns per measurement kind — exactly one populated based
+    // on step.measurementSpec.kind. Typed > jsonb here because BI/audit
+    // queries ("torque values out of spec last quarter") become trivial.
+    numericValue: doublePrecision('numeric_value'),
+    passFailValue: text('pass_fail_value'),
+    textValue: text('text_value'),
+    // Set true when a numeric value violates min/max but the tech
+    // explicitly confirmed the override. Server records the violation
+    // alongside the override reason rather than rejecting outright.
+    measurementOutOfSpec: boolean('measurement_out_of_spec').notNull().default(false),
+    measurementOverrideReason: text('measurement_override_reason'),
+
+    notes: text('notes'),
+
+    // Time accounting. enteredAt is supplied by the client (when the tech
+    // first navigated to the step card); completedAt is server-set on
+    // tap. timeMs is the elapsed delta minus any pause windows that
+    // landed inside it (computed in the route handler).
+    enteredAt: timestamp('entered_at', { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }).notNull().defaultNow(),
+    timeMs: integer('time_ms').notNull(),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    runStepUniq: unique('procedure_step_completions_run_step_uniq').on(
+      t.runId,
+      t.stepId,
+    ),
+    runIdx: index('procedure_step_completions_run_idx').on(t.runId),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Relations
+// ---------------------------------------------------------------------------
+
+export const procedureStepsRelations = relations(procedureSteps, ({ one, many }) => ({
+  document: one(documents, {
+    fields: [procedureSteps.documentId],
+    references: [documents.id],
+  }),
+  createdBy: one(users, {
+    fields: [procedureSteps.createdByUserId],
+    references: [users.id],
+  }),
+  proposedByAgentRun: one(agentRuns, {
+    fields: [procedureSteps.proposedByAgentRunId],
+    references: [agentRuns.id],
+  }),
+  partLinks: many(partProcedureSteps),
+}));
+
+export const partProcedureStepsRelations = relations(partProcedureSteps, ({ one }) => ({
+  part: one(parts, {
+    fields: [partProcedureSteps.partId],
+    references: [parts.id],
+  }),
+  step: one(procedureSteps, {
+    fields: [partProcedureSteps.procedureStepId],
+    references: [procedureSteps.id],
+  }),
+  createdBy: one(users, {
+    fields: [partProcedureSteps.createdByUserId],
+    references: [users.id],
+  }),
+}));
+
+export const procedureRunsRelations = relations(procedureRuns, ({ one, many }) => ({
+  document: one(documents, {
+    fields: [procedureRuns.documentId],
+    references: [documents.id],
+  }),
+  user: one(users, {
+    fields: [procedureRuns.userId],
+    references: [users.id],
+  }),
+  assetInstance: one(assetInstances, {
+    fields: [procedureRuns.assetInstanceId],
+    references: [assetInstances.id],
+  }),
+  workOrder: one(workOrders, {
+    fields: [procedureRuns.workOrderId],
+    references: [workOrders.id],
+  }),
+  completions: many(procedureStepCompletions),
+}));
+
+export const procedureStepCompletionsRelations = relations(
+  procedureStepCompletions,
+  ({ one }) => ({
+    run: one(procedureRuns, {
+      fields: [procedureStepCompletions.runId],
+      references: [procedureRuns.id],
+    }),
+    step: one(procedureSteps, {
+      fields: [procedureStepCompletions.stepId],
+      references: [procedureSteps.id],
+    }),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export type ProcedureStepKind = (typeof procedureStepKindEnum.enumValues)[number];
+export type ProcedureRunStatus = (typeof procedureRunStatusEnum.enumValues)[number];
+
+export type ProcedureStep = typeof procedureSteps.$inferSelect;
+export type NewProcedureStep = typeof procedureSteps.$inferInsert;
+export type PartProcedureStep = typeof partProcedureSteps.$inferSelect;
+export type NewPartProcedureStep = typeof partProcedureSteps.$inferInsert;
+export type ProcedureRun = typeof procedureRuns.$inferSelect;
+export type NewProcedureRun = typeof procedureRuns.$inferInsert;
+export type ProcedureStepCompletion = typeof procedureStepCompletions.$inferSelect;
+export type NewProcedureStepCompletion = typeof procedureStepCompletions.$inferInsert;

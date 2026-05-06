@@ -27,6 +27,8 @@ import NoRevision from '@/components/illustrations/no-revision';
 import NoDocuments from '@/components/illustrations/no-documents';
 import NoSearchResults from '@/components/illustrations/no-search-results';
 import { SectionRenderer } from '@/components/section-renderer';
+import { ProcedureRunner } from '@/components/procedure-runner/procedure-runner';
+import { AuthPrompt } from '@/components/auth-prompt';
 import {
   listDocuments,
   getDocument,
@@ -102,10 +104,23 @@ interface OpenDoc {
 // faster than typing — keep the surface clean.
 const SEARCH_THRESHOLD = 8;
 
-export function DocsTab({ versionId }: { versionId: string | null }) {
+// Identity for procedure runs (auth-required surface). Reads stay scan-only;
+// these env vars stand in for the OIDC tokens until prod sign-in is wired.
+const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
+const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
+
+export function DocsTab({
+  versionId,
+  assetInstanceId,
+}: {
+  versionId: string | null;
+  assetInstanceId: string;
+}) {
   const [docs, setDocs] = useState<DocumentListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<OpenDoc | null>(null);
+  const [procedureDocId, setProcedureDocId] = useState<string | null>(null);
+  const [authPromptOpen, setAuthPromptOpen] = useState(false);
   const [query, setQuery] = useState('');
 
   useEffect(() => {
@@ -140,6 +155,18 @@ export function DocsTab({ versionId }: { versionId: string | null }) {
         title="No documents"
         description="No documents have been published in this revision."
         tone="neutral"
+      />
+    );
+  }
+
+  if (procedureDocId) {
+    return (
+      <ProcedureRunner
+        docId={procedureDocId}
+        assetInstanceId={assetInstanceId}
+        devUserId={DEV_USER_ID}
+        devOrgId={DEV_ORG_ID}
+        onClose={() => setProcedureDocId(null)}
       />
     );
   }
@@ -201,6 +228,17 @@ export function DocsTab({ versionId }: { versionId: string | null }) {
           <li key={e.key}>
             <button
               onClick={async () => {
+                // Procedure docs launch the interactive runner instead of
+                // the static viewer. Auth gate: only required for procedure
+                // runs, not for reading any other doc kind.
+                if (e.kind === 'structured_procedure') {
+                  if (!DEV_USER_ID) {
+                    setAuthPromptOpen(true);
+                    return;
+                  }
+                  setProcedureDocId(e.docId);
+                  return;
+                }
                 const full = await getDocument(e.docId);
                 if (full) setOpen({ doc: full, sections: e.sections });
               }}
@@ -260,6 +298,12 @@ export function DocsTab({ versionId }: { versionId: string | null }) {
             );
           })}
         </ul>
+      )}
+      {authPromptOpen && (
+        <AuthPrompt
+          reason="start a procedure"
+          onClose={() => setAuthPromptOpen(false)}
+        />
       )}
     </div>
   );
