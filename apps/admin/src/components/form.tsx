@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import type {
   ButtonHTMLAttributes,
   InputHTMLAttributes,
@@ -135,6 +136,19 @@ export function FullPageOverlay({
   onClose: () => void;
   children: ReactNode;
 }) {
+  // Lock body scroll while the overlay is up — otherwise both the
+  // underlying page AND the overlay's inner content scroll, which
+  // shows two scrollbars and feels broken. Restored when the overlay
+  // closes (or when this component unmounts).
+  useEffect(() => {
+    if (!open) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-surface-base">
@@ -151,10 +165,8 @@ export function FullPageOverlay({
           ✕
         </button>
       </header>
-      {/* overflow-y-auto so tall forms (procedure step editor, section
-          editor, etc.) can scroll their content. Without this the
-          children are clipped at the viewport boundary and any sticky-
-          bottom save bar sits ON TOP of the last form section. */}
+      {/* The single scroll context for tall forms. Body scroll above
+          is locked so this is the only scrollbar the user sees. */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden">{children}</div>
     </div>
   );

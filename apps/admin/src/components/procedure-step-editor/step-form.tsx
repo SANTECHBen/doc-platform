@@ -171,10 +171,22 @@ export function ProcedureStepForm({
   }
 
   return (
-    // pb-24 leaves clearance for the sticky Cancel/Save bar so the last
-    // form section (Linked parts) isn't covered when scrolled all the
-    // way down. Without it, the bar visually overlaps content.
-    <div className="mx-auto flex max-w-3xl flex-col gap-5 px-6 pt-6 pb-24">
+    // Single scroll context (the FullPageOverlay's inner div). The
+    // Cancel / Save bar lives at the TOP of the form and sticks there
+    // as the user scrolls down, so action buttons are always one tap
+    // away without doubling the scroll surface.
+    <div className="mx-auto flex max-w-3xl flex-col gap-5 px-6 pb-12">
+      <div
+        className="sticky top-0 -mx-6 z-10 flex items-center justify-end gap-2 border-b border-line bg-surface-raised px-6 py-3"
+        style={{ boxShadow: '0 4px 8px -4px rgba(0,0,0,0.06)' }}
+      >
+        <SecondaryButton type="button" onClick={onCancel} disabled={busy}>
+          Cancel
+        </SecondaryButton>
+        <PrimaryButton type="button" onClick={onSubmit} disabled={busy}>
+          {busy ? 'Saving…' : editing ? 'Save changes' : 'Create step'}
+        </PrimaryButton>
+      </div>
       <ErrorBanner error={error} />
 
       <Field label="Step kind" required>
@@ -298,17 +310,6 @@ export function ProcedureStepForm({
         )}
       </div>
 
-      <div
-        className="sticky bottom-0 -mx-6 flex items-center justify-end gap-2 border-t border-line bg-surface-raised px-6 py-3"
-        style={{ boxShadow: '0 -4px 8px -4px rgba(0,0,0,0.06)' }}
-      >
-        <SecondaryButton type="button" onClick={onCancel} disabled={busy}>
-          Cancel
-        </SecondaryButton>
-        <PrimaryButton type="button" onClick={onSubmit} disabled={busy}>
-          {busy ? 'Saving…' : editing ? 'Save changes' : 'Create step'}
-        </PrimaryButton>
-      </div>
     </div>
   );
 }
