@@ -3096,7 +3096,7 @@ export async function registerAdminListings(app: FastifyInstance) {
     const scopeLiteral = orgIdsLiteral(scope);
     const rows = (await db.execute(
       scope.all
-        ? sql`SELECT p.id, p.name, p.slug, p.layer_type,
+        ? sql`SELECT p.id, p.name, p.slug, p.layer_type, p.kind,
                  am.id AS asset_model_id, am.display_name AS asset_model_name,
                  o.name AS owner_name,
                  (SELECT count(*) FROM content_pack_versions WHERE content_pack_id = p.id)::int AS version_count,
@@ -3114,8 +3114,8 @@ export async function registerAdminListings(app: FastifyInstance) {
             ORDER BY version_number DESC
             LIMIT 1
           ) latest ON true
-          ORDER BY p.name`
-        : sql`SELECT p.id, p.name, p.slug, p.layer_type,
+          ORDER BY am.display_name, p.kind, p.name`
+        : sql`SELECT p.id, p.name, p.slug, p.layer_type, p.kind,
                  am.id AS asset_model_id, am.display_name AS asset_model_name,
                  o.name AS owner_name,
                  (SELECT count(*) FROM content_pack_versions WHERE content_pack_id = p.id)::int AS version_count,
@@ -3134,12 +3134,13 @@ export async function registerAdminListings(app: FastifyInstance) {
             LIMIT 1
           ) latest ON true
           WHERE p.owner_organization_id = ANY(${scopeLiteral}::uuid[])
-          ORDER BY p.name`,
+          ORDER BY am.display_name, p.kind, p.name`,
     )) as unknown as Array<{
       id: string;
       name: string;
       slug: string;
       layer_type: string;
+      kind: 'authored' | 'field_captures';
       asset_model_id: string;
       asset_model_name: string;
       owner_name: string;
@@ -3154,6 +3155,7 @@ export async function registerAdminListings(app: FastifyInstance) {
       name: r.name,
       slug: r.slug,
       layerType: r.layer_type,
+      kind: r.kind,
       assetModel: { id: r.asset_model_id, displayName: r.asset_model_name },
       owner: r.owner_name,
       versionCount: r.version_count,

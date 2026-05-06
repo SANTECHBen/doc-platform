@@ -244,6 +244,11 @@ export interface AdminContentPack {
   name: string;
   slug: string;
   layerType: 'base' | 'dealer_overlay' | 'site_overlay';
+  /** 'authored' = OEM/dealer/site overlay packs (draft → published lifecycle).
+   *  'field_captures' = always-draft per-asset-model pack holding tech-
+   *  authored procedures. The list groups field_captures rows under their
+   *  asset model with a FIELD badge. */
+  kind: 'authored' | 'field_captures';
   assetModel: { id: string; displayName: string };
   owner: string;
   versionCount: number;

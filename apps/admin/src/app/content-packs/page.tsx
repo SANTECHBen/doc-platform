@@ -125,47 +125,82 @@ export default function ContentPacksPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((p) => (
-                <tr key={p.id} className="border-t border-line-subtle align-top">
-                  <td className="px-4 py-3">
-                    <Link
-                      href={`/content-packs/${p.id}`}
-                      className="font-medium text-ink-primary hover:text-brand"
-                    >
-                      {p.name}
-                    </Link>
-                    <span className="block font-mono text-xs text-ink-tertiary">{p.slug}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <Pill tone={LAYER_TONE[p.layerType]}>
-                      {p.layerType.replace('_', ' ')}
-                    </Pill>
-                  </td>
-                  <td className="px-4 py-3 text-ink-secondary">{p.assetModel.displayName}</td>
-                  <td className="px-4 py-3 text-ink-secondary">{p.owner}</td>
-                  <td className="px-4 py-3">{p.versionCount}</td>
-                  <td className="px-4 py-3">
-                    {p.latestVersion ? (
+              {rows.map((p, i) => {
+                const isField = p.kind === 'field_captures';
+                // Hide the asset-model + layer columns on field-capture
+                // rows that follow their parent (the row above shares the
+                // same model); the indent + badge already convey the
+                // grouping. Falls back to showing them when the parent
+                // isn't immediately above (e.g., search later filters).
+                const prev = rows[i - 1];
+                const groupedUnderParent =
+                  isField && prev && prev.assetModel.id === p.assetModel.id;
+                return (
+                  <tr
+                    key={p.id}
+                    className={`border-t border-line-subtle align-top ${
+                      isField ? 'bg-surface-inset/40' : ''
+                    }`}
+                  >
+                    <td className={`px-4 py-3 ${isField ? 'pl-10' : ''}`}>
                       <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs">
-                          v{p.latestVersion.label ?? p.latestVersion.number}
-                        </span>
-                        <Pill
-                          tone={
-                            STATUS_TONE[
-                              p.latestVersion.status as keyof typeof STATUS_TONE
-                            ] ?? 'default'
-                          }
+                        <Link
+                          href={`/content-packs/${p.id}`}
+                          className="font-medium text-ink-primary hover:text-brand"
                         >
-                          {p.latestVersion.status}
-                        </Pill>
+                          {p.name}
+                        </Link>
+                        {isField && (
+                          <Pill tone="warning">field captures</Pill>
+                        )}
                       </div>
-                    ) : (
-                      <span className="text-ink-tertiary">—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                      <span className="block font-mono text-xs text-ink-tertiary">
+                        {p.slug}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {isField ? (
+                        <span className="text-xs text-ink-tertiary">—</span>
+                      ) : (
+                        <Pill tone={LAYER_TONE[p.layerType]}>
+                          {p.layerType.replace('_', ' ')}
+                        </Pill>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-ink-secondary">
+                      {groupedUnderParent ? (
+                        <span className="text-xs italic text-ink-tertiary">
+                          ↳ {p.assetModel.displayName}
+                        </span>
+                      ) : (
+                        p.assetModel.displayName
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-ink-secondary">{p.owner}</td>
+                    <td className="px-4 py-3">{p.versionCount}</td>
+                    <td className="px-4 py-3">
+                      {p.latestVersion ? (
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs">
+                            v{p.latestVersion.label ?? p.latestVersion.number}
+                          </span>
+                          <Pill
+                            tone={
+                              STATUS_TONE[
+                                p.latestVersion.status as keyof typeof STATUS_TONE
+                              ] ?? 'default'
+                            }
+                          >
+                            {p.latestVersion.status}
+                          </Pill>
+                        </div>
+                      ) : (
+                        <span className="text-ink-tertiary">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
