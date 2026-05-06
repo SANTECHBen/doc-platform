@@ -75,6 +75,18 @@ const AuthoringStepBody = z.object({
   requiresPhoto: z.boolean().optional(),
   minPhotoCount: z.number().int().min(0).max(10).optional(),
   measurementSpec: MeasurementSpecSchema.nullable().optional(),
+  // Doc-authoring v3 — media (photos/videos) + substeps may be supplied
+  // at create time, so a single save persists the whole step structure.
+  media: z.array(z.object({
+    kind: z.enum(['image', 'video']),
+    storageKey: z.string().max(400),
+    mime: z.string().max(120),
+    caption: z.string().max(200).optional(),
+  })).max(20).optional(),
+  substeps: z.array(z.object({
+    title: z.string().min(1).max(200),
+    bodyMarkdown: z.string().max(5000).nullable().optional(),
+  })).max(50).optional(),
 });
 
 const AuthoringFinalizeBody = z.object({
@@ -83,8 +95,28 @@ const AuthoringFinalizeBody = z.object({
   linkedPartIds: z.array(UuidSchema).max(20).default([]),
 });
 
+// Step media — author-attached photos and videos (vs run-time evidence).
+// Set-replace: every PATCH that includes this field replaces the full list
+// for the step. The client buffers any new uploads via the media-upload
+// endpoint, then sends the resulting set with the next step PATCH.
+const StepMediaItem = z.object({
+  kind: z.enum(['image', 'video']),
+  storageKey: z.string().max(400),
+  mime: z.string().max(120),
+  caption: z.string().max(200).optional(),
+});
+
+// Substep — author-defined nested step inside a parent step. Lightweight
+// (title + optional body) for v1; per-substep evidence and media land in v2.
+const SubstepItem = z.object({
+  title: z.string().min(1).max(200),
+  bodyMarkdown: z.string().max(5000).nullable().optional(),
+});
+
 // Same shape as AuthoringStepBody but every field optional — used by the
 // in-place edit affordance on previously-saved steps in the runner.
+// Also accepts media (set-replace authored photos/videos) and substeps
+// (set-replace, with the server regenerating row IDs each save).
 const AuthoringStepPatchBody = z
   .object({
     kind: StepKindEnum.optional(),
@@ -94,6 +126,8 @@ const AuthoringStepPatchBody = z
     requiresPhoto: z.boolean().optional(),
     minPhotoCount: z.number().int().min(0).max(10).optional(),
     measurementSpec: MeasurementSpecSchema.nullable().optional(),
+    media: z.array(StepMediaItem).max(20).optional(),
+    substeps: z.array(SubstepItem).max(50).optional(),
   })
   .refine((v) => Object.keys(v).length > 0, {
     message: 'At least one field is required.',
@@ -101,6 +135,20 @@ const AuthoringStepPatchBody = z
 
 const AuthoringReorderBody = z.object({
   orderedIds: z.array(UuidSchema).min(1),
+});
+
+// Procedure-doc template metadata. Always-on Title/Tools/Steps; toggled
+// Safety + Verification per author preference.
+const ProcedureMetadataBody = z.object({
+  toolsRequired: z.array(z.string().min(1).max(200)).max(50),
+  safety: z.object({
+    enabled: z.boolean(),
+    notes: z.string().max(5000).nullable(),
+  }),
+  verification: z.object({
+    enabled: z.boolean(),
+    notes: z.string().max(5000).nullable(),
+  }),
 });
 
 // ---------------------------------------------------------------------------
@@ -329,10 +377,29 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
           requiresPhoto,
           minPhotoCount,
           measurementSpec: measurementSpec ?? null,
+          media: body.media ?? [],
           createdByUserId: auth.userId,
         })
         .returning();
       if (!step) return reply.internalServerError();
+
+      // Substeps inserted in a second statement so we can return them
+      // in the response (mirrors the PATCH set-replace flow).
+      let savedSubsteps: typeof schema.procedureSubsteps.$inferSelect[] = [];
+      if (body.substeps && body.substeps.length > 0) {
+        savedSubsteps = await db
+          .insert(schema.procedureSubsteps)
+          .values(
+            body.substeps.map((s, i) => ({
+              procedureStepId: step.id,
+              title: s.title,
+              bodyMarkdown: s.bodyMarkdown ?? null,
+              orderingHint: (i + 1) * 100,
+              createdByUserId: auth.userId,
+            })),
+          )
+          .returning();
+      }
 
       // Update run.lastActivityAt so an idle sweeper later doesn't garbage-
       // collect a still-in-progress field-authoring run.
@@ -369,6 +436,13 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
         requiresPhoto: step.requiresPhoto,
         minPhotoCount: step.minPhotoCount,
         measurementSpec: step.measurementSpec,
+        media: step.media,
+        substeps: savedSubsteps.map((s) => ({
+          id: s.id,
+          title: s.title,
+          bodyMarkdown: s.bodyMarkdown,
+          orderingHint: s.orderingHint,
+        })),
       };
     },
   );
@@ -608,6 +682,7 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
       if (b.title !== undefined) patch.title = b.title;
       if (b.bodyMarkdown !== undefined) patch.bodyMarkdown = b.bodyMarkdown;
       if (b.safetyCritical !== undefined) patch.safetyCritical = b.safetyCritical;
+      if (b.media !== undefined) patch.media = b.media;
       if (
         b.kind !== undefined ||
         b.requiresPhoto !== undefined ||
@@ -625,6 +700,38 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
         .where(eq(schema.procedureSteps.id, step.id))
         .returning();
       if (!updated) return reply.internalServerError();
+
+      // Substeps — set-replace pattern. Server regenerates row IDs each
+      // time; v2 can move to stable IDs if per-substep evidence becomes
+      // a thing.
+      let savedSubsteps: typeof schema.procedureSubsteps.$inferSelect[] = [];
+      if (b.substeps !== undefined) {
+        await db
+          .delete(schema.procedureSubsteps)
+          .where(eq(schema.procedureSubsteps.procedureStepId, step.id));
+        if (b.substeps.length > 0) {
+          savedSubsteps = await db
+            .insert(schema.procedureSubsteps)
+            .values(
+              b.substeps.map((s, i) => ({
+                procedureStepId: step.id,
+                title: s.title,
+                bodyMarkdown: s.bodyMarkdown ?? null,
+                orderingHint: (i + 1) * 100,
+                createdByUserId: auth.userId,
+              })),
+            )
+            .returning();
+        }
+      } else {
+        savedSubsteps = await db.query.procedureSubsteps.findMany({
+          where: eq(schema.procedureSubsteps.procedureStepId, step.id),
+          orderBy: [
+            asc(schema.procedureSubsteps.orderingHint),
+            asc(schema.procedureSubsteps.createdAt),
+          ],
+        });
+      }
 
       await db
         .update(schema.procedureRuns)
@@ -653,6 +760,13 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
         requiresPhoto: updated.requiresPhoto,
         minPhotoCount: updated.minPhotoCount,
         measurementSpec: updated.measurementSpec,
+        media: updated.media,
+        substeps: savedSubsteps.map((s) => ({
+          id: s.id,
+          title: s.title,
+          bodyMarkdown: s.bodyMarkdown,
+          orderingHint: s.orderingHint,
+        })),
       };
     },
   );
@@ -909,6 +1023,269 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
           requiresPhoto: s.requiresPhoto,
           minPhotoCount: s.minPhotoCount,
           measurementSpec: s.measurementSpec,
+          media: s.media,
+          substeps: [] as Array<{ id: string; title: string; bodyMarkdown: string | null; orderingHint: number }>,
+        })),
+      };
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /procedure-runs/:id/authoring-steps/:stepId/media — multipart
+  // upload for authored step media (photos OR videos). Distinct from the
+  // evidence /photo endpoint, which captures run-time evidence. Returns
+  // the storage key + mime; the client then PATCHes the step's media
+  // array with the new entry.
+  // -------------------------------------------------------------------------
+  app.post<{ Params: { id: string; stepId: string } }>(
+    '/procedure-runs/:id/authoring-steps/:stepId/media',
+    { schema: { params: z.object({ id: UuidSchema, stepId: UuidSchema }) } },
+    async (request, reply) => {
+      const { db, storage } = app.ctx;
+      const auth = requireAuth(request);
+      const ctx = await loadAuthoringRun(db, request.params.id, auth);
+      if (!ctx) return reply.notFound();
+
+      const step = await db.query.procedureSteps.findFirst({
+        where: eq(schema.procedureSteps.id, request.params.stepId),
+      });
+      if (!step || step.documentId !== ctx.document.id) return reply.notFound();
+
+      const file = await request.file();
+      if (!file) return reply.badRequest('Multipart file is required.');
+
+      const mime = file.mimetype ?? '';
+      const isImage = mime.startsWith('image/');
+      const isVideo = mime.startsWith('video/');
+      if (!isImage && !isVideo) {
+        return reply.badRequest('Only image/* or video/* uploads are accepted.');
+      }
+
+      const buffer = await file.toBuffer();
+      const result = await storage.putBuffer({
+        buffer,
+        filename: file.filename ?? (isVideo ? 'video.mp4' : 'photo.jpg'),
+        contentType: mime,
+      });
+
+      return {
+        kind: isVideo ? ('video' as const) : ('image' as const),
+        storageKey: result.storageKey,
+        mime,
+        size: result.size,
+        url: storage.publicUrl(result.storageKey),
+      };
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // PATCH /procedure-runs/:id/authoring-metadata — set the procedure-doc
+  // template metadata (tools required, safety toggle/notes, verification
+  // toggle/notes). Stored on the document row as jsonb.
+  // -------------------------------------------------------------------------
+  app.patch<{
+    Params: { id: string };
+    Body: z.infer<typeof ProcedureMetadataBody>;
+  }>(
+    '/procedure-runs/:id/authoring-metadata',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema }),
+        body: ProcedureMetadataBody,
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const ctx = await loadAuthoringRun(db, request.params.id, auth);
+      if (!ctx) return reply.notFound();
+
+      const [updated] = await db
+        .update(schema.documents)
+        .set({ procedureMetadata: request.body })
+        .where(eq(schema.documents.id, ctx.document.id))
+        .returning();
+      if (!updated) return reply.internalServerError();
+
+      await db
+        .update(schema.procedureRuns)
+        .set({ lastActivityAt: new Date() })
+        .where(eq(schema.procedureRuns.id, ctx.run.id));
+
+      return {
+        documentId: updated.id,
+        procedureMetadata: updated.procedureMetadata,
+      };
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /procedure-runs/:id/complete-authoring — transition the run to
+  // 'completed' WITHOUT the per-step evidence gate that finishProcedureRun
+  // enforces. Doc-authoring procedures are reference content; the author
+  // isn't "running" them, so step completions aren't required.
+  // -------------------------------------------------------------------------
+  app.post<{ Params: { id: string } }>(
+    '/procedure-runs/:id/complete-authoring',
+    { schema: { params: z.object({ id: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const ctx = await loadAuthoringRun(db, request.params.id, auth);
+      if (!ctx) return reply.notFound();
+
+      // Verify the doc has at least one step before marking complete —
+      // an empty procedure isn't useful as a reference.
+      const stepCount = await db.query.procedureSteps.findFirst({
+        where: eq(schema.procedureSteps.documentId, ctx.document.id),
+        columns: { id: true },
+      });
+      if (!stepCount) {
+        return reply
+          .code(409)
+          .send({
+            statusCode: 409,
+            error: 'Conflict',
+            message: 'Procedure must have at least one step to complete.',
+          });
+      }
+
+      const now = new Date();
+      const [updated] = await db
+        .update(schema.procedureRuns)
+        .set({
+          status: 'completed',
+          completedAt: now,
+          lastActivityAt: now,
+        })
+        .where(eq(schema.procedureRuns.id, ctx.run.id))
+        .returning();
+      if (!updated) return reply.internalServerError();
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'procedure_run.authoring_completed',
+        targetType: 'procedure_run',
+        targetId: ctx.run.id,
+        payload: { documentId: ctx.document.id },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+
+      return {
+        runId: updated.id,
+        documentId: ctx.document.id,
+        status: updated.status,
+        completedAt: updated.completedAt?.toISOString() ?? null,
+      };
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // GET /procedure-docs/:docId — full procedure-doc tree for the viewer
+  // and for resuming an in-progress authoring session. Returns metadata,
+  // steps, substeps, and media in one shot.
+  //
+  // Auth: requireAuthOrScan-equivalent — same access as the standard doc
+  // listing. Reading procedures stays scan-friendly; only writes need
+  // auth.
+  // -------------------------------------------------------------------------
+  app.get<{ Params: { docId: string } }>(
+    '/procedure-docs/:docId',
+    { schema: { params: z.object({ docId: UuidSchema }) } },
+    async (request, reply) => {
+      const { db, storage } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const doc = await db.query.documents.findFirst({
+        where: eq(schema.documents.id, request.params.docId),
+        with: { packVersion: { with: { pack: true } } },
+      });
+      if (!doc) return reply.notFound();
+      if (
+        !scope.all &&
+        !scope.orgIds.includes(doc.packVersion.pack.ownerOrganizationId)
+      ) {
+        return reply.notFound();
+      }
+      if (doc.kind !== 'structured_procedure') {
+        return reply.badRequest('Document is not a structured_procedure.');
+      }
+
+      const steps = await db.query.procedureSteps.findMany({
+        where: eq(schema.procedureSteps.documentId, doc.id),
+        orderBy: [
+          asc(schema.procedureSteps.orderingHint),
+          asc(schema.procedureSteps.createdAt),
+        ],
+      });
+      const stepIds = steps.map((s) => s.id);
+      const substeps = stepIds.length
+        ? await db.query.procedureSubsteps.findMany({
+            where: inArray(schema.procedureSubsteps.procedureStepId, stepIds),
+            orderBy: [
+              asc(schema.procedureSubsteps.orderingHint),
+              asc(schema.procedureSubsteps.createdAt),
+            ],
+          })
+        : [];
+      const substepsByStep = new Map<string, typeof substeps>();
+      for (const ss of substeps) {
+        const arr = substepsByStep.get(ss.procedureStepId) ?? [];
+        arr.push(ss);
+        substepsByStep.set(ss.procedureStepId, arr);
+      }
+
+      // Capture identity for the chip.
+      let capturedByDisplayName: string | null = null;
+      const firstRun = await db.query.procedureRuns.findFirst({
+        where: eq(schema.procedureRuns.documentId, doc.id),
+        orderBy: [asc(schema.procedureRuns.startedAt)],
+      });
+      if (firstRun) {
+        const u = await db.query.users.findFirst({
+          where: eq(schema.users.id, firstRun.userId),
+          columns: { displayName: true },
+        });
+        capturedByDisplayName = u?.displayName ?? null;
+      }
+
+      return {
+        document: {
+          id: doc.id,
+          title: doc.title,
+          kind: doc.kind,
+          safetyCritical: doc.safetyCritical,
+          source:
+            doc.packVersion.pack.kind === 'field_captures'
+              ? ('field' as const)
+              : ('oem' as const),
+          verified: doc.fieldVerifiedAt !== null,
+          capturedByDisplayName,
+          scopeAssetInstanceId: doc.scopeAssetInstanceId,
+        },
+        metadata: doc.procedureMetadata ?? null,
+        steps: steps.map((s) => ({
+          id: s.id,
+          kind: s.kind,
+          title: s.title,
+          bodyMarkdown: s.bodyMarkdown,
+          safetyCritical: s.safetyCritical,
+          orderingHint: s.orderingHint,
+          requiresPhoto: s.requiresPhoto,
+          minPhotoCount: s.minPhotoCount,
+          measurementSpec: s.measurementSpec,
+          media: (s.media ?? []).map((m) => ({
+            ...m,
+            url: storage.publicUrl(m.storageKey),
+          })),
+          substeps: (substepsByStep.get(s.id) ?? []).map((ss) => ({
+            id: ss.id,
+            title: ss.title,
+            bodyMarkdown: ss.bodyMarkdown,
+            orderingHint: ss.orderingHint,
+          })),
         })),
       };
     },

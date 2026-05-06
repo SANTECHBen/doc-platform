@@ -43,6 +43,20 @@ import { procedureStepKindEnum, procedureRunStatusEnum } from './enums';
 //     outcome IN ('completed', 'skipped')
 //     (outcome = 'skipped') = (skip_reason IS NOT NULL)
 
+// Per-step media — author-attached photos and videos that render as
+// part of the procedure's content (vs procedure_step_completions.photos
+// which are evidence captured during a run). Stored as jsonb so an
+// individual step can carry an arbitrary number of media items in
+// authored order.
+export type ProcedureStepMedia = {
+  /** 'image' for jpeg/png/webp; 'video' for any video/* mime. */
+  kind: 'image' | 'video';
+  storageKey: string;
+  mime: string;
+  /** Optional author caption rendered below the media. */
+  caption?: string;
+};
+
 // Discriminated union for measurement specs. Numeric covers torque/spec
 // values; pass_fail covers visual inspections; free_text covers things
 // like "record the serial number on the replacement part."
@@ -97,6 +111,14 @@ export const procedureSteps = pgTable(
     minPhotoCount: integer('min_photo_count').notNull().default(0),
     measurementSpec: jsonb('measurement_spec').$type<MeasurementSpec | null>(),
 
+    // Authored media — photos and (optional) video the author attaches
+    // to this step as content (rendered in the doc viewer). Distinct
+    // from procedure_step_completions.photos, which is evidence per-run.
+    media: jsonb('media')
+      .$type<ProcedureStepMedia[]>()
+      .notNull()
+      .default([]),
+
     // Forward-compat: agent-proposed steps land here when the executor
     // accepts an agent run's step proposal. Null today.
     proposedByAgentRunId: uuid('proposed_by_agent_run_id').references(
@@ -114,6 +136,36 @@ export const procedureSteps = pgTable(
     docIdx: index('procedure_steps_document_idx').on(t.documentId),
     docOrderIdx: index('procedure_steps_document_order_idx').on(
       t.documentId,
+      t.orderingHint,
+    ),
+  }),
+);
+
+// Substeps — author-defined nested steps within a procedure step. Used
+// when a step expands into a few smaller actions ("Loosen fasteners
+// → 1) front bolt 2) rear bolt 3) cover plate"). Substeps render in
+// the viewer but are not separately tracked in run-with-evidence mode
+// (the parent step's completion captures evidence for the whole group).
+export const procedureSubsteps = pgTable(
+  'procedure_substeps',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    procedureStepId: uuid('procedure_step_id')
+      .notNull()
+      .references(() => procedureSteps.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    bodyMarkdown: text('body_markdown'),
+    orderingHint: integer('ordering_hint').notNull().default(0),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    stepIdx: index('procedure_substeps_step_idx').on(t.procedureStepId),
+    stepOrderIdx: index('procedure_substeps_step_order_idx').on(
+      t.procedureStepId,
       t.orderingHint,
     ),
   }),
@@ -284,6 +336,18 @@ export const procedureStepsRelations = relations(procedureSteps, ({ one, many })
     references: [agentRuns.id],
   }),
   partLinks: many(partProcedureSteps),
+  substeps: many(procedureSubsteps),
+}));
+
+export const procedureSubstepsRelations = relations(procedureSubsteps, ({ one }) => ({
+  step: one(procedureSteps, {
+    fields: [procedureSubsteps.procedureStepId],
+    references: [procedureSteps.id],
+  }),
+  createdBy: one(users, {
+    fields: [procedureSubsteps.createdByUserId],
+    references: [users.id],
+  }),
 }));
 
 export const partProcedureStepsRelations = relations(partProcedureSteps, ({ one }) => ({
@@ -344,6 +408,8 @@ export type ProcedureRunStatus = (typeof procedureRunStatusEnum.enumValues)[numb
 
 export type ProcedureStep = typeof procedureSteps.$inferSelect;
 export type NewProcedureStep = typeof procedureSteps.$inferInsert;
+export type ProcedureSubstep = typeof procedureSubsteps.$inferSelect;
+export type NewProcedureSubstep = typeof procedureSubsteps.$inferInsert;
 export type PartProcedureStep = typeof partProcedureSteps.$inferSelect;
 export type NewPartProcedureStep = typeof partProcedureSteps.$inferInsert;
 export type ProcedureRun = typeof procedureRuns.$inferSelect;

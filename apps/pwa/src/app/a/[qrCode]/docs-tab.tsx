@@ -28,7 +28,8 @@ import NoDocuments from '@/components/illustrations/no-documents';
 import NoSearchResults from '@/components/illustrations/no-search-results';
 import { SectionRenderer } from '@/components/section-renderer';
 import { ProcedureRunner } from '@/components/procedure-runner/procedure-runner';
-import { ProcedureAuthoringRunner } from '@/components/procedure-runner/procedure-authoring-runner';
+import { ProcedureDocAuthoring } from '@/components/procedure-runner/procedure-doc-authoring';
+import { ProcedureDocViewer } from '@/components/procedure-runner/procedure-doc-viewer';
 import { AuthPrompt } from '@/components/auth-prompt';
 import { Plus } from 'lucide-react';
 import {
@@ -136,7 +137,12 @@ export function DocsTab({
   const [docs, setDocs] = useState<DocumentListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<OpenDoc | null>(null);
+  // Read-mode procedure viewer (default tap target on procedure cards).
+  const [viewerDocId, setViewerDocId] = useState<string | null>(null);
+  // Run-mode (evidence capture) — launched from inside the viewer's
+  // "Run with evidence" button.
   const [procedureDocId, setProcedureDocId] = useState<string | null>(null);
+  // Authoring mode — launched from the "+ Document a procedure" CTA.
   const [authoringActive, setAuthoringActive] = useState(false);
   const [authPromptOpen, setAuthPromptOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -191,13 +197,13 @@ export function DocsTab({
 
   if (authoringActive) {
     return (
-      <ProcedureAuthoringRunner
+      <ProcedureDocAuthoring
         assetInstanceId={assetInstanceId}
         devUserId={DEV_USER_ID}
         devOrgId={DEV_ORG_ID}
         onClose={() => {
           setAuthoringActive(false);
-          // Re-fetch so the just-captured procedure appears in the list.
+          // Re-fetch so the just-authored procedure appears in the list.
           setRefetchKey((k) => k + 1);
         }}
       />
@@ -216,6 +222,26 @@ export function DocsTab({
           // Re-fetch in case the run touched verification state etc.
           setRefetchKey((k) => k + 1);
         }}
+      />
+    );
+  }
+
+  if (viewerDocId) {
+    return (
+      <ProcedureDocViewer
+        docId={viewerDocId}
+        devUserId={DEV_USER_ID}
+        devOrgId={DEV_ORG_ID}
+        onClose={() => setViewerDocId(null)}
+        onRunWithEvidence={
+          DEV_USER_ID
+            ? () => {
+                const id = viewerDocId;
+                setViewerDocId(null);
+                setProcedureDocId(id);
+              }
+            : null
+        }
       />
     );
   }
@@ -291,15 +317,18 @@ export function DocsTab({
           <li key={e.key}>
             <button
               onClick={async () => {
-                // Procedure docs launch the interactive runner instead of
-                // the static viewer. Auth gate: only required for procedure
-                // runs, not for reading any other doc kind.
+                // Procedure docs open in the read-mode viewer with the
+                // template applied. From there, the tech can tap "Run
+                // with evidence" to launch the runner. Read-mode also
+                // requires auth in the current setup because the
+                // /procedure-docs/:id endpoint uses requireAuth — when
+                // OIDC sign-in lands this becomes scan-friendly.
                 if (e.kind === 'structured_procedure') {
                   if (!DEV_USER_ID) {
                     setAuthPromptOpen(true);
                     return;
                   }
-                  setProcedureDocId(e.docId);
+                  setViewerDocId(e.docId);
                   return;
                 }
                 const full = await getDocument(e.docId);

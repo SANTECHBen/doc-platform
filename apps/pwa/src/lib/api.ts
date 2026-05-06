@@ -497,6 +497,28 @@ export type ProcedureMeasurementSpec =
       maxLen?: number;
     };
 
+export interface ProcedureStepMedia {
+  kind: 'image' | 'video';
+  storageKey: string;
+  mime: string;
+  caption?: string;
+  /** Resolved on read paths via storage.publicUrl. */
+  url?: string;
+}
+
+export interface ProcedureSubstepDto {
+  id?: string;
+  title: string;
+  bodyMarkdown: string | null;
+  orderingHint?: number;
+}
+
+export interface ProcedureDocMetadata {
+  toolsRequired: string[];
+  safety: { enabled: boolean; notes: string | null };
+  verification: { enabled: boolean; notes: string | null };
+}
+
 export interface ProcedureStepDto {
   id: string;
   documentId: string;
@@ -508,6 +530,8 @@ export interface ProcedureStepDto {
   requiresPhoto: boolean;
   minPhotoCount: number;
   measurementSpec: ProcedureMeasurementSpec | null;
+  media?: ProcedureStepMedia[];
+  substeps?: ProcedureSubstepDto[];
 }
 
 export interface ProcedureRunDto {
@@ -743,6 +767,8 @@ export async function addAuthoringStep(params: {
     requiresPhoto?: boolean;
     minPhotoCount?: number;
     measurementSpec?: ProcedureMeasurementSpec | null;
+    media?: ProcedureStepMedia[];
+    substeps?: Array<{ title: string; bodyMarkdown?: string | null }>;
   };
   devUserId: string;
   devOrgId: string;
@@ -773,6 +799,8 @@ export async function updateAuthoringStep(params: {
     requiresPhoto?: boolean;
     minPhotoCount?: number;
     measurementSpec?: ProcedureMeasurementSpec | null;
+    media?: ProcedureStepMedia[];
+    substeps?: Array<{ title: string; bodyMarkdown?: string | null }>;
   };
   devUserId: string;
   devOrgId: string;
@@ -890,6 +918,130 @@ export async function finalizeAuthoring(params: {
     documentId: string;
     title: string;
     scopeAssetInstanceId: string | null;
+  };
+}
+
+// Doc-authoring v3 helpers — full procedure tree, media upload (authored
+// content, not run-time evidence), metadata patch, completion without
+// the run-time evidence gate.
+
+export interface ProcedureDocFullDto {
+  document: {
+    id: string;
+    title: string;
+    kind: string;
+    safetyCritical: boolean;
+    source: 'oem' | 'field';
+    verified: boolean;
+    capturedByDisplayName: string | null;
+    scopeAssetInstanceId: string | null;
+  };
+  metadata: ProcedureDocMetadata | null;
+  steps: Array<
+    ProcedureStepDto & {
+      media: ProcedureStepMedia[];
+      substeps: ProcedureSubstepDto[];
+    }
+  >;
+}
+
+export async function getProcedureDoc(
+  docId: string,
+  devUserId: string,
+  devOrgId: string,
+): Promise<ProcedureDocFullDto> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/procedure-docs/${encodeURIComponent(docId)}`,
+    { cache: 'no-store', headers: authHeaders(devUserId, devOrgId) },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as ProcedureDocFullDto;
+}
+
+export async function uploadStepMedia(params: {
+  runId: string;
+  stepId: string;
+  file: File;
+  devUserId: string;
+  devOrgId: string;
+}): Promise<{
+  kind: 'image' | 'video';
+  storageKey: string;
+  mime: string;
+  size: number;
+  url: string;
+}> {
+  const form = new FormData();
+  form.append('file', params.file, params.file.name);
+  const res = await fetch(
+    `${CLIENT_API_BASE}/procedure-runs/${encodeURIComponent(params.runId)}/authoring-steps/${encodeURIComponent(params.stepId)}/media`,
+    {
+      method: 'POST',
+      headers: authHeaders(params.devUserId, params.devOrgId),
+      body: form,
+    },
+  );
+  if (!res.ok) throw new Error(`Upload ${res.status}: ${await res.text()}`);
+  return (await res.json()) as {
+    kind: 'image' | 'video';
+    storageKey: string;
+    mime: string;
+    size: number;
+    url: string;
+  };
+}
+
+export async function patchProcedureMetadata(params: {
+  runId: string;
+  metadata: ProcedureDocMetadata;
+  devUserId: string;
+  devOrgId: string;
+}): Promise<{ documentId: string; procedureMetadata: ProcedureDocMetadata }> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/procedure-runs/${encodeURIComponent(params.runId)}/authoring-metadata`,
+    {
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json',
+        ...authHeaders(params.devUserId, params.devOrgId),
+      },
+      body: JSON.stringify(params.metadata),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as {
+    documentId: string;
+    procedureMetadata: ProcedureDocMetadata;
+  };
+}
+
+export async function completeAuthoring(
+  runId: string,
+  devUserId: string,
+  devOrgId: string,
+): Promise<{
+  runId: string;
+  documentId: string;
+  status: string;
+  completedAt: string | null;
+}> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/procedure-runs/${encodeURIComponent(runId)}/complete-authoring`,
+    { method: 'POST', headers: authHeaders(devUserId, devOrgId) },
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    const err = new Error(`API ${res.status}: ${text}`) as Error & {
+      status?: number;
+    };
+    err.status = res.status;
+    throw err;
+  }
+  return (await res.json()) as {
+    runId: string;
+    documentId: string;
+    status: string;
+    completedAt: string | null;
   };
 }
 

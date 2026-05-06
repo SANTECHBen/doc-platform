@@ -22,6 +22,20 @@ import {
   extractionStatusEnum,
 } from './enums';
 
+// Procedure-doc template metadata. Stored as typed jsonb on documents.
+// Only meaningful when documents.kind = 'structured_procedure'.
+//
+// Layout: every procedure doc has a fixed section template applied at
+// render time. Title + Tools + Steps are always shown. Safety and
+// Verification are author-controlled toggles per-doc — when disabled,
+// the section is omitted entirely from the rendered template.
+export type ProcedureDocMetadata = {
+  /** Free-text tool list ("Torque wrench (10-30 N·m)", "5mm hex key"). */
+  toolsRequired: string[];
+  safety: { enabled: boolean; notes: string | null };
+  verification: { enabled: boolean; notes: string | null };
+};
+
 // ContentPack = named bundle of docs + training + parts authored against an AssetModel.
 // Layer type determines how it composes with others at render time:
 //   base            — authored by the AssetModel's owner OEM.
@@ -159,6 +173,21 @@ export const documents = pgTable(
       () => assetInstances.id,
       { onDelete: 'cascade' },
     ),
+    // ---------- Procedure document template metadata (v3) ----------
+    // Author-controlled fixed-section toggles + body content for the
+    // template applied at render time. Only meaningful when
+    // kind='structured_procedure'. Schema is jsonb (typed) rather than
+    // separate columns because the surface is procedure-specific and
+    // the doc table is shared across all kinds.
+    //
+    // Shape:
+    //   {
+    //     toolsRequired: string[],
+    //     safety: { enabled: boolean, notes: string | null },
+    //     verification: { enabled: boolean, notes: string | null },
+    //   }
+    procedureMetadata: jsonb('procedure_metadata')
+      .$type<ProcedureDocMetadata | null>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
