@@ -175,7 +175,11 @@ export function ProcedureStepForm({
     // Cancel / Save bar lives at the TOP of the form and sticks there
     // as the user scrolls down, so action buttons are always one tap
     // away without doubling the scroll surface.
-    <div className="mx-auto flex max-w-3xl flex-col gap-5 px-6 pb-12">
+    //
+    // Layout language: every editable group is a Section card with a
+    // consistent label, padding, and inter-field rhythm — gives the
+    // page a uniform, settled look instead of a series of bare inputs.
+    <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 pb-12">
       <div
         className="sticky top-0 -mx-6 z-10 flex items-center justify-end gap-2 border-b border-line bg-surface-raised px-6 py-3"
         style={{ boxShadow: '0 4px 8px -4px rgba(0,0,0,0.06)' }}
@@ -189,83 +193,85 @@ export function ProcedureStepForm({
       </div>
       <ErrorBanner error={error} />
 
-      <Field label="Step kind" required>
-        <Select
-          value={kind}
-          onChange={(e) => onKindChange(e.target.value as ProcedureStepKind)}
+      <Section label="Step content">
+        <Field label="Step kind" required>
+          <Select
+            value={kind}
+            onChange={(e) => onKindChange(e.target.value as ProcedureStepKind)}
+          >
+            {(
+              [
+                'instruction',
+                'safety_check',
+                'photo_required',
+                'measurement_required',
+              ] as const
+            ).map((k) => (
+              <option key={k} value={k}>
+                {KIND_LABELS[k]}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <Field
+          label="Title"
+          required
+          hint="Short imperative — 'Apply LOTO', 'Torque to 18-22 N·m', 'Inspect bearing race for scoring'"
         >
-          {(
-            [
-              'instruction',
-              'safety_check',
-              'photo_required',
-              'measurement_required',
-            ] as const
-          ).map((k) => (
-            <option key={k} value={k}>
-              {KIND_LABELS[k]}
-            </option>
-          ))}
-        </Select>
-      </Field>
+          <TextInput
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Apply LOTO"
+            autoFocus
+          />
+        </Field>
 
-      <Field
-        label="Title"
-        required
-        hint="Short imperative — 'Apply LOTO', 'Torque to 18-22 N·m', 'Inspect bearing race for scoring'"
-      >
-        <TextInput
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Apply LOTO"
-          autoFocus
-        />
-      </Field>
+        <Field
+          label="Body (markdown)"
+          hint="Detailed instructions, warnings, hyperlinks. Markdown is rendered in the runner."
+        >
+          <Textarea
+            value={bodyMarkdown}
+            onChange={(e) => setBodyMarkdown(e.target.value)}
+            rows={6}
+            placeholder="1. De-energize at the panel.&#10;2. Apply lockout devices to all energy isolators.&#10;3. Verify zero-energy state with a tester."
+          />
+        </Field>
+      </Section>
 
-      <Field
-        label="Body (markdown)"
-        hint="Detailed instructions, warnings, hyperlinks. Markdown is rendered in the runner."
-      >
-        <Textarea
-          value={bodyMarkdown}
-          onChange={(e) => setBodyMarkdown(e.target.value)}
-          rows={6}
-          placeholder="1. De-energize at the panel.&#10;2. Apply lockout devices to all energy isolators.&#10;3. Verify zero-energy state with a tester."
-        />
-      </Field>
-
-      <div className="rounded-md border border-line-subtle bg-surface p-4">
-        <p className="form-label mb-2">Flags</p>
-        <label className="flex items-center gap-2 text-sm">
+      <Section label="Flags">
+        <label className="flex items-start gap-2 text-sm">
           <input
             type="checkbox"
             checked={safetyCritical}
             onChange={(e) => setSafetyCritical(e.target.checked)}
+            className="mt-0.5"
           />
           <span>
             <strong>Safety-critical</strong> — surfaces the safety rail in the
             runner; skipping requires written justification.
           </span>
         </label>
-      </div>
+      </Section>
 
       {(kind === 'photo_required' || kind === 'measurement_required') && (
-        <div className="rounded-md border border-line-subtle bg-surface p-4">
-          <p className="form-label mb-2">Photo evidence</p>
-          <label className="flex items-center gap-2 text-sm">
+        <Section label="Photo evidence">
+          <label className="flex items-start gap-2 text-sm">
             <input
               type="checkbox"
               checked={requiresPhoto}
               onChange={(e) => setRequiresPhoto(e.target.checked)}
               disabled={kind === 'photo_required'}
+              className="mt-0.5"
             />
             <span>
-              <strong>Require photo</strong> — tech can't advance without
+              <strong>Require photo</strong> — tech can&apos;t advance without
               capturing at least one image.
             </span>
           </label>
           {requiresPhoto && (
-            <div className="mt-3 max-w-xs">
+            <div className="max-w-xs">
               <Field
                 label="Minimum photos"
                 hint="Common values: 1 (single before/after shot), 2 (before + after), 3 (before / during / after)"
@@ -283,7 +289,7 @@ export function ProcedureStepForm({
               </Field>
             </div>
           )}
-        </div>
+        </Section>
       )}
 
       {kind === 'measurement_required' && measurementSpec && (
@@ -293,12 +299,10 @@ export function ProcedureStepForm({
         />
       )}
 
-      <div className="rounded-md border border-line-subtle bg-surface p-4">
-        <p className="form-label mb-2">Linked parts</p>
-        <p className="mb-3 text-xs text-ink-tertiary">
-          Optional. When a tech opens a part, this step surfaces in its
-          procedures list. Steps can be linked to multiple parts.
-        </p>
+      <Section
+        label="Linked parts"
+        description="Optional. When a tech opens a part, this step surfaces in its procedures list. Steps can be linked to multiple parts."
+      >
         {allParts === null ? (
           <p className="text-xs text-ink-tertiary">Loading parts…</p>
         ) : (
@@ -308,8 +312,36 @@ export function ProcedureStepForm({
             onChange={setLinkedPartIds}
           />
         )}
-      </div>
-
+      </Section>
     </div>
   );
 }
+
+// Section — uniform card chrome for every group in the form. A small
+// caption-style label sits at the top, an optional one-line description
+// underneath, then the children stack with consistent rhythm.
+function ProcedureStepSection({
+  label,
+  description,
+  children,
+}: {
+  label: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-md border border-line-subtle bg-surface-raised p-5">
+      <header className="mb-3">
+        <p className="form-label">{label}</p>
+        {description && (
+          <p className="mt-1 text-xs text-ink-tertiary">{description}</p>
+        )}
+      </header>
+      <div className="flex flex-col gap-4">{children}</div>
+    </section>
+  );
+}
+
+// Local alias so callsites read `<Section …>` without colliding with
+// any future shared `<Section>` primitive added higher up.
+const Section = ProcedureStepSection;

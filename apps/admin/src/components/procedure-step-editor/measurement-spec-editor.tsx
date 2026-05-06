@@ -33,7 +33,17 @@ export function MeasurementSpecEditor({
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-line-subtle bg-surface p-4">
+    // Matches the Section card chrome used by the parent step form so
+    // every group on the editor reads as a peer.
+    <section className="rounded-md border border-line-subtle bg-surface-raised p-5">
+      <header className="mb-3">
+        <p className="form-label">Measurement spec</p>
+        <p className="mt-1 text-xs text-ink-tertiary">
+          What the runner enforces at run time when this step is being
+          executed.
+        </p>
+      </header>
+      <div className="flex flex-col gap-4">
       <Field label="Measurement type" required>
         <Select
           value={value.kind}
@@ -64,7 +74,8 @@ export function MeasurementSpecEditor({
       {value.kind === 'free_text' && (
         <FreeTextFields value={value} onChange={onChange} />
       )}
-    </div>
+      </div>
+    </section>
   );
 }
 
