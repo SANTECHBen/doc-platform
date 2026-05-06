@@ -16,10 +16,14 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Camera,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   ClipboardCheck,
+  Copy,
   ListChecks,
+  Pencil,
   Plus,
   Ruler,
   ShieldAlert,
@@ -29,17 +33,23 @@ import {
 import {
   abandonProcedureRun,
   addAuthoringStep,
+  cloneFromTemplate,
   finalizeAuthoring,
   finishProcedureRun,
+  listProcedureTemplates,
   patchProcedureStep,
+  reorderAuthoringSteps,
   startFieldProcedure,
+  updateAuthoringStep,
   uploadProcedureStepPhoto,
   type ProcedureBundle,
   type ProcedureMeasurementSpec,
   type ProcedureStepDto,
   type ProcedureStepKind,
+  type ProcedureTemplateDto,
   type StepCompletionPayload,
 } from '@/lib/api';
+import { MicButton } from '@/components/voice-input';
 
 const KIND_OPTIONS: Array<{ value: ProcedureStepKind; label: string }> = [
   { value: 'instruction', label: 'Instruction (read & tap)' },
@@ -89,7 +99,13 @@ export function ProcedureAuthoringRunner({
   const [bundle, setBundle] = useState<ProcedureBundle | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Procedure-level title — editable at the top of the authoring runner;
+  // carried into the Finalize dialog so the tech doesn't retype.
+  const [procedureTitle, setProcedureTitle] = useState('Untitled procedure');
   const [draft, setDraft] = useState<DraftStep>(FRESH_DRAFT);
+  // When set, the editor is editing an existing saved step rather than
+  // composing a new one. Save calls PATCH instead of POST.
+  const [editingStepId, setEditingStepId] = useState<string | null>(null);
   const [pendingPhotos, setPendingPhotos] = useState<PhotoBuf[]>([]);
   const [measurementValue, setMeasurementValue] = useState<{
     numeric?: string;
@@ -100,8 +116,12 @@ export function ProcedureAuthoringRunner({
   const [notes, setNotes] = useState('');
   const [stepEnteredAt, setStepEnteredAt] = useState<Date>(new Date());
   const [finalizeOpen, setFinalizeOpen] = useState(false);
-  const [finalTitle, setFinalTitle] = useState('');
   const [scopeInstanceOnly, setScopeInstanceOnly] = useState(false);
+  // Template offerings — fetched lazily once the run is created. Surfaced
+  // as a one-tap "use existing procedure as template" affordance only
+  // before the tech captures their first step.
+  const [templates, setTemplates] = useState<ProcedureTemplateDto[] | null>(null);
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -114,17 +134,29 @@ export function ProcedureAuthoringRunner({
     };
   }, []);
 
-  // Start the authoring run on mount.
+  // Start the authoring run on mount + fetch templates in parallel so
+  // the "use existing procedure as template" affordance is immediately
+  // tappable when the runner opens.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const b = await startFieldProcedure({
-          assetInstanceId,
-          devUserId,
-          devOrgId,
-        });
-        if (!cancelled) setBundle(b);
+        const [b, tpls] = await Promise.all([
+          startFieldProcedure({
+            assetInstanceId,
+            devUserId,
+            devOrgId,
+          }),
+          listProcedureTemplates({
+            assetInstanceId,
+            devUserId,
+            devOrgId,
+          }).catch(() => [] as ProcedureTemplateDto[]),
+        ]);
+        if (!cancelled) {
+          setBundle(b);
+          setTemplates(tpls);
+        }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       }
@@ -207,27 +239,52 @@ export function ProcedureAuthoringRunner({
     }
     setBusy(true);
     try {
-      // 1. Author the step server-side.
+      const stepInput = {
+        kind: draft.kind,
+        title: draft.title.trim(),
+        bodyMarkdown: draft.bodyMarkdown.trim() || null,
+        safetyCritical: draft.safetyCritical,
+        requiresPhoto: draft.kind === 'photo_required' || draft.requiresPhoto,
+        minPhotoCount:
+          draft.kind === 'photo_required'
+            ? Math.max(1, draft.minPhotoCount)
+            : draft.minPhotoCount,
+        measurementSpec:
+          draft.kind === 'measurement_required' ? draft.measurementSpec : null,
+      };
+
+      // EDIT path — PATCH the existing step. We don't re-upload photos
+      // here; evidence editing is its own feature (v3). For now editing
+      // a saved step changes its authoring metadata only.
+      if (editingStepId) {
+        const stepDto = await updateAuthoringStep({
+          runId: bundle.run.id,
+          stepId: editingStepId,
+          step: stepInput,
+          devUserId,
+          devOrgId,
+        });
+        setBundle((prev) =>
+          prev
+            ? {
+                ...prev,
+                steps: prev.steps.map((s) => (s.id === stepDto.id ? stepDto : s)),
+              }
+            : prev,
+        );
+        setEditingStepId(null);
+        resetForNextStep();
+        return;
+      }
+
+      // CREATE path — POST a new step + upload photos + record completion.
       const stepDto = await addAuthoringStep({
         runId: bundle.run.id,
-        step: {
-          kind: draft.kind,
-          title: draft.title.trim(),
-          bodyMarkdown: draft.bodyMarkdown.trim() || null,
-          safetyCritical: draft.safetyCritical,
-          requiresPhoto: draft.kind === 'photo_required' || draft.requiresPhoto,
-          minPhotoCount:
-            draft.kind === 'photo_required'
-              ? Math.max(1, draft.minPhotoCount)
-              : draft.minPhotoCount,
-          measurementSpec:
-            draft.kind === 'measurement_required' ? draft.measurementSpec : null,
-        },
+        step: stepInput,
         devUserId,
         devOrgId,
       });
 
-      // 2. Upload any captured photos against the new step.
       const uploadedPhotos: Array<{ key: string; mime: string }> = [];
       for (const file of pendingFiles.current) {
         const result = await uploadProcedureStepPhoto({
@@ -240,9 +297,6 @@ export function ProcedureAuthoringRunner({
         uploadedPhotos.push({ key: result.key, mime: result.mime });
       }
 
-      // 3. Record evidence as a completion (this also marks the step
-      //    "done" from the runner's perspective — finish gate looks for
-      //    a completion per step at the end).
       const measurement = buildMeasurementForPayload(draft.measurementSpec);
       const payload: StepCompletionPayload = {
         outcome: 'completed',
@@ -259,7 +313,6 @@ export function ProcedureAuthoringRunner({
         devOrgId,
       });
 
-      // 4. Update local state with both the new step + completion.
       setBundle((prev) =>
         prev
           ? {
@@ -271,6 +324,92 @@ export function ProcedureAuthoringRunner({
       );
       pendingFiles.current = [];
       resetForNextStep();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Load an existing saved step into the editor for in-place edit. The
+  // tech can change kind/title/body/evidence-requirements/measurement-
+  // spec; current implementation doesn't re-edit captured evidence.
+  function onEditStep(stepId: string) {
+    if (!bundle) return;
+    const step = bundle.steps.find((s) => s.id === stepId);
+    if (!step) return;
+    setEditingStepId(stepId);
+    setDraft({
+      kind: step.kind,
+      title: step.title,
+      bodyMarkdown: step.bodyMarkdown ?? '',
+      safetyCritical: step.safetyCritical,
+      requiresPhoto: step.requiresPhoto,
+      minPhotoCount: step.minPhotoCount,
+      measurementSpec: step.measurementSpec ?? null,
+    });
+    setPendingPhotos([]);
+    pendingFiles.current = [];
+    setMeasurementValue({});
+    setNotes('');
+  }
+
+  function onCancelEdit() {
+    setEditingStepId(null);
+    resetForNextStep();
+  }
+
+  // Move a saved step up or down in the captured-list. Server reorders
+  // via re-stamping orderingHint; we mirror locally so the UI updates
+  // immediately without a refetch.
+  async function onMoveStep(stepId: string, dir: -1 | 1) {
+    if (!bundle) return;
+    const idx = bundle.steps.findIndex((s) => s.id === stepId);
+    const swapWith = idx + dir;
+    if (idx < 0 || swapWith < 0 || swapWith >= bundle.steps.length) return;
+    const next = [...bundle.steps];
+    const tmp = next[idx]!;
+    next[idx] = next[swapWith]!;
+    next[swapWith] = tmp;
+    setBundle((prev) => (prev ? { ...prev, steps: next } : prev));
+    try {
+      await reorderAuthoringSteps({
+        runId: bundle.run.id,
+        orderedStepIds: next.map((s) => s.id),
+        devUserId,
+        devOrgId,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      // Revert on failure so client + server stay in sync.
+      setBundle((prev) => (prev ? { ...prev, steps: bundle.steps } : prev));
+    }
+  }
+
+  // One-tap clone: pull every step from a previously-completed
+  // procedure on this asset model into the new run. Tech then walks
+  // through and captures fresh evidence per step.
+  async function onUseTemplate(templateDocId: string) {
+    if (!bundle) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const result = await cloneFromTemplate({
+        runId: bundle.run.id,
+        templateDocId,
+        devUserId,
+        devOrgId,
+      });
+      setBundle((prev) =>
+        prev ? { ...prev, steps: result.steps } : prev,
+      );
+      // Pre-fill the procedure title from the template if the tech
+      // hasn't typed one yet.
+      const tpl = templates?.find((t) => t.documentId === templateDocId);
+      if (tpl && procedureTitle === 'Untitled procedure') {
+        setProcedureTitle(tpl.title);
+      }
+      setTemplatePickerOpen(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -313,8 +452,9 @@ export function ProcedureAuthoringRunner({
   async function onConfirmFinalize() {
     if (!bundle) return;
     setError(null);
-    if (!finalTitle.trim()) {
-      setError('Procedure title is required.');
+    const trimmedTitle = procedureTitle.trim();
+    if (!trimmedTitle || trimmedTitle === 'Untitled procedure') {
+      setError('Give the procedure a real title before finishing.');
       return;
     }
     if (bundle.steps.length === 0) {
@@ -325,7 +465,7 @@ export function ProcedureAuthoringRunner({
     try {
       await finalizeAuthoring({
         runId: bundle.run.id,
-        title: finalTitle.trim(),
+        title: trimmedTitle,
         scopeAssetInstanceOnly: scopeInstanceOnly,
         linkedPartIds: [], // v1: no part linking from PWA; admin can add later.
         devUserId,
@@ -460,18 +600,99 @@ export function ProcedureAuthoringRunner({
           </div>
         )}
 
+        {/* Procedure-level title — editable at top, carried into Finalize. */}
+        <div className="mx-auto mt-4 flex max-w-3xl flex-col gap-1.5 px-4">
+          <span className="caption">PROCEDURE TITLE</span>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={procedureTitle}
+              onChange={(e) => setProcedureTitle(e.target.value)}
+              onFocus={(e) => {
+                if (procedureTitle === 'Untitled procedure') e.currentTarget.select();
+              }}
+              placeholder="Replace bearing assembly"
+              className="flex-1 rounded border border-line bg-surface-raised p-3 text-base font-medium"
+            />
+            <MicButton
+              size="md"
+              appendMode={false}
+              onTranscript={(t) => setProcedureTitle(t)}
+            />
+          </div>
+        </div>
+
+        {bundle.steps.length === 0 && templates && templates.length > 0 && (
+          <div className="mx-auto mt-4 flex max-w-3xl items-center justify-between gap-3 rounded-md border border-brand/30 bg-brand-soft-v/10 px-4 py-3 text-sm">
+            <div className="flex items-start gap-3">
+              <Copy size={16} strokeWidth={1.75} className="mt-0.5 text-brand" />
+              <div>
+                <p className="font-medium text-brand">Reuse an existing procedure</p>
+                <p className="text-ink-secondary">
+                  Clone the steps from a previous procedure on this asset
+                  model and capture fresh evidence per step.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setTemplatePickerOpen(true)}
+              className="btn btn-secondary btn-sm shrink-0"
+              disabled={busy}
+            >
+              Browse {templates.length}
+            </button>
+          </div>
+        )}
+
         {bundle.steps.length > 0 && (
           <div className="mx-auto mt-4 max-w-3xl rounded-md border border-signal-ok/30 bg-signal-ok/5 p-3 text-sm">
-            <p className="font-medium text-signal-ok">
+            <p className="mb-2 font-medium text-signal-ok">
               {bundle.steps.length} step{bundle.steps.length === 1 ? '' : 's'} captured
             </p>
-            <ul className="mt-2 flex flex-col gap-1 text-ink-secondary">
+            <ul className="flex flex-col gap-1.5">
               {bundle.steps.map((s, i) => (
-                <li key={s.id} className="flex items-baseline gap-2">
-                  <span className="font-mono tabular-nums text-xs text-ink-tertiary">
+                <li
+                  key={s.id}
+                  className={`flex items-center gap-2 rounded px-2 py-1.5 ${
+                    editingStepId === s.id ? 'bg-brand-soft-v/15' : ''
+                  }`}
+                >
+                  <span className="font-mono tabular-nums text-xs text-ink-tertiary shrink-0">
                     {String(i + 1).padStart(2, '0')}
                   </span>
-                  <span>{s.title}</span>
+                  <span className="flex-1 min-w-0 truncate text-ink-secondary">
+                    {s.title}
+                  </span>
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => onMoveStep(s.id, -1)}
+                      disabled={busy || i === 0}
+                      className="rounded p-1 text-ink-tertiary disabled:opacity-30 hover:bg-surface hover:text-ink-primary"
+                      aria-label="Move up"
+                    >
+                      <ChevronUp size={14} strokeWidth={1.75} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onMoveStep(s.id, 1)}
+                      disabled={busy || i === bundle.steps.length - 1}
+                      className="rounded p-1 text-ink-tertiary disabled:opacity-30 hover:bg-surface hover:text-ink-primary"
+                      aria-label="Move down"
+                    >
+                      <ChevronDown size={14} strokeWidth={1.75} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onEditStep(s.id)}
+                      disabled={busy || editingStepId === s.id}
+                      className="rounded p-1 text-ink-tertiary disabled:opacity-30 hover:bg-surface hover:text-ink-primary"
+                      aria-label="Edit step"
+                    >
+                      <Pencil size={14} strokeWidth={1.75} />
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -480,19 +701,28 @@ export function ProcedureAuthoringRunner({
 
         <main className="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-6">
           <h3 className="text-base font-semibold text-ink-primary">
-            Capture step {stepNum}
+            {editingStepId
+              ? `Edit step ${bundle.steps.findIndex((s) => s.id === editingStepId) + 1}`
+              : `Capture step ${stepNum}`}
           </h3>
 
           <label className="flex flex-col gap-1.5">
             <span className="caption">STEP TITLE</span>
-            <input
-              type="text"
-              value={draft.title}
-              onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-              placeholder="Apply LOTO"
-              className="rounded border border-line bg-surface-raised p-3 text-sm"
-              autoFocus
-            />
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={draft.title}
+                onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+                placeholder="Apply LOTO"
+                className="flex-1 rounded border border-line bg-surface-raised p-3 text-sm"
+                autoFocus
+              />
+              <MicButton
+                size="md"
+                appendMode={false}
+                onTranscript={(t) => setDraft((prev) => ({ ...prev, title: t }))}
+              />
+            </div>
           </label>
 
           <label className="flex flex-col gap-1.5">
@@ -526,13 +756,27 @@ export function ProcedureAuthoringRunner({
 
           <label className="flex flex-col gap-1.5">
             <span className="caption">DETAILS (OPTIONAL)</span>
-            <textarea
-              value={draft.bodyMarkdown}
-              onChange={(e) => setDraft({ ...draft, bodyMarkdown: e.target.value })}
-              rows={3}
-              placeholder="Brief description of what to do here. Markdown supported."
-              className="rounded border border-line bg-surface-raised p-3 text-sm"
-            />
+            <div className="flex items-start gap-2">
+              <textarea
+                value={draft.bodyMarkdown}
+                onChange={(e) => setDraft({ ...draft, bodyMarkdown: e.target.value })}
+                rows={3}
+                placeholder="Brief description of what to do here. Markdown supported."
+                className="flex-1 rounded border border-line bg-surface-raised p-3 text-sm"
+              />
+              <MicButton
+                size="md"
+                appendMode
+                onTranscript={(t) =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    bodyMarkdown: prev.bodyMarkdown
+                      ? prev.bodyMarkdown + ' ' + t
+                      : t,
+                  }))
+                }
+              />
+            </div>
           </label>
 
           <label className="flex items-center gap-2 text-sm">
@@ -589,14 +833,25 @@ export function ProcedureAuthoringRunner({
       </div>
 
       <footer className="flex items-center justify-between gap-3 border-t border-line bg-surface-raised px-4 py-3">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="btn btn-ghost"
-          disabled={busy}
-        >
-          Cancel
-        </button>
+        {editingStepId ? (
+          <button
+            type="button"
+            onClick={onCancelEdit}
+            className="btn btn-ghost"
+            disabled={busy}
+          >
+            Cancel edit
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="btn btn-ghost"
+            disabled={busy}
+          >
+            Cancel
+          </button>
+        )}
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -604,7 +859,15 @@ export function ProcedureAuthoringRunner({
             className="btn btn-primary"
             disabled={busy || !draft.title.trim()}
           >
-            <Plus size={16} strokeWidth={2} /> Save & next step
+            {editingStepId ? (
+              <>
+                <Check size={16} strokeWidth={2} /> Save changes
+              </>
+            ) : (
+              <>
+                <Plus size={16} strokeWidth={2} /> Save &amp; next step
+              </>
+            )}
           </button>
         </div>
       </footer>
@@ -612,12 +875,20 @@ export function ProcedureAuthoringRunner({
       {finalizeOpen && (
         <FinalizeDialog
           stepCount={bundle.steps.length}
-          title={finalTitle}
+          title={procedureTitle}
           scopeInstanceOnly={scopeInstanceOnly}
-          onChangeTitle={setFinalTitle}
+          onChangeTitle={setProcedureTitle}
           onChangeScope={setScopeInstanceOnly}
           onCancel={() => setFinalizeOpen(false)}
           onConfirm={onConfirmFinalize}
+          busy={busy}
+        />
+      )}
+      {templatePickerOpen && (
+        <TemplatePicker
+          templates={templates ?? []}
+          onCancel={() => setTemplatePickerOpen(false)}
+          onPick={onUseTemplate}
           busy={busy}
         />
       )}
@@ -814,6 +1085,84 @@ function MeasurementSpecAuthoring({
         )}
       </div>
     </section>
+  );
+}
+
+function TemplatePicker({
+  templates,
+  onCancel,
+  onPick,
+  busy,
+}: {
+  templates: ProcedureTemplateDto[];
+  onCancel: () => void;
+  onPick: (templateDocId: string) => void;
+  busy: boolean;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4"
+      onClick={onCancel}
+    >
+      <div
+        className="flex w-full max-w-md flex-col rounded-md border border-line bg-surface-raised p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-3 flex items-start justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-ink-primary">
+              Use existing procedure as template
+            </h3>
+            <p className="mt-0.5 text-xs text-ink-tertiary">
+              The step structure copies in; you capture fresh evidence per
+              step.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded p-1 text-ink-tertiary hover:bg-surface hover:text-ink-primary"
+            aria-label="Close"
+          >
+            <X size={16} strokeWidth={2} />
+          </button>
+        </div>
+        <ul className="flex max-h-[60vh] flex-col gap-2 overflow-y-auto">
+          {templates.length === 0 && (
+            <li className="rounded border border-dashed border-line bg-surface p-4 text-center text-sm text-ink-tertiary">
+              No procedures on this asset model yet.
+            </li>
+          )}
+          {templates.map((t) => (
+            <li key={t.documentId}>
+              <button
+                type="button"
+                onClick={() => onPick(t.documentId)}
+                disabled={busy}
+                className="surface-etched flex w-full items-center gap-3 px-3 py-2.5 text-left disabled:opacity-50"
+              >
+                <ListChecks size={16} strokeWidth={1.75} className="shrink-0 text-ink-secondary" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-ink-primary">
+                    {t.title}
+                  </p>
+                  <p className="font-mono text-[11px] text-ink-tertiary">
+                    {t.stepCount} step{t.stepCount === 1 ? '' : 's'}
+                    {t.source === 'field' && t.capturedByDisplayName
+                      ? ` · captured by ${t.capturedByDisplayName}`
+                      : t.source === 'oem'
+                        ? ' · OEM'
+                        : ''}
+                    {t.source === 'field' && !t.verified ? ' · unverified' : ''}
+                  </p>
+                </div>
+                <ChevronRight size={14} strokeWidth={1.75} className="shrink-0 text-ink-tertiary" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
   );
 }
 

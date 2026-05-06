@@ -762,6 +762,100 @@ export async function addAuthoringStep(params: {
   return (await res.json()) as ProcedureStepDto;
 }
 
+export async function updateAuthoringStep(params: {
+  runId: string;
+  stepId: string;
+  step: {
+    kind?: ProcedureStepKind;
+    title?: string;
+    bodyMarkdown?: string | null;
+    safetyCritical?: boolean;
+    requiresPhoto?: boolean;
+    minPhotoCount?: number;
+    measurementSpec?: ProcedureMeasurementSpec | null;
+  };
+  devUserId: string;
+  devOrgId: string;
+}): Promise<ProcedureStepDto> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/procedure-runs/${encodeURIComponent(params.runId)}/authoring-steps/${encodeURIComponent(params.stepId)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json',
+        ...authHeaders(params.devUserId, params.devOrgId),
+      },
+      body: JSON.stringify(params.step),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as ProcedureStepDto;
+}
+
+export async function reorderAuthoringSteps(params: {
+  runId: string;
+  orderedStepIds: string[];
+  devUserId: string;
+  devOrgId: string;
+}): Promise<{ ok: true; count: number }> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/procedure-runs/${encodeURIComponent(params.runId)}/authoring-steps/reorder`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...authHeaders(params.devUserId, params.devOrgId),
+      },
+      body: JSON.stringify({ orderedIds: params.orderedStepIds }),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { ok: true; count: number };
+}
+
+export interface ProcedureTemplateDto {
+  documentId: string;
+  title: string;
+  stepCount: number;
+  capturedByDisplayName: string | null;
+  source: 'oem' | 'field';
+  verified: boolean;
+  finishedAt: string | null;
+}
+
+export async function listProcedureTemplates(params: {
+  assetInstanceId: string;
+  devUserId: string;
+  devOrgId: string;
+}): Promise<ProcedureTemplateDto[]> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/asset-instances/${encodeURIComponent(params.assetInstanceId)}/procedure-templates`,
+    {
+      cache: 'no-store',
+      headers: authHeaders(params.devUserId, params.devOrgId),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as ProcedureTemplateDto[];
+}
+
+export async function cloneFromTemplate(params: {
+  runId: string;
+  templateDocId: string;
+  devUserId: string;
+  devOrgId: string;
+}): Promise<{ ok: true; stepCount: number; steps: ProcedureStepDto[] }> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/procedure-runs/${encodeURIComponent(params.runId)}/clone-from/${encodeURIComponent(params.templateDocId)}`,
+    {
+      method: 'POST',
+      headers: authHeaders(params.devUserId, params.devOrgId),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { ok: true; stepCount: number; steps: ProcedureStepDto[] };
+}
+
 export async function finalizeAuthoring(params: {
   runId: string;
   title: string;
