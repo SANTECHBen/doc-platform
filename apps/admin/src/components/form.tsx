@@ -151,7 +151,11 @@ export function FullPageOverlay({
           ✕
         </button>
       </header>
-      <div className="flex-1 overflow-hidden">{children}</div>
+      {/* overflow-y-auto so tall forms (procedure step editor, section
+          editor, etc.) can scroll their content. Without this the
+          children are clipped at the viewport boundary and any sticky-
+          bottom save bar sits ON TOP of the last form section. */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden">{children}</div>
     </div>
   );
 }
