@@ -1206,7 +1206,15 @@ function StepCard({
       </div>
 
       {step.editing && (
-        <div className="mt-2 flex justify-end gap-2 border-t border-line-subtle pt-2">
+        // Sticky to the bottom of the step card so the Save action is
+        // always reachable while editing a tall step (lots of body /
+        // photos / substeps). Opaque background + top border + small
+        // shadow so the bar reads as a footer rather than blending with
+        // content scrolling under it.
+        <div
+          className="sticky bottom-0 -mx-3 -mb-3 mt-3 flex justify-end gap-2 border-t border-line bg-surface px-3 py-2 z-10"
+          style={{ boxShadow: '0 -4px 8px -4px rgba(0,0,0,0.06)' }}
+        >
           <button
             type="button"
             onClick={() => onSetEditing(false)}
