@@ -1384,6 +1384,31 @@
   .composer .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
   /* ------------------------------------------------------------
+     RICH TEXT EDITOR (TipTap) — body style for the editable surface.
+     Mirrors .markdown-body so what you author looks like what readers
+     see. The Placeholder extension renders ::before content via
+     data-placeholder; styled here to match input placeholders.
+     ------------------------------------------------------------ */
+  .rte-content { min-height: 64px; outline: none; }
+  .rte-content > * + * { margin-top: 0.5rem; }
+  .rte-content h3 { font-size: 15px; font-weight: 600; color: rgb(var(--ink-primary)); }
+  .rte-content h4 { font-size: 14px; font-weight: 600; color: rgb(var(--ink-primary)); }
+  .rte-content p, .rte-content li { color: rgb(var(--ink-primary)); }
+  .rte-content strong { font-weight: 600; }
+  .rte-content em { font-style: italic; }
+  .rte-content ol { margin-left: 20px; list-style: decimal; }
+  .rte-content ul { margin-left: 20px; list-style: disc; }
+  .rte-content ol > li + li, .rte-content ul > li + li { margin-top: 4px; }
+  .rte-content a { color: rgb(var(--brand)); text-decoration: underline; text-underline-offset: 2px; }
+  .rte-content p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    color: rgb(var(--ink-tertiary));
+    pointer-events: none;
+    float: left;
+    height: 0;
+  }
+
+  /* ------------------------------------------------------------
      MARKDOWN
      ------------------------------------------------------------ */
   .markdown-body > * + * { margin-top: 0.75rem; }

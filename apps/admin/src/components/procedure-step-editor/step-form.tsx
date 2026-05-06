@@ -11,9 +11,9 @@ import {
   SecondaryButton,
   Select,
   TextInput,
-  Textarea,
   ErrorBanner,
 } from '@/components/form';
+import { RichTextEditor } from '@/components/rich-text-editor';
 import {
   listAdminParts,
   listPartsForProcedureStep,
@@ -228,14 +228,14 @@ export function ProcedureStepForm({
         </Field>
 
         <Field
-          label="Body (markdown)"
-          hint="Detailed instructions, warnings, hyperlinks. Markdown is rendered in the runner."
+          label="Body"
+          hint="Detailed instructions, warnings, hyperlinks. Use the toolbar for bold / italic / lists / links, or the mic to dictate."
         >
-          <Textarea
+          <RichTextEditor
             value={bodyMarkdown}
-            onChange={(e) => setBodyMarkdown(e.target.value)}
-            rows={6}
-            placeholder="1. De-energize at the panel.&#10;2. Apply lockout devices to all energy isolators.&#10;3. Verify zero-energy state with a tester."
+            onChange={setBodyMarkdown}
+            placeholder="What to do at this step. Bold, lists, and links are available in the toolbar above."
+            minHeight={160}
           />
         </Field>
       </Section>

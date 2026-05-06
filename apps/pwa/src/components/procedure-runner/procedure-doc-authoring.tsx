@@ -46,6 +46,7 @@ import {
   type ProcedureStepMedia,
 } from '@/lib/api';
 import { MicButton } from '@/components/voice-input';
+import { RichTextEditor } from '@/components/rich-text-editor';
 
 // Step "kind" controls run-time enforcement, NOT what's attached to the
 // authored step. Photos/videos (authored content) are added in the MEDIA
@@ -868,22 +869,12 @@ function ToggleSection({
         </span>
       </label>
       {enabled && (
-        <div className="flex items-start gap-2">
-          <textarea
-            value={notes ?? ''}
-            onChange={(e) => onChangeNotes(e.target.value || null)}
-            placeholder={placeholder}
-            rows={3}
-            className="flex-1 rounded border border-line bg-surface p-3 text-sm"
-          />
-          <MicButton
-            size="md"
-            appendMode
-            onTranscript={(t) =>
-              onChangeNotes(notes ? notes + ' ' + t : t)
-            }
-          />
-        </div>
+        <RichTextEditor
+          value={notes ?? ''}
+          onChange={(md) => onChangeNotes(md.trim() === '' ? null : md)}
+          placeholder={placeholder}
+          minHeight={140}
+        />
       )}
     </section>
   );
@@ -990,26 +981,12 @@ function StepCard({
               </label>
               <label className="flex flex-col gap-1">
                 <span className="caption">DETAILS</span>
-                <div className="flex items-start gap-2">
-                  <textarea
-                    value={step.bodyMarkdown}
-                    onChange={(e) => onUpdate({ bodyMarkdown: e.target.value })}
-                    rows={3}
-                    placeholder="What to do at this step. Markdown supported."
-                    className="flex-1 rounded border border-line bg-surface-raised p-2 text-sm"
-                  />
-                  <MicButton
-                    size="sm"
-                    appendMode
-                    onTranscript={(t) =>
-                      onUpdate({
-                        bodyMarkdown: step.bodyMarkdown
-                          ? step.bodyMarkdown + ' ' + t
-                          : t,
-                      })
-                    }
-                  />
-                </div>
+                <RichTextEditor
+                  value={step.bodyMarkdown}
+                  onChange={(md) => onUpdate({ bodyMarkdown: md })}
+                  placeholder="What to do at this step."
+                  minHeight={140}
+                />
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input
@@ -1133,16 +1110,13 @@ function StepCard({
                               placeholder="Substep title"
                               className="rounded border border-line bg-surface-raised p-1.5 text-sm"
                             />
-                            <textarea
+                            <RichTextEditor
                               value={ss.bodyMarkdown}
-                              onChange={(e) =>
-                                onUpdateSubstep(si, {
-                                  bodyMarkdown: e.target.value,
-                                })
+                              onChange={(md) =>
+                                onUpdateSubstep(si, { bodyMarkdown: md })
                               }
-                              rows={2}
                               placeholder="Optional details"
-                              className="rounded border border-line bg-surface-raised p-1.5 text-sm"
+                              minHeight={80}
                             />
                           </div>
                           <button
