@@ -22,6 +22,7 @@ import { z } from 'zod';
 import { schema, type Database } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth';
+import { getScope, requireOrgInScope } from '../middleware/scope';
 import { ensureFieldCapturesVersion } from '../lib/field-captures-pack';
 
 // ---------------------------------------------------------------------------
@@ -148,6 +149,7 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       const auth = requireAuth(request);
+      const scope = await getScope(request, db);
 
       const instance = await db.query.assetInstances.findFirst({
         where: eq(schema.assetInstances.id, request.params.id),
@@ -157,21 +159,14 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
         },
       });
       if (!instance) return reply.notFound();
-      // Org scope: caller must belong to (or platform-admin) the asset's org.
+      // Org scope check via the standard descendant-tree helper. This
+      // matches the work-orders + sections pattern: an OEM-staff user at
+      // a parent org can author against assets installed at descendant
+      // customer orgs. 404 (not 403) on miss to avoid leaking existence.
       if (
-        !instance.site ||
-        instance.site.organization.id !== auth.organizationId
-        // Platform admin bypass would be added here once that flag
-        // surfaces in this route; for v1 we keep it strict per-org.
+        !scope.all &&
+        !scope.orgIds.includes(instance.site.organization.id)
       ) {
-        // Fall through: instance.site.organizationId might match a parent
-        // org tree; let's be permissive within an org match for v1.
-        // (Cross-org is rejected above by the equality check.)
-      }
-      // For v1, exact-org match is required. Tighter than the section
-      // routes' descendant-tree scope, but appropriate: a tech captures
-      // procedures on assets they're physically working on.
-      if (auth.organizationId !== instance.site.organization.id) {
         return reply.notFound();
       }
 
@@ -378,6 +373,7 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       const auth = requireAuth(request);
+      const scope = await getScope(request, db);
       const ctx = await loadAuthoringRun(db, request.params.id, auth);
       if (!ctx) return reply.notFound();
       const body = request.body;
@@ -386,7 +382,7 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
         ? ctx.run.assetInstanceId ?? null
         : null;
 
-      // Validate parts: must exist and belong to caller's org scope.
+      // Validate parts: must exist and be visible in the caller's org tree.
       if (body.linkedPartIds.length > 0) {
         const parts = await db.query.parts.findMany({
           where: inArray(schema.parts.id, body.linkedPartIds),
@@ -395,9 +391,7 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
           return reply.notFound('One or more parts not found.');
         }
         for (const p of parts) {
-          if (p.ownerOrganizationId !== auth.organizationId) {
-            return reply.notFound();
-          }
+          requireOrgInScope(scope, p.ownerOrganizationId);
         }
       }
 
@@ -479,13 +473,17 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { db } = app.ctx;
       const auth = requireAuth(request);
+      const scope = await getScope(request, db);
 
       const doc = await db.query.documents.findFirst({
         where: eq(schema.documents.id, request.params.id),
         with: { packVersion: { with: { pack: true } } },
       });
       if (!doc) return reply.notFound();
-      if (doc.packVersion.pack.ownerOrganizationId !== auth.organizationId) {
+      if (
+        !scope.all &&
+        !scope.orgIds.includes(doc.packVersion.pack.ownerOrganizationId)
+      ) {
         return reply.notFound();
       }
       if (doc.packVersion.pack.kind !== 'field_captures') {
