@@ -14,6 +14,7 @@ import {
   Minimize2,
   Paperclip,
   Presentation,
+  Search,
   ShieldAlert,
   Video,
   X,
@@ -24,6 +25,7 @@ import { DocListSkeleton } from '@/components/skeleton';
 import { EmptyState } from '@/components/empty-state';
 import NoRevision from '@/components/illustrations/no-revision';
 import NoDocuments from '@/components/illustrations/no-documents';
+import NoSearchResults from '@/components/illustrations/no-search-results';
 import { SectionRenderer } from '@/components/section-renderer';
 import {
   listDocuments,
@@ -96,10 +98,15 @@ interface OpenDoc {
   sections: PwaDocumentSection[] | null;
 }
 
+// Threshold above which the search input renders. Below this, scanning is
+// faster than typing — keep the surface clean.
+const SEARCH_THRESHOLD = 8;
+
 export function DocsTab({ versionId }: { versionId: string | null }) {
   const [docs, setDocs] = useState<DocumentListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<OpenDoc | null>(null);
+  const [query, setQuery] = useState('');
 
   useEffect(() => {
     if (!versionId) return;
@@ -148,12 +155,49 @@ export function DocsTab({ versionId }: { versionId: string | null }) {
   }
 
   const entries = buildEntries(docs);
+  const showSearch = entries.length > SEARCH_THRESHOLD;
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? entries.filter((e) => {
+        const hay = [
+          e.title,
+          e.parentDocTitle,
+          e.refCode,
+          kindLabel(e.kind),
+          ...e.tags,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return hay.includes(q);
+      })
+    : entries;
 
   return (
-    <ul className="grid grid-cols-1 gap-2.5 md:grid-cols-2 lg:grid-cols-3">
-      {entries.map((e) => {
-        const Icon = kindIcon(e.kind);
-        return (
+    <div className="flex flex-col gap-3">
+      {showSearch && (
+        <label className="search-input">
+          <Search size={16} strokeWidth={2} className="text-ink-tertiary" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by title, ref code, kind, or tag"
+          />
+        </label>
+      )}
+      {filtered.length === 0 ? (
+        <EmptyState
+          illustration={NoSearchResults}
+          title="No documents match your search"
+          description="Try a different keyword, ref code, or document kind."
+          tone="neutral"
+        />
+      ) : (
+        <ul className="grid grid-cols-1 gap-2.5 md:grid-cols-2 lg:grid-cols-3">
+          {filtered.map((e) => {
+            const Icon = kindIcon(e.kind);
+            return (
           <li key={e.key}>
             <button
               onClick={async () => {
@@ -213,9 +257,11 @@ export function DocsTab({ versionId }: { versionId: string | null }) {
               </div>
             </button>
           </li>
-        );
-      })}
-    </ul>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }
 
