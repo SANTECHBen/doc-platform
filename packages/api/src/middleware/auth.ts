@@ -62,7 +62,18 @@ export async function registerAuth(app: FastifyInstance) {
       if (typeof dev === 'string' && dev.includes(':')) {
         const [userId, organizationId] = dev.split(':');
         if (userId && organizationId) {
-          request.auth = { userId, organizationId };
+          // Look up the actual user row so `platformAdmin` flows through
+          // correctly. Without this, dev-auth bypasses the flag entirely
+          // and SANTECH staff get treated like single-org customers.
+          const row = await app.ctx.db.query.users.findFirst({
+            where: eq(schema.users.id, userId),
+            columns: { platformAdmin: true },
+          });
+          request.auth = {
+            userId,
+            organizationId,
+            platformAdmin: row?.platformAdmin ?? false,
+          };
         }
       }
     }
