@@ -19,16 +19,23 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Link from '@tiptap/extension-link';
+import Image from '@tiptap/extension-image';
+import Table from '@tiptap/extension-table';
+import TableRow from '@tiptap/extension-table-row';
+import TableCell from '@tiptap/extension-table-cell';
+import TableHeader from '@tiptap/extension-table-header';
 import { Markdown } from 'tiptap-markdown';
 import {
   Bold,
   Italic,
   Heading as HeadingIcon,
+  Image as ImageIcon,
   List,
   ListOrdered,
   Link as LinkIcon,
+  Table as TableIcon,
 } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MicButton } from './voice-input';
 
 export function RichTextEditor({
@@ -37,6 +44,7 @@ export function RichTextEditor({
   placeholder,
   minHeight = 140,
   disabled = false,
+  onImageUpload,
 }: {
   /** Markdown string. Empty string is treated as "no content." */
   value: string;
@@ -46,7 +54,14 @@ export function RichTextEditor({
   /** Minimum editor body height in px so short docs still feel like a real editor. */
   minHeight?: number;
   disabled?: boolean;
+  /** When provided, the toolbar exposes an Image button that calls this
+   *  on file pick and inserts the returned URL inline. Without it, images
+   *  can't be inserted (the button is hidden). */
+  onImageUpload?: (file: File) => Promise<string>;
 }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const editor = useEditor({
     immediatelyRender: false,
     editable: !disabled,
@@ -65,6 +80,15 @@ export function RichTextEditor({
         openOnClick: false,
         HTMLAttributes: { rel: 'noopener noreferrer', target: '_blank' },
       }),
+      Image.configure({
+        inline: false,
+        allowBase64: false,
+        HTMLAttributes: { class: 'rte-image' },
+      }),
+      Table.configure({ resizable: false }),
+      TableRow,
+      TableHeader,
+      TableCell,
       Markdown.configure({
         html: false,
         breaks: true,
@@ -126,6 +150,31 @@ export function RichTextEditor({
       return;
     }
     editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+  }
+
+  function insertTable() {
+    if (!editor) return;
+    editor
+      .chain()
+      .focus()
+      .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+      .run();
+  }
+
+  async function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !editor || !onImageUpload) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const url = await onImageUpload(file);
+      editor.chain().focus().setImage({ src: url, alt: file.name }).run();
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUploading(false);
+    }
   }
 
   const btn = (active: boolean, extra = '') =>
@@ -202,9 +251,44 @@ export function RichTextEditor({
         >
           <LinkIcon size={14} strokeWidth={2} />
         </button>
+        {onImageUpload && (
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className={btn(false)}
+            title={uploading ? 'Uploading…' : 'Insert image'}
+            aria-label="Insert image"
+            disabled={uploading}
+          >
+            <ImageIcon size={14} strokeWidth={2} />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={insertTable}
+          className={btn(editor.isActive('table'))}
+          title="Insert table"
+          aria-label="Insert table"
+        >
+          <TableIcon size={14} strokeWidth={2} />
+        </button>
         <span className="ml-auto" />
         <MicButton size="sm" onTranscript={insertVoiceTranscript} />
       </div>
+      {onImageUpload && (
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={onPickImage}
+          className="hidden"
+        />
+      )}
+      {uploadError && (
+        <div className="border-b border-signal-fault/40 bg-signal-fault/10 px-3 py-1.5 text-xs text-signal-fault">
+          {uploadError}
+        </div>
+      )}
       <div
         className="rte-host"
         style={{ minHeight }}

@@ -342,6 +342,60 @@ export function ProcedureDocAuthoring({
       setBusy(false);
     }
   }
+  // Inline-image upload for a step's body editor. Same auto-save flow
+  // as onAddMedia (the upload endpoint needs a stable stepId), but only
+  // returns the URL — does NOT add the file to step.media. Inline body
+  // images live in the markdown text and don't double-list in the
+  // PHOTOS & VIDEO section.
+  async function onImageUploadForStep(stepIdx: number, file: File): Promise<string> {
+    if (!bundle) throw new Error('Run not started');
+    const step = steps[stepIdx];
+    if (!step) throw new Error('Step not found');
+    if (!step.title.trim()) {
+      throw new Error('Give the step a title before inserting an image.');
+    }
+    let stepId = step.id;
+    if (!stepId) {
+      const stepInput = {
+        kind: step.kind,
+        title: step.title.trim(),
+        bodyMarkdown: step.bodyMarkdown.trim() || null,
+        safetyCritical: step.safetyCritical || step.kind === 'safety_check',
+        requiresPhoto: step.kind === 'photo_required' || step.requiresPhoto,
+        minPhotoCount:
+          step.kind === 'photo_required'
+            ? Math.max(1, step.minPhotoCount)
+            : step.minPhotoCount,
+        measurementSpec: null,
+        media: [] as ProcedureStepMedia[],
+        substeps: step.substeps
+          .filter((ss) => ss.title.trim())
+          .map((ss) => ({
+            title: ss.title.trim(),
+            bodyMarkdown: ss.bodyMarkdown.trim() || null,
+          })),
+      };
+      const created = await addAuthoringStep({
+        runId: bundle.run.id,
+        step: stepInput,
+        devUserId,
+        devOrgId,
+      });
+      stepId = created.id;
+      setSteps((prev) =>
+        prev.map((s, i) => (i === stepIdx ? { ...s, id: created.id } : s)),
+      );
+    }
+    const out = await uploadStepMedia({
+      runId: bundle.run.id,
+      stepId,
+      file,
+      devUserId,
+      devOrgId,
+    });
+    return out.url;
+  }
+
   function removeMedia(stepIdx: number, mediaIdx: number) {
     setSteps((prev) =>
       prev.map((s, i) =>
@@ -797,6 +851,7 @@ export function ProcedureDocAuthoring({
                     onAddSubstep={() => addSubstep(i)}
                     onUpdateSubstep={(si, p) => updateSubstep(i, si, p)}
                     onRemoveSubstep={(si) => removeSubstep(i, si)}
+                    onImageUpload={(file) => onImageUploadForStep(i, file)}
                   />
                 ))}
               </ol>
@@ -895,6 +950,7 @@ function StepCard({
   onAddSubstep,
   onUpdateSubstep,
   onRemoveSubstep,
+  onImageUpload,
 }: {
   index: number;
   total: number;
@@ -910,6 +966,9 @@ function StepCard({
   onAddSubstep: () => void;
   onUpdateSubstep: (substepIdx: number, p: Partial<LocalSubstep>) => void;
   onRemoveSubstep: (substepIdx: number) => void;
+  /** Inline-image upload for the body editor. Auto-saves the step on
+   *  the first image so the upload endpoint has a stepId to bind to. */
+  onImageUpload: (file: File) => Promise<string>;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const KindIcon =
@@ -986,6 +1045,7 @@ function StepCard({
                   onChange={(md) => onUpdate({ bodyMarkdown: md })}
                   placeholder="What to do at this step."
                   minHeight={140}
+                  onImageUpload={onImageUpload}
                 />
               </label>
               <label className="flex items-center gap-2 text-sm">

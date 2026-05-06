@@ -14,6 +14,7 @@ import {
   ErrorBanner,
 } from '@/components/form';
 import { RichTextEditor } from '@/components/rich-text-editor';
+import { uploadFile } from '@/lib/api';
 import {
   listAdminParts,
   listPartsForProcedureStep,
@@ -234,8 +235,12 @@ export function ProcedureStepForm({
           <RichTextEditor
             value={bodyMarkdown}
             onChange={setBodyMarkdown}
-            placeholder="What to do at this step. Bold, lists, and links are available in the toolbar above."
+            placeholder="What to do at this step. Bold, lists, links, images, and tables are available in the toolbar above."
             minHeight={160}
+            onImageUpload={async (file) => {
+              const r = await uploadFile(file);
+              return r.url;
+            }}
           />
         </Field>
       </Section>
