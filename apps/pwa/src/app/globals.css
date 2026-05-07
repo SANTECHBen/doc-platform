@@ -234,7 +234,8 @@
   margin: 0 auto;
 }
 
-/* Bottom tab bar — iOS-style. Replaces the .segbar on small viewports. */
+/* Bottom tab bar — iOS-style. Phone-only; hidden on tablet/desktop where
+   the top tabbar takes over (see media query below). */
 .app-tabbar {
   position: fixed;
   left: 0;
@@ -261,6 +262,21 @@
   border-top: none;
   border-bottom: 1px solid rgb(var(--line-subtle));
   z-index: 30;
+}
+
+/* Render exactly one tabbar at a time. Phones get the thumb-reachable
+   bottom bar; tablet/desktop get the conventional top bar. Showing both
+   was repetitive and ate ~110px of chrome. */
+@media (max-width: 767px) {
+  .app-tabbar.app-tabbar-top { display: none; }
+}
+@media (min-width: 768px) {
+  .app-tabbar:not(.app-tabbar-top) { display: none; }
+  /* No bottom bar on desktop → the app-scroll no longer needs to reserve
+     space for it. Reclaim that vertical real estate. */
+  .app-scroll {
+    padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  }
 }
 
 /* Density: comfortable mode bumps html font-size ~12.5% so every

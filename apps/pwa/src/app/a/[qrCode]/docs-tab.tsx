@@ -428,7 +428,7 @@ export function DocsTab({
                   </span>
                 </div>
                 {e.parentDocTitle && (
-                  <span className="-mt-1 truncate text-xs text-ink-tertiary">
+                  <span className="-mt-1 text-xs text-ink-tertiary">
                     {e.parentDocTitle}
                   </span>
                 )}
@@ -517,14 +517,14 @@ function DocRowItem({
         )}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
-            <h3 className="truncate text-sm font-medium text-ink-primary">
+            <h3 className="text-sm font-medium leading-snug text-ink-primary">
               {e.title}
             </h3>
             <span className="tnum shrink-0 font-mono text-[10.5px] text-ink-tertiary">
               {e.refCode}
             </span>
           </div>
-          <div className="mt-0.5 flex items-center gap-2 truncate text-xs text-ink-tertiary">
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-tertiary">
             <span className="caption shrink-0 normal-case">
               {kindLabel(e.kind)}
               {e.language !== 'en' && ` · ${e.language.toUpperCase()}`}
@@ -532,7 +532,7 @@ function DocRowItem({
             {e.parentDocTitle && (
               <>
                 <span className="text-ink-tertiary">·</span>
-                <span className="truncate">{e.parentDocTitle}</span>
+                <span>{e.parentDocTitle}</span>
               </>
             )}
             {e.source === 'field' && (
