@@ -39,6 +39,7 @@ import {
   type ProcedureStepMedia,
 } from '@/lib/api';
 import { MicButton } from '@/components/voice-input';
+import { PhotoEditor } from '@/components/photo-editor';
 
 type WizardMode = 'title' | 'step' | 'review';
 
@@ -76,6 +77,9 @@ export function ProcedureDocWizard({
   // a media source. Three hidden file inputs target each source so the
   // browser uses the right intent (camera vs library) on iOS/Android.
   const [pickerOpen, setPickerOpen] = useState(false);
+  // Photo waiting for crop/markup before upload. Videos skip this and
+  // go straight to upload.
+  const [editingPhoto, setEditingPhoto] = useState<File | null>(null);
 
   const cameraPhotoRef = useRef<HTMLInputElement>(null);
   const cameraVideoRef = useRef<HTMLInputElement>(null);
@@ -196,10 +200,21 @@ export function ProcedureDocWizard({
     requestAnimationFrame(() => ref.current?.click());
   }
 
-  async function onPickMedia(e: React.ChangeEvent<HTMLInputElement>) {
+  function onPickMedia(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file || !bundle) return;
+    // Stills go through the crop/markup editor first; videos upload as-is.
+    if (file.type.startsWith('image/')) {
+      setEditingPhoto(file);
+      return;
+    }
+    void uploadAndAttach(file);
+  }
+
+  // Common upload path used both for raw videos and edited photo blobs.
+  async function uploadAndAttach(file: File) {
+    if (!bundle) return;
     setBusy(true);
     setError(null);
     try {
@@ -218,8 +233,6 @@ export function ProcedureDocWizard({
         mime: out.mime,
         url: out.url,
       };
-      // Append + persist the updated media set. updateAuthoringStep with
-      // the fresh `media` array set-replaces server-side.
       const nextMedia = [...currentStep.media, newMedia];
       updateCurrent({ media: nextMedia });
       await updateAuthoringStep({
@@ -234,6 +247,18 @@ export function ProcedureDocWizard({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function onPhotoEditorSave(blob: Blob) {
+    const original = editingPhoto;
+    setEditingPhoto(null);
+    if (!original) return;
+    const baseName = original.name.replace(/\.[^.]+$/, '') || 'photo';
+    const edited = new File([blob], `${baseName}-edited.jpg`, {
+      type: 'image/jpeg',
+      lastModified: Date.now(),
+    });
+    await uploadAndAttach(edited);
   }
 
   async function removeMedia(mediaIdx: number) {
@@ -715,6 +740,13 @@ export function ProcedureDocWizard({
         <MediaSourceSheet
           onPick={pickFrom}
           onCancel={() => setPickerOpen(false)}
+        />
+      )}
+      {editingPhoto && (
+        <PhotoEditor
+          file={editingPhoto}
+          onSave={onPhotoEditorSave}
+          onCancel={() => setEditingPhoto(null)}
         />
       )}
     </FullScreenShell>
