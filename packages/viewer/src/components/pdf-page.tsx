@@ -70,6 +70,7 @@ export function PdfPage(props: PdfPageProps): React.ReactElement {
   // Render the canvas + capture text layer whenever inputs change.
   useEffect(() => {
     let cancelled = false;
+    let activeRender: ReturnType<typeof renderPageToCanvas> | null = null;
     setError(null);
     setDims(null);
     setTextLayer(null);
@@ -89,7 +90,17 @@ export function PdfPage(props: PdfPageProps): React.ReactElement {
         canvas.height = Math.floor(cssDims.height * dpr);
         canvas.style.width = `${cssDims.width}px`;
         canvas.style.height = `${cssDims.height}px`;
-        await renderPageToCanvas(page, canvas, scale * dpr);
+        activeRender = renderPageToCanvas(page, canvas, scale * dpr);
+        try {
+          await activeRender.promise;
+        } catch (renderErr) {
+          // pdfjs throws a RenderingCancelledException on cancel(); that's
+          // expected when the effect is being torn down before the previous
+          // render finished, so swallow it. Only surface real errors.
+          const name = (renderErr as { name?: string } | null)?.name;
+          if (name !== 'RenderingCancelledException') throw renderErr;
+          return;
+        }
         if (cancelled) return;
 
         if (enableTextLayer) {
@@ -104,6 +115,11 @@ export function PdfPage(props: PdfPageProps): React.ReactElement {
 
     return () => {
       cancelled = true;
+      // Cancel any in-flight render so a follow-up effect (e.g., scale
+      // change from a ResizeObserver tick) doesn't race with us on the
+      // same canvas. Without this, pdfjs throws "Cannot use the same
+      // canvas during multiple render operations".
+      activeRender?.cancel();
     };
   }, [doc, pageNumber, scale, enableTextLayer]);
 

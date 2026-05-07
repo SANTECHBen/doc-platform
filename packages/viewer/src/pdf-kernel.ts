@@ -117,17 +117,31 @@ export function getPageDimensions(page: PDFPageProxy, scale: number): PageDimens
  * complete. Caller is responsible for sizing the canvas; this function does
  * not modify width/height attributes (so the device-pixel-ratio dance stays
  * with the host component).
+ *
+ * Returns the underlying pdfjs RenderTask so callers can cancel an
+ * in-flight render before starting a new one on the same canvas — pdfjs
+ * throws "Cannot use the same canvas during multiple render operations"
+ * if you don't, which is the common React failure mode when scale or
+ * page-number changes while a previous render is still in flight.
  */
-export async function renderPageToCanvas(
+export interface CancellableRender {
+  promise: Promise<void>;
+  cancel(): void;
+}
+
+export function renderPageToCanvas(
   page: PDFPageProxy,
   canvas: HTMLCanvasElement,
   scale: number,
-): Promise<void> {
+): CancellableRender {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('2D context not available on canvas');
   const viewport = page.getViewport({ scale });
   const renderTask = page.render({ canvas, canvasContext: ctx, viewport });
-  await renderTask.promise;
+  return {
+    promise: renderTask.promise.then(() => undefined),
+    cancel: () => renderTask.cancel(),
+  };
 }
 
 // ---------------------------------------------------------------------------
