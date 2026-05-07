@@ -15,6 +15,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, Maximize2, Minimize2 } from 'lucide-react';
 import {
+  getPageDimensions,
   loadDocument,
   PdfPage,
   type PDFDocumentProxy,
@@ -34,6 +35,11 @@ export function FramedPdf({
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [containerWidth, setContainerWidth] = useState<number>(0);
+  // Width of the FIRST page at scale 1, in pdfjs CSS pixels (= PDF points).
+  // We can't assume US Letter — schematics are routinely Tabloid (792pt),
+  // Arch B (432×648pt), or custom. Reading the real intrinsic width keeps
+  // every page kind fitting the container instead of drawing tiny.
+  const [intrinsicWidth, setIntrinsicWidth] = useState<number | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Load the PDF once. R2's public bucket already has CORS configured for
@@ -43,14 +49,25 @@ export function FramedPdf({
     let loaded: PDFDocumentProxy | null = null;
     setError(null);
     setPdf(null);
+    setIntrinsicWidth(null);
     loadDocument({ source: url })
-      .then((p) => {
+      .then(async (p) => {
         if (cancelled) {
           void p.destroy();
           return;
         }
         loaded = p;
         setPdf(p);
+        try {
+          const first = await p.getPage(1);
+          if (cancelled) return;
+          const dims = getPageDimensions(first, 1);
+          setIntrinsicWidth(dims.width);
+        } catch {
+          // Fall back to a conservative US-letter assumption — better
+          // than rendering nothing.
+          if (!cancelled) setIntrinsicWidth(612);
+        }
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -101,20 +118,18 @@ export function FramedPdf({
     return Array.from({ length: pdf.numPages }, (_, i) => i + 1);
   }, [pdf]);
 
-  // PDF pages are typically 612pt wide (US letter) at scale 1. We aim to
-  // fit the container width with a max scale of 2.0 (so on desktop we don't
-  // upscale a small PDF to fuzzy size). Account for ~16px of horizontal
-  // padding so pages don't kiss the edges.
+  // Fit the page to the available width using its actual intrinsic width
+  // (read from page 1 above). The 16px subtraction accounts for the
+  // gutters around each page; the floor at 0.5/ceiling at 4.0 keeps tiny
+  // forms from upscaling to fuzz and oversize schematics from blowing past
+  // a sane render budget on lower-end phones.
   const targetScale = useMemo(() => {
-    if (!containerWidth) return 1.0;
+    if (!containerWidth || !intrinsicWidth) return 1.0;
     const padding = 16;
     const usable = Math.max(280, containerWidth - padding);
-    // Approximate raw page width at scale 1 — actual pages can vary; pdfjs
-    // will render at this scale and we let the canvas drive layout.
-    const baseWidth = 612;
-    const s = usable / baseWidth;
-    return Math.min(2.5, Math.max(0.5, s));
-  }, [containerWidth]);
+    const s = usable / intrinsicWidth;
+    return Math.min(4.0, Math.max(0.5, s));
+  }, [containerWidth, intrinsicWidth]);
 
   return (
     <div
@@ -135,12 +150,12 @@ export function FramedPdf({
             Failed to render PDF: {error}
           </p>
         )}
-        {!error && !pdf && (
+        {!error && (!pdf || !intrinsicWidth) && (
           <div className="flex h-full items-center justify-center text-sm text-ink-tertiary">
             Loading PDF…
           </div>
         )}
-        {pdf && (
+        {pdf && intrinsicWidth && (
           <div className="flex flex-col items-center gap-3 px-2 py-3">
             {pageNumbers.map((n) => (
               <div
