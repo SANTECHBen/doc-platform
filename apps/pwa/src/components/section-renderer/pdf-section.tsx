@@ -98,11 +98,16 @@ export function PdfSection({
   }, [pdf]);
 
   const targetScale = useMemo(() => {
-    if (!containerWidth || !intrinsicWidth) return 1.4;
-    const s = containerWidth / intrinsicWidth;
-    // Floor at 1.0 (small phones still render legibly) and ceiling at 3.0
-    // (oversize schematics stay within a sane render budget).
-    return Math.min(3.0, Math.max(1.0, s));
+    if (!containerWidth || !intrinsicWidth) return 1.0;
+    const padding = 4; // small breathing room so a 1px subpixel doesn't clip
+    const usable = Math.max(120, containerWidth - padding);
+    const s = usable / intrinsicWidth;
+    // Floor at 0.5 keeps the canvas readable on a tiny phone; ceiling at 4.0
+    // keeps oversize schematics from blowing past a sane render budget.
+    // CRITICALLY do not floor at 1.0 — that prevents fitting on any phone
+    // narrower than the page's intrinsic width (which is ~every phone for a
+    // US-Letter manual) and causes the right edge to clip off-screen.
+    return Math.min(4.0, Math.max(0.5, s));
   }, [containerWidth, intrinsicWidth]);
 
   const pages = useMemo<number[]>(() => {
@@ -226,7 +231,9 @@ function PdfSectionPage({
     : {};
 
   return (
-    <div style={cropStyle}>
+    <div
+      style={{ ...cropStyle, maxWidth: '100%', overflow: 'hidden' }}
+    >
       <PdfPage doc={pdf} pageNumber={pageNumber} scale={scale} enableTextLayer={false}>
         {highlightRects.length > 0 && <SectionHighlight rects={highlightRects} />}
       </PdfPage>

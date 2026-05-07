@@ -556,6 +556,27 @@
    ========================================================================= */
 
 @layer components {
+  /* Tiny segmented toggle for view-mode swaps (e.g., docs grid/list). */
+  .docs-view-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 3px;
+    color: rgb(var(--ink-secondary));
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: background 120ms, color 120ms;
+  }
+  .docs-view-btn:hover { color: rgb(var(--ink-primary)); }
+  .docs-view-btn[data-active='true'] {
+    background: rgb(var(--surface-raised));
+    color: rgb(var(--ink-primary));
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  }
+
   /* Caption — small tracked label */
   .caption, .cap {
     font-family: var(--font-mono);

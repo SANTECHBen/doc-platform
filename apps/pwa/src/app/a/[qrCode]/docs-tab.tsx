@@ -5,10 +5,13 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
   ChevronLeft,
+  ChevronRight,
   CircuitBoard,
   Download,
   FileText,
   FileType2,
+  LayoutGrid,
+  List,
   ListChecks,
   Maximize2,
   Minimize2,
@@ -147,6 +150,28 @@ export function DocsTab({
   const [authoringActive, setAuthoringActive] = useState(false);
   const [authPromptOpen, setAuthPromptOpen] = useState(false);
   const [query, setQuery] = useState('');
+  // Grid (default on >= md viewports) vs list (default on phones, where
+  // screen real estate is precious and a tech wants to skim 10+ docs at a
+  // glance). Persisted in localStorage so the choice survives reloads —
+  // techs who prefer one mode shouldn't have to retoggle every scan.
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const stored = window.localStorage.getItem('eh:docs-view') as
+      | 'grid'
+      | 'list'
+      | null;
+    if (stored === 'grid' || stored === 'list') setViewMode(stored);
+    else if (window.matchMedia('(min-width: 768px)').matches) setViewMode('grid');
+  }, []);
+  function changeViewMode(next: 'grid' | 'list') {
+    setViewMode(next);
+    try {
+      window.localStorage.setItem('eh:docs-view', next);
+    } catch {
+      // ignore
+    }
+  }
 
   // Refetch docs from BOTH the pinned OEM version AND the model's
   // field-captures version. Each row carries its own `source` ('oem' or
@@ -276,15 +301,59 @@ export function DocsTab({
       })
     : entries;
 
+  function onOpenEntry(e: DocEntry) {
+    if (e.kind === 'structured_procedure') {
+      if (!DEV_USER_ID) {
+        setAuthPromptOpen(true);
+        return;
+      }
+      setViewerDocId(e.docId);
+      return;
+    }
+    void getDocument(e.docId).then((full) => {
+      if (full) setOpen({ doc: full, sections: e.sections });
+    });
+  }
+
   return (
     <div className="flex flex-col gap-3">
-      <button
-        type="button"
-        onClick={onTapDocumentProcedure}
-        className="btn btn-primary self-start"
-      >
-        <Plus size={16} strokeWidth={2} /> Document a procedure
-      </button>
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={onTapDocumentProcedure}
+          className="btn btn-primary"
+        >
+          <Plus size={16} strokeWidth={2} /> Document a procedure
+        </button>
+        <div
+          role="group"
+          aria-label="View mode"
+          className="inline-flex shrink-0 rounded border border-line bg-surface-inset p-0.5"
+        >
+          <button
+            type="button"
+            onClick={() => changeViewMode('list')}
+            data-active={viewMode === 'list'}
+            aria-pressed={viewMode === 'list'}
+            aria-label="List view"
+            title="List view"
+            className="docs-view-btn"
+          >
+            <List size={16} strokeWidth={2} />
+          </button>
+          <button
+            type="button"
+            onClick={() => changeViewMode('grid')}
+            data-active={viewMode === 'grid'}
+            aria-pressed={viewMode === 'grid'}
+            aria-label="Grid view"
+            title="Grid view"
+            className="docs-view-btn"
+          >
+            <LayoutGrid size={16} strokeWidth={2} />
+          </button>
+        </div>
+      </div>
       {showSearch && (
         <label className="search-input">
           <Search size={16} strokeWidth={2} className="text-ink-tertiary" />
@@ -310,6 +379,12 @@ export function DocsTab({
           description="Try a different keyword, ref code, or document kind."
           tone="neutral"
         />
+      ) : viewMode === 'list' ? (
+        <ul className="flex flex-col gap-1.5">
+          {filtered.map((e) => (
+            <DocRowItem key={e.key} entry={e} onOpen={onOpenEntry} />
+          ))}
+        </ul>
       ) : (
         <ul className="grid grid-cols-1 gap-2.5 md:grid-cols-2 lg:grid-cols-3">
           {filtered.map((e) => {
@@ -317,24 +392,7 @@ export function DocsTab({
             return (
           <li key={e.key}>
             <button
-              onClick={async () => {
-                // Procedure docs open in the read-mode viewer with the
-                // template applied. From there, the tech can tap "Run
-                // with evidence" to launch the runner. Read-mode also
-                // requires auth in the current setup because the
-                // /procedure-docs/:id endpoint uses requireAuth — when
-                // OIDC sign-in lands this becomes scan-friendly.
-                if (e.kind === 'structured_procedure') {
-                  if (!DEV_USER_ID) {
-                    setAuthPromptOpen(true);
-                    return;
-                  }
-                  setViewerDocId(e.docId);
-                  return;
-                }
-                const full = await getDocument(e.docId);
-                if (full) setOpen({ doc: full, sections: e.sections });
-              }}
+              onClick={() => onOpenEntry(e)}
               className="surface-etched group flex h-full w-full flex-col overflow-hidden text-left"
             >
               <div
@@ -424,6 +482,81 @@ export function DocsTab({
         />
       )}
     </div>
+  );
+}
+
+// Compact list-row representation of a doc entry. Used when the techician
+// flips Documents to list view — denser, scan-friendly, leaves more
+// vertical space for the next 5–10 docs to be visible at a glance.
+function DocRowItem({
+  entry: e,
+  onOpen,
+}: {
+  entry: DocEntry;
+  onOpen: (entry: DocEntry) => void;
+}) {
+  const Icon = kindIcon(e.kind);
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => onOpen(e)}
+        className="surface-etched flex w-full items-center gap-3 px-3 py-2.5 text-left"
+      >
+        {e.thumbnailUrl ? (
+          <img
+            src={e.thumbnailUrl}
+            alt=""
+            className="h-12 w-12 shrink-0 rounded border border-line-subtle bg-surface-inset object-cover"
+            draggable={false}
+          />
+        ) : (
+          <div className="icon-chip icon-chip-md icon-chip-neutral">
+            <Icon size={18} strokeWidth={1.75} />
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline justify-between gap-2">
+            <h3 className="truncate text-sm font-medium text-ink-primary">
+              {e.title}
+            </h3>
+            <span className="tnum shrink-0 font-mono text-[10.5px] text-ink-tertiary">
+              {e.refCode}
+            </span>
+          </div>
+          <div className="mt-0.5 flex items-center gap-2 truncate text-xs text-ink-tertiary">
+            <span className="caption shrink-0 normal-case">
+              {kindLabel(e.kind)}
+              {e.language !== 'en' && ` · ${e.language.toUpperCase()}`}
+            </span>
+            {e.parentDocTitle && (
+              <>
+                <span className="text-ink-tertiary">·</span>
+                <span className="truncate">{e.parentDocTitle}</span>
+              </>
+            )}
+            {e.source === 'field' && (
+              <>
+                <span className="text-ink-tertiary">·</span>
+                <span
+                  className={
+                    e.verified ? 'text-signal-ok' : 'text-signal-warn'
+                  }
+                  title={
+                    e.capturedByDisplayName
+                      ? `Captured by ${e.capturedByDisplayName}`
+                      : 'Field-captured'
+                  }
+                >
+                  {e.verified ? 'Verified' : 'Unverified'} · Field
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+        <ChevronRight size={16} strokeWidth={2} className="shrink-0 text-ink-tertiary" />
+      </button>
+    </li>
   );
 }
 
