@@ -421,15 +421,17 @@
   max-width: 100%;
   overflow-x: auto;
 }
-/* PDF pages render via canvas with explicit pixel width AND height. Without
-   this rule, the inherited `* { max-width: 100% }` clamps width on small
-   viewports while leaving the explicit height untouched — i.e., the canvas
-   renders at the wrong aspect ratio. height: auto + max-width: 100% keeps
-   the canvas proportional whenever the page has to scale down to fit. */
+/* Exempt PDF canvases from the inherited `* { max-width: 100% }` clamp.
+   PdfPage sizes the canvas to exactly fit its container via the
+   responsive scale logic in PdfSection / FramedPdf, so the clamp never
+   needs to fire — but if it did, it would override the explicit height
+   without recomputing it from the canvas's HTML attrs, producing either
+   distorted aspect ratios or large blank regions inside the canvas's
+   parent wrapper (which has explicit pixel height). Letting the canvas
+   keep its inline width avoids both failure modes. */
 .doc-overlay-scroll canvas,
 .doc-overlay-frame canvas {
-  height: auto !important;
-  max-width: 100%;
+  max-width: none;
 }
 .doc-overlay-scroll > .markdown-body,
 .doc-overlay-scroll > :not(.mx-auto) {
