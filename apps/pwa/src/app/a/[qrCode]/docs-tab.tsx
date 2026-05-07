@@ -28,7 +28,7 @@ import NoDocuments from '@/components/illustrations/no-documents';
 import NoSearchResults from '@/components/illustrations/no-search-results';
 import { SectionRenderer } from '@/components/section-renderer';
 import { ProcedureRunner } from '@/components/procedure-runner/procedure-runner';
-import { ProcedureDocAuthoring } from '@/components/procedure-runner/procedure-doc-authoring';
+import { ProcedureDocWizard } from '@/components/procedure-runner/procedure-doc-wizard';
 import { ProcedureDocViewer } from '@/components/procedure-runner/procedure-doc-viewer';
 import { AuthPrompt } from '@/components/auth-prompt';
 import { Plus } from 'lucide-react';
@@ -197,7 +197,7 @@ export function DocsTab({
 
   if (authoringActive) {
     return (
-      <ProcedureDocAuthoring
+      <ProcedureDocWizard
         assetInstanceId={assetInstanceId}
         devUserId={DEV_USER_ID}
         devOrgId={DEV_ORG_ID}
