@@ -2384,23 +2384,29 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
     requireAuth(request);
     const scope = await getScope(request, db);
 
-    // Find field-captured structured_procedure docs in the caller's scope.
-    // Two filters that matter: (a) docs whose pack is kind=field_captures,
-    // (b) docs without ready chunks (status != 'ready' OR zero chunks).
-    // We keep this scoped via the SQL — letting platform admins backfill
-    // everything by passing scope.all=true.
-    const orgsLiteral = scope.all
+    // Find field-captured structured_procedure docs the caller can already
+    // see. Field-capture packs are owned by the asset MODEL's org (the OEM),
+    // not by the customer who authored the procedure on a unit at their
+    // site. Scoping the backfill purely to pack-owner would lock end-
+    // customers out of backfilling procedures they themselves authored.
+    //
+    // Mirror the way scan/asset-hub access works: a doc is in scope if
+    // there's at least one asset_instance of the doc's asset model at a
+    // site the caller's org owns. Platform admins backfill everything.
+    const scopeFilter = scope.all
       ? sql`true`
-      : sql`cp.owner_organization_id = ANY(${orgIdsLiteral(scope)})`;
+      : sql`s.organization_id = ANY(${orgIdsLiteral(scope)})`;
 
     const rows = await db.execute<{ id: string }>(sql`
-      SELECT d.id
+      SELECT DISTINCT d.id
       FROM documents d
       JOIN content_pack_versions cpv ON cpv.id = d.content_pack_version_id
       JOIN content_packs cp ON cp.id = cpv.content_pack_id
+      JOIN asset_instances ai ON ai.asset_model_id = cp.asset_model_id
+      JOIN sites s ON s.id = ai.site_id
       WHERE cp.kind = 'field_captures'
         AND d.kind = 'structured_procedure'
-        AND ${orgsLiteral}
+        AND ${scopeFilter}
     `);
 
     let queued = 0;
