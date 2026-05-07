@@ -167,7 +167,7 @@ export function PartsTab({
             key={r.bomEntryId}
             className={`surface-etched part-row ${r.discontinued ? 'opacity-70' : ''}`}
           >
-            <div className="flex items-start gap-4">
+            <div className="flex items-start gap-3">
               {r.imageUrl ? (
                 <button
                   type="button"
@@ -179,11 +179,7 @@ export function PartsTab({
                     })
                   }
                   aria-label={`View full image of ${r.displayName}`}
-                  className="flex h-14 w-14 shrink-0 items-center justify-center rounded p-1 transition hover:border-brand/60"
-                  style={{
-                    background: 'rgb(var(--surface-inset))',
-                    border: '1px solid rgb(var(--line-subtle))',
-                  }}
+                  className="flex h-14 w-14 shrink-0 items-center justify-center rounded border border-line-subtle bg-surface-inset p-1 transition hover:border-brand/60"
                 >
                   <img
                     src={r.imageUrl}
@@ -193,13 +189,7 @@ export function PartsTab({
                   />
                 </button>
               ) : (
-                <div
-                  className="flex h-14 w-14 shrink-0 items-center justify-center rounded text-ink-tertiary"
-                  style={{
-                    background: 'rgb(var(--surface-inset))',
-                    border: '1px solid rgb(var(--line-subtle))',
-                  }}
-                >
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded border border-line-subtle bg-surface-inset text-ink-tertiary">
                   <Package size={20} strokeWidth={1.5} />
                 </div>
               )}
@@ -207,45 +197,51 @@ export function PartsTab({
                 type="button"
                 onClick={() => setOpenPartId(r.partId)}
                 aria-label={`Open ${r.displayName} details`}
-                className="flex flex-1 min-w-0 flex-col items-start text-left"
+                className="flex min-w-0 flex-1 items-start gap-3 text-left"
               >
-                <div className="mb-1.5 flex items-baseline gap-3">
-                  <span className="part-num">{r.oemPartNumber}</span>
-                  <span className="part-name">{r.displayName}</span>
-                </div>
-                {r.description && <p className="part-desc mb-2">{r.description}</p>}
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px]">
-                  {r.positionRef && (
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                    <span className="part-num">{r.oemPartNumber}</span>
+                    <span className="part-name">{r.displayName}</span>
+                  </div>
+                  {r.description && <p className="part-desc mb-2 line-clamp-2">{r.description}</p>}
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px]">
+                    {r.positionRef && (
+                      <span className="flex items-center gap-1.5">
+                        <span className="cap" style={{ letterSpacing: '0.08em' }}>Pos</span>
+                        <span className="text-ink-primary">{r.positionRef}</span>
+                      </span>
+                    )}
                     <span className="flex items-center gap-1.5">
-                      <span className="cap" style={{ letterSpacing: '0.08em' }}>Pos</span>
-                      <span className="text-ink-primary">{r.positionRef}</span>
+                      <span className="cap" style={{ letterSpacing: '0.08em' }}>Qty</span>
+                      <span className="text-ink-primary tabular-nums">{r.quantity}</span>
                     </span>
-                  )}
-                  <span className="flex items-center gap-1.5">
-                    <span className="cap" style={{ letterSpacing: '0.08em' }}>Qty</span>
-                    <span className="text-ink-primary tabular-nums">{r.quantity}</span>
-                  </span>
-                  {r.crossReferences.length > 0 && (
-                    <span className="flex items-center gap-1.5">
-                      <span className="cap" style={{ letterSpacing: '0.08em' }}>Xref</span>
-                      {r.crossReferences.map((xr) => (
-                        <span key={xr} className="part-xref">
-                          {xr}
-                        </span>
-                      ))}
-                    </span>
+                    {r.crossReferences.length > 0 && (
+                      <span className="flex items-center gap-1.5">
+                        <span className="cap" style={{ letterSpacing: '0.08em' }}>Xref</span>
+                        {r.crossReferences.map((xr) => (
+                          <span key={xr} className="part-xref">
+                            {xr}
+                          </span>
+                        ))}
+                      </span>
+                    )}
+                  </div>
+                  {(r.role !== 'part' || r.discontinued) && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <RoleBadge role={r.role} />
+                      {r.discontinued && (
+                        <span className="pill pill-warn">Discontinued</span>
+                      )}
+                    </div>
                   )}
                 </div>
+                <ChevronRight
+                  size={18}
+                  strokeWidth={2}
+                  className="mt-0.5 shrink-0 text-ink-tertiary"
+                />
               </button>
-              <div className="flex shrink-0 flex-col items-end gap-1 self-center">
-                <RoleBadge role={r.role} />
-                {r.discontinued && <span className="pill pill-warn">Discontinued</span>}
-              </div>
-              <ChevronRight
-                size={18}
-                strokeWidth={2}
-                className="shrink-0 self-center text-ink-tertiary"
-              />
             </div>
           </li>
         ))}
@@ -1142,18 +1138,7 @@ function PartDocView({
   sections: PwaDocumentSection[] | null;
   onBack: () => void;
 }) {
-  // Sections-aware render decision. Logged client-side so we can diagnose
-  // missing-section reports from real techs without server-side context.
   const sectionMode = sections != null && sections.length > 0;
-  if (typeof window !== 'undefined') {
-    // eslint-disable-next-line no-console
-    console.log('[PartDocView]', {
-      docId: doc.id,
-      docKind: doc.kind,
-      sectionsArg: sections,
-      sectionMode,
-    });
-  }
   const isFramed =
     !sectionMode &&
     (doc.kind === 'pdf' ||

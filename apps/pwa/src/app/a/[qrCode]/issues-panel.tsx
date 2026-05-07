@@ -117,10 +117,12 @@ export function IssuesPanel({
 
   return (
     <section>
-      <div className="spec-divider">
+      <div className="mb-4 flex items-center gap-3">
         <span className="caption">Work orders</span>
-        <span className="line" />
-        <span className="count">{count} open</span>
+        <span className="h-px flex-1 bg-line-subtle" />
+        <span className="font-mono text-[11px] text-ink-tertiary tabular-nums">
+          {count} open
+        </span>
         {!showForm && (
           <button onClick={() => setShowForm(true)} className="btn btn-secondary btn-sm">
             <Plus size={14} strokeWidth={2} />

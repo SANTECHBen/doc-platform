@@ -772,26 +772,28 @@ function PhotoBlock({
           {existing.map((p, i) => (
             <li
               key={`e-${i}`}
-              className="aspect-square overflow-hidden rounded border border-line-subtle bg-surface-inset text-xs text-ink-tertiary"
+              className="relative flex aspect-square flex-col items-center justify-center gap-1.5 overflow-hidden rounded-md border border-signal-ok/30 bg-signal-ok/10 text-signal-ok"
+              aria-label="Photo saved"
             >
-              <span className="flex h-full w-full items-center justify-center">
-                ✓ saved
+              <Check size={20} strokeWidth={2.25} />
+              <span className="font-mono text-[10px] uppercase tracking-wider opacity-80">
+                Saved
               </span>
             </li>
           ))}
           {pending.map((p, i) => (
             <li
               key={`p-${i}`}
-              className="relative aspect-square overflow-hidden rounded border border-line-subtle"
+              className="relative aspect-square overflow-hidden rounded-md border border-line"
             >
               <img src={p.url} alt="" className="h-full w-full object-cover" />
               <button
                 type="button"
                 onClick={() => onRemovePending(i)}
-                className="absolute right-1 top-1 rounded bg-black/60 p-0.5 text-white"
+                className="absolute right-1 top-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm transition hover:bg-black/80"
                 aria-label="Remove photo"
               >
-                <X size={12} strokeWidth={2} />
+                <X size={12} strokeWidth={2.25} />
               </button>
             </li>
           ))}

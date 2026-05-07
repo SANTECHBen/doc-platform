@@ -3,6 +3,17 @@
 import { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import {
+  ArrowLeft,
+  Award,
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  FileText,
+  GraduationCap,
+  ListChecks,
+  XCircle,
+} from 'lucide-react';
 import type { AssetHubPayload } from '@/lib/shared-schema';
 import {
   listTrainingModules,
@@ -14,6 +25,7 @@ import {
   type QuizResult,
 } from '@/lib/api';
 import { RowListSkeleton } from '@/components/skeleton';
+import { EmptyState } from '@/components/empty-state';
 
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
 const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
@@ -38,19 +50,37 @@ export function TrainingTab({ hub }: { hub: AssetHubPayload }) {
   }, [versionId]);
 
   if (!versionId) {
-    return <p className="py-6 text-center text-sm text-slate-400">No content version pinned.</p>;
+    return (
+      <EmptyState
+        icon={GraduationCap}
+        title="No content version pinned"
+        description="No published content is linked to this asset yet."
+        tone="neutral"
+      />
+    );
   }
   if (!DEV_USER_ID || !DEV_ORG_ID) {
     return (
-      <p className="py-6 text-center text-sm text-slate-400">
-        Dev user required for training — see AI tab for setup.
-      </p>
+      <EmptyState
+        icon={GraduationCap}
+        title="Sign in required"
+        description="Training enrollment needs an authenticated tech identity. See the Assistant tab for setup help."
+        tone="neutral"
+      />
     );
   }
-  if (error) return <p className="py-6 text-center text-sm text-rose-300">{error}</p>;
+  if (error) return <ErrorBanner text={error} />;
   if (!modules) return <RowListSkeleton />;
-  if (modules.length === 0)
-    return <p className="py-6 text-center text-sm text-slate-400">No modules published yet.</p>;
+  if (modules.length === 0) {
+    return (
+      <EmptyState
+        icon={GraduationCap}
+        title="No training modules"
+        description="Nothing has been published for this revision yet."
+        tone="neutral"
+      />
+    );
+  }
 
   if (active) {
     return (
@@ -59,9 +89,7 @@ export function TrainingTab({ hub }: { hub: AssetHubPayload }) {
         hub={hub}
         onDone={(summary) => {
           setModules((prev) =>
-            prev
-              ? prev.map((m) => (m.id === summary.id ? summary : m))
-              : prev,
+            prev ? prev.map((m) => (m.id === summary.id ? summary : m)) : prev,
           );
           setActive(null);
         }}
@@ -75,20 +103,39 @@ export function TrainingTab({ hub }: { hub: AssetHubPayload }) {
         <li key={m.id}>
           <button
             onClick={() => setActive(m.id)}
-            className="flex w-full flex-col gap-1 rounded-xl bg-slate-800 p-3 text-left transition hover:bg-slate-700"
+            className="surface-etched flex w-full flex-col gap-2 px-4 py-3.5 text-left transition"
           >
-            <span className="flex items-start justify-between gap-3">
-              <span className="font-medium text-slate-100">{m.title}</span>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="icon-chip icon-chip-info">
+                  <GraduationCap size={16} strokeWidth={1.75} />
+                </div>
+                <span className="text-sm font-medium text-ink-primary">
+                  {m.title}
+                </span>
+              </div>
               <EnrollmentBadge enrollment={m.enrollment} />
-            </span>
+            </div>
             {m.description && (
-              <span className="text-sm text-slate-400">{m.description}</span>
+              <p className="line-clamp-2 pl-[42px] text-xs text-ink-secondary">
+                {m.description}
+              </p>
             )}
-            <span className="flex gap-3 text-xs text-slate-500">
-              <span>{m.lessonCount} lessons</span>
-              <span>{m.activityCount} activities</span>
-              {m.estimatedMinutes != null && <span>~{m.estimatedMinutes} min</span>}
-            </span>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pl-[42px] font-mono text-[11px] text-ink-tertiary">
+              <span className="inline-flex items-center gap-1">
+                <FileText size={11} strokeWidth={1.75} />
+                {m.lessonCount} lesson{m.lessonCount === 1 ? '' : 's'}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <ListChecks size={11} strokeWidth={1.75} />
+                {m.activityCount} activit{m.activityCount === 1 ? 'y' : 'ies'}
+              </span>
+              {m.estimatedMinutes != null && (
+                <span className="inline-flex items-center gap-1">
+                  <Clock size={11} strokeWidth={1.75} />~{m.estimatedMinutes} min
+                </span>
+              )}
+            </div>
           </button>
         </li>
       ))}
@@ -105,24 +152,20 @@ function EnrollmentBadge({
   const pct = enrollment.score !== null ? Math.round(enrollment.score * 100) : null;
   if (enrollment.status === 'completed') {
     return (
-      <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-xs font-medium text-emerald-300">
+      <span className="pill pill-ok shrink-0">
         Passed{pct !== null ? ` · ${pct}%` : ''}
       </span>
     );
   }
   if (enrollment.status === 'failed') {
     return (
-      <span className="rounded bg-rose-500/20 px-2 py-0.5 text-xs font-medium text-rose-300">
+      <span className="pill pill-fault shrink-0">
         Failed{pct !== null ? ` · ${pct}%` : ''}
       </span>
     );
   }
   if (enrollment.status === 'in_progress') {
-    return (
-      <span className="rounded bg-sky-500/20 px-2 py-0.5 text-xs font-medium text-sky-300">
-        In progress
-      </span>
-    );
+    return <span className="pill pill-info shrink-0">In progress</span>;
   }
   return null;
 }
@@ -166,29 +209,25 @@ function ModuleRunner({
     };
   }, [moduleId, hub.assetInstance.id]);
 
-  if (error) return <p className="py-6 text-center text-sm text-rose-300">{error}</p>;
+  if (error) return <ErrorBanner text={error} />;
   if (!detail || !enrollmentId) return <RowListSkeleton count={3} />;
 
+  function summarize(): TrainingModuleSummary {
+    return {
+      id: detail!.id,
+      title: detail!.title,
+      description: detail!.description,
+      estimatedMinutes: detail!.estimatedMinutes,
+      competencyTag: null,
+      passThreshold: detail!.passThreshold,
+      lessonCount: detail!.lessons.length,
+      activityCount: detail!.activities.length,
+      enrollment: result?.enrollment ?? null,
+    };
+  }
+
   if (result) {
-    return (
-      <QuizResultView
-        result={result}
-        module={detail}
-        onDone={() => {
-          onDone({
-            id: detail.id,
-            title: detail.title,
-            description: detail.description,
-            estimatedMinutes: detail.estimatedMinutes,
-            competencyTag: null,
-            passThreshold: detail.passThreshold,
-            lessonCount: detail.lessons.length,
-            activityCount: detail.activities.length,
-            enrollment: result.enrollment,
-          });
-        }}
-      />
-    );
+    return <QuizResultView result={result} module={detail} onDone={() => onDone(summarize())} />;
   }
 
   const activity = activeActivityId
@@ -227,63 +266,73 @@ function ModuleRunner({
 
   return (
     <div className="flex flex-col gap-4">
-      <button
-        onClick={() => onDone({
-          id: detail.id,
-          title: detail.title,
-          description: detail.description,
-          estimatedMinutes: detail.estimatedMinutes,
-          competencyTag: null,
-          passThreshold: detail.passThreshold,
-          lessonCount: detail.lessons.length,
-          activityCount: detail.activities.length,
-          enrollment: null,
-        })}
-        className="self-start text-sm text-sky-400 hover:text-sky-300"
-      >
-        ← Back to training
+      <button onClick={() => onDone(summarize())} className="btn btn-ghost btn-sm self-start">
+        <ArrowLeft size={14} strokeWidth={2} /> Back to training
       </button>
-      <h2 className="text-xl font-semibold">{detail.title}</h2>
-      {detail.description && <p className="text-slate-400">{detail.description}</p>}
+      <header className="flex flex-col gap-1">
+        <span className="caption">Module</span>
+        <h2 className="text-xl font-semibold text-ink-primary">{detail.title}</h2>
+        {detail.description && (
+          <p className="text-sm text-ink-secondary">{detail.description}</p>
+        )}
+      </header>
+
       {detail.lessons.length > 0 && (
-        <section className="flex flex-col gap-3">
-          <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Lessons
-          </h3>
-          {detail.lessons.map((l) => (
-            <div key={l.id} className="rounded-xl bg-slate-800 p-3">
-              <h4 className="font-medium text-slate-100">{l.title}</h4>
-              {l.bodyMarkdown && (
-                <div className="markdown-body mt-2 text-sm">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{l.bodyMarkdown}</ReactMarkdown>
-                </div>
-              )}
-            </div>
-          ))}
+        <section className="flex flex-col gap-2">
+          <span className="caption">Lessons</span>
+          <ul className="flex flex-col gap-2">
+            {detail.lessons.map((l) => (
+              <li
+                key={l.id}
+                className="surface-etched px-4 py-3"
+              >
+                <h4 className="text-sm font-medium text-ink-primary">{l.title}</h4>
+                {l.bodyMarkdown && (
+                  <div className="markdown-body mt-2 text-sm">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {l.bodyMarkdown}
+                    </ReactMarkdown>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
         </section>
       )}
+
       <section className="flex flex-col gap-2">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-          Activities
-        </h3>
-        {detail.activities.map((a) => (
-          <button
-            key={a.id}
-            onClick={() => a.kind === 'quiz' && setActiveActivityId(a.id)}
-            disabled={a.kind !== 'quiz'}
-            className="flex items-center justify-between rounded-xl bg-slate-800 p-3 text-left transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <span>
-              <span className="block font-medium text-slate-100">{a.title}</span>
-              <span className="block text-xs text-slate-500">{a.kind}</span>
-            </span>
-            {a.kind === 'quiz' ? (
-              <span className="text-sm text-sky-400">Start →</span>
-            ) : (
-              <span className="text-xs text-slate-500">UI pending</span>
-            )}
-          </button>
-        ))}
+        <span className="caption">Activities</span>
+        <ul className="flex flex-col gap-2">
+          {detail.activities.map((a) => {
+            const isQuiz = a.kind === 'quiz';
+            return (
+              <li key={a.id}>
+                <button
+                  onClick={() => isQuiz && setActiveActivityId(a.id)}
+                  disabled={!isQuiz}
+                  className="surface-etched flex w-full items-center gap-3 px-4 py-3 text-left disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <div className="icon-chip icon-chip-info">
+                    <ListChecks size={16} strokeWidth={1.75} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-ink-primary">{a.title}</div>
+                    <div className="font-mono text-[11px] uppercase tracking-wider text-ink-tertiary">
+                      {a.kind}
+                    </div>
+                  </div>
+                  {isQuiz ? (
+                    <span className="inline-flex items-center gap-1 text-sm font-medium text-brand">
+                      Start <ChevronRight size={14} strokeWidth={2} />
+                    </span>
+                  ) : (
+                    <span className="caption">UI pending</span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
       </section>
     </div>
   );
@@ -309,24 +358,29 @@ function QuizRunner({
   const questions: Array<{ prompt: string; options: string[]; correctIndex: number }> =
     activity.config?.questions ?? [];
   const allAnswered = questions.every((_, i) => answers[i] !== undefined && answers[i] >= 0);
+  const answeredCount = questions.filter((_, i) => answers[i] !== undefined && answers[i] >= 0)
+    .length;
 
   return (
     <div className="flex flex-col gap-4">
-      <button
-        onClick={onCancel}
-        className="self-start text-sm text-sky-400 hover:text-sky-300"
-      >
-        ← Back to module
+      <button onClick={onCancel} className="btn btn-ghost btn-sm self-start">
+        <ArrowLeft size={14} strokeWidth={2} /> Back to module
       </button>
-      <header>
-        <p className="text-xs uppercase tracking-wide text-slate-500">{module.title}</p>
-        <h2 className="text-xl font-semibold">{activity.title}</h2>
+      <header className="flex flex-col gap-1">
+        <span className="caption">{module.title}</span>
+        <h2 className="text-xl font-semibold text-ink-primary">{activity.title}</h2>
+        <p className="font-mono text-[11px] text-ink-tertiary">
+          {answeredCount} / {questions.length} answered · pass at{' '}
+          {Math.round(module.passThreshold * 100)}%
+        </p>
       </header>
-      <ol className="flex flex-col gap-4">
+
+      <ol className="flex flex-col gap-3">
         {questions.map((q, qi) => (
-          <li key={qi} className="rounded-xl bg-slate-800 p-3">
-            <p className="font-medium text-slate-100">
-              {qi + 1}. {q.prompt}
+          <li key={qi} className="surface-etched p-4">
+            <p className="font-medium text-ink-primary">
+              <span className="mr-2 font-mono text-ink-tertiary">{qi + 1}.</span>
+              {q.prompt}
             </p>
             <div className="mt-3 flex flex-col gap-2">
               {q.options.map((opt, oi) => {
@@ -334,16 +388,16 @@ function QuizRunner({
                 return (
                   <label
                     key={oi}
-                    className={`flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2 transition ${
+                    className={`flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2.5 transition ${
                       selected
-                        ? 'border-sky-500 bg-sky-500/10 text-slate-100'
-                        : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600'
+                        ? 'border-brand bg-brand-soft text-ink-primary'
+                        : 'border-line bg-surface-raised text-ink-secondary hover:border-line-strong hover:bg-surface-elevated'
                     }`}
                   >
                     <input
                       type="radio"
                       name={`q-${qi}`}
-                      className="mt-0.5"
+                      className="mt-0.5 accent-brand"
                       checked={selected}
                       onChange={() => {
                         const next = answers.slice();
@@ -359,12 +413,13 @@ function QuizRunner({
           </li>
         ))}
       </ol>
+
       <button
         onClick={onSubmit}
         disabled={!allAnswered || submitting}
-        className="self-end rounded-xl bg-sky-500 px-6 py-2 font-medium text-slate-950 disabled:opacity-50"
+        className={`btn btn-primary self-end ${submitting ? 'btn-loading' : ''}`}
       >
-        {submitting ? 'Submitting…' : 'Submit'}
+        Submit quiz
       </button>
     </div>
   );
@@ -385,45 +440,83 @@ function QuizResultView({
     result.enrollment.score !== null ? Math.round(result.enrollment.score * 100) : null;
   return (
     <div className="flex flex-col gap-4">
-      <h2 className="text-xl font-semibold">Quiz result</h2>
       <div
-        className={`rounded-2xl p-4 text-sm ${
+        className={`flex items-start gap-3 rounded-md border p-4 ${
           passed
-            ? 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
-            : 'border border-slate-700 bg-slate-800 text-slate-200'
+            ? 'border-signal-ok/40 bg-signal-ok/10'
+            : 'border-signal-fault/40 bg-signal-fault/10'
         }`}
       >
-        <p className="text-lg font-semibold">
-          {result.correct} / {result.total} correct · {pct}%
-        </p>
-        {enrollmentPct !== null && (
-          <p className="mt-1 text-slate-300">
-            Module score: {enrollmentPct}% (pass: {Math.round(module.passThreshold * 100)}%)
+        <div
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
+            passed
+              ? 'bg-signal-ok/20 text-signal-ok'
+              : 'bg-signal-fault/20 text-signal-fault'
+          }`}
+        >
+          {passed ? (
+            <Award size={20} strokeWidth={2} />
+          ) : (
+            <XCircle size={20} strokeWidth={2} />
+          )}
+        </div>
+        <div className="flex-1">
+          <p className="text-base font-semibold text-ink-primary">
+            {passed ? 'Competency achieved' : 'Below pass threshold'}
           </p>
-        )}
-        {passed && <p className="mt-1">Competency achieved.</p>}
-        {result.enrollment.status === 'failed' && (
-          <p className="mt-1 text-rose-300">Below pass threshold — retake to re-score.</p>
-        )}
+          <p className="mt-0.5 font-mono text-sm text-ink-secondary tabular-nums">
+            {result.correct} / {result.total} correct · {pct}%
+          </p>
+          {enrollmentPct !== null && (
+            <p className="mt-1 text-xs text-ink-tertiary">
+              Module score: {enrollmentPct}% (pass {Math.round(module.passThreshold * 100)}%)
+            </p>
+          )}
+          {!passed && (
+            <p className="mt-2 text-sm text-ink-secondary">Retake to re-score.</p>
+          )}
+        </div>
       </div>
-      <ol className="flex flex-col gap-2 text-sm">
-        {result.perQuestion.map((q) => (
-          <li
-            key={q.questionIndex}
-            className={`rounded-lg px-3 py-2 ${
-              q.correct ? 'bg-emerald-500/10 text-emerald-200' : 'bg-rose-500/10 text-rose-200'
-            }`}
-          >
-            Q{q.questionIndex + 1}: {q.correct ? 'correct' : `incorrect (correct was option ${q.correctIndex + 1})`}
-          </li>
-        ))}
-      </ol>
-      <button
-        onClick={onDone}
-        className="self-end rounded-xl bg-slate-700 px-6 py-2 text-sm font-medium text-slate-100 hover:bg-slate-600"
-      >
+
+      <section className="flex flex-col gap-1">
+        <span className="caption">Per-question</span>
+        <ul className="flex flex-col gap-1.5">
+          {result.perQuestion.map((q) => (
+            <li
+              key={q.questionIndex}
+              className={`flex items-center gap-3 rounded-md border px-3 py-2 text-sm ${
+                q.correct
+                  ? 'border-signal-ok/30 bg-signal-ok/10 text-signal-ok'
+                  : 'border-signal-fault/30 bg-signal-fault/10 text-signal-fault'
+              }`}
+            >
+              {q.correct ? (
+                <CheckCircle2 size={16} strokeWidth={2} className="shrink-0" />
+              ) : (
+                <XCircle size={16} strokeWidth={2} className="shrink-0" />
+              )}
+              <span className="font-mono tabular-nums">Q{q.questionIndex + 1}</span>
+              <span className="text-ink-secondary">
+                {q.correct
+                  ? 'Correct'
+                  : `Incorrect — correct was option ${q.correctIndex + 1}`}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <button onClick={onDone} className="btn btn-secondary self-end">
         Done
       </button>
     </div>
+  );
+}
+
+function ErrorBanner({ text }: { text: string }) {
+  return (
+    <p className="rounded-md border border-signal-fault/40 bg-signal-fault/10 p-3 text-sm text-signal-fault">
+      {text}
+    </p>
   );
 }

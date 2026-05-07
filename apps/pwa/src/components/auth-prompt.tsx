@@ -25,20 +25,20 @@ export function AuthPrompt({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-md border border-line bg-surface-raised p-5"
+        className="w-full max-w-md rounded-md border border-line bg-surface-raised p-5 shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-3 flex items-start justify-between">
-          <div className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-soft-v/20 text-brand">
-              <LogIn size={18} strokeWidth={2} />
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="icon-chip icon-chip-info">
+              <LogIn size={16} strokeWidth={2} />
             </div>
             <h3 className="text-base font-semibold text-ink-primary">Sign in required</h3>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-1 text-ink-tertiary hover:bg-surface hover:text-ink-primary"
+            className="-mr-1 -mt-1 inline-flex h-8 w-8 items-center justify-center rounded text-ink-tertiary transition hover:bg-surface-elevated hover:text-ink-primary"
             aria-label="Close"
           >
             <X size={16} strokeWidth={2} />

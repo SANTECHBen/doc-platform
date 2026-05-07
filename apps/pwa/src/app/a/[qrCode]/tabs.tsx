@@ -38,12 +38,16 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
 
       <div key={active} className="tab-pane flex flex-col gap-4">
         {active === 'overview' ? (
-          <div className="spec-panel">
-            <OverviewSpecs hub={hub} openIssueCount={openIssueCount} />
-            <IssuesPanel
-              assetInstanceId={hub.assetInstance.id}
-              onCountChange={setOpenIssueCount}
-            />
+          <div className="flex flex-col gap-4">
+            <div className="spec-panel">
+              <OverviewSpecs hub={hub} openIssueCount={openIssueCount} />
+            </div>
+            <div className="spec-panel">
+              <IssuesPanel
+                assetInstanceId={hub.assetInstance.id}
+                onCountChange={setOpenIssueCount}
+              />
+            </div>
           </div>
         ) : (
           <section className="rounded-md border border-line bg-surface-raised p-4 md:p-6">

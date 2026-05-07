@@ -358,18 +358,22 @@ export function DocsTab({
                 )}
               </div>
               <div className="flex flex-1 flex-col gap-2 p-4">
-                <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 caption">
-                  <Icon size={12} strokeWidth={1.75} />
-                  {kindLabel(e.kind)}
-                  {e.language !== 'en' && ` · ${e.language.toUpperCase()}`}
-                  <span className="tnum normal-case text-ink-tertiary">· {e.refCode}</span>
-                  {e.parentDocTitle && (
-                    <span className="ml-1 truncate text-ink-tertiary normal-case">
-                      · {e.parentDocTitle}
-                    </span>
-                  )}
-                </span>
-                <h3 className="text-base font-medium text-ink-primary group-hover:text-brand">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 caption">
+                    <Icon size={12} strokeWidth={1.75} />
+                    {kindLabel(e.kind)}
+                    {e.language !== 'en' && ` · ${e.language.toUpperCase()}`}
+                  </span>
+                  <span className="tnum font-mono text-[10.5px] text-ink-tertiary">
+                    {e.refCode}
+                  </span>
+                </div>
+                {e.parentDocTitle && (
+                  <span className="-mt-1 truncate text-xs text-ink-tertiary">
+                    {e.parentDocTitle}
+                  </span>
+                )}
+                <h3 className="text-base font-medium leading-snug text-ink-primary group-hover:text-brand">
                   {e.title}
                 </h3>
                 {e.source === 'field' && (
@@ -387,7 +391,7 @@ export function DocsTab({
                   >
                     {e.verified ? '✓ Verified · Field' : '⚠ Unverified · Field'}
                     {e.capturedByDisplayName && (
-                      <span className="normal-case font-normal opacity-80">
+                      <span className="font-normal normal-case opacity-80">
                         · {e.capturedByDisplayName}
                       </span>
                     )}
@@ -558,10 +562,10 @@ function DocView({
           </>
         )}
         {doc.safetyCritical && (
-          <div className="mx-auto max-w-3xl rounded-md border border-signal-safety/50 bg-signal-safety/10 p-4 mt-4">
+          <div className="mx-auto mb-4 max-w-3xl rounded-md border border-signal-safety/50 bg-signal-safety/10 p-4">
             <div className="flex items-start gap-3">
-              <ShieldAlert size={20} strokeWidth={2} className="mt-0.5 text-signal-safety" />
-              <div>
+              <ShieldAlert size={20} strokeWidth={2} className="mt-0.5 shrink-0 text-signal-safety" />
+              <div className="min-w-0">
                 <p className="font-semibold text-signal-safety">Safety-critical procedure</p>
                 <p className="text-sm text-ink-secondary">
                   Follow verbatim. Do not skip steps. If unsure, stop and ask.

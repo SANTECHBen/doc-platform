@@ -31,7 +31,7 @@ export function DensityToggle({ className }: { className?: string }) {
     <button
       type="button"
       onClick={toggle}
-      className={`inline-flex h-10 w-10 items-center justify-center rounded-md text-ink-secondary transition hover:bg-surface-inset hover:text-ink-primary ${className ?? ''}`}
+      className={`app-topbar-btn ${className ?? ''}`}
       aria-label={`Switch to ${density === 'compact' ? 'comfortable' : 'compact'} density`}
       title={`Switch to ${density === 'compact' ? 'comfortable' : 'compact'} density`}
     >

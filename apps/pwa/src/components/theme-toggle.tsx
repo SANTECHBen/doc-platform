@@ -25,8 +25,9 @@ export function ThemeToggle({ className }: { className?: string }) {
     <button
       type="button"
       onClick={toggle}
-      className={`inline-flex h-10 w-10 items-center justify-center rounded-md text-ink-secondary transition hover:bg-surface-inset hover:text-ink-primary ${className ?? ''}`}
+      className={`app-topbar-btn ${className ?? ''}`}
       aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}
+      title={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}
     >
       {theme === 'light' ? (
         <Moon size={18} strokeWidth={1.75} />
