@@ -37,6 +37,7 @@ import {
 import { formatRefCode } from '@/lib/ref-code';
 import { ChatTab } from './chat-tab';
 import { SectionRenderer } from '@/components/section-renderer';
+import { FramedPdf } from '@/components/framed-pdf';
 import { RowListSkeleton } from '@/components/skeleton';
 import { EmptyState } from '@/components/empty-state';
 import NoParts from '@/components/illustrations/no-parts';
@@ -1202,7 +1203,7 @@ function PartDocView({
             </div>
           )}
         {doc.kind === 'pdf' && doc.fileUrl && (
-          <iframe src={doc.fileUrl} title={doc.title} className="h-full w-full border-0" />
+          <FramedPdf url={doc.fileUrl} filename={doc.originalFilename} title={doc.title} />
         )}
         {doc.kind === 'schematic' && doc.fileUrl && (
           <img

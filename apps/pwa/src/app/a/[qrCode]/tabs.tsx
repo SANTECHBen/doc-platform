@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   FileText,
   GraduationCap,
@@ -26,15 +26,53 @@ const TABS: Array<{ key: TabKey; label: string; icon: LucideIcon }> = [
   { key: 'chat', label: 'Assistant', icon: MessageSquare },
 ];
 
+const TAB_KEYS = TABS.map((t) => t.key);
+
+function readTabFromHash(): TabKey | null {
+  if (typeof window === 'undefined') return null;
+  const h = window.location.hash.replace(/^#/, '') as TabKey;
+  return (TAB_KEYS as string[]).includes(h) ? (h as TabKey) : null;
+}
+
 export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: string }) {
   const [active, setActive] = useState<TabKey>('overview');
   const [openIssueCount, setOpenIssueCount] = useState<number>(
     hub.tabs.openWorkOrders.count,
   );
 
+  // Hydrate the active tab from the URL hash on mount so deep links
+  // (`#docs`) land on the right tab. Then keep the hash in sync as the
+  // tech moves around — and, critically, push a real history entry on
+  // tab change so the device's back button steps through tabs instead of
+  // immediately popping out to the QR scanner.
+  useEffect(() => {
+    const initial = readTabFromHash();
+    if (initial && initial !== 'overview') {
+      setActive(initial);
+    }
+    function onPop() {
+      const fromHash = readTabFromHash();
+      setActive(fromHash ?? 'overview');
+    }
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  const changeTab = useCallback((next: TabKey) => {
+    setActive((prev) => {
+      if (prev === next) return prev;
+      // Update history so phone back button returns to the previous tab.
+      // Overview is the canonical "no hash" state.
+      const url = new URL(window.location.href);
+      url.hash = next === 'overview' ? '' : next;
+      window.history.pushState({ tab: next }, '', url.toString());
+      return next;
+    });
+  }, []);
+
   return (
     <>
-      <TabBar hub={hub} active={active} setActive={setActive} position="top" />
+      <TabBar hub={hub} active={active} setActive={changeTab} position="top" />
 
       <div key={active} className="tab-pane flex flex-col gap-4">
         {active === 'overview' ? (
@@ -65,7 +103,7 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
         )}
       </div>
 
-      <TabBar hub={hub} active={active} setActive={setActive} position="bottom" />
+      <TabBar hub={hub} active={active} setActive={changeTab} position="bottom" />
     </>
   );
 }

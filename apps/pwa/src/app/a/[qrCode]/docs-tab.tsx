@@ -27,6 +27,7 @@ import NoRevision from '@/components/illustrations/no-revision';
 import NoDocuments from '@/components/illustrations/no-documents';
 import NoSearchResults from '@/components/illustrations/no-search-results';
 import { SectionRenderer } from '@/components/section-renderer';
+import { FramedPdf } from '@/components/framed-pdf';
 import { ProcedureRunner } from '@/components/procedure-runner/procedure-runner';
 import { ProcedureDocWizard } from '@/components/procedure-runner/procedure-doc-wizard';
 import { ProcedureDocViewer } from '@/components/procedure-runner/procedure-doc-viewer';
@@ -601,7 +602,7 @@ function DocContent({ doc }: { doc: DocumentBody }) {
 
   if (doc.kind === 'pdf') {
     if (!doc.fileUrl) return <InlineEmpty text="No file attached." />;
-    return <FramedFile url={doc.fileUrl} filename={doc.originalFilename} title={doc.title} />;
+    return <FramedPdf url={doc.fileUrl} filename={doc.originalFilename} title={doc.title} />;
   }
 
   if (doc.kind === 'video') {
@@ -669,6 +670,11 @@ function DocContent({ doc }: { doc: DocumentBody }) {
           className="max-h-[80vh] w-full rounded-md border border-line bg-white object-contain"
         />
       );
+    }
+    const isPdf = (doc.contentType ?? '').includes('pdf') ||
+      /\.pdf($|\?)/i.test(doc.fileUrl);
+    if (isPdf) {
+      return <FramedPdf url={doc.fileUrl} filename={doc.originalFilename} title={doc.title} />;
     }
     return <FramedFile url={doc.fileUrl} filename={doc.originalFilename} title={doc.title} />;
   }
