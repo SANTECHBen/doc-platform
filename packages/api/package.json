@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./src/index.ts",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch --env-file=../../.env src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "start:prod": "tsx src/migrate-on-boot.ts && tsx src/server.ts",

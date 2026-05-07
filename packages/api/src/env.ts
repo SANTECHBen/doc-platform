@@ -1,5 +1,22 @@
 import { z } from 'zod';
 
+// Optional URL that treats an empty string the same as "not set". Bare
+// `.url().optional()` rejects "" as an invalid URL even though the user
+// clearly didn't intend to set anything — common when keys are scaffolded
+// in .env without a value yet.
+const optionalUrl = z.preprocess(
+  (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+  z.string().url().optional(),
+);
+
+// Optional string that treats "" as undefined. Same problem as optionalUrl
+// for fields that are switches — `S3_BUCKET=` shouldn't trip the
+// "S3_BUCKET set, siblings missing" check.
+const optionalNonEmptyString = z.preprocess(
+  (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+  z.string().optional(),
+);
+
 const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   API_HOST: z.string().default('0.0.0.0'),
@@ -20,12 +37,12 @@ const EnvSchema = z.object({
   // File storage. If S3_BUCKET is set, the S3-compatible adapter is used.
   // Otherwise the filesystem adapter writes to UPLOADS_DIR (dev only).
   UPLOADS_DIR: z.string().default('./uploads'),
-  S3_ENDPOINT: z.string().url().optional(),
+  S3_ENDPOINT: optionalUrl,
   S3_REGION: z.string().default('auto'),
-  S3_ACCESS_KEY_ID: z.string().optional(),
-  S3_SECRET_ACCESS_KEY: z.string().optional(),
-  S3_BUCKET: z.string().optional(),
-  S3_PUBLIC_URL: z.string().url().optional(),
+  S3_ACCESS_KEY_ID: optionalNonEmptyString,
+  S3_SECRET_ACCESS_KEY: optionalNonEmptyString,
+  S3_BUCKET: optionalNonEmptyString,
+  S3_PUBLIC_URL: optionalUrl,
 
   // Permit x-dev-user header even when NODE_ENV=production. Interim until
   // full auth lands — set to '1' on the production API until then.
@@ -101,10 +118,17 @@ export function loadEnv(): Env {
     if (!env.S3_SECRET_ACCESS_KEY) missing.push('S3_SECRET_ACCESS_KEY');
     if (!env.S3_PUBLIC_URL) missing.push('S3_PUBLIC_URL');
     if (missing.length > 0) {
-      console.error(
-        `S3_BUCKET is set but missing required siblings: ${missing.join(', ')}`,
-      );
-      process.exit(1);
+      // In production, refuse to start with a half-configured S3 — silently
+      // falling back to the filesystem adapter would write uploads to a
+      // container disk that disappears on the next deploy. In development
+      // we want laptops with a partial .env to keep working — the FS
+      // adapter is the dev default anyway.
+      const message = `S3_BUCKET is set but missing required siblings: ${missing.join(', ')}`;
+      if (env.NODE_ENV === 'production') {
+        console.error(message);
+        process.exit(1);
+      }
+      console.warn(`[env] ${message} — falling back to filesystem adapter (UPLOADS_DIR).`);
     }
   }
   if (env.AGENT_ENABLED === '1') {
