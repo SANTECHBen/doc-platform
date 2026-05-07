@@ -38,14 +38,14 @@ export function SectionRenderer({
         (safety ? ' border-l-[3px] border-l-signal-safety pl-3' : '')
       }
     >
-      <header className="mb-2 flex flex-wrap items-baseline gap-2 px-4">
+      <header className="mb-2 flex flex-wrap items-baseline gap-2 px-1">
         <span className="caption tnum normal-case shrink-0 text-ink-tertiary">
           {formatRefCode(index, section)}
         </span>
         <h3 className="text-base font-semibold text-ink-primary">{section.title}</h3>
       </header>
       {section.description && (
-        <p className="mb-3 px-4 text-sm text-ink-secondary">{section.description}</p>
+        <p className="mb-3 px-1 text-sm text-ink-secondary">{section.description}</p>
       )}
       <div className="px-0">
         <SectionBody doc={doc} section={section} />

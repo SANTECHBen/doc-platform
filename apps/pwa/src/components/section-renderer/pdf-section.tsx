@@ -9,8 +9,9 @@
 //   on the matched excerpt; falls back to no-highlight if the locator can't
 //   find a match in the rendered page text.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  getPageDimensions,
   loadDocument,
   PdfPage,
   SectionHighlight,
@@ -31,8 +32,13 @@ export function PdfSection({
   doc: DocumentBody;
   section: PwaDocumentSection;
 }): React.ReactElement {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [containerWidth, setContainerWidth] = useState<number>(0);
+  // Width of the first page at scale 1, in pdfjs CSS pixels (= PDF points).
+  // Drives the fit-to-container scale below.
+  const [intrinsicWidth, setIntrinsicWidth] = useState<number | null>(null);
 
   // R2's public bucket has CORS configured for the PWA origin so pdfjs can
   // fetch directly from the edge CDN with native HTTP range support — much
@@ -47,14 +53,23 @@ export function PdfSection({
     }
     let cancelled = false;
     let loaded: PDFDocumentProxy | null = null;
+    setIntrinsicWidth(null);
     loadDocument({ source: doc.fileUrl })
-      .then((p) => {
+      .then(async (p) => {
         if (cancelled) {
           void p.destroy();
           return;
         }
         loaded = p;
         setPdf(p);
+        try {
+          const first = await p.getPage(1);
+          if (cancelled) return;
+          const dims = getPageDimensions(first, 1);
+          setIntrinsicWidth(dims.width);
+        } catch {
+          if (!cancelled) setIntrinsicWidth(612);
+        }
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -64,6 +79,31 @@ export function PdfSection({
       if (loaded) void loaded.destroy();
     };
   }, [doc.fileUrl]);
+
+  // Track container width so PdfPage can render at fit-to-screen scale on
+  // any device. Hardcoding scale=1.4 made section pages render ~856px wide
+  // on phones and rely on the global `max-width: 100%` rule to clamp them,
+  // which (a) only constrained width, leaving the explicit canvas height
+  // unchanged → distorted aspect ratio, and (b) wasn't crisp because the
+  // browser was downscaling a too-large canvas instead of pdfjs rendering
+  // at the right size.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const update = () => setContainerWidth(el.clientWidth);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [pdf]);
+
+  const targetScale = useMemo(() => {
+    if (!containerWidth || !intrinsicWidth) return 1.4;
+    const s = containerWidth / intrinsicWidth;
+    // Floor at 1.0 (small phones still render legibly) and ceiling at 3.0
+    // (oversize schematics stay within a sane render budget).
+    return Math.min(3.0, Math.max(1.0, s));
+  }, [containerWidth, intrinsicWidth]);
 
   const pages = useMemo<number[]>(() => {
     if (section.kind === 'page_range') {
@@ -88,13 +128,14 @@ export function PdfSection({
   }
 
   return (
-    <div className="flex flex-col items-center gap-3">
+    <div ref={containerRef} className="flex flex-col gap-3">
       {pages.map((pageNumber) => (
         <PdfSectionPage
           key={pageNumber}
           pdf={pdf}
           pageNumber={pageNumber}
           section={section}
+          scale={targetScale}
         />
       ))}
     </div>
@@ -105,10 +146,12 @@ function PdfSectionPage({
   pdf,
   pageNumber,
   section,
+  scale,
 }: {
   pdf: PDFDocumentProxy;
   pageNumber: number;
   section: PwaDocumentSection;
+  scale: number;
 }): React.ReactElement {
   // For text_range, we need the page's text-layer to compute highlight rects.
   // We pull this out of PdfPage's render via a child overlay that uses the
@@ -131,7 +174,10 @@ function PdfSectionPage({
       try {
         const { getPageTextLayer } = await import('@platform/viewer');
         const page = await pdf.getPage(pageNumber);
-        const layer = await getPageTextLayer(page, 1.4);
+        // Match the page's render scale so highlight rects align with the
+        // canvas. Using a hardcoded scale here would offset the highlight
+        // overlay whenever the canvas was rendered at a different zoom.
+        const layer = await getPageTextLayer(page, scale);
         if (cancelled) return;
         const located = locateExcerptInPage({
           pageText: layer.pageText,
@@ -153,7 +199,7 @@ function PdfSectionPage({
     return () => {
       cancelled = true;
     };
-  }, [pdf, pageNumber, section]);
+  }, [pdf, pageNumber, section, scale]);
 
   // Compute the Y crop bounds for THIS page. startY applies only to the
   // first page of the section's range; endY only to the last page. Pages
@@ -181,7 +227,7 @@ function PdfSectionPage({
 
   return (
     <div style={cropStyle}>
-      <PdfPage doc={pdf} pageNumber={pageNumber} scale={1.4} enableTextLayer={false}>
+      <PdfPage doc={pdf} pageNumber={pageNumber} scale={scale} enableTextLayer={false}>
         {highlightRects.length > 0 && <SectionHighlight rects={highlightRects} />}
       </PdfPage>
     </div>
