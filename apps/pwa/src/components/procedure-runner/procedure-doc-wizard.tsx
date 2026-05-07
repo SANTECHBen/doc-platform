@@ -20,6 +20,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  ImagePlus,
   Pencil,
   Plus,
   Trash2,
@@ -71,8 +72,14 @@ export function ProcedureDocWizard({
   const [mode, setMode] = useState<WizardMode>('title');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Bottom-sheet picker: null = closed, otherwise the user is choosing
+  // a media source. Three hidden file inputs target each source so the
+  // browser uses the right intent (camera vs library) on iOS/Android.
+  const [pickerOpen, setPickerOpen] = useState(false);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraPhotoRef = useRef<HTMLInputElement>(null);
+  const cameraVideoRef = useRef<HTMLInputElement>(null);
+  const libraryRef = useRef<HTMLInputElement>(null);
 
   // Lock body scroll while overlay is up.
   useEffect(() => {
@@ -164,6 +171,29 @@ export function ProcedureDocWizard({
       throw new Error('Add a title for this step before capturing media.');
     }
     return persistCurrent();
+  }
+
+  function openMediaPicker() {
+    if (!currentStep.title.trim()) {
+      setError('Add a step title first.');
+      return;
+    }
+    setError(null);
+    setPickerOpen(true);
+  }
+
+  function pickFrom(source: 'camera-photo' | 'camera-video' | 'library') {
+    setPickerOpen(false);
+    const ref =
+      source === 'camera-photo'
+        ? cameraPhotoRef
+        : source === 'camera-video'
+          ? cameraVideoRef
+          : libraryRef;
+    // requestAnimationFrame so the sheet has a chance to unmount before
+    // the synthetic file-input click — older Safari occasionally drops
+    // the click if it's on the same paint as the sheet teardown.
+    requestAnimationFrame(() => ref.current?.click());
   }
 
   async function onPickMedia(e: React.ChangeEvent<HTMLInputElement>) {
@@ -573,7 +603,7 @@ export function ProcedureDocWizard({
             <span className="caption">PHOTOS &amp; VIDEO</span>
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={openMediaPicker}
               className="btn btn-secondary btn-sm"
               disabled={busy || !currentStep.title.trim()}
               title={
@@ -585,24 +615,39 @@ export function ProcedureDocWizard({
               <Camera size={14} strokeWidth={2} /> Add photo / video
             </button>
           </div>
+          {/* Three intent-specific inputs. iOS/Android pick the right
+              source from the (accept, capture) pair: an image-only
+              accept + capture opens the camera in photo mode; video-only
+              opens it in video mode; image,video without capture opens
+              the library/picker. Keeping them separate avoids the
+              "gallery only" trap that hits combined accept + capture. */}
           <input
-            ref={fileInputRef}
+            ref={cameraPhotoRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={onPickMedia}
+            className="hidden"
+          />
+          <input
+            ref={cameraVideoRef}
+            type="file"
+            accept="video/*"
+            capture="environment"
+            onChange={onPickMedia}
+            className="hidden"
+          />
+          <input
+            ref={libraryRef}
             type="file"
             accept="image/*,video/*"
-            capture="environment"
             onChange={onPickMedia}
             className="hidden"
           />
           {currentStep.media.length === 0 ? (
             <button
               type="button"
-              onClick={() => {
-                if (!currentStep.title.trim()) {
-                  setError('Add a step title first.');
-                  return;
-                }
-                fileInputRef.current?.click();
-              }}
+              onClick={openMediaPicker}
               className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-line bg-surface-raised p-8 text-sm text-ink-tertiary transition hover:border-brand/40 hover:text-ink-primary"
               disabled={busy}
             >
@@ -666,7 +711,77 @@ export function ProcedureDocWizard({
           Next step <ChevronRight size={16} strokeWidth={2} />
         </button>
       </footer>
+      {pickerOpen && (
+        <MediaSourceSheet
+          onPick={pickFrom}
+          onCancel={() => setPickerOpen(false)}
+        />
+      )}
     </FullScreenShell>
+  );
+}
+
+// MediaSourceSheet — bottom-sheet action menu so the tech explicitly
+// chooses Take photo / Take video / Library. Avoids the browser-
+// dependent ambiguity of a single combined file input where some
+// platforms (notably iOS Safari) collapse "image,video + capture" into
+// a gallery-only Photo picker with no camera shortcut.
+function MediaSourceSheet({
+  onPick,
+  onCancel,
+}: {
+  onPick: (source: 'camera-photo' | 'camera-video' | 'library') => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 sm:items-center"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Add media"
+      onClick={onCancel}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md rounded-t-xl bg-surface-raised p-2 sm:rounded-xl"
+      >
+        <button
+          type="button"
+          onClick={() => onPick('camera-photo')}
+          className="flex w-full items-center gap-3 rounded-md p-4 text-left text-base hover:bg-surface-elevated"
+        >
+          <Camera size={22} strokeWidth={1.75} className="text-ink-secondary" />
+          <span className="font-medium">Take photo</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => onPick('camera-video')}
+          className="flex w-full items-center gap-3 rounded-md p-4 text-left text-base hover:bg-surface-elevated"
+        >
+          <Video size={22} strokeWidth={1.75} className="text-ink-secondary" />
+          <span className="font-medium">Record video</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => onPick('library')}
+          className="flex w-full items-center gap-3 rounded-md p-4 text-left text-base hover:bg-surface-elevated"
+        >
+          <ImagePlus
+            size={22}
+            strokeWidth={1.75}
+            className="text-ink-secondary"
+          />
+          <span className="font-medium">Choose from library</span>
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="mt-1 flex w-full items-center justify-center gap-2 rounded-md p-3 text-sm text-ink-tertiary hover:bg-surface-elevated"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }
 
