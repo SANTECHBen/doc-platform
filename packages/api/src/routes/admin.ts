@@ -2372,55 +2372,89 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
     },
   );
 
-  // Backfill chunks/embeddings for every field-authored procedure that
-  // hasn't been ingested. Field procedures store their content in
-  // procedure_steps; the original implementation never wrote a synthesized
-  // bodyMarkdown to documents, so the extraction pipeline marked them
-  // not_applicable and chat retrieval couldn't see them. triggerExtraction
-  // now synthesizes on demand, so the backfill is just "reprocess every
-  // matching doc". Idempotent — re-running on a ready doc just re-chunks.
+  // Backfill chunks/embeddings for any document the caller can see that
+  // is missing chunks. This catches:
+  //   - field-authored structured procedures (synthesize bodyMarkdown from
+  //     procedure_steps, then chunk)
+  //   - markdown docs that failed extraction or were never processed
+  //   - PDFs etc. with extractionStatus in (pending, failed, not_applicable)
+  //
+  // Scope: asset-instance-based (same rule as scan / asset-hub access). A
+  // doc is in scope if its content pack's asset_model has at least one
+  // asset_instance at a site the caller's org owns. Platform admins → all.
+  //
+  // Returns the list of docs reprocessed so callers can confirm what was
+  // matched. Idempotent — running twice on a ready doc just re-chunks.
   app.post('/admin/field-procedures/backfill-chunks', async (request, reply) => {
     const { db } = app.ctx;
     requireAuth(request);
     const scope = await getScope(request, db);
 
-    // Find field-captured structured_procedure docs the caller can already
-    // see. Field-capture packs are owned by the asset MODEL's org (the OEM),
-    // not by the customer who authored the procedure on a unit at their
-    // site. Scoping the backfill purely to pack-owner would lock end-
-    // customers out of backfilling procedures they themselves authored.
-    //
-    // Mirror the way scan/asset-hub access works: a doc is in scope if
-    // there's at least one asset_instance of the doc's asset model at a
-    // site the caller's org owns. Platform admins backfill everything.
     const scopeFilter = scope.all
       ? sql`true`
       : sql`s.organization_id = ANY(${orgIdsLiteral(scope)})`;
 
-    const rows = await db.execute<{ id: string }>(sql`
-      SELECT DISTINCT d.id
+    // Two passes joined into one query: docs whose pack is field_captures
+    // (most common reason for missing chunks), OR any doc reachable via
+    // scope whose extractionStatus indicates it could use a re-run.
+    const rows = await db.execute<{
+      id: string;
+      kind: string;
+      title: string;
+      pack_kind: string;
+      status: string | null;
+      chunk_count: number;
+    }>(sql`
+      SELECT DISTINCT
+        d.id,
+        d.kind,
+        d.title,
+        cp.kind AS pack_kind,
+        d.extraction_status AS status,
+        (SELECT count(*)::int FROM document_chunks WHERE document_id = d.id) AS chunk_count
       FROM documents d
       JOIN content_pack_versions cpv ON cpv.id = d.content_pack_version_id
       JOIN content_packs cp ON cp.id = cpv.content_pack_id
       JOIN asset_instances ai ON ai.asset_model_id = cp.asset_model_id
       JOIN sites s ON s.id = ai.site_id
-      WHERE cp.kind = 'field_captures'
-        AND d.kind = 'structured_procedure'
-        AND ${scopeFilter}
+      WHERE ${scopeFilter}
+        AND (
+          cp.kind = 'field_captures'
+          OR d.extraction_status IN ('pending', 'failed', 'not_applicable')
+          OR d.extraction_status IS NULL
+        )
     `);
 
-    let queued = 0;
+    const queued: Array<{
+      id: string;
+      kind: string;
+      title: string;
+      pack_kind: string;
+      prior_status: string | null;
+      prior_chunk_count: number;
+    }> = [];
     for (const row of rows) {
-      // Reset to pending so the UI shows progress, then trigger.
       await db
         .update(schema.documents)
         .set({ extractionStatus: 'pending', extractionError: null })
         .where(eq(schema.documents.id, row.id));
       triggerExtraction(app, row.id);
-      queued++;
+      queued.push({
+        id: row.id,
+        kind: row.kind,
+        title: row.title,
+        pack_kind: row.pack_kind,
+        prior_status: row.status,
+        prior_chunk_count: row.chunk_count,
+      });
     }
 
-    return reply.send({ ok: true, queued });
+    return reply.send({
+      ok: true,
+      scope: scope.all ? 'all' : `orgs:${scope.orgIds.length}`,
+      count: queued.length,
+      docs: queued,
+    });
   });
 
   // Update a document (rename, swap file, etc.). Only allowed while the
