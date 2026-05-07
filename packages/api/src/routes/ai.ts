@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { schema } from '@platform/db';
 import {
   createHybridRetriever,
@@ -201,6 +201,27 @@ Extract in 2–3 sentences the key observable facts: any visible fault codes, al
       }
     }
 
+    // Field captures live in their own content_pack (kind='field_captures')
+    // separate from the OEM pinned version. The Documents tab fetches both
+    // and merges; the chat retriever needs to do the same or it'll claim
+    // "no procedure for X" the moment a tech asks about a procedure they
+    // just authored from the field. Lookup is null when the model has no
+    // field captures yet — schema guarantees at most one such pack per model.
+    const fieldCapturesVersionId = await db
+      .execute<{ version_id: string | null }>(
+        sql`SELECT cpv.id AS version_id
+            FROM content_packs cp
+            JOIN content_pack_versions cpv ON cpv.content_pack_id = cp.id
+            WHERE cp.kind = 'field_captures'
+              AND cp.asset_model_id = ${instance.assetModelId}
+            ORDER BY cpv.version_number DESC
+            LIMIT 1`,
+      )
+      .then((rows) => (rows[0]?.version_id ?? null) as string | null);
+
+    const versionIds: string[] = [conversation.contentPackVersionId];
+    if (fieldCapturesVersionId) versionIds.push(fieldCapturesVersionId);
+
     // Retrieve + enrich with safety flags. Hybrid retrieval (FTS + pgvector)
     // with Voyage reranking — best-in-class recall for grounded Q&A. If
     // VOYAGE_API_KEY is missing or quota-exhausted, the retriever degrades
@@ -215,7 +236,7 @@ Extract in 2–3 sentences the key observable facts: any visible fault codes, al
     });
     const retrieved = await retriever.retrieve({
       query: retrievalQuery,
-      contentPackVersionIds: [conversation.contentPackVersionId],
+      contentPackVersionIds: versionIds,
       topK: 12,
       documentIds: scopedDocumentIds,
     });
