@@ -70,8 +70,12 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
     });
   }, []);
 
+  const compactNameplate = active !== 'overview';
+
   return (
     <>
+      <Nameplate hub={hub} compact={compactNameplate} openIssueCount={openIssueCount} />
+
       <TabBar hub={hub} active={active} setActive={changeTab} position="top" />
 
       <div key={active} className="tab-pane flex flex-col gap-4">
@@ -105,6 +109,134 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
 
       <TabBar hub={hub} active={active} setActive={changeTab} position="bottom" />
     </>
+  );
+}
+
+// Nameplate — full milled-aluminum identification panel on the Overview
+// tab; collapses to a thin single-line strip on every other tab so techs
+// keep reading docs/parts/etc. instead of re-reading the asset's name.
+// The strip carries enough identity (LED + model + serial) that a tech
+// glancing up still knows what they're looking at, but adds only ~36px
+// of vertical chrome instead of the full plate's ~140px.
+function Nameplate({
+  hub,
+  compact,
+  openIssueCount,
+}: {
+  hub: AssetHubPayload;
+  compact: boolean;
+  openIssueCount: number;
+}) {
+  const ledClass = openIssueCount > 0 ? 'led-warn' : 'led-ok';
+
+  if (compact) {
+    return (
+      <header className="nameplate-strip" aria-label="Asset identity">
+        <span className={`led ${ledClass}`} />
+        <div className="nameplate-strip-id">
+          {hub.assetModel.imageUrl && (
+            <img
+              src={hub.assetModel.imageUrl}
+              alt=""
+              className="nameplate-strip-thumb"
+            />
+          )}
+          <span className="nameplate-strip-name">{hub.assetModel.displayName}</span>
+          <span className="nameplate-strip-sep">·</span>
+          <span className="nameplate-strip-serial">
+            <span className="cap">S/N</span>
+            <span className="serial">{hub.assetInstance.serialNumber}</span>
+          </span>
+        </div>
+        {openIssueCount > 0 && (
+          <span className="pill pill-warn">{openIssueCount} open</span>
+        )}
+      </header>
+    );
+  }
+
+  return (
+    <header className="nameplate">
+      <span className="corner-mark tl" />
+      <span className="corner-mark tr" />
+      <span className="corner-mark bl" />
+      <span className="corner-mark br" />
+
+      <div className="nameplate-top">
+        <span className={`led ${ledClass}`} />
+        <span className="caption">
+          {hub.organization.name} · {hub.site.name}
+        </span>
+      </div>
+
+      <div className="nameplate-row">
+        {hub.assetModel.imageUrl && (
+          <div
+            className="nameplate-thumb"
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: 8,
+              border: '1px solid rgb(var(--surface-plate-edge))',
+              background: 'rgb(var(--surface-elevated))',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              overflow: 'hidden',
+              padding: 4,
+            }}
+          >
+            <img
+              src={hub.assetModel.imageUrl}
+              alt=""
+              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+            />
+          </div>
+        )}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="nameplate-title">{hub.assetModel.displayName}</div>
+          <div className="nameplate-meta">
+            <span>{hub.assetModel.modelCode}</span>
+            <span className="sep">·</span>
+            <span>
+              S/N <span className="serial">{hub.assetInstance.serialNumber}</span>
+            </span>
+            {hub.assetModel.category && (
+              <>
+                <span className="sep">·</span>
+                <span style={{ textTransform: 'uppercase' }}>
+                  {hub.assetModel.category}
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="nameplate-metrics">
+          <div className="nameplate-metric">
+            <span className="cap">Rev</span>
+            <span className="val">
+              {hub.pinnedContentPackVersion?.versionLabel ?? '—'}
+            </span>
+          </div>
+          <div className="nameplate-metric">
+            <span className="cap">Open WO</span>
+            <span
+              className="val"
+              style={{
+                color:
+                  openIssueCount > 0
+                    ? 'rgb(var(--signal-warn))'
+                    : 'rgb(var(--signal-ok))',
+              }}
+            >
+              {openIssueCount}
+            </span>
+          </div>
+        </div>
+      </div>
+    </header>
   );
 }
 

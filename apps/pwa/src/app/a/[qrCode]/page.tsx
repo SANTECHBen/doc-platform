@@ -60,9 +60,6 @@ export default async function AssetHubPage({
     }
   }
 
-  const openWo = hub.tabs.openWorkOrders.count;
-  const ledClass = openWo > 0 ? 'led-warn' : 'led-ok';
-
   const brandRgb = hexToRgb(hub.brand.primary);
   const onBrandRgb = hexToRgb(hub.brand.onPrimary);
 
@@ -119,88 +116,6 @@ export default async function AssetHubPage({
       </header>
 
       <div className="app-scroll page-enter flex flex-col gap-4">
-        <header className="nameplate">
-          <span className="corner-mark tl" />
-          <span className="corner-mark tr" />
-          <span className="corner-mark bl" />
-          <span className="corner-mark br" />
-
-          <div className="nameplate-top">
-            <span className={`led ${ledClass}`} />
-            <span className="caption">
-              {hub.organization.name} · {hub.site.name}
-            </span>
-          </div>
-
-          <div className="nameplate-row">
-            {hub.assetModel.imageUrl && (
-              <div
-                className="nameplate-thumb"
-                style={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: 8,
-                  border: '1px solid rgb(var(--surface-plate-edge))',
-                  background: 'rgb(var(--surface-elevated))',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  overflow: 'hidden',
-                  padding: 4,
-                }}
-              >
-                <img
-                  src={hub.assetModel.imageUrl}
-                  alt=""
-                  style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
-                />
-              </div>
-            )}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="nameplate-title">{hub.assetModel.displayName}</div>
-              <div className="nameplate-meta">
-                <span>{hub.assetModel.modelCode}</span>
-                <span className="sep">·</span>
-                <span>
-                  S/N <span className="serial">{hub.assetInstance.serialNumber}</span>
-                </span>
-                {hub.assetModel.category && (
-                  <>
-                    <span className="sep">·</span>
-                    <span style={{ textTransform: 'uppercase' }}>
-                      {hub.assetModel.category}
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-
-            <div className="nameplate-metrics">
-              <div className="nameplate-metric">
-                <span className="cap">Rev</span>
-                <span className="val">
-                  {hub.pinnedContentPackVersion?.versionLabel ?? '—'}
-                </span>
-              </div>
-              <div className="nameplate-metric">
-                <span className="cap">Open WO</span>
-                <span
-                  className="val"
-                  style={{
-                    color:
-                      openWo > 0
-                        ? 'rgb(var(--signal-warn))'
-                        : 'rgb(var(--signal-ok))',
-                  }}
-                >
-                  {openWo}
-                </span>
-              </div>
-            </div>
-          </div>
-        </header>
-
         <AssetHubTabs hub={hub} qrCode={qrCode} />
       </div>
     </main>
