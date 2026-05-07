@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { schema } from '@platform/db';
 import { processDocument } from '@platform/ai';
 import { revalidateDocumentSections } from './section-revalidation-hook';
+import { synthesizeProcedureMarkdown } from './synthesize-procedure-md';
 import type { Storage } from '../storage';
 
 // Pull a storage key into a Buffer. The extraction pipeline needs bytes in
@@ -38,9 +39,32 @@ export function triggerExtraction(app: FastifyInstance, documentId: string): voi
       // to do per-page Jaccard comparison.
       const priorDoc = await db.query.documents.findFirst({
         where: eq(schema.documents.id, documentId),
-        columns: { extractedText: true },
+        columns: { extractedText: true, kind: true, bodyMarkdown: true, title: true },
       });
       const oldExtractedText = priorDoc?.extractedText ?? null;
+
+      // Field-authored procedures store their content in procedure_steps,
+      // not in documents.bodyMarkdown. The pipeline's processMarkdownDocument
+      // only chunks bodyMarkdown — without a synthesized body, the doc lands
+      // in extractionStatus='not_applicable' with zero chunks and is invisible
+      // to the chat retriever. Synthesize once here so every reprocess (incl.
+      // backfills of pre-existing field docs) ingests correctly.
+      if (
+        priorDoc?.kind === 'structured_procedure' &&
+        (!priorDoc.bodyMarkdown || priorDoc.bodyMarkdown.trim().length === 0)
+      ) {
+        const synthesized = await synthesizeProcedureMarkdown(
+          db,
+          documentId,
+          priorDoc.title ?? 'Untitled procedure',
+        );
+        if (synthesized.trim().length > 0) {
+          await db
+            .update(schema.documents)
+            .set({ bodyMarkdown: synthesized })
+            .where(eq(schema.documents.id, documentId));
+        }
+      }
 
       const result = await processDocument({
         db,

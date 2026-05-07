@@ -2372,6 +2372,51 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
     },
   );
 
+  // Backfill chunks/embeddings for every field-authored procedure that
+  // hasn't been ingested. Field procedures store their content in
+  // procedure_steps; the original implementation never wrote a synthesized
+  // bodyMarkdown to documents, so the extraction pipeline marked them
+  // not_applicable and chat retrieval couldn't see them. triggerExtraction
+  // now synthesizes on demand, so the backfill is just "reprocess every
+  // matching doc". Idempotent — re-running on a ready doc just re-chunks.
+  app.post('/admin/field-procedures/backfill-chunks', async (request, reply) => {
+    const { db } = app.ctx;
+    requireAuth(request);
+    const scope = await getScope(request, db);
+
+    // Find field-captured structured_procedure docs in the caller's scope.
+    // Two filters that matter: (a) docs whose pack is kind=field_captures,
+    // (b) docs without ready chunks (status != 'ready' OR zero chunks).
+    // We keep this scoped via the SQL — letting platform admins backfill
+    // everything by passing scope.all=true.
+    const orgsLiteral = scope.all
+      ? sql`true`
+      : sql`cp.owner_organization_id = ANY(${orgIdsLiteral(scope)})`;
+
+    const rows = await db.execute<{ id: string }>(sql`
+      SELECT d.id
+      FROM documents d
+      JOIN content_pack_versions cpv ON cpv.id = d.content_pack_version_id
+      JOIN content_packs cp ON cp.id = cpv.content_pack_id
+      WHERE cp.kind = 'field_captures'
+        AND d.kind = 'structured_procedure'
+        AND ${orgsLiteral}
+    `);
+
+    let queued = 0;
+    for (const row of rows) {
+      // Reset to pending so the UI shows progress, then trigger.
+      await db
+        .update(schema.documents)
+        .set({ extractionStatus: 'pending', extractionError: null })
+        .where(eq(schema.documents.id, row.id));
+      triggerExtraction(app, row.id);
+      queued++;
+    }
+
+    return reply.send({ ok: true, queued });
+  });
+
   // Update a document (rename, swap file, etc.). Only allowed while the
   // parent version is still a draft — published versions are immutable.
   app.patch<{
