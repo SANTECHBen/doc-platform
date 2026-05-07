@@ -34,26 +34,43 @@ export async function synthesizeProcedureMarkdown(
     subByStep.set(ss.procedureStepId, list);
   }
 
-  const lines: string[] = [`# ${fallbackTitle}`, ''];
+  const lines: string[] = [
+    `# ${fallbackTitle}`,
+    '',
+    `Field-authored procedure — ${steps.length} step${steps.length === 1 ? '' : 's'}.`,
+    '',
+  ];
+
   steps.forEach((s, i) => {
     const stepNumber = String(i + 1).padStart(2, '0');
     const safety = s.safetyCritical ? ' (safety-critical)' : '';
-    lines.push(`## Step ${stepNumber} — ${s.title}${safety}`);
-    if (s.bodyMarkdown && s.bodyMarkdown.trim().length > 0) {
-      lines.push('', s.bodyMarkdown.trim());
-    }
-    if (s.requiresPhoto) {
-      lines.push('', `_Photo evidence required (min ${s.minPhotoCount})._`);
-    }
+    lines.push(`## Step ${stepNumber} — ${s.title}${safety}`, '');
+
+    // Always emit at least one paragraph so chunkMarkdown has a non-heading
+    // block to consume. A step with only a title (no body, no flags, no
+    // substeps) would otherwise produce a heading-only doc, which the
+    // chunker correctly drops as zero chunks. Restating the title as a
+    // sentence makes "belt removal" findable when the technician asks
+    // "how do I remove the belt?".
+    const flags: string[] = [];
+    if (s.safetyCritical) flags.push('safety-critical');
+    if (s.requiresPhoto) flags.push(`photo evidence required (min ${s.minPhotoCount})`);
     if (s.measurementSpec) {
       const m = s.measurementSpec as { kind: string; label?: string; unit?: string };
       const label = m.label ?? 'measurement';
       const unit = m.unit ? ` (${m.unit})` : '';
-      lines.push('', `_Measurement: ${label}${unit}, kind=${m.kind}._`);
+      flags.push(`measurement: ${label}${unit}, kind=${m.kind}`);
     }
+    const summary = `Step ${i + 1} of ${steps.length}: ${s.title}.`;
+    const flagsClause = flags.length > 0 ? ` Flags: ${flags.join('; ')}.` : '';
+    lines.push(`${summary}${flagsClause}`, '');
+
+    if (s.bodyMarkdown && s.bodyMarkdown.trim().length > 0) {
+      lines.push(s.bodyMarkdown.trim(), '');
+    }
+
     const subs = subByStep.get(s.id) ?? [];
     if (subs.length > 0) {
-      lines.push('');
       subs.forEach((ss, j) => {
         lines.push(`${j + 1}. ${ss.title}`);
         if (ss.bodyMarkdown && ss.bodyMarkdown.trim().length > 0) {
@@ -65,8 +82,8 @@ export async function synthesizeProcedureMarkdown(
           lines.push(indented);
         }
       });
+      lines.push('');
     }
-    lines.push('');
   });
   return lines.join('\n').trim();
 }

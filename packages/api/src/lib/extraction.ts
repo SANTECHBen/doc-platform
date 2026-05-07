@@ -47,12 +47,15 @@ export function triggerExtraction(app: FastifyInstance, documentId: string): voi
       // not in documents.bodyMarkdown. The pipeline's processMarkdownDocument
       // only chunks bodyMarkdown — without a synthesized body, the doc lands
       // in extractionStatus='not_applicable' with zero chunks and is invisible
-      // to the chat retriever. Synthesize once here so every reprocess (incl.
-      // backfills of pre-existing field docs) ingests correctly.
-      if (
-        priorDoc?.kind === 'structured_procedure' &&
-        (!priorDoc.bodyMarkdown || priorDoc.bodyMarkdown.trim().length === 0)
-      ) {
+      // to the chat retriever.
+      //
+      // Always re-synthesize for structured_procedure docs (not just when
+      // bodyMarkdown is empty): step titles/bodies/safety flags get edited
+      // post-finalize, and we need every reprocess to pick up those edits.
+      // Legacy hand-authored markdown procedures (no procedure_steps rows)
+      // get an empty synthesis result, which we skip to avoid clobbering
+      // their author's bodyMarkdown.
+      if (priorDoc?.kind === 'structured_procedure') {
         const synthesized = await synthesizeProcedureMarkdown(
           db,
           documentId,
