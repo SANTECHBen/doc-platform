@@ -159,15 +159,15 @@ export function IssuesPanel({
             rows={3}
             className="rounded border border-line bg-surface-raised px-3 py-2.5 text-sm text-ink-primary placeholder:text-ink-tertiary focus:border-brand focus:outline-none"
           />
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col gap-1.5">
             <span className="caption">Severity</span>
-            <div className="flex rounded border border-line bg-surface-raised p-0.5">
+            <div className="grid w-full grid-cols-5 gap-0.5 rounded border border-line bg-surface-raised p-0.5">
               {SEVERITIES.map((s) => (
                 <button
                   key={s}
                   type="button"
                   onClick={() => setSeverity(s)}
-                  className={`rounded-sm px-3 py-1.5 text-xs font-medium capitalize transition ${
+                  className={`min-w-0 rounded-sm px-1 py-1.5 text-center text-xs font-medium capitalize transition ${
                     severity === s
                       ? severityActiveClass(s)
                       : 'text-ink-tertiary hover:text-ink-secondary'
