@@ -56,6 +56,50 @@ interface MeasurementDraft {
   outOfSpec?: boolean;
 }
 
+// Per-step draft snapshot persisted to localStorage so a tab close, app
+// crash, or device reboot mid-step doesn't lose evidence the tech already
+// captured. Keyed by runId+stepId so multiple in-flight runs stay distinct.
+interface StepDraftSnapshot {
+  measurement: MeasurementDraft;
+  notes: string;
+  photos: PhotoBuf[];
+  enteredAtISO: string;
+}
+
+const DRAFT_STORAGE_VERSION = 1;
+function draftStorageKey(runId: string, stepId: string): string {
+  return `eh:proc-draft:v${DRAFT_STORAGE_VERSION}:${runId}:${stepId}`;
+}
+
+function loadDraft(runId: string, stepId: string): StepDraftSnapshot | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(draftStorageKey(runId, stepId));
+    if (!raw) return null;
+    return JSON.parse(raw) as StepDraftSnapshot;
+  } catch {
+    return null;
+  }
+}
+
+function saveDraft(runId: string, stepId: string, snap: StepDraftSnapshot): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(draftStorageKey(runId, stepId), JSON.stringify(snap));
+  } catch {
+    // Quota exhaustion or storage disabled — silent fail; in-memory state still works.
+  }
+}
+
+function clearDraft(runId: string, stepId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(draftStorageKey(runId, stepId));
+  } catch {
+    // ignore
+  }
+}
+
 export function ProcedureRunner({
   docId,
   assetInstanceId,
@@ -82,6 +126,10 @@ export function ProcedureRunner({
   const [skipDialogOpen, setSkipDialogOpen] = useState(false);
   const [skipReason, setSkipReason] = useState('');
   const [missingStepIds, setMissingStepIds] = useState<string[] | null>(null);
+  // Set when the most recent mark-done network call failed for a non-spec
+  // reason (timeout, 5xx, connection drop). Drafts are persisted so the user
+  // can simply tap "Retry" without re-entering anything.
+  const [retryable, setRetryable] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -125,16 +173,63 @@ export function ProcedureRunner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docId]);
 
-  // Reset per-step drafts when navigating between steps. The completions
-  // map already reflects server state so re-entering a completed step
-  // shows its prior evidence read-only-ish (re-completion overwrites).
+  // Reset per-step drafts when navigating between steps, AND rehydrate
+  // any persisted draft snapshot for the new step. Draft persistence
+  // means a tab close mid-step doesn't lose evidence — the runId+stepId
+  // pair is stable across sessions because startProcedureRun is idempotent.
   useEffect(() => {
+    setMissingStepIds(null);
+    setRetryable(false);
+    const runId = bundle?.run.id;
+    const stepId = bundle?.steps[currentStepIndex]?.id;
+    if (runId && stepId) {
+      const restored = loadDraft(runId, stepId);
+      if (restored) {
+        setMeasurementDraft(restored.measurement);
+        setNotesDraft(restored.notes);
+        setPendingPhotos(restored.photos);
+        setEnteredAt(new Date(restored.enteredAtISO));
+        return;
+      }
+    }
     setEnteredAt(new Date());
     setPendingPhotos([]);
     setMeasurementDraft({});
     setNotesDraft('');
-    setMissingStepIds(null);
-  }, [currentStepIndex]);
+  }, [currentStepIndex, bundle?.run.id, bundle?.steps]);
+
+  // Persist drafts on every change so a crash mid-step doesn't lose work.
+  useEffect(() => {
+    const runId = bundle?.run.id;
+    const stepId = bundle?.steps[currentStepIndex]?.id;
+    if (!runId || !stepId) return;
+    // Skip persistence when there's nothing to persist (avoids writing
+    // empty snapshots over a freshly-cleared step).
+    const hasContent =
+      pendingPhotos.length > 0 ||
+      notesDraft.trim().length > 0 ||
+      Boolean(
+        measurementDraft.numeric ||
+          measurementDraft.passFail ||
+          measurementDraft.freeText ||
+          measurementDraft.overrideReason,
+      );
+    if (!hasContent) return;
+    saveDraft(runId, stepId, {
+      measurement: measurementDraft,
+      notes: notesDraft,
+      photos: pendingPhotos,
+      enteredAtISO: enteredAt.toISOString(),
+    });
+  }, [
+    bundle?.run.id,
+    bundle?.steps,
+    currentStepIndex,
+    pendingPhotos,
+    notesDraft,
+    measurementDraft,
+    enteredAt,
+  ]);
 
   if (error && !bundle) {
     return (
@@ -281,6 +376,7 @@ export function ProcedureRunner({
 
   async function onMarkDone() {
     setError(null);
+    setRetryable(false);
     const photos = [
       ...(existingCompletion?.photos ?? []),
       ...pendingPhotos.map((p) => ({ key: p.key, mime: p.mime })),
@@ -302,6 +398,9 @@ export function ProcedureRunner({
         devOrgId,
       });
       applyCompletion(c);
+      // Server has the evidence. Clear the draft so a future re-entry of
+      // this step doesn't re-hydrate stale local data.
+      clearDraft(run.id, step.id);
       // Auto-advance to next incomplete step. Look at the just-completed
       // set (server completions + the new one) since the React state
       // hasn't re-rendered yet.
@@ -321,12 +420,16 @@ export function ProcedureRunner({
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      // Surface out-of-spec hint inline if the API rejected for that reason.
+      // Surface out-of-spec hint inline if the API rejected for that reason —
+      // this isn't retryable, the user has to enter an override reason.
       if (msg.includes('out of spec')) {
         setMeasurementDraft((prev) => ({ ...prev, outOfSpec: true }));
         setError('Value is out of spec — confirm an override reason to continue.');
       } else {
+        // Network / 5xx / unknown — drafts are already persisted, so a
+        // simple retry button is safe and doesn't lose any captured evidence.
         setError(msg);
+        setRetryable(true);
       }
     } finally {
       setBusy(false);
@@ -359,6 +462,7 @@ export function ProcedureRunner({
         devOrgId,
       });
       applyCompletion(c);
+      clearDraft(run.id, step.id);
       setSkipDialogOpen(false);
       setSkipReason('');
       if (currentStepIndex < steps.length - 1) {
@@ -489,8 +593,18 @@ export function ProcedureRunner({
 
       <div className="doc-overlay-scroll">
         {error && (
-          <div className="mx-auto mt-3 max-w-3xl rounded-md border border-signal-fault/40 bg-signal-fault/10 p-3 text-sm text-signal-fault">
-            {error}
+          <div className="mx-auto mt-3 flex max-w-3xl flex-wrap items-center justify-between gap-3 rounded-md border border-signal-fault/40 bg-signal-fault/10 p-3 text-sm text-signal-fault">
+            <span className="min-w-0 flex-1">{error}</span>
+            {retryable && (
+              <button
+                type="button"
+                onClick={onMarkDone}
+                disabled={busy}
+                className="btn btn-sm btn-outline shrink-0"
+              >
+                Retry
+              </button>
+            )}
           </div>
         )}
         {missingStepIds && (

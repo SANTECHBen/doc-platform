@@ -97,6 +97,10 @@ export function ChatTab({
   const [error, setError] = useState<string | null>(null);
   const [attachment, setAttachment] = useState<UploadResult | null>(null);
   const [uploading, setUploading] = useState(false);
+  // Hold the last failed file so the tech can tap "Retry" instead of
+  // re-picking from the camera roll. Cleared on successful upload, on
+  // retry success, or when the user dismisses.
+  const [failedUpload, setFailedUpload] = useState<File | null>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -150,20 +154,36 @@ export function ChatTab({
     );
   }
 
-  async function onImagePicked(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  async function tryUpload(file: File) {
     setUploading(true);
     setError(null);
     try {
       const r = await uploadFile(file, DEV_USER_ID, DEV_ORG_ID);
       setAttachment(r);
+      setFailedUpload(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      setFailedUpload(file);
     } finally {
       setUploading(false);
-      if (cameraRef.current) cameraRef.current.value = '';
     }
+  }
+
+  async function onImagePicked(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (cameraRef.current) cameraRef.current.value = '';
+    if (!file) return;
+    await tryUpload(file);
+  }
+
+  async function onRetryUpload() {
+    if (!failedUpload) return;
+    await tryUpload(failedUpload);
+  }
+
+  function dismissFailedUpload() {
+    setFailedUpload(null);
+    setError(null);
   }
 
   async function send() {
@@ -284,14 +304,34 @@ export function ChatTab({
         ))}
         {error && (
           <div
-            className="rounded-md border p-3 text-sm"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm"
             style={{
               borderColor: 'rgba(var(--signal-fault) / 0.4)',
               background: 'rgba(var(--signal-fault) / 0.1)',
               color: 'rgb(var(--signal-fault))',
             }}
           >
-            {error}
+            <span className="min-w-0 flex-1">{error}</span>
+            {failedUpload && (
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onRetryUpload}
+                  disabled={uploading}
+                  className="btn btn-sm btn-outline"
+                >
+                  Retry upload
+                </button>
+                <button
+                  type="button"
+                  onClick={dismissFailedUpload}
+                  className="btn btn-sm btn-ghost"
+                  aria-label="Dismiss"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

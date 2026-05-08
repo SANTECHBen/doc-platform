@@ -169,31 +169,18 @@ export function PartsTab({
             className={`surface-etched part-row ${r.discontinued ? 'opacity-70' : ''}`}
           >
             <div className="flex items-start gap-3">
-              {r.imageUrl ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setLightbox({
-                      src: r.imageUrl!,
-                      title: r.displayName,
-                      oemPartNumber: r.oemPartNumber ?? '',
-                    })
-                  }
-                  aria-label={`View full image of ${r.displayName}`}
-                  className="flex h-14 w-14 shrink-0 items-center justify-center rounded border border-line-subtle bg-surface-inset p-1 transition hover:border-brand/60"
-                >
-                  <img
-                    src={r.imageUrl}
-                    alt=""
-                    className="max-h-full max-w-full object-contain"
-                    draggable={false}
-                  />
-                </button>
-              ) : (
-                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded border border-line-subtle bg-surface-inset text-ink-tertiary">
-                  <Package size={20} strokeWidth={1.5} />
-                </div>
-              )}
+              <PartThumb
+                imageUrl={r.imageUrl ?? null}
+                displayName={r.displayName}
+                oemPartNumber={r.oemPartNumber ?? ''}
+                onOpen={(src) =>
+                  setLightbox({
+                    src,
+                    title: r.displayName,
+                    oemPartNumber: r.oemPartNumber ?? '',
+                  })
+                }
+              />
               <button
                 type="button"
                 onClick={() => setOpenPartId(r.partId)}
@@ -1311,4 +1298,41 @@ function kindIcon(kind: string): LucideIcon {
     default:
       return Paperclip;
   }
+}
+
+function PartThumb({
+  imageUrl,
+  displayName,
+  oemPartNumber: _oemPartNumber,
+  onOpen,
+}: {
+  imageUrl: string | null;
+  displayName: string;
+  oemPartNumber: string;
+  onOpen: (src: string) => void;
+}): React.ReactElement {
+  const [failed, setFailed] = useState(false);
+  if (!imageUrl || failed) {
+    return (
+      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded border border-line-subtle bg-surface-inset text-ink-tertiary">
+        <Package size={20} strokeWidth={1.5} />
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(imageUrl)}
+      aria-label={`View full image of ${displayName}`}
+      className="flex h-14 w-14 shrink-0 items-center justify-center rounded border border-line-subtle bg-surface-inset p-1 transition hover:border-brand/60"
+    >
+      <img
+        src={imageUrl}
+        alt=""
+        className="max-h-full max-w-full object-contain"
+        draggable={false}
+        onError={() => setFailed(true)}
+      />
+    </button>
+  );
 }

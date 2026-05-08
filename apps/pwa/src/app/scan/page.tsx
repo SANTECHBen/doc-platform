@@ -16,6 +16,13 @@ export default function ScanPage() {
     let controls: IScannerControls | undefined;
     let cancelled = false;
 
+    let errorTimer: ReturnType<typeof setTimeout> | undefined;
+    function showTransientError(message: string) {
+      setError(message);
+      if (errorTimer) clearTimeout(errorTimer);
+      errorTimer = setTimeout(() => setError(null), 4000);
+    }
+
     reader
       .decodeFromVideoDevice(undefined, videoRef.current!, (result, _err, scannerControls) => {
         if (cancelled) return;
@@ -24,7 +31,7 @@ export default function ScanPage() {
         const text = result.getText();
         const code = extractQrCode(text);
         if (!code) {
-          setError('Unrecognized QR format.');
+          showTransientError('Unrecognized QR format. Try again.');
           return;
         }
         scannerControls.stop();
@@ -34,6 +41,7 @@ export default function ScanPage() {
 
     return () => {
       cancelled = true;
+      if (errorTimer) clearTimeout(errorTimer);
       controls?.stop();
     };
   }, [router]);

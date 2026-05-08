@@ -399,22 +399,19 @@ export function DocsTab({
                 className="relative flex aspect-[16/9] w-full items-center justify-center overflow-hidden"
                 style={{ background: 'rgb(var(--surface-elevated))' }}
               >
-                {e.thumbnailUrl ? (
-                  <img
-                    src={e.thumbnailUrl}
-                    alt=""
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <div className="doc-thumb-placeholder text-ink-secondary">
-                    <div className="icon-chip icon-chip-lg icon-chip-neutral">
-                      <Icon size={28} strokeWidth={1.5} />
+                <DocThumb
+                  thumbnailUrl={e.thumbnailUrl ?? null}
+                  fallback={
+                    <div className="doc-thumb-placeholder text-ink-secondary">
+                      <div className="icon-chip icon-chip-lg icon-chip-neutral">
+                        <Icon size={28} strokeWidth={1.5} />
+                      </div>
+                      <span className="doc-thumb-label text-ink-tertiary">
+                        {kindLabel(e.kind)}
+                      </span>
                     </div>
-                    <span className="doc-thumb-label text-ink-tertiary">
-                      {kindLabel(e.kind)}
-                    </span>
-                  </div>
-                )}
+                  }
+                />
               </div>
               <div className="flex flex-1 flex-col gap-2 p-4">
                 <div className="flex items-center justify-between gap-2">
@@ -977,4 +974,23 @@ function formatBytes(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
   return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+function DocThumb({
+  thumbnailUrl,
+  fallback,
+}: {
+  thumbnailUrl: string | null;
+  fallback: React.ReactElement;
+}): React.ReactElement {
+  const [failed, setFailed] = useState(false);
+  if (!thumbnailUrl || failed) return fallback;
+  return (
+    <img
+      src={thumbnailUrl}
+      alt=""
+      className="h-full w-full object-cover"
+      onError={() => setFailed(true)}
+    />
+  );
 }

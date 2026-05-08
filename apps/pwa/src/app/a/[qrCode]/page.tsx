@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { DensityToggle } from '@/components/density-toggle';
 import { ScanWall } from '@/components/scan-wall';
+import { BrandLogo } from '@/components/brand-logo';
 import { AssetHubTabs } from './tabs';
 import { resolveAssetHub } from '@/lib/api';
 import { SCAN_COOKIE_NAME, verifyScanSessionValue } from '@/lib/scan-session';
@@ -94,10 +95,10 @@ export default async function AssetHubPage({
       <header className="app-topbar">
         <div className="app-topbar-brand">
           {hub.brand.logoUrl ? (
-            <img
+            <BrandLogo
               src={hub.brand.logoUrl}
               alt={hub.brand.displayName}
-              style={{ maxHeight: 22, maxWidth: 120, objectFit: 'contain' }}
+              initials={hub.brand.initials}
             />
           ) : (
             <div

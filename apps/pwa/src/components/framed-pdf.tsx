@@ -151,8 +151,12 @@ export function FramedPdf({
           </p>
         )}
         {!error && (!pdf || !intrinsicWidth) && (
-          <div className="flex h-full items-center justify-center text-sm text-ink-tertiary">
-            Loading PDF…
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+            <span className="inline-block h-8 w-8 animate-spin rounded-full border-2 border-line border-t-brand" />
+            <p className="text-base font-medium text-ink-primary">Loading PDF</p>
+            <p className="text-sm text-ink-secondary">
+              First page may take a few seconds on slow connections.
+            </p>
           </div>
         )}
         {pdf && intrinsicWidth && (

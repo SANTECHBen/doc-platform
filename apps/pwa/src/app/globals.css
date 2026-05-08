@@ -173,7 +173,7 @@
   }
 
   button, [role='button'], a.touch {
-    min-height: 40px;
+    min-height: 44px;
   }
 }
 
@@ -894,7 +894,7 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
-    min-height: 40px;
+    min-height: 44px;
     padding: 0 14px;
     border-radius: 3px;
     font-size: 13px;
@@ -1029,14 +1029,16 @@
 
   /* ------------------------------------------------------------
      BUTTON (.btn variants)
-     Size scale: .btn-sm (32) · .btn (40) · .btn-lg (48)
+     Size scale: .btn-sm (32) · .btn (44) · .btn-lg (48)
+     Base is 44px to clear the WCAG touch-target minimum and stay
+     usable for techs wearing work gloves on a shop floor.
      ------------------------------------------------------------ */
   .btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
-    min-height: 40px;
+    min-height: 44px;
     padding: 0 18px;
     border-radius: 6px;
     font-family: inherit;

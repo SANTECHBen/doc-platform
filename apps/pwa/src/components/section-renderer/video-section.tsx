@@ -4,7 +4,8 @@
 // load, and clamps playback to the [start, end] window — pause + seek-back
 // when the user scrubs outside, auto-pause when end is reached.
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { VideoOff } from 'lucide-react';
 import type { DocumentBody, PwaDocumentSection } from '@/lib/api';
 
 export function VideoSection({
@@ -15,6 +16,7 @@ export function VideoSection({
   section: PwaDocumentSection;
 }): React.ReactElement {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [playbackError, setPlaybackError] = useState(false);
   const start = section.timeStartSeconds ?? 0;
   const end = section.timeEndSeconds ?? Infinity;
 
@@ -62,9 +64,17 @@ export function VideoSection({
     );
   }
 
-  if (!doc.fileUrl) {
+  if (!doc.fileUrl || playbackError) {
     return (
-      <p className="px-4 text-xs text-ink-tertiary">Video file URL is not available.</p>
+      <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 bg-surface-inset px-6 text-center">
+        <VideoOff size={28} strokeWidth={1.5} className="text-ink-tertiary" />
+        <p className="text-sm font-medium text-ink-primary">Video unavailable</p>
+        <p className="text-xs text-ink-secondary">
+          {doc.fileUrl
+            ? 'The video could not be played. Check your connection and try again.'
+            : 'No video source is attached to this section.'}
+        </p>
+      </div>
     );
   }
 
@@ -75,6 +85,7 @@ export function VideoSection({
       controls
       preload="metadata"
       className="aspect-video w-full bg-black"
+      onError={() => setPlaybackError(true)}
     />
   );
 }
