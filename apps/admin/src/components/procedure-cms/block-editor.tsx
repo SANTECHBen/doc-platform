@@ -29,31 +29,29 @@ import {
   Lightbulb,
   List,
   ListOrdered,
+  Loader2,
   Plus,
   ShieldAlert,
   Table as TableIcon,
   Trash2,
   Type,
+  Upload,
   X,
 } from 'lucide-react';
-import type { StepBlock } from '@/lib/api';
+import type { StepBlock, AdminStepMedia } from '@/lib/api';
 
 export type StepBlockKind = StepBlock['kind'];
-
-interface MediaItem {
-  storageKey: string;
-  url?: string | null;
-  kind: 'image' | 'video';
-  caption?: string;
-}
 
 interface Props {
   blocks: StepBlock[];
   onChange: (next: StepBlock[]) => void;
   /** Step's own media items, exposed to the photo_inline block as a
-   *  picker. Keeps that block honest (you can't reference media that
-   *  isn't on the step). */
-  stepMedia: MediaItem[];
+   *  picker. */
+  stepMedia: AdminStepMedia[];
+  /** Upload a new photo/video to the step's media[] from inside the
+   *  PhotoInline block. Returns the new media item so the picker can
+   *  auto-select it. */
+  onUploadStepMedia?: (file: File) => Promise<AdminStepMedia>;
   /** Optional legacy bodyMarkdown — when present and blocks is empty,
    *  we offer a one-click "Import from markdown" affordance. */
   legacyBodyMarkdown?: string | null;
@@ -131,6 +129,7 @@ export function BlockListEditor({
   blocks,
   onChange,
   stepMedia,
+  onUploadStepMedia,
   legacyBodyMarkdown,
   onImportLegacy,
 }: Props) {
@@ -260,6 +259,7 @@ export function BlockListEditor({
             onChange={(next) => setBlock(i, next)}
             onDelete={() => deleteBlock(i)}
             stepMedia={stepMedia}
+            onUploadStepMedia={onUploadStepMedia}
             draggable={blocks.length > 1}
             onDragStart={onDragStart(i)}
             onDragOver={onDragOver(i)}
@@ -295,6 +295,7 @@ function BlockShell({
   onChange,
   onDelete,
   stepMedia,
+  onUploadStepMedia,
   draggable,
   onDragStart,
   onDragOver,
@@ -307,7 +308,8 @@ function BlockShell({
   index: number;
   onChange: (next: StepBlock) => void;
   onDelete: () => void;
-  stepMedia: MediaItem[];
+  stepMedia: AdminStepMedia[];
+  onUploadStepMedia?: (file: File) => Promise<AdminStepMedia>;
   draggable: boolean;
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
@@ -349,7 +351,12 @@ function BlockShell({
         <Icon className="size-4" />
       </div>
       <div className="min-w-0 flex-1 py-2.5 pr-2">
-        <BlockBody block={block} onChange={onChange} stepMedia={stepMedia} />
+        <BlockBody
+          block={block}
+          onChange={onChange}
+          stepMedia={stepMedia}
+          onUploadStepMedia={onUploadStepMedia}
+        />
       </div>
       <button
         type="button"
@@ -368,10 +375,12 @@ function BlockBody({
   block,
   onChange,
   stepMedia,
+  onUploadStepMedia,
 }: {
   block: StepBlock;
   onChange: (next: StepBlock) => void;
-  stepMedia: MediaItem[];
+  stepMedia: AdminStepMedia[];
+  onUploadStepMedia?: (file: File) => Promise<AdminStepMedia>;
 }) {
   switch (block.kind) {
     case 'paragraph':
@@ -389,6 +398,7 @@ function BlockBody({
           block={block}
           onChange={onChange}
           stepMedia={stepMedia}
+          onUploadStepMedia={onUploadStepMedia}
         />
       );
   }
@@ -635,64 +645,140 @@ function PhotoInlineEditor({
   block,
   onChange,
   stepMedia,
+  onUploadStepMedia,
 }: {
   block: Extract<StepBlock, { kind: 'photo_inline' }>;
   onChange: (next: StepBlock) => void;
-  stepMedia: MediaItem[];
+  stepMedia: AdminStepMedia[];
+  onUploadStepMedia?: (file: File) => Promise<AdminStepMedia>;
 }) {
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
   const images = stepMedia.filter((m) => m.kind === 'image');
   const selected = images.find((m) => m.storageKey === block.storageKey);
-  if (images.length === 0) {
-    return (
-      <p className="text-xs text-ink-tertiary">
-        No photos attached to this step yet. Add a photo above first, then come
-        back here to reference it.
-      </p>
-    );
+
+  async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = '';
+    if (!file || !onUploadStepMedia) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const item = await onUploadStepMedia(file);
+      // Auto-select the freshly uploaded photo so the author doesn't have
+      // to click a second time. The parent's stepMedia prop will re-render
+      // with the new item on next render — selection by storageKey works
+      // in both cases.
+      onChange({ ...block, storageKey: item.storageKey });
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUploading(false);
+    }
   }
+
   return (
     <div className="flex flex-col gap-2">
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-        {images.map((m) => {
-          const active = m.storageKey === block.storageKey;
-          return (
+      {images.length === 0 ? (
+        <div className="flex flex-col items-start gap-2">
+          <p className="text-xs text-ink-tertiary">
+            No photos on this step yet — upload one to insert it here.
+          </p>
+          {onUploadStepMedia && (
             <button
-              key={m.storageKey}
               type="button"
-              onClick={() => onChange({ ...block, storageKey: m.storageKey })}
-              className={[
-                'relative aspect-video overflow-hidden rounded-md border transition',
-                active
-                  ? 'border-accent ring-2 ring-accent/40'
-                  : 'border-line hover:border-accent/40',
-              ].join(' ')}
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              className="inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-accent/5 px-3 py-1.5 text-xs font-medium text-accent transition hover:border-accent hover:bg-accent/10 disabled:opacity-50"
             >
-              {m.url ? (
-                <img
-                  src={m.url}
-                  alt=""
-                  className="h-full w-full object-cover"
-                />
+              {uploading ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin" /> Uploading…
+                </>
               ) : (
-                <div className="flex h-full items-center justify-center bg-surface text-xs text-ink-tertiary">
-                  No preview
-                </div>
+                <>
+                  <Upload className="size-3.5" /> Upload photo
+                </>
               )}
             </button>
-          );
-        })}
-      </div>
-      {selected && (
-        <input
-          type="text"
-          value={block.caption ?? ''}
-          onChange={(e) =>
-            onChange({ ...block, caption: e.target.value || undefined })
-          }
-          placeholder="Caption (optional)"
-          className="w-full rounded-sm border border-line-subtle bg-surface px-2 py-1 text-xs text-ink-secondary outline-none focus:border-accent"
-        />
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+            {images.map((m) => {
+              const active = m.storageKey === block.storageKey;
+              return (
+                <button
+                  key={m.storageKey}
+                  type="button"
+                  onClick={() => onChange({ ...block, storageKey: m.storageKey })}
+                  className={[
+                    'relative aspect-video overflow-hidden rounded-md border transition',
+                    active
+                      ? 'border-accent ring-2 ring-accent/40'
+                      : 'border-line hover:border-accent/40',
+                  ].join(' ')}
+                >
+                  {m.url ? (
+                    <img
+                      src={m.url}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center bg-surface text-xs text-ink-tertiary">
+                      No preview
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+            {onUploadStepMedia && (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={uploading}
+                className="flex aspect-video flex-col items-center justify-center gap-1 rounded-md border border-dashed border-line text-xs text-ink-tertiary transition hover:border-accent/60 hover:bg-accent/5 hover:text-accent disabled:opacity-50"
+              >
+                {uploading ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <>
+                    <Upload className="size-4" />
+                    <span>Upload</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+          {selected && (
+            <input
+              type="text"
+              value={block.caption ?? ''}
+              onChange={(e) =>
+                onChange({ ...block, caption: e.target.value || undefined })
+              }
+              placeholder="Caption (optional)"
+              className="w-full rounded-sm border border-line-subtle bg-surface px-2 py-1 text-xs text-ink-secondary outline-none focus:border-accent"
+            />
+          )}
+        </>
       )}
+      {uploadError && (
+        <p className="rounded-md border border-signal-fault/40 bg-signal-fault/10 px-2 py-1 text-xs text-signal-fault">
+          {uploadError}
+        </p>
+      )}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/png,image/jpeg,image/jpg,image/webp,image/heic,image/heif"
+        onChange={onPickFile}
+        className="hidden"
+      />
     </div>
   );
 }

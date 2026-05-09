@@ -159,7 +159,20 @@ const ReorderBody = z.object({
 
 type StepRow = typeof schema.procedureSteps.$inferSelect;
 
-function rowToDTO(row: StepRow, opts?: { audioPublicUrl?: string | null }) {
+function rowToDTO(
+  row: StepRow,
+  opts?: {
+    audioPublicUrl?: string | null;
+    mediaPublicUrl?: (storageKey: string) => string;
+  },
+) {
+  // Expand each media item with a publicly-resolvable URL so the admin
+  // editor and PWA runner can render thumbnails without a second round-
+  // trip per item.
+  const media = (row.media ?? []).map((m) => ({
+    ...m,
+    url: opts?.mediaPublicUrl ? opts.mediaPublicUrl(m.storageKey) : null,
+  }));
   return {
     id: row.id,
     documentId: row.documentId,
@@ -172,6 +185,7 @@ function rowToDTO(row: StepRow, opts?: { audioPublicUrl?: string | null }) {
     minPhotoCount: row.minPhotoCount,
     measurementSpec: row.measurementSpec,
     blocks: row.blocks ?? [],
+    media,
     audioStorageKey: row.audioStorageKey,
     audioContentType: row.audioContentType,
     audioSizeBytes: row.audioSizeBytes,
@@ -292,6 +306,7 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           audioPublicUrl: r.audioStorageKey
             ? storage.publicUrl(r.audioStorageKey)
             : null,
+          mediaPublicUrl: (k) => storage.publicUrl(k),
         }),
       );
     },
@@ -379,7 +394,12 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         userAgent: request.headers['user-agent'] ?? null,
       });
 
-      return rowToDTO(row);
+      return rowToDTO(row, {
+        audioPublicUrl: row.audioStorageKey
+          ? app.ctx.storage.publicUrl(row.audioStorageKey)
+          : null,
+        mediaPublicUrl: (k) => app.ctx.storage.publicUrl(k),
+      });
     },
   );
 
@@ -456,7 +476,12 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         userAgent: request.headers['user-agent'] ?? null,
       });
 
-      return rowToDTO(updated);
+      return rowToDTO(updated, {
+        audioPublicUrl: updated.audioStorageKey
+          ? app.ctx.storage.publicUrl(updated.audioStorageKey)
+          : null,
+        mediaPublicUrl: (k) => app.ctx.storage.publicUrl(k),
+      });
     },
   );
 

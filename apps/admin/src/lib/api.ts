@@ -1685,6 +1685,15 @@ export type StepBlock =
     }
   | { kind: 'photo_inline'; storageKey: string; caption?: string };
 
+export interface AdminStepMedia {
+  kind: 'image' | 'video';
+  storageKey: string;
+  mime: string;
+  caption?: string;
+  /** Resolved public URL — server fills this in from storage.publicUrl(). */
+  url: string | null;
+}
+
 export interface AdminProcedureStep {
   id: string;
   documentId: string;
@@ -1696,6 +1705,8 @@ export interface AdminProcedureStep {
   requiresPhoto: boolean;
   minPhotoCount: number;
   measurementSpec: MeasurementSpec | null;
+  /** Authored photos and videos attached to this step. */
+  media: AdminStepMedia[];
   /** Typed structured content. New authoring writes here; legacy rows
    *  may still have content in bodyMarkdown until edited. */
   blocks: StepBlock[];
@@ -1869,6 +1880,35 @@ export async function deleteProcedureStepAudio(stepId: string): Promise<void> {
     { method: 'DELETE', headers: await authHeaders() },
   );
   if (!res.ok) throw new Error(`Audio delete ${res.status}: ${await res.text()}`);
+}
+
+// ---------------------------------------------------------------------------
+// Per-step media (photos / videos) authoring.
+// ---------------------------------------------------------------------------
+
+export async function uploadProcedureStepMedia(
+  stepId: string,
+  file: File,
+): Promise<AdminStepMedia> {
+  const form = new FormData();
+  form.append('file', file, file.name);
+  const res = await fetch(
+    `${API_BASE}/admin/procedure-steps/${encodeURIComponent(stepId)}/media`,
+    { method: 'POST', headers: await authHeaders(), body: form },
+  );
+  if (!res.ok) throw new Error(`Media upload ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminStepMedia;
+}
+
+export async function deleteProcedureStepMedia(
+  stepId: string,
+  storageKey: string,
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/procedure-steps/${encodeURIComponent(stepId)}/media/${encodeURIComponent(storageKey)}`,
+    { method: 'DELETE', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`Media delete ${res.status}: ${await res.text()}`);
 }
 
 export async function patchProcedureStepAudioDuration(

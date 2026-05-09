@@ -331,6 +331,129 @@ export async function registerAdminProcedureAudioRoutes(app: FastifyInstance) {
   );
 
   // -------------------------------------------------------------------------
+  // POST /admin/procedure-steps/:id/media (multipart upload)
+  //
+  // Attaches a photo (or video) to the step's media[] array. The author
+  // can then reference the upload from a photo_inline block, or simply
+  // let it render in the step's own gallery. Replaces nothing — appends.
+  // -------------------------------------------------------------------------
+  app.post<{ Params: { id: string } }>(
+    '/admin/procedure-steps/:id/media',
+    { schema: { params: z.object({ id: UuidSchema }) } },
+    async (request, reply) => {
+      const { db, storage } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadStepForWrite(db, request.params.id, scope);
+      if (!ctx) return reply.notFound();
+      if (!request.isMultipart()) {
+        return reply.badRequest('Expected multipart/form-data with a file.');
+      }
+      const file = await request.file();
+      if (!file) return reply.badRequest('Missing file.');
+
+      const mime = (file.mimetype || '').toLowerCase();
+      const isImage = mime.startsWith('image/');
+      const isVideo = mime.startsWith('video/');
+      if (!isImage && !isVideo) {
+        return reply.unsupportedMediaType(
+          `Unsupported media type: ${mime}. Use an image or video.`,
+        );
+      }
+      const MAX_BYTES = isVideo ? 200 * 1024 * 1024 : 25 * 1024 * 1024;
+
+      const chunks: Buffer[] = [];
+      for await (const c of file.file as unknown as AsyncIterable<Buffer>) chunks.push(c);
+      const buf = Buffer.concat(chunks);
+      if (buf.byteLength === 0) return reply.badRequest('Empty file.');
+      if (buf.byteLength > MAX_BYTES) {
+        return reply.payloadTooLarge(
+          `File exceeds ${Math.round(MAX_BYTES / 1024 / 1024)} MB limit.`,
+        );
+      }
+
+      const stored = await storage.putBuffer({
+        buffer: buf,
+        filename: file.filename || `step-${ctx.step.id}-media`,
+        contentType: mime,
+      });
+
+      const next = [
+        ...(ctx.step.media ?? []),
+        {
+          kind: isImage ? ('image' as const) : ('video' as const),
+          storageKey: stored.storageKey,
+          mime,
+        },
+      ];
+      await db
+        .update(schema.procedureSteps)
+        .set({ media: next, updatedAt: new Date() })
+        .where(eq(schema.procedureSteps.id, ctx.step.id));
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'procedure_step.media_added',
+        targetType: 'procedure_step',
+        targetId: ctx.step.id,
+        payload: { storageKey: stored.storageKey, mime, sizeBytes: stored.size },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+
+      return reply.send({
+        storageKey: stored.storageKey,
+        url: storage.publicUrl(stored.storageKey),
+        kind: isImage ? 'image' : 'video',
+        mime,
+        sizeBytes: stored.size,
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // DELETE /admin/procedure-steps/:id/media/:storageKey  (URL-encoded)
+  // Removes the entry from media[]; doesn't delete the underlying blob
+  // (storage GC handles orphans).
+  // -------------------------------------------------------------------------
+  app.delete<{ Params: { id: string; storageKey: string } }>(
+    '/admin/procedure-steps/:id/media/:storageKey',
+    {
+      schema: {
+        params: z.object({
+          id: UuidSchema,
+          storageKey: z.string().min(1).max(800),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadStepForWrite(db, request.params.id, scope);
+      if (!ctx) return reply.notFound();
+      const removeKey = request.params.storageKey;
+      const next = (ctx.step.media ?? []).filter((m) => m.storageKey !== removeKey);
+      await db
+        .update(schema.procedureSteps)
+        .set({ media: next, updatedAt: new Date() })
+        .where(eq(schema.procedureSteps.id, ctx.step.id));
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'procedure_step.media_removed',
+        targetType: 'procedure_step',
+        targetId: ctx.step.id,
+        payload: { storageKey: removeKey },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+      return reply.send({ ok: true });
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // PATCH /admin/procedure-steps/:id/audio/duration
   //
   // Tiny endpoint the admin UI calls after probing duration in the

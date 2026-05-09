@@ -15,7 +15,9 @@ import {
   Trash2,
 } from 'lucide-react';
 import {
+  uploadProcedureStepMedia,
   type AdminProcedureStep,
+  type AdminStepMedia,
   type ProcedureStepKind,
   type StepBlock,
   type UpdateProcedureStepInput,
@@ -239,7 +241,15 @@ export function StepCard({
         <BlockListEditor
           blocks={blocks}
           onChange={onBlocksChange}
-          stepMedia={(step as AdminProcedureStep & { media?: Array<{ storageKey: string; kind: 'image' | 'video'; url?: string | null; caption?: string }> }).media ?? []}
+          stepMedia={step.media ?? []}
+          onUploadStepMedia={async (file) => {
+            const item = await uploadProcedureStepMedia(step.id, file);
+            // Optimistically merge into the step so the picker shows it
+            // before the parent's next refresh.
+            const nextMedia: AdminStepMedia[] = [...(step.media ?? []), item];
+            onAudioChanged({ ...step, media: nextMedia });
+            return item;
+          }}
           legacyBodyMarkdown={step.bodyMarkdown}
           onImportLegacy={onImportLegacy}
         />
