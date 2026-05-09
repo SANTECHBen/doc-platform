@@ -2289,11 +2289,14 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
       // see at scan-time.
 
       // Require that the kind has the right payload. Prevents orphan rows with
-      // no renderable content.
+      // no renderable content. structured_procedure is the exception: its
+      // payload is the procedure_steps it owns (authored after the doc row
+      // exists), so the row itself is allowed to be created with no body —
+      // the new full-page editor at /procedures/[id]/edit fills it in.
       const b = request.body;
       const kindOk =
         (b.kind === 'markdown' && !!b.bodyMarkdown) ||
-        (b.kind === 'structured_procedure' && !!b.bodyMarkdown) ||
+        b.kind === 'structured_procedure' ||
         (b.kind === 'external_video' && !!b.externalUrl) ||
         (b.kind === 'video' && (!!b.storageKey || !!b.streamPlaybackId)) ||
         (['pdf', 'slides', 'file', 'schematic'].includes(b.kind) && !!b.storageKey);
@@ -2301,13 +2304,16 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
         return reply.badRequest(`Document kind "${b.kind}" is missing its payload field.`);
       }
 
-      // Decide initial extraction state. Markdown/structured_procedure ground
-      // off bodyMarkdown and need chunking too (for embedding). Binary docs
-      // (pdf/pptx/docx/slides/schematic) need full extraction. Videos and
-      // external URLs have no text the AI can retrieve from.
+      // Decide initial extraction state. Markdown grounds off bodyMarkdown
+      // and needs chunking. Binary docs (pdf/pptx/docx/slides/schematic)
+      // need full extraction. Videos / external URLs have no text. For
+      // structured_procedure, content lives in procedure_steps (authored
+      // after creation) — so we only run chunking when there's actual
+      // bodyMarkdown to chunk; otherwise stay 'not_applicable' until the
+      // step authoring fills in retrievable content.
       const needsExtraction =
-        b.kind === 'markdown' ||
-        b.kind === 'structured_procedure' ||
+        (b.kind === 'markdown' && !!b.bodyMarkdown) ||
+        (b.kind === 'structured_procedure' && !!b.bodyMarkdown) ||
         isExtractable(b.kind, b.contentType ?? null);
       const initialStatus = needsExtraction ? 'pending' : 'not_applicable';
 
