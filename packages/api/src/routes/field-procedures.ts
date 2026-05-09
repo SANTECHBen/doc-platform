@@ -1284,6 +1284,13 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
           requiresPhoto: s.requiresPhoto,
           minPhotoCount: s.minPhotoCount,
           measurementSpec: s.measurementSpec,
+          // Authored voiceover. When present, the runner plays this file
+          // instead of synthesizing TTS — better quality, zero per-play cost.
+          audioUrl: s.audioStorageKey
+            ? storage.publicUrl(s.audioStorageKey)
+            : null,
+          audioDurationMs: s.audioDurationMs,
+          audioSource: s.audioSource,
           media: (s.media ?? []).map((m) => ({
             ...m,
             url: storage.publicUrl(m.storageKey),

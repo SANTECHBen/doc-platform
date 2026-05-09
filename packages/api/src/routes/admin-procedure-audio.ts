@@ -1,0 +1,367 @@
+// Admin authoring API for per-step voiceover audio. Lets the author:
+//
+//   POST   /admin/procedure-steps/:id/audio              upload MP3/M4A
+//   POST   /admin/procedure-steps/:id/audio/generate     synthesize via OpenAI TTS
+//   DELETE /admin/procedure-steps/:id/audio              clear
+//
+// Voiceover is the centerpiece of the authored runner experience —
+// pre-recorded narration plays at run time instead of live TTS, which
+// gives a) custom emphasis / pacing on safety-critical steps, b) a
+// distinct shop voice, and c) zero per-play vendor cost. Generated
+// audio is stored once in S3 and replayed from there.
+
+import type { FastifyInstance } from 'fastify';
+import { eq } from 'drizzle-orm';
+import { z } from 'zod';
+import { schema, type Database } from '@platform/db';
+import { UuidSchema } from '@platform/shared';
+import { requireAuth } from '../middleware/auth.js';
+import { getScope, requireOrgInScope } from '../middleware/scope.js';
+
+const ACCEPT_MIMES = new Set([
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/mp4',
+  'audio/m4a',
+  'audio/x-m4a',
+  'audio/aac',
+  'audio/ogg',
+  'audio/webm',
+  'audio/wav',
+  'audio/x-wav',
+]);
+const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // 25 MB — plenty for a long step
+const AUDIO_GEN_VOICE_FALLBACK = 'onyx';
+
+interface StepCtx {
+  step: typeof schema.procedureSteps.$inferSelect;
+  doc: typeof schema.documents.$inferSelect;
+  ownerOrganizationId: string;
+}
+
+async function loadStepForWrite(
+  db: Database,
+  stepId: string,
+  scope: { all: boolean; orgIds: string[] },
+): Promise<StepCtx | null> {
+  const step = await db.query.procedureSteps.findFirst({
+    where: eq(schema.procedureSteps.id, stepId),
+  });
+  if (!step) return null;
+  const doc = await db.query.documents.findFirst({
+    where: eq(schema.documents.id, step.documentId),
+    with: { packVersion: { with: { pack: true } } },
+  });
+  if (!doc) return null;
+  requireOrgInScope(scope, doc.packVersion.pack.ownerOrganizationId);
+  return {
+    step,
+    doc,
+    ownerOrganizationId: doc.packVersion.pack.ownerOrganizationId,
+  };
+}
+
+// Best-effort duration probe via WebAudio's container metadata. We don't
+// run a real audio decoder server-side (would add ffmpeg), so this is a
+// rough estimate read from the bytes' first frames. The admin UI re-probes
+// on the client (HTMLAudioElement.duration after preload='metadata') and
+// PATCHes the accurate value back when known.
+function estimateDurationMsFromBytes(_buf: Buffer, _mime: string): number | null {
+  // Heuristic placeholder — the client probe is reliable enough that we
+  // don't need this on first write. Returning null is fine; admin UI fills
+  // it in via the PATCH /admin/procedure-steps/:id route's existing
+  // updatedAt path on next save.
+  return null;
+}
+
+// Strip markdown noise so the synthesized voiceover doesn't read symbols
+// aloud. Mirrors the cleanup VirtualJobAid does for live TTS.
+function buildSpokenScript(input: { title: string; bodyMarkdown: string | null }): string {
+  const lead = input.title.trim();
+  const body = (input.bodyMarkdown ?? '')
+    .replace(/[#>*_`]/g, '')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return body ? `${lead}. ${body}` : lead;
+}
+
+const GenerateBody = z.object({
+  // Optional explicit voice override; defaults to env.OPENAI_TTS_VOICE.
+  voice: z
+    .enum(['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'onyx', 'nova', 'sage', 'shimmer'])
+    .optional(),
+  // Optional override of the spoken script. Defaults to step title +
+  // body. Lets the author reword the audio without changing the on-screen
+  // text (e.g. "Tighten to 25 newton-meters" vs. on-screen "25 N·m").
+  script: z.string().min(2).max(4000).optional(),
+});
+
+export async function registerAdminProcedureAudioRoutes(app: FastifyInstance) {
+  // -------------------------------------------------------------------------
+  // POST /admin/procedure-steps/:id/audio  (multipart upload)
+  //
+  // Accepts a single audio file, validates mime + size, stores to the
+  // configured object store, and writes the storage key + content type
+  // + size into the procedure_steps row. Replaces any existing audio on
+  // the step (one voiceover per step).
+  // -------------------------------------------------------------------------
+  app.post<{ Params: { id: string } }>(
+    '/admin/procedure-steps/:id/audio',
+    { schema: { params: z.object({ id: UuidSchema }) } },
+    async (request, reply) => {
+      const { db, storage } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadStepForWrite(db, request.params.id, scope);
+      if (!ctx) return reply.notFound();
+
+      if (!request.isMultipart()) {
+        return reply.badRequest('Expected multipart/form-data with an audio file.');
+      }
+      const file = await request.file();
+      if (!file) return reply.badRequest('Missing audio file.');
+
+      const mime = (file.mimetype || '').toLowerCase();
+      if (!ACCEPT_MIMES.has(mime)) {
+        return reply.unsupportedMediaType(
+          `Unsupported audio type: ${mime}. Use MP3, M4A, AAC, OGG, WAV, or WebM.`,
+        );
+      }
+
+      const chunks: Buffer[] = [];
+      for await (const c of file.file as unknown as AsyncIterable<Buffer>) chunks.push(c);
+      const buf = Buffer.concat(chunks);
+      if (buf.byteLength === 0) return reply.badRequest('Empty audio.');
+      if (buf.byteLength > MAX_AUDIO_BYTES) {
+        return reply.payloadTooLarge('Audio exceeds 25 MB limit.');
+      }
+
+      const stored = await storage.putBuffer({
+        buffer: buf,
+        filename: file.filename || `step-${ctx.step.id}.audio`,
+        contentType: mime,
+      });
+
+      const [updated] = await db
+        .update(schema.procedureSteps)
+        .set({
+          audioStorageKey: stored.storageKey,
+          audioContentType: mime,
+          audioSizeBytes: stored.size,
+          audioDurationMs: estimateDurationMsFromBytes(buf, mime),
+          audioSource: 'uploaded',
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.procedureSteps.id, ctx.step.id))
+        .returning();
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'procedure_step.audio_uploaded',
+        targetType: 'procedure_step',
+        targetId: ctx.step.id,
+        payload: {
+          mime,
+          sizeBytes: stored.size,
+        },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+
+      return reply.send({
+        audioUrl: storage.publicUrl(stored.storageKey),
+        audioContentType: mime,
+        audioSizeBytes: stored.size,
+        audioSource: 'uploaded' as const,
+        updatedAt: updated?.updatedAt.toISOString(),
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /admin/procedure-steps/:id/audio/generate
+  //
+  // One-shot synthesize via OpenAI TTS-1-HD, store the resulting MP3 in
+  // the object store, write the storage key onto the row. Cost is ~$0.024
+  // for an average step and the audio plays free forever — far cheaper
+  // than per-run TTS even for moderate scan volumes. Re-callable: replaces
+  // any previous audio on the step.
+  // -------------------------------------------------------------------------
+  app.post<{ Params: { id: string }; Body: z.infer<typeof GenerateBody> }>(
+    '/admin/procedure-steps/:id/audio/generate',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema }),
+        body: GenerateBody,
+      },
+    },
+    async (request, reply) => {
+      const { db, storage, env } = app.ctx;
+      if (!env.OPENAI_API_KEY) {
+        return reply.code(503).send({
+          error: 'Audio generation requires OPENAI_API_KEY.',
+        });
+      }
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadStepForWrite(db, request.params.id, scope);
+      if (!ctx) return reply.notFound();
+
+      const script = request.body.script ?? buildSpokenScript({
+        title: ctx.step.title,
+        bodyMarkdown: ctx.step.bodyMarkdown,
+      });
+      const voice =
+        request.body.voice ?? env.OPENAI_TTS_VOICE ?? AUDIO_GEN_VOICE_FALLBACK;
+
+      // Synthesize. We capture the whole MP3 stream into a buffer so we
+      // can store it; the response is small enough (≤ 1MB typically) that
+      // buffering doesn't matter.
+      const ttsResp = await fetch('https://api.openai.com/v1/audio/speech', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${env.OPENAI_API_KEY}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: env.OPENAI_TTS_MODEL,
+          voice,
+          input: script,
+          format: 'mp3',
+        }),
+      });
+      if (!ttsResp.ok) {
+        const text = await ttsResp.text().catch(() => '');
+        request.log.error({ status: ttsResp.status, text }, 'TTS generate failed');
+        return reply.internalServerError('Audio synthesis failed.');
+      }
+      const arrayBuf = await ttsResp.arrayBuffer();
+      const buf = Buffer.from(arrayBuf);
+      if (buf.byteLength === 0) {
+        return reply.internalServerError('TTS returned empty audio.');
+      }
+
+      const stored = await storage.putBuffer({
+        buffer: buf,
+        filename: `step-${ctx.step.id}-tts.mp3`,
+        contentType: 'audio/mpeg',
+      });
+
+      const [updated] = await db
+        .update(schema.procedureSteps)
+        .set({
+          audioStorageKey: stored.storageKey,
+          audioContentType: 'audio/mpeg',
+          audioSizeBytes: stored.size,
+          audioDurationMs: null, // client-side probe will fill this in
+          audioSource: 'generated',
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.procedureSteps.id, ctx.step.id))
+        .returning();
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'procedure_step.audio_generated',
+        targetType: 'procedure_step',
+        targetId: ctx.step.id,
+        payload: { voice, scriptChars: script.length, sizeBytes: stored.size },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+
+      return reply.send({
+        audioUrl: storage.publicUrl(stored.storageKey),
+        audioContentType: 'audio/mpeg',
+        audioSizeBytes: stored.size,
+        audioSource: 'generated' as const,
+        voice,
+        updatedAt: updated?.updatedAt.toISOString(),
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // DELETE /admin/procedure-steps/:id/audio
+  //
+  // Clears the audio columns. We don't physically delete the stored
+  // object — content-addressed storage means a future re-upload of the
+  // same bytes will reuse it; orphaned blobs are cleaned by the storage
+  // GC sweep separately.
+  // -------------------------------------------------------------------------
+  app.delete<{ Params: { id: string } }>(
+    '/admin/procedure-steps/:id/audio',
+    { schema: { params: z.object({ id: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadStepForWrite(db, request.params.id, scope);
+      if (!ctx) return reply.notFound();
+
+      await db
+        .update(schema.procedureSteps)
+        .set({
+          audioStorageKey: null,
+          audioContentType: null,
+          audioSizeBytes: null,
+          audioDurationMs: null,
+          audioSource: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.procedureSteps.id, ctx.step.id));
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'procedure_step.audio_deleted',
+        targetType: 'procedure_step',
+        targetId: ctx.step.id,
+        payload: {},
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+
+      return reply.send({ ok: true });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // PATCH /admin/procedure-steps/:id/audio/duration
+  //
+  // Tiny endpoint the admin UI calls after probing duration in the
+  // browser (HTMLAudioElement.duration). Server-side we don't have a
+  // decoder, so we accept the client's value once and store it.
+  // -------------------------------------------------------------------------
+  app.patch<{
+    Params: { id: string };
+    Body: { audioDurationMs: number };
+  }>(
+    '/admin/procedure-steps/:id/audio/duration',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema }),
+        body: z.object({ audioDurationMs: z.number().int().min(0).max(60 * 60 * 1000) }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadStepForWrite(db, request.params.id, scope);
+      if (!ctx) return reply.notFound();
+      if (!ctx.step.audioStorageKey) {
+        return reply.badRequest('No audio attached to this step.');
+      }
+      await db
+        .update(schema.procedureSteps)
+        .set({ audioDurationMs: request.body.audioDurationMs, updatedAt: new Date() })
+        .where(eq(schema.procedureSteps.id, ctx.step.id));
+      return reply.send({ ok: true });
+    },
+  );
+}

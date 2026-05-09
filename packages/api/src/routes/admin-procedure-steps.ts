@@ -110,7 +110,7 @@ const ReorderBody = z.object({
 
 type StepRow = typeof schema.procedureSteps.$inferSelect;
 
-function rowToDTO(row: StepRow) {
+function rowToDTO(row: StepRow, opts?: { audioPublicUrl?: string | null }) {
   return {
     id: row.id,
     documentId: row.documentId,
@@ -122,6 +122,12 @@ function rowToDTO(row: StepRow) {
     requiresPhoto: row.requiresPhoto,
     minPhotoCount: row.minPhotoCount,
     measurementSpec: row.measurementSpec,
+    audioStorageKey: row.audioStorageKey,
+    audioContentType: row.audioContentType,
+    audioSizeBytes: row.audioSizeBytes,
+    audioDurationMs: row.audioDurationMs,
+    audioSource: row.audioSource,
+    audioUrl: opts?.audioPublicUrl ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -218,7 +224,7 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
     '/admin/documents/:documentId/procedure-steps',
     { schema: { params: z.object({ documentId: UuidSchema }) } },
     async (request, reply) => {
-      const { db } = app.ctx;
+      const { db, storage } = app.ctx;
       requireAuth(request);
       const scope = await getScope(request, db);
       const ctx = await loadDocumentForWrite(db, request.params.documentId, scope);
@@ -231,7 +237,13 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           asc(schema.procedureSteps.createdAt),
         ],
       });
-      return rows.map(rowToDTO);
+      return rows.map((r) =>
+        rowToDTO(r, {
+          audioPublicUrl: r.audioStorageKey
+            ? storage.publicUrl(r.audioStorageKey)
+            : null,
+        }),
+      );
     },
   );
 

@@ -14,47 +14,6 @@ import {
 
 const PROCEDURE_DIRECTIVE_RE =
   /\[procedure:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/i;
-const STEPS_DIRECTIVE_RE = /\[steps\]([\s\S]*?)\[\/steps\]/i;
-
-interface InlineSteps {
-  title: string;
-  steps: Array<{ title: string; bodyMarkdown?: string | null; safetyCritical?: boolean }>;
-}
-
-function parseInlineSteps(text: string): InlineSteps | null {
-  const m = STEPS_DIRECTIVE_RE.exec(text);
-  if (!m || !m[1]) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(m[1].trim());
-  } catch {
-    return null;
-  }
-  if (!parsed || typeof parsed !== 'object') return null;
-  const obj = parsed as Record<string, unknown>;
-  const title = typeof obj.title === 'string' ? obj.title : 'Procedure';
-  const arr = Array.isArray(obj.steps) ? obj.steps : [];
-  const steps = arr
-    .map((s) => {
-      if (!s || typeof s !== 'object') return null;
-      const o = s as Record<string, unknown>;
-      const stepTitle =
-        typeof o.text === 'string'
-          ? o.text
-          : typeof o.title === 'string'
-            ? o.title
-            : null;
-      if (!stepTitle) return null;
-      return {
-        title: stepTitle,
-        bodyMarkdown: typeof o.bodyMarkdown === 'string' ? o.bodyMarkdown : null,
-        safetyCritical: !!o.safetyCritical,
-      };
-    })
-    .filter((s): s is NonNullable<typeof s> => s !== null);
-  if (steps.length === 0) return null;
-  return { title, steps };
-}
 
 // Full-screen voice experience. Opens automatically on QR scan (once per
 // session), and any time the user taps the mic button in the chat composer.
@@ -101,14 +60,11 @@ export function VoiceMode(props: Props): React.ReactElement {
   const [turns, setTurns] = useState<VoiceTurn[]>([]);
   const [needsGesture, setNeedsGesture] = useState(true);
   const [preflight, setPreflight] = useState<PreflightBrief | null>(null);
-  // When the AI emits a procedure or [steps] directive, we suspend the
-  // voice greeter and mount VirtualJobAid in its place — same overlay,
-  // hands-free walkthrough. Clearing the source resumes voice mode and
-  // goes back to listening.
-  type JobAidSource =
-    | { kind: 'doc'; docId: string }
-    | { kind: 'inline'; inline: InlineSteps };
-  const [jobAidSource, setJobAidSource] = useState<JobAidSource | null>(null);
+  // When the AI emits a [procedure:UUID] directive, we suspend the voice
+  // greeter and mount VirtualJobAid in its place — same overlay, hands-
+  // free walkthrough. Clearing the source resumes voice mode and goes
+  // back to listening.
+  const [jobAidSource, setJobAidSource] = useState<{ docId: string } | null>(null);
   const conversationIdRef = useRef<string | undefined>(props.initialConversationId);
 
   // Audio infra. Allocated lazily on first user gesture so iOS doesn't
@@ -453,22 +409,16 @@ export function VoiceMode(props: Props): React.ReactElement {
 
     const cleaned = assistantText.replace(/\[cite:[a-f0-9-]{8,}\]/gi, '').trim();
 
-    // Procedure handoff — the AI signaled a hands-free walkthrough is the
-    // right answer. Two flavors: an authored procedure (UUID) or inline
-    // steps JSON. Either way we skip TTS-of-the-directive and mount
-    // VirtualJobAid in place; the runner has its own TTS layer per step.
+    // Procedure handoff — the AI signaled an authored procedure walkthrough
+    // is the right answer. Skip TTS-of-the-directive and mount VirtualJobAid
+    // in place; the runner has its own per-step audio (authored or TTS).
     const procMatch = PROCEDURE_DIRECTIVE_RE.exec(cleaned);
-    const inline = procMatch ? null : parseInlineSteps(cleaned);
-    if ((procMatch && procMatch[1]) || inline) {
+    if (procMatch && procMatch[1]) {
       stopRecording();
       micAnalyserRef.current?.disconnect();
       setOrbState('idle');
       setStatusLine('Walking you through the procedure');
-      setJobAidSource(
-        procMatch && procMatch[1]
-          ? { kind: 'doc', docId: procMatch[1] }
-          : { kind: 'inline', inline: inline! },
-      );
+      setJobAidSource({ docId: procMatch[1] });
       setTurns((t) => [
         ...t,
         { role: 'assistant', text: `Opened procedure walkthrough.` },
@@ -544,20 +494,12 @@ export function VoiceMode(props: Props): React.ReactElement {
   if (jobAidSource) {
     return (
       <VirtualJobAid
-        source={
-          jobAidSource.kind === 'doc'
-            ? {
-                kind: 'doc',
-                docId: jobAidSource.docId,
-                devUserId: props.devUserId,
-                devOrgId: props.devOrgId,
-              }
-            : {
-                kind: 'inline',
-                title: jobAidSource.inline.title,
-                steps: jobAidSource.inline.steps,
-              }
-        }
+        source={{
+          kind: 'doc',
+          docId: jobAidSource.docId,
+          devUserId: props.devUserId,
+          devOrgId: props.devOrgId,
+        }}
         onClose={() => {
           setJobAidSource(null);
           // Re-attach mic to the analyser so audio reactivity resumes,

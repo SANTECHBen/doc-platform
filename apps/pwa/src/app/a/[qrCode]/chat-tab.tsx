@@ -3,72 +3,34 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ArrowUp, AudioLines, Camera, ChevronDown, FileText, ListChecks, Play, Sparkles, Square, Trash2, X } from 'lucide-react';
+import { ArrowUp, AudioLines, BookPlus, Camera, ChevronDown, FileText, ListChecks, Play, Sparkles, Square, Trash2, X } from 'lucide-react';
 import type { AssetHubPayload } from '@/lib/shared-schema';
-import { streamChat, uploadFile, type ChatCitation, type UploadResult, type VerifyResult } from '@/lib/api';
+import {
+  fetchMe,
+  promoteAiMessageToProcedure,
+  streamChat,
+  uploadFile,
+  type ChatCitation,
+  type MeIdentity,
+  type UploadResult,
+  type VerifyResult,
+} from '@/lib/api';
 import { VoiceMode } from '@/components/voice-mode';
 import { VirtualJobAid } from '@/components/virtual-job-aid';
+import { useToast } from '@/components/toast';
 
-// The AI emits one of two directives when its answer is a procedure:
-//
-//   [procedure:<uuid>]            ← a hand-authored procedure exists; open it
-//   [steps]{...JSON...}[/steps]   ← inline step data extracted from PDF/etc.
-//
-// Either way we render a "Walk me through this" launcher card in place of
-// the prose bubble; tapping it opens VirtualJobAid full-screen.
+// AI emits [procedure:<uuid>] when an authored procedure matches the
+// user's question — we swap the prose bubble for a launcher that opens
+// VirtualJobAid. There is intentionally NO inline-steps directive: the
+// product is curated authored content, and AI-improvised step lists
+// would commoditize that. Procedural answers without an authored match
+// render as normal prose with a "Promote to procedure" affordance for
+// admins.
 const PROCEDURE_DIRECTIVE_RE = /\[procedure:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/i;
-const STEPS_DIRECTIVE_RE = /\[steps\]([\s\S]*?)\[\/steps\]/i;
-
-interface InlineSteps {
-  title: string;
-  steps: Array<{ title: string; bodyMarkdown?: string | null; safetyCritical?: boolean }>;
-}
 
 function extractProcedureId(text: string): string | null {
   const m = PROCEDURE_DIRECTIVE_RE.exec(text);
   return m && m[1] ? m[1] : null;
-}
-
-// Defensive parse — the model can produce slightly malformed JSON. Common
-// failure modes: trailing comma, smart quotes, missing closing brace. We
-// reject anything we can't parse cleanly; the fall-through is the regular
-// prose render which is still useful information for the tech.
-function extractInlineSteps(text: string): InlineSteps | null {
-  const m = STEPS_DIRECTIVE_RE.exec(text);
-  if (!m || !m[1]) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(m[1].trim());
-  } catch {
-    return null;
-  }
-  if (!parsed || typeof parsed !== 'object') return null;
-  const obj = parsed as Record<string, unknown>;
-  const title = typeof obj.title === 'string' ? obj.title : '';
-  const stepsArr = Array.isArray(obj.steps) ? obj.steps : [];
-  const steps = stepsArr
-    .map((s) => {
-      if (!s || typeof s !== 'object') return null;
-      // Schema accepts either { text } (current model output convention)
-      // or { title, bodyMarkdown } (procedure-doc shape) — we normalize.
-      const sObj = s as Record<string, unknown>;
-      const stepTitle =
-        typeof sObj.text === 'string'
-          ? sObj.text
-          : typeof sObj.title === 'string'
-            ? sObj.title
-            : null;
-      if (!stepTitle) return null;
-      return {
-        title: stepTitle,
-        bodyMarkdown:
-          typeof sObj.bodyMarkdown === 'string' ? sObj.bodyMarkdown : null,
-        safetyCritical: !!sObj.safetyCritical,
-      };
-    })
-    .filter((s): s is NonNullable<typeof s> => s !== null);
-  if (steps.length === 0) return null;
-  return { title: title || 'Procedure', steps };
 }
 
 type UserTurn = { role: 'user'; text: string; imageUrl?: string };
@@ -78,6 +40,11 @@ type AssistantTurn = {
   citations: ChatCitation[];
   streaming: boolean;
   verify?: VerifyResult;
+  /** Server-side message id, populated on the `done` event. Required for
+   *  admin actions like Promote-to-procedure that need to point back at
+   *  the exact AI message. Absent on locally-injected turns (e.g. from
+   *  voice mode handoff). */
+  messageId?: string;
 };
 type Turn = UserTurn | AssistantTurn;
 
@@ -170,18 +137,61 @@ export function ChatTab({
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const [voiceOpen, setVoiceOpen] = useState(false);
-  type JobAidEventSource =
-    | { kind: 'doc'; procedureId: string }
-    | { kind: 'inline'; inline: InlineSteps };
-  const [jobAid, setJobAid] = useState<JobAidEventSource | null>(null);
+  const [jobAid, setJobAid] = useState<{ procedureId: string } | null>(null);
+  const [me, setMe] = useState<MeIdentity | null>(null);
+  const [promoting, setPromoting] = useState<string | null>(null);
+  const toast = useToast();
 
-  // Listen for launcher events fired by either ProcedureLauncherCard or
-  // InlineStepsLauncherCard. A window event keeps the launchers decoupled
-  // from where they're rendered (chat tab, voice mode, future surfaces).
+  // Pull identity once. The /me result decides whether we render the
+  // admin-only "Promote to procedure" affordance. Server still enforces
+  // auth on the actual promote call — this is purely UI gating.
+  useEffect(() => {
+    if (!DEV_USER_ID || !DEV_ORG_ID) return;
+    void fetchMe(DEV_USER_ID, DEV_ORG_ID).then(setMe).catch(() => setMe(null));
+  }, []);
+
+  const adminBaseUrl = process.env.NEXT_PUBLIC_ADMIN_ORIGIN ?? '';
+
+  async function onPromote(turn: AssistantTurn) {
+    if (!turn.messageId || promoting) return;
+    setPromoting(turn.messageId);
+    try {
+      const result = await promoteAiMessageToProcedure({
+        messageId: turn.messageId,
+        devUserId: DEV_USER_ID,
+        devOrgId: DEV_ORG_ID,
+      });
+      const editorUrl = adminBaseUrl
+        ? `${adminBaseUrl}/documents/${encodeURIComponent(result.documentId)}?tab=steps`
+        : null;
+      toast.success(
+        `Created draft procedure with ${result.stepCount} step${result.stepCount === 1 ? '' : 's'}`,
+        result.hadStructure
+          ? 'Refine in the admin editor — add media and voiceover.'
+          : 'AI prose was kept as one step; split it in the editor.',
+      );
+      if (editorUrl) {
+        window.open(editorUrl, '_blank', 'noopener,noreferrer');
+      }
+    } catch (err) {
+      toast.error(
+        'Could not promote answer',
+        err instanceof Error ? err.message : String(err),
+      );
+    } finally {
+      setPromoting(null);
+    }
+  }
+
+  // Listen for launcher events fired by ProcedureLauncherCard. A window
+  // event keeps launchers decoupled from where they're rendered (chat tab,
+  // voice mode, future surfaces).
   useEffect(() => {
     function onOpen(e: Event) {
-      const detail = (e as CustomEvent<{ source: JobAidEventSource }>).detail;
-      if (detail?.source) setJobAid(detail.source);
+      const detail = (e as CustomEvent<{ source: { kind: 'doc'; procedureId: string } }>).detail;
+      if (detail?.source?.kind === 'doc') {
+        setJobAid({ procedureId: detail.source.procedureId });
+      }
     }
     window.addEventListener('virtual-job-aid:open', onOpen);
     return () => window.removeEventListener('virtual-job-aid:open', onOpen);
@@ -313,6 +323,7 @@ export function ChatTab({
                 ...a,
                 citations: event.citations,
                 streaming: false,
+                messageId: event.messageId,
               })),
             );
           } else if (event.type === 'verify') {
@@ -386,7 +397,13 @@ export function ChatTab({
           </div>
         )}
         {turns.map((t, i) => (
-          <TurnView key={i} turn={t} />
+          <TurnView
+            key={i}
+            turn={t}
+            canPromote={!!me?.platformAdmin}
+            promotingMessageId={promoting}
+            onPromote={onPromote}
+          />
         ))}
         {error && (
           <div
@@ -542,20 +559,12 @@ export function ChatTab({
 
       {jobAid && (
         <VirtualJobAid
-          source={
-            jobAid.kind === 'doc'
-              ? {
-                  kind: 'doc',
-                  docId: jobAid.procedureId,
-                  devUserId: DEV_USER_ID,
-                  devOrgId: DEV_ORG_ID,
-                }
-              : {
-                  kind: 'inline',
-                  title: jobAid.inline.title,
-                  steps: jobAid.inline.steps,
-                }
-          }
+          source={{
+            kind: 'doc',
+            docId: jobAid.procedureId,
+            devUserId: DEV_USER_ID,
+            devOrgId: DEV_ORG_ID,
+          }}
           onClose={() => setJobAid(null)}
         />
       )}
@@ -575,7 +584,17 @@ function updateLastAssistant(turns: Turn[], fn: (a: AssistantTurn) => AssistantT
   return turns;
 }
 
-function TurnView({ turn }: { turn: Turn }) {
+function TurnView({
+  turn,
+  canPromote,
+  promotingMessageId,
+  onPromote,
+}: {
+  turn: Turn;
+  canPromote: boolean;
+  promotingMessageId: string | null;
+  onPromote: (t: AssistantTurn) => void;
+}) {
   if (turn.role === 'user') {
     return (
       <div className="flex flex-col items-end gap-1.5">
@@ -601,10 +620,6 @@ function TurnView({ turn }: { turn: Turn }) {
     const procedureId = extractProcedureId(turn.text);
     if (procedureId) {
       return <ProcedureLauncherCard procedureId={procedureId} />;
-    }
-    const inline = extractInlineSteps(turn.text);
-    if (inline) {
-      return <InlineStepsLauncherCard inline={inline} />;
     }
   }
 
@@ -650,6 +665,23 @@ function TurnView({ turn }: { turn: Turn }) {
 
         {!turn.streaming && turn.verify && (
           <GroundingPanel verify={turn.verify} />
+        )}
+
+        {!turn.streaming && canPromote && turn.messageId && (
+          <div className="mt-3 border-t border-line pt-2.5">
+            <button
+              type="button"
+              onClick={() => onPromote(turn)}
+              disabled={promotingMessageId === turn.messageId}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-secondary transition hover:text-ink-primary disabled:opacity-50"
+              title="Promote this answer to an authored procedure"
+            >
+              <BookPlus size={12} strokeWidth={2} />
+              {promotingMessageId === turn.messageId
+                ? 'Promoting…'
+                : 'Author this as a procedure'}
+            </button>
+          </div>
         )}
       </div>
     </div>
@@ -706,48 +738,6 @@ function ProcedureLauncherCard({ procedureId }: { procedureId: string }): React.
         <span className="procedure-launcher-text">
           <span className="procedure-launcher-eyebrow">Walk me through this</span>
           <span className="procedure-launcher-title">{title ?? 'Loading procedure…'}</span>
-        </span>
-        <span className="procedure-launcher-cta">
-          <Play size={16} strokeWidth={2.5} />
-        </span>
-      </button>
-    </div>
-  );
-}
-
-// Mounted when the AI emits an inline [steps] directive. No extra fetch
-// required — the steps are already in the directive payload. Opens the
-// runner with `kind: 'inline'` so the same UI/UX is shared.
-function InlineStepsLauncherCard({ inline }: { inline: InlineSteps }): React.ReactElement {
-  function open() {
-    window.dispatchEvent(
-      new CustomEvent('virtual-job-aid:open', {
-        detail: { source: { kind: 'inline', inline } },
-      }),
-    );
-  }
-  return (
-    <div className="max-w-[92%]">
-      <div className="mb-2 flex items-center gap-2">
-        <span className="led" />
-        <span className="caption" style={{ color: 'rgb(var(--ink-brand))' }}>
-          Assistant
-        </span>
-      </div>
-      <button
-        type="button"
-        onClick={open}
-        className="procedure-launcher"
-        aria-label="Open step-by-step walkthrough"
-      >
-        <span className="procedure-launcher-icon">
-          <ListChecks size={20} strokeWidth={2} />
-        </span>
-        <span className="procedure-launcher-text">
-          <span className="procedure-launcher-eyebrow">
-            Walk me through this · {inline.steps.length} steps
-          </span>
-          <span className="procedure-launcher-title">{inline.title}</span>
         </span>
         <span className="procedure-launcher-cta">
           <Play size={16} strokeWidth={2.5} />

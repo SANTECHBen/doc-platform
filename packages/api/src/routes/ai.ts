@@ -275,6 +275,12 @@ Extract in 2–3 sentences the key observable facts: any visible fault codes, al
         ? procedureCatalogRows
         : procedureCatalogRows.filter((p) => scopedDocumentIds!.includes(p.id));
 
+    // Authored procedures only — the AI does NOT improvise step lists.
+    // The business model is curated documentation; AI-generated steps
+    // from PDFs would commoditize the product. When no authored
+    // procedure matches, we want grounded prose with citations, and the
+    // admin can promote a great answer into a proper authored procedure
+    // via /admin/procedures/from-ai-message.
     const authoredProcedureCatalog = visibleProcedures.length
       ? `\n\nAVAILABLE STEP-BY-STEP PROCEDURES (authored, hands-free runner):
 ${visibleProcedures
@@ -290,33 +296,12 @@ ${visibleProcedures
   .join('\n')}
 
 If the user's question matches one of these procedures EXACTLY, reply with ONLY this — no prose, no preamble, no citations:
-[procedure:THE_UUID]`
-      : '';
+[procedure:THE_UUID]
 
-    // The [steps] directive — the AI's escape hatch when the answer is
-    // procedural but no authored procedure matches. Extract steps from
-    // retrieved chunks and emit a structured JSON payload that the PWA
-    // renders as the same hands-free job-aid UI. This is what makes
-    // "how do I…" answers ALWAYS show as step cards regardless of
-    // whether procedures were pre-authored. Verbatim quoting still
-    // applies for safety-critical steps.
-    const stepsDirective = `
+If no authored procedure matches the user's question, do NOT improvise a step list. Answer with normal grounded prose and [cite:…] markers; the admin can promote useful answers to authored procedures separately.`
+      : `\n\nNo authored procedures are available for this asset yet. Answer with grounded prose and [cite:…] markers — do NOT improvise step-by-step lists.`;
 
-PRIORITY ORDER FOR PROCEDURAL ANSWERS:
-1. If an AUTHORED procedure above clearly matches → emit [procedure:UUID]
-2. Else if the answer is any sequence of steps ("how do I…", "walk me through…", "what's the procedure for…") → emit a [steps] directive (see below)
-3. Else (diagnostic/definitional/single-instruction questions) → reply normally with prose and [cite:…] markers.
-
-[steps] FORMAT — output ONLY the directive, nothing else around it:
-[steps]{"title":"<short title>","steps":[{"text":"<single step ≤200 chars>","safetyCritical":true|false},…]}[/steps]
-
-Rules:
-- Strict valid JSON between the tags. No backticks, comments, or trailing commas.
-- One element per atomic action. 5–15 steps typical; do not collapse multiple actions.
-- safetyCritical=true ONLY when the step involves LOCKOUT/TAGOUT, electrical isolation, PPE, or comes from a safety-critical document.
-- Quote safety-critical step text verbatim from the source. Paraphrasing other steps is fine.
-- Pull steps from the retrieved chunks; do not invent.
-- Do not write any prose before, after, or between the [steps] tags. The directive is the entire response.`;
+    const stepsDirective = '';
 
     // Build system prompt.
     const safetyDirective = buildSafetyDirective(chunks);
@@ -503,9 +488,7 @@ Rules:
       // supported by the retrieved chunks. Skipped for directive
       // responses ([procedure:UUID] or [steps]…[/steps]) — there's no
       // prose to verify and the verifier would just spend ~2s shrugging.
-      const isDirective =
-        /^\s*\[procedure:[0-9a-f-]+\]\s*$/i.test(accumulated) ||
-        /\[steps\][\s\S]*\[\/steps\]/i.test(accumulated);
+      const isDirective = /^\s*\[procedure:[0-9a-f-]+\]\s*$/i.test(accumulated);
       if (isDirective) {
         // No verifier work — close out cleanly so the PWA stops the
         // "thinking" indicator immediately.

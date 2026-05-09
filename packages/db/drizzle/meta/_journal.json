@@ -127,6 +127,13 @@
       "when": 1778698800000,
       "tag": "0017_voice_usage",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1778785200000,
+      "tag": "0018_procedure_step_audio",
+      "breakpoints": true
     }
   ]
 }

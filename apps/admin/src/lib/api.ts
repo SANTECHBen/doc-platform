@@ -1676,8 +1676,26 @@ export interface AdminProcedureStep {
   requiresPhoto: boolean;
   minPhotoCount: number;
   measurementSpec: MeasurementSpec | null;
+  /** Authored voiceover. Set by upload, in-browser recording, or AI
+   *  generation. When present, the runner plays this file at run time
+   *  instead of synthesizing TTS — better fidelity, zero per-play cost. */
+  audioStorageKey: string | null;
+  audioContentType: string | null;
+  audioSizeBytes: number | null;
+  audioDurationMs: number | null;
+  audioSource: 'uploaded' | 'generated' | null;
+  audioUrl: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ProcedureStepAudioResult {
+  audioUrl: string;
+  audioContentType: string;
+  audioSizeBytes: number;
+  audioSource: 'uploaded' | 'generated';
+  voice?: string;
+  updatedAt?: string;
 }
 
 export interface CreateProcedureStepInput {
@@ -1785,4 +1803,61 @@ export async function reorderProcedureSteps(
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return (await res.json()) as { ok: true; count: number };
+}
+
+// ---------------------------------------------------------------------------
+// Per-step voiceover authoring.
+// ---------------------------------------------------------------------------
+
+export async function uploadProcedureStepAudio(
+  stepId: string,
+  file: File,
+): Promise<ProcedureStepAudioResult> {
+  const form = new FormData();
+  form.append('file', file, file.name);
+  const res = await fetch(
+    `${API_BASE}/admin/procedure-steps/${encodeURIComponent(stepId)}/audio`,
+    { method: 'POST', headers: await authHeaders(), body: form },
+  );
+  if (!res.ok) throw new Error(`Audio upload ${res.status}: ${await res.text()}`);
+  return (await res.json()) as ProcedureStepAudioResult;
+}
+
+export async function generateProcedureStepAudio(
+  stepId: string,
+  opts?: { voice?: string; script?: string },
+): Promise<ProcedureStepAudioResult> {
+  const res = await fetch(
+    `${API_BASE}/admin/procedure-steps/${encodeURIComponent(stepId)}/audio/generate`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(opts ?? {}),
+    },
+  );
+  if (!res.ok) throw new Error(`Audio generate ${res.status}: ${await res.text()}`);
+  return (await res.json()) as ProcedureStepAudioResult;
+}
+
+export async function deleteProcedureStepAudio(stepId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/procedure-steps/${encodeURIComponent(stepId)}/audio`,
+    { method: 'DELETE', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`Audio delete ${res.status}: ${await res.text()}`);
+}
+
+export async function patchProcedureStepAudioDuration(
+  stepId: string,
+  audioDurationMs: number,
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/procedure-steps/${encodeURIComponent(stepId)}/audio/duration`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ audioDurationMs }),
+    },
+  );
+  if (!res.ok) throw new Error(`Audio duration ${res.status}: ${await res.text()}`);
 }

@@ -27,7 +27,7 @@ import {
 } from '@/lib/api';
 import { SectionsTab } from './sections-tab';
 import { LinkedPartsTab } from './linked-parts-tab';
-import { StepsTab } from './steps-tab';
+import { ProcedureCmsEditor } from '@/components/procedure-cms/procedure-cms-editor';
 
 type Tab = 'overview' | 'sections' | 'linked-parts' | 'steps';
 
@@ -239,7 +239,7 @@ export default function DocumentDetailPage({
       )}
       {tab === 'linked-parts' && <LinkedPartsTab documentId={doc.id} />}
       {tab === 'steps' && doc.kind === 'structured_procedure' && (
-        <StepsTab doc={doc} steps={steps ?? []} onChanged={refresh} />
+        <ProcedureCmsEditor doc={doc} steps={steps ?? []} onChanged={refresh} />
       )}
     </PageShell>
   );

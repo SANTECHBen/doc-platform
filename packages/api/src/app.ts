@@ -33,6 +33,9 @@ import { registerAnalyticsRoutes } from './routes/analytics';
 import { registerVoiceRoutes } from './routes/voice';
 import { registerPreflightRoutes } from './routes/preflight';
 import { registerAdminVoiceUsageRoutes } from './routes/admin-voice-usage';
+import { registerAdminProcedureAudioRoutes } from './routes/admin-procedure-audio';
+import { registerAdminPromoteRoutes } from './routes/admin-promote';
+import { registerMeRoutes } from './routes/me';
 
 export async function buildApp(ctx: AppContext) {
   const app = Fastify({
@@ -91,6 +94,9 @@ export async function buildApp(ctx: AppContext) {
   await registerVoiceRoutes(app);
   await registerPreflightRoutes(app);
   await registerAdminVoiceUsageRoutes(app);
+  await registerAdminProcedureAudioRoutes(app);
+  await registerAdminPromoteRoutes(app);
+  await registerMeRoutes(app);
 
   return app;
 }

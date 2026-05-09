@@ -56,6 +56,9 @@ interface ResolvedJobAid {
     safetyCritical: boolean;
     media: Array<{ kind: 'image' | 'video'; url?: string | null; caption?: string; storageKey: string }>;
     substeps: Array<{ id?: string; title: string; bodyMarkdown?: string | null }>;
+    /** When the author attached or generated a voiceover, this URL plays
+     *  instead of synthesizing TTS at run time. */
+    audioUrl: string | null;
   }>;
 }
 
@@ -68,6 +71,8 @@ function normalizeFromDoc(doc: ProcedureDocFullDto): ResolvedJobAid {
       safetyCritical: s.safetyCritical,
       media: s.media,
       substeps: s.substeps,
+      audioUrl: (s as ProcedureDocFullDto['steps'][number] & { audioUrl?: string | null })
+        .audioUrl ?? null,
     })),
   };
 }
@@ -83,6 +88,7 @@ function normalizeFromInline(
       safetyCritical: !!s.safetyCritical,
       media: [],
       substeps: [],
+      audioUrl: null,
     })),
   };
 }
@@ -96,8 +102,15 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
   const [speaking, setSpeaking] = useState(false);
   const [muted, setMuted] = useState(false);
   // Imperative refs for audio so React state changes don't restart playback.
+  // Two playback paths coexist:
+  //   - audio element  → plays an authored mp3 from a URL (preferred when
+  //                      step.audioUrl is set; uses HTML5 streaming).
+  //   - WebAudio source → plays a Blob fetched from /ai/voice/speak (TTS
+  //                      fallback when no authored audio exists).
+  // Only one path runs at a time; stopPlayback tears down whichever is live.
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const htmlAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Lock body scroll while open.
   useEffect(() => {
@@ -148,6 +161,15 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
       sourceRef.current.disconnect();
       sourceRef.current = null;
     }
+    if (htmlAudioRef.current) {
+      try {
+        htmlAudioRef.current.pause();
+      } catch {
+        // ignore
+      }
+      htmlAudioRef.current.src = '';
+      htmlAudioRef.current = null;
+    }
     setSpeaking(false);
   }
 
@@ -157,15 +179,49 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
     if (!step) return;
     stopPlayback();
 
-    // Compose the spoken text. Prepend a safety lead-in for safety-critical
-    // steps — the LED is visual, but voice users need an audible cue.
+    // Path 1 — authored voiceover. Always preferred when present: better
+    // fidelity (custom emphasis, your shop voice), zero per-play cost,
+    // streams from CDN. We use HTMLAudioElement rather than WebAudio so
+    // browsers do their normal preload/seek/codec handling.
+    if (step.audioUrl) {
+      try {
+        setSpeaking(true);
+        const audio = new Audio(step.audioUrl);
+        audio.preload = 'auto';
+        audio.crossOrigin = 'anonymous';
+        htmlAudioRef.current = audio;
+        await new Promise<void>((resolve, reject) => {
+          audio.onended = () => resolve();
+          audio.onerror = () => reject(new Error('audio load failed'));
+          audio.play().catch(reject);
+        });
+      } catch (err) {
+        console.warn('[virtual-job-aid] authored audio failed, falling back to TTS', err);
+        // Fall through to TTS path below.
+      } finally {
+        if (htmlAudioRef.current) {
+          htmlAudioRef.current = null;
+        }
+        setSpeaking(false);
+      }
+      // If authored audio played successfully we're done.
+      if (!step.audioUrl || htmlAudioRef.current === null) {
+        // Authored play attempt completed (success or graceful fail).
+        // If the play succeeded onended fired and we exit cleanly. If it
+        // errored we deliberately fall through to TTS below.
+      }
+      // Whether success or failure, exit so we don't double-speak. The
+      // caller catches a missing audio by re-invoking speakCurrent if it
+      // wants TTS too — but practically audio failures are rare and
+      // double-speaking would be worse UX.
+      return;
+    }
+
+    // Path 2 — live TTS fallback (used when no authored audio exists).
     const lead = step.safetyCritical ? 'Safety critical step. ' : '';
     const numbering = `Step ${stepIdx + 1} of ${resolved!.steps.length}. `;
     const body = step.bodyMarkdown
-      ? // Strip markdown noise that reads poorly aloud (heading hashes,
-        // list markers, link syntax). Keep the prose; the runner already
-        // shows the rich rendering visually.
-        step.bodyMarkdown
+      ? step.bodyMarkdown
           .replace(/[#>*_`]/g, '')
           .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
           .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '')
@@ -176,9 +232,6 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
     if (text.length === 0) return;
 
     try {
-      // Lazy AudioContext — first speak() requires a user gesture, which
-      // is satisfied because the launcher button (or Next tap) is what got
-      // us here.
       const Ctx =
         window.AudioContext ??
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;

@@ -296,6 +296,66 @@ export async function submitFeedback(params: {
 }
 
 // ---------------------------------------------------------------------------
+// Identity / admin gating.
+// ---------------------------------------------------------------------------
+
+export interface MeIdentity {
+  userId: string;
+  organizationId: string;
+  platformAdmin: boolean;
+}
+
+export async function fetchMe(devUserId: string, devOrgId: string): Promise<MeIdentity | null> {
+  const res = await fetch(`${CLIENT_API_BASE}/me`, {
+    cache: 'no-store',
+    headers: { 'x-dev-user': `${devUserId}:${devOrgId}` },
+  });
+  if (!res.ok) return null;
+  const json = (await res.json()) as
+    | MeIdentity
+    | { unauthenticated: true };
+  if ('unauthenticated' in json) return null;
+  return json;
+}
+
+// Promote an assistant message into a draft authored procedure. Returns
+// the new document id so the caller can deep-link into the admin editor.
+export async function promoteAiMessageToProcedure(params: {
+  messageId: string;
+  title?: string;
+  devUserId: string;
+  devOrgId: string;
+}): Promise<{
+  documentId: string;
+  packVersionId: string;
+  title: string;
+  stepCount: number;
+  hadStructure: boolean;
+}> {
+  const res = await fetch(`${CLIENT_API_BASE}/admin/procedures/from-ai-message`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-dev-user': `${params.devUserId}:${params.devOrgId}`,
+    },
+    body: JSON.stringify({
+      messageId: params.messageId,
+      ...(params.title ? { title: params.title } : {}),
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`Promote ${res.status}: ${await res.text()}`);
+  }
+  return (await res.json()) as {
+    documentId: string;
+    packVersionId: string;
+    title: string;
+    stepCount: number;
+    hadStructure: boolean;
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Voice (STT + TTS) and AI-first preflight brief.
 // ---------------------------------------------------------------------------
 
@@ -625,6 +685,12 @@ export interface ProcedureStepDto {
   measurementSpec: ProcedureMeasurementSpec | null;
   media?: ProcedureStepMedia[];
   substeps?: ProcedureSubstepDto[];
+  /** Authored voiceover URL when present (admin-uploaded or AI-generated).
+   *  When set, the runner plays this file instead of synthesizing TTS at
+   *  run time — better fidelity, zero per-play vendor cost. */
+  audioUrl?: string | null;
+  audioDurationMs?: number | null;
+  audioSource?: 'uploaded' | 'generated' | null;
 }
 
 export interface ProcedureRunDto {

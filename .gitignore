@@ -56,3 +56,5 @@ IntelliSort HDS Maintenance Manual - sections/
 # on disk but don't ship them — they bloat the repo and rot fast.
 ai_icon.jpg
 ai_icon*.jpg
+ai_display.jpg
+ai_display*.jpg
