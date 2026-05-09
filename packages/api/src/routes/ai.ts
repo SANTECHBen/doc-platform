@@ -275,6 +275,42 @@ Extract in 2–3 sentences the key observable facts: any visible fault codes, al
         ? procedureCatalogRows
         : procedureCatalogRows.filter((p) => scopedDocumentIds!.includes(p.id));
 
+    // Pull the step titles for each visible procedure so the AI's
+    // matching has rich semantic signal even when bodyMarkdown is null
+    // (which it always is on procedures authored via the new CMS — content
+    // lives in step rows, not the doc body). Cap at 8 step titles per
+    // procedure to keep the system prompt bounded.
+    const procedureStepHints = new Map<string, string>();
+    if (visibleProcedures.length > 0) {
+      const allSteps = await db.query.procedureSteps.findMany({
+        where: inArray(
+          schema.procedureSteps.documentId,
+          visibleProcedures.map((p) => p.id),
+        ),
+        columns: { documentId: true, title: true, orderingHint: true },
+      });
+      // Group by docId, sort by ordering, keep first 8 titles per doc.
+      const byDoc = new Map<string, Array<{ title: string; orderingHint: number }>>();
+      for (const s of allSteps) {
+        const arr = byDoc.get(s.documentId) ?? [];
+        arr.push({ title: s.title, orderingHint: s.orderingHint });
+        byDoc.set(s.documentId, arr);
+      }
+      for (const [docId, steps] of byDoc.entries()) {
+        steps.sort((a, b) => a.orderingHint - b.orderingHint);
+        const titles = steps
+          .slice(0, 8)
+          .map((s) => s.title.trim())
+          .filter((t) => t.length > 0);
+        if (titles.length > 0) {
+          procedureStepHints.set(
+            docId,
+            titles.map((t, i) => `${i + 1}. ${t}`).join('; '),
+          );
+        }
+      }
+    }
+
     // Authored procedures only — the AI does NOT improvise step lists.
     // The business model is curated documentation; AI-generated steps
     // from PDFs would commoditize the product. When no authored
@@ -285,20 +321,22 @@ Extract in 2–3 sentences the key observable facts: any visible fault codes, al
       ? `\n\nAVAILABLE STEP-BY-STEP PROCEDURES (authored, hands-free runner):
 ${visibleProcedures
   .slice(0, 30)
-  .map(
-    (p) =>
-      `- [${p.id}] ${p.title}${
-        p.bodyMarkdown
-          ? ` — ${p.bodyMarkdown.replace(/\s+/g, ' ').slice(0, 140)}`
-          : ''
-      }`,
-  )
+  .map((p) => {
+    const stepHint = procedureStepHints.get(p.id);
+    const bodyHint = p.bodyMarkdown
+      ? p.bodyMarkdown.replace(/\s+/g, ' ').slice(0, 140)
+      : null;
+    const hint = stepHint ?? bodyHint ?? '(no content yet)';
+    return `- [${p.id}] ${p.title || '(untitled)'} — ${hint}`;
+  })
   .join('\n')}
 
-If the user's question matches one of these procedures EXACTLY, reply with ONLY this — no prose, no preamble, no citations:
+If the user is asking HOW to perform a task and one of these procedures plausibly covers that task — match by intent, not by exact title; the procedure's step titles describe what it does — reply with ONLY this and nothing else (no prose, no preamble, no citations):
 [procedure:THE_UUID]
 
-If no authored procedure matches the user's question, do NOT improvise a step list. Answer with normal grounded prose and [cite:…] markers; the admin can promote useful answers to authored procedures separately.`
+Do not be overly strict: if a procedure for "Replace divert actuator" exists and the tech asks "How do I swap out the actuator on the divert switch?", that is a match — open it.
+
+If no authored procedure plausibly matches, do NOT improvise a step list. Answer with normal grounded prose and [cite:…] markers; the admin can promote useful answers to authored procedures separately.`
       : `\n\nNo authored procedures are available for this asset yet. Answer with grounded prose and [cite:…] markers — do NOT improvise step-by-step lists.`;
 
     const stepsDirective = '';
