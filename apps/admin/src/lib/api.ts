@@ -538,6 +538,25 @@ export async function createAssetInstance(params: {
   return (await res.json()) as { id: string };
 }
 
+// Pin an asset instance to a specific content pack version (any
+// version, draft or published). For "give me whatever's latest published"
+// use pinLatestVersion. For "I just moved a procedure back to v1.0.0
+// and want my asset to see it" use this.
+export async function pinInstanceToVersion(
+  instanceId: string,
+  contentPackVersionId: string,
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/asset-instances/${encodeURIComponent(instanceId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ pinnedContentPackVersionId: contentPackVersionId }),
+    },
+  );
+  if (!res.ok) throw new Error(`Pin ${res.status}: ${await res.text()}`);
+}
+
 export async function pinLatestVersion(instanceId: string): Promise<void> {
   const res = await fetch(
     `${API_BASE}/admin/asset-instances/${instanceId}/pin-latest`,

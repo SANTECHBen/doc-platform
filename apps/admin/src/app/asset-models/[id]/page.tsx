@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { use, useEffect, useMemo, useState } from 'react';
-import { Package, Plus, Trash2, Upload } from 'lucide-react';
+import { ChevronDown, Loader2, Package, Pin, Plus, Trash2, Upload } from 'lucide-react';
 import { PageHeader, PageShell } from '@/components/page-shell';
 import { useToast } from '@/components/toast';
 import {
@@ -20,8 +20,11 @@ import {
   addBomEntry,
   bulkCreateAssetInstances,
   createAssetInstance,
+  getContentPack,
   listAdminParts,
   listBom,
+  listContentPacks,
+  pinInstanceToVersion,
   pinLatestVersion,
   removeBomEntry,
   unpinInstance,
@@ -29,6 +32,7 @@ import {
   listAdminAssetModels,
   listInstancesForModel,
   type AdminAssetModel,
+  type AdminContentPackDetail,
   type AdminPart,
   type AdminSite,
   type BomEntry,
@@ -50,7 +54,51 @@ export default function AssetModelDetail({
   const [error, setError] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  // Pin-to-version picker. Holds the instance being targeted + the
+  // model's available pack versions (lazy-loaded on open). Lets authors
+  // pin to a draft or to a non-latest published version — useful right
+  // after moving a doc back to v1.0.0 when v2.0.0 is the auto-latest.
+  const [pinPickerForInstance, setPinPickerForInstance] = useState<
+    string | null
+  >(null);
+  const [pinPickerPacks, setPinPickerPacks] = useState<
+    AdminContentPackDetail[] | null
+  >(null);
+  const [pinBusy, setPinBusy] = useState(false);
   const toast = useToast();
+
+  async function openPinPicker(instanceId: string) {
+    setPinPickerForInstance(instanceId);
+    setPinPickerPacks(null);
+    try {
+      // Pull every pack tied to this asset model. In practice that's the
+      // base pack + any dealer/site overlays. Each pack carries its own
+      // version list — we render them grouped.
+      const all = await listContentPacks();
+      const forModel = all.filter((p) => p.assetModel.id === id);
+      const detailed = await Promise.all(
+        forModel.map((p) => getContentPack(p.id)),
+      );
+      setPinPickerPacks(detailed.filter((d): d is AdminContentPackDetail => !!d));
+    } catch (e) {
+      toast.error('Could not load versions', e instanceof Error ? e.message : String(e));
+      setPinPickerForInstance(null);
+    }
+  }
+  async function pickVersion(instanceId: string, versionId: string) {
+    setPinBusy(true);
+    try {
+      await pinInstanceToVersion(instanceId, versionId);
+      toast.success('Pinned');
+      setPinPickerForInstance(null);
+      setPinPickerPacks(null);
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPinBusy(false);
+    }
+  }
 
   // Auto-open the Add instance drawer when arriving via the Setup status
   // "Continue: deploy an asset instance" CTA from the tenant detail.
@@ -195,6 +243,16 @@ export default function AssetModelDetail({
                       >
                         Pin latest
                       </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => openPinPicker(i.id)}
+                        title="Pin to a specific version (draft or older published)"
+                      >
+                        <Pin className="size-3" />
+                        Pin to…
+                        <ChevronDown className="size-3" />
+                      </button>
                       {i.pinnedVersion && (
                         <button
                           type="button"
@@ -260,6 +318,118 @@ export default function AssetModelDetail({
           }}
         />
       </Drawer>
+
+      {pinPickerForInstance && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-ink-primary/40 backdrop-blur-sm p-4"
+          onClick={() => !pinBusy && setPinPickerForInstance(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="w-full max-w-md overflow-hidden rounded-lg border border-line bg-surface-raised shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header className="flex items-center justify-between border-b border-line-subtle px-4 py-3">
+              <span className="text-sm font-semibold text-ink-primary">
+                Pin to a specific version
+              </span>
+              <button
+                type="button"
+                onClick={() => !pinBusy && setPinPickerForInstance(null)}
+                aria-label="Close"
+                className="rounded p-1 text-ink-tertiary hover:bg-surface hover:text-ink-primary"
+              >
+                ×
+              </button>
+            </header>
+            <div className="max-h-96 overflow-y-auto p-2">
+              {!pinPickerPacks ? (
+                <p className="px-3 py-6 text-center text-sm text-ink-tertiary">
+                  <Loader2 className="mx-auto mb-2 size-4 animate-spin" />
+                  Loading versions…
+                </p>
+              ) : pinPickerPacks.length === 0 ? (
+                <p className="px-3 py-6 text-center text-sm text-ink-tertiary">
+                  No content packs for this model.
+                </p>
+              ) : (
+                pinPickerPacks.map((p) => (
+                  <div key={p.id} className="mb-3 last:mb-0">
+                    <h3 className="px-3 py-1 text-xs font-semibold uppercase tracking-wider text-ink-tertiary">
+                      {p.name}
+                    </h3>
+                    <ul className="flex flex-col gap-1">
+                      {[...p.versions]
+                        .sort((a, b) => b.versionNumber - a.versionNumber)
+                        .map((v) => {
+                          const inst = instances?.find(
+                            (x) => x.id === pinPickerForInstance,
+                          );
+                          const current = inst?.pinnedVersion?.id === v.id;
+                          return (
+                            <li key={v.id}>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  pickVersion(pinPickerForInstance, v.id)
+                                }
+                                disabled={pinBusy || current}
+                                className={[
+                                  'flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm transition',
+                                  current
+                                    ? 'cursor-not-allowed bg-surface text-ink-tertiary'
+                                    : 'hover:bg-accent/5 hover:text-accent',
+                                ].join(' ')}
+                              >
+                                <span className="flex items-center gap-2">
+                                  <span className="font-mono text-xs tabular-nums text-ink-tertiary">
+                                    v{v.versionLabel ?? v.versionNumber}
+                                  </span>
+                                  <span
+                                    className={[
+                                      'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase',
+                                      v.status === 'published'
+                                        ? 'bg-signal-warn/10 text-signal-warn'
+                                        : v.status === 'draft'
+                                          ? 'bg-signal-info/10 text-signal-info'
+                                          : 'bg-surface text-ink-tertiary',
+                                    ].join(' ')}
+                                  >
+                                    {v.status}
+                                  </span>
+                                  <span className="text-xs text-ink-tertiary">
+                                    {v.documents.length} doc
+                                    {v.documents.length === 1 ? '' : 's'}
+                                  </span>
+                                </span>
+                                {current ? (
+                                  <span className="text-xs text-ink-tertiary">
+                                    pinned
+                                  </span>
+                                ) : (
+                                  <span className="text-xs font-medium text-accent">
+                                    Pin →
+                                  </span>
+                                )}
+                              </button>
+                            </li>
+                          );
+                        })}
+                    </ul>
+                  </div>
+                ))
+              )}
+            </div>
+            {pinBusy && (
+              <div className="border-t border-line-subtle bg-surface px-4 py-2 text-xs text-ink-tertiary">
+                <Loader2 className="mr-1.5 inline size-3 animate-spin" />
+                Pinning…
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </PageShell>
   );
 }
