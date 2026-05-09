@@ -169,8 +169,14 @@ function pickMode(values: string[]): string | null {
   return best;
 }
 
-// Compose a one-sentence greeting that's natural to hear, not robotic.
-// Tone: brief, technician-to-technician, no marketing fluff.
+// Compose a one-sentence greeting. Kept short and friendly — the tech
+// scanned a QR and is standing in front of the equipment; they don't need
+// a status report read aloud, they need an opening to ask their question.
+//
+// Contextual signals (open work orders, recurring fixes, recent doc
+// updates) are still returned in the brief payload so the UI can surface
+// them visually if/when desired — they're just no longer in the spoken
+// greeting.
 function composeGreeting(input: {
   modelName: string;
   serial: string;
@@ -179,27 +185,8 @@ function composeGreeting(input: {
   commonTitle: string | null;
   docUpdateCount: number;
 }): string {
-  const parts: string[] = [];
-  parts.push(`I'm looking at ${input.modelName}, serial ${input.serial}.`);
-
-  if (input.openCount === 1) {
-    parts.push(`There's one open work order.`);
-  } else if (input.openCount > 1) {
-    parts.push(`There are ${input.openCount} open work orders.`);
-  }
-
-  if (input.commonTitle && input.recentResolvedCount >= 2) {
-    parts.push(
-      `${input.recentResolvedCount} recent fixes for "${input.commonTitle}" — could be recurring.`,
-    );
-  } else if (input.recentResolvedCount >= 3) {
-    parts.push(`${input.recentResolvedCount} fixes in the last 30 days.`);
-  }
-
-  if (input.docUpdateCount > 0 && input.openCount === 0 && input.recentResolvedCount === 0) {
-    parts.push(`Documentation has been updated recently.`);
-  }
-
-  parts.push(`What are you looking for?`);
-  return parts.join(' ');
+  // Strip "the" duplication ("the IntelliSort HDS" reads fine; "the the
+  // CONVEYOR" wouldn't). Light cleanup only.
+  const name = input.modelName.replace(/^the\s+/i, '').trim();
+  return `How can I help you with the ${name}?`;
 }
