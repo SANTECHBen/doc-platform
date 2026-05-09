@@ -33,6 +33,7 @@ import {
   TextInput,
   Textarea,
 } from '@/components/form';
+import { RichTextEditor } from '@/components/rich-text-editor';
 import {
   createContentPackVersion,
   createDocument,
@@ -586,14 +587,28 @@ function AddDocumentForm({
       </Field>
 
       {needsMarkdown && (
-        <Field label="Markdown body" required>
-          <Textarea
+        <Field
+          label={kind === 'structured_procedure' ? 'Body (optional)' : 'Body'}
+          required={kind !== 'structured_procedure'}
+          hint={
+            kind === 'structured_procedure'
+              ? 'Optional intro / overview. Most authoring happens on the Steps tab once the doc is created — that is where you add steps, photos, and voiceover.'
+              : 'Format with the toolbar — bold, lists, links, images, tables. No markdown syntax required.'
+          }
+        >
+          <RichTextEditor
             value={bodyMarkdown}
-            onChange={(e) => setBodyMarkdown(e.target.value)}
-            rows={12}
-            className="font-mono text-xs"
-            placeholder={'# Startup\n\n1. Verify alarms cleared\n2. …'}
-            required
+            onChange={setBodyMarkdown}
+            placeholder={
+              kind === 'structured_procedure'
+                ? 'Optional — describe what this procedure is for, prerequisites, etc.'
+                : 'Type, or use the toolbar to format. Insert images and tables from the toolbar.'
+            }
+            minHeight={200}
+            onImageUpload={async (file) => {
+              const r = await uploadFile(file);
+              return r.url;
+            }}
           />
         </Field>
       )}
