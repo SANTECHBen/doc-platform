@@ -2,10 +2,15 @@ import { sql } from 'drizzle-orm';
 import { buildApp } from './app';
 import { loadEnv } from './env';
 import { createContext } from './context';
+import { initSentry, attachSentryToFastify } from './sentry';
 
 const env = loadEnv();
+// Sentry must initialize BEFORE Fastify so the SDK can wire its diagnostic
+// channels into the runtime. No-op when SENTRY_DSN is unset.
+initSentry(env);
 const ctx = createContext(env);
 const app = await buildApp(ctx);
+attachSentryToFastify(app);
 
 // Crash-recovery sweep. If a previous container died mid-extraction, any rows
 // stuck at extraction_status='processing' have no process backing them. Reset

@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  Activity,
   AlertTriangle,
   Bot,
   Boxes,
@@ -37,6 +38,7 @@ const NAV: Nav[] = [
   { href: '/qr-codes', label: 'QR codes', icon: QrCode, match: /^\/qr-codes/ },
   { href: '/agent', label: 'Onboarding agent', icon: Bot, match: /^\/agent/ },
   { href: '/users', label: 'Users', icon: Users, match: /^\/users/ },
+  { href: '/analytics', label: 'Analytics', icon: Activity, match: /^\/analytics/ },
   { href: '/audit', label: 'Audit log', icon: ScrollText, match: /^\/audit/ },
 ];
 

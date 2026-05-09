@@ -420,6 +420,26 @@ Extract in 2–3 sentences the key observable facts: any visible fault codes, al
         citations,
         usage,
       });
+
+      // Two-pass verifier. After the main answer is fully streamed, ask a
+      // smaller model whether each sentence in the answer is actually
+      // supported by the retrieved chunks. The result lets the PWA render
+      // an evidence map (per-sentence support markers + per-source weights)
+      // without paying that latency on the first byte. We let this fail
+      // silently — the answer is already in front of the user, this is
+      // additive trust UI.
+      try {
+        const verify = await runVerifier({
+          anthropic,
+          model: env.ANTHROPIC_VERIFIER_MODEL,
+          answer: accumulated,
+          chunks,
+          citedChunkIds: referencedChunkIds,
+        });
+        if (verify) write('verify', verify);
+      } catch (err) {
+        request.log.warn({ err }, 'verifier pass failed; skipping');
+      }
     } catch (err) {
       request.log.error({ err }, 'chat stream failed');
       write('error', { message: err instanceof Error ? err.message : String(err) });
@@ -449,4 +469,111 @@ async function enrichSafety(
   });
   const safetyById = new Map(docs.map((d) => [d.id, d.safetyCritical]));
   return chunks.map((c) => ({ ...c, safetyCritical: safetyById.get(c.documentId) ?? false }));
+}
+
+// ---------------------------------------------------------------------------
+// Two-pass verifier
+// ---------------------------------------------------------------------------
+
+interface VerifySentence {
+  text: string;
+  level: 'supported' | 'weak' | 'unsupported';
+  chunkIds: string[];
+}
+interface VerifyResult {
+  sentences: VerifySentence[];
+  // Per-source weight (sum to 1.0) — how much each cited chunk contributed.
+  sources: Array<{ chunkId: string; weight: number }>;
+  // Plain-English description of any conflict between cited sources, or null.
+  conflict: string | null;
+}
+
+async function runVerifier(input: {
+  anthropic: import('@platform/ai').Anthropic;
+  model: string;
+  answer: string;
+  chunks: SafetyFlaggedChunk[];
+  citedChunkIds: string[];
+}): Promise<VerifyResult | null> {
+  const { anthropic, model, answer, chunks, citedChunkIds } = input;
+  // Strip the [cite:UUID] markers — the verifier rates the prose, not the
+  // markers. We hand the chunks separately as the truth set.
+  const cleaned = answer.replace(/\[cite:[a-f0-9-]{8,}\]/gi, '').trim();
+  if (cleaned.length === 0) return null;
+
+  // Limit verifier context to chunks that were retrieved AND any chunks the
+  // model cited (typically the same set; defense in depth in case the model
+  // cited an out-of-band ID).
+  const ids = new Set<string>([...chunks.map((c) => c.id), ...citedChunkIds]);
+  const truthSet = chunks
+    .filter((c) => ids.has(c.id))
+    .slice(0, 12) // hard cap — keeps verifier prompt small + fast
+    .map((c) => `[${c.id}]\n${c.content.slice(0, 800)}`)
+    .join('\n\n---\n\n');
+  if (!truthSet) return null;
+
+  const systemText = `You are a strict grounding verifier. You receive an assistant's answer and a numbered set of source chunks. Classify EVERY sentence in the answer:
+- "supported": the claim is directly stated or clearly implied by ≥1 source.
+- "weak": the source is related but does not actually back the specific claim.
+- "unsupported": no source backs the claim.
+
+Also output per-source weights (how much each chunk contributed; weights sum to 1.0 across sources you actually used) and a one-line conflict description if any cited sources contradict each other (otherwise null).
+
+Output ONLY a JSON object. No prose. No code fences. Schema:
+{
+  "sentences": [{ "text": string, "level": "supported"|"weak"|"unsupported", "chunkIds": string[] }],
+  "sources": [{ "chunkId": string, "weight": number }],
+  "conflict": string | null
+}`;
+
+  const userText = `SOURCES:\n\n${truthSet}\n\n---\n\nANSWER:\n\n${cleaned}\n\nReturn the JSON now.`;
+
+  const resp = await anthropic.messages.create({
+    model,
+    max_tokens: 1500,
+    system: systemText,
+    messages: [{ role: 'user', content: userText }],
+  });
+  const text = resp.content
+    .filter((b): b is import('@anthropic-ai/sdk').Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+    .trim();
+
+  // The model occasionally wraps JSON in code fences despite the instruction.
+  // Strip them defensively.
+  const stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripped);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object') return null;
+  const obj = parsed as Record<string, unknown>;
+
+  const sentences = Array.isArray(obj.sentences)
+    ? (obj.sentences as Array<Record<string, unknown>>)
+        .filter(
+          (s) =>
+            typeof s.text === 'string' &&
+            (s.level === 'supported' || s.level === 'weak' || s.level === 'unsupported'),
+        )
+        .map((s) => ({
+          text: s.text as string,
+          level: s.level as VerifySentence['level'],
+          chunkIds: Array.isArray(s.chunkIds)
+            ? (s.chunkIds as unknown[]).filter((x): x is string => typeof x === 'string')
+            : [],
+        }))
+    : [];
+
+  const sources = Array.isArray(obj.sources)
+    ? (obj.sources as Array<Record<string, unknown>>)
+        .filter((s) => typeof s.chunkId === 'string' && typeof s.weight === 'number')
+        .map((s) => ({ chunkId: s.chunkId as string, weight: s.weight as number }))
+    : [];
+
+  const conflict = typeof obj.conflict === 'string' ? obj.conflict : null;
+  return { sentences, sources, conflict };
 }

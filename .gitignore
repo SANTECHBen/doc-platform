@@ -37,3 +37,17 @@ coverage
 .vercel
 
 .vercel
+
+# Customer / OEM source manuals — these are the binary artifacts the
+# platform serves through R2; they don't belong in git (large, binary,
+# bloat history). Keep authored .md / source code under version control.
+S25_Operation and Maintenance_Rev 02_.pdf
+IntelliSort HDS Maintenance Manual.pdf
+IntelliSort HDS Maintenance Manual - sections/
+
+# Debug / scratch env files — only committed scaffolding env is .env.example
+.env.neon-debug
+.env.*-debug
+
+# Claude Code session state — local tooling artifact, no value to teammates
+.claude/scheduled_tasks.lock

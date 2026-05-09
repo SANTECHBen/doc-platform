@@ -4,6 +4,7 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { DensityToggle } from '@/components/density-toggle';
 import { ScanWall } from '@/components/scan-wall';
 import { BrandLogo } from '@/components/brand-logo';
+import { FeedbackWidget } from '@/components/feedback-widget';
 import { AssetHubTabs } from './tabs';
 import { resolveAssetHub } from '@/lib/api';
 import { SCAN_COOKIE_NAME, verifyScanSessionValue } from '@/lib/scan-session';
@@ -55,8 +56,15 @@ export default async function AssetHubPage({
     const cookieStore = await cookies();
     const session = cookieStore.get(SCAN_COOKIE_NAME)?.value;
     if (!session || !verifyScanSessionValue(session, qrCode)) {
-      // Fire-and-forget blocked audit event.
-      void resolveAssetHub(qrCode, 'blocked').catch(() => {});
+      // Fire-and-forget blocked audit event. Surface failures to the server
+      // log so a silent API outage doesn't leave compliance gaps invisible —
+      // customers rely on this audit trail to investigate URL-sharing.
+      void resolveAssetHub(qrCode, 'blocked').catch((err) => {
+        console.error('[audit] failed to log blocked scan-wall event', {
+          qrCode,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
       return <ScanWall organizationName={hub.organization.name} />;
     }
   }
@@ -114,6 +122,7 @@ export default async function AssetHubPage({
         </div>
         <DensityToggle />
         <ThemeToggle />
+        <FeedbackWidget qrCode={qrCode} assetInstanceId={hub.assetInstance.id} />
       </header>
 
       <div className="app-scroll page-enter flex flex-col gap-4">

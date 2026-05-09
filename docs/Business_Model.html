@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Connected Worker Platform</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      white-space: pre-wrap;
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <style>
+  @page {
+    size: letter;
+    margin: 0.85in 0.9in;
+  }
+  html {
+    font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-size: 11pt;
+    color: #1a1a1a;
+    line-height: 1.55;
+  }
+  body {
+    max-width: 7.5in;
+    margin: 0 auto;
+    padding: 0;
+  }
+  header.title-block {
+    text-align: center;
+    margin: 0.5in 0 0.6in;
+    padding-bottom: 0.4in;
+    border-bottom: 2px solid #0b1f3a;
+  }
+  .title {
+    font-size: 28pt;
+    font-weight: 700;
+    color: #0b1f3a;
+    margin: 0 0 0.15em;
+    display: block;
+  }
+  .subtitle {
+    font-size: 13pt;
+    color: #4a5568;
+    font-weight: 400;
+    font-style: italic;
+    display: block;
+  }
+  .date {
+    margin-top: 1em;
+    font-size: 10pt;
+    color: #718096;
+    letter-spacing: 0.05em;
+    display: block;
+  }
+  h1 {
+    font-size: 22pt;
+    font-weight: 700;
+    color: #0b1f3a;
+    letter-spacing: -0.01em;
+    margin: 1.2em 0 0.4em;
+    border-bottom: 3px solid #0b1f3a;
+    padding-bottom: 0.2em;
+    page-break-after: avoid;
+  }
+  h2 {
+    font-size: 16pt;
+    font-weight: 700;
+    color: #0b1f3a;
+    margin: 1.5em 0 0.45em;
+    padding-bottom: 0.12em;
+    border-bottom: 1px solid #d0d7e2;
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 12.5pt;
+    font-weight: 600;
+    color: #1f3a5f;
+    margin: 1.1em 0 0.3em;
+    page-break-after: avoid;
+  }
+  p {
+    margin: 0.55em 0;
+  }
+  strong {
+    color: #0b1f3a;
+    font-weight: 600;
+  }
+  ul, ol {
+    margin: 0.5em 0 0.8em;
+    padding-left: 1.4em;
+  }
+  li {
+    margin: 0.2em 0;
+  }
+  hr {
+    border: none;
+    border-top: 1px solid #d0d7e2;
+    margin: 1.6em 0;
+  }
+  blockquote {
+    margin: 0.8em 0;
+    padding: 0.5em 1em;
+    border-left: 3px solid #4a90e2;
+    background: #f7fafc;
+    color: #2d3748;
+  }
+  code {
+    font-family: "Consolas", "Monaco", "Courier New", monospace;
+    font-size: 9.5pt;
+    background: #f1f4f8;
+    padding: 0.1em 0.35em;
+    border-radius: 3px;
+    color: #c0392b;
+  }
+  pre {
+    background: #f8fafc;
+    border: 1px solid #d0d7e2;
+    border-radius: 4px;
+    padding: 1em 1.2em;
+    margin: 0.9em 0;
+    page-break-inside: avoid;
+    font-size: 8.5pt;
+    line-height: 1.4;
+  }
+  pre code {
+    background: transparent;
+    padding: 0;
+    color: #1a1a1a;
+    white-space: pre;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1em 0;
+    font-size: 10pt;
+    page-break-inside: avoid;
+  }
+  thead {
+    background: #0b1f3a;
+  }
+  thead th {
+    color: #ffffff;
+    padding: 0.55em 0.7em;
+    text-align: left;
+    font-weight: 600;
+    border: 1px solid #0b1f3a;
+  }
+  td {
+    padding: 0.5em 0.7em;
+    border: 1px solid #d0d7e2;
+    vertical-align: top;
+  }
+  tbody tr:nth-child(even) {
+    background: #f7fafc;
+  }
+  a {
+    color: #2563eb;
+    text-decoration: none;
+  }
+  @media print {
+    h2, h3 { page-break-after: avoid; }
+    table, pre, blockquote { page-break-inside: avoid; }
+  }
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Connected Worker Platform</h1>
+<p class="subtitle">Business Model &amp; Strategy — FedEx S25
+Reference</p>
+<p class="date">May 2026</p>
+</header>
+<h1 id="connected-worker-platform-business-model">Connected Worker
+Platform — Business Model</h1>
+<p>A primer for understanding how this platform makes money, who pays
+for what, and why the business gets stronger over time. Grounded in the
+<strong>FedEx Memphis Secondary 25 (S25)</strong> sort-system project as
+the reference case.</p>
+<hr />
+<h2 id="the-one-paragraph-pitch">The one-paragraph pitch</h2>
+<p>We sell a platform that puts a QR sticker on every piece of
+warehouse-automation equipment so a technician can scan it and instantly
+see the right manual, the right parts list, the right procedure, and the
+right training for <em>that specific machine.</em> The business is
+durable because <strong>three different parties pay us for different
+value from the same physical asset</strong> — the OEM who built it, the
+integrator who installed it, and the end-customer who operates it. A
+single integration project — like FedEx Memphis S25 — becomes three
+layered revenue streams that compound across a 20-year equipment
+lifecycle.</p>
+<hr />
+<h2 id="the-reference-project-fedex-memphis-secondary-25">The reference
+project: FedEx Memphis Secondary 25</h2>
+<p>Throughout this document we use the <strong>FedEx Memphis S25 sort
+system</strong> as the worked example, because we already have ground
+truth on it:</p>
+<ul>
+<li><strong>End-customer:</strong> FedEx Corporation, Memphis, TN</li>
+<li><strong>Integrator:</strong> DMW&amp;H (Fairfield, NJ)</li>
+<li><strong>Documentation:</strong> Already authored by SANTECH (5
+manuals: Operations &amp; Maintenance, Operating Sequence, Program
+Documentation, HMI User, Operator Instruction)</li>
+<li><strong>Major subsystems and their OEMs:</strong></li>
+</ul>
+<table>
+<colgroup>
+<col style="width: 68%" />
+<col style="width: 31%" />
+</colgroup>
+<thead>
+<tr>
+<th>Subsystem</th>
+<th>OEM</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cross-belt sorter</td>
+<td><strong>Honeywell Intelligrated</strong></td>
+</tr>
+<tr>
+<td>Flow splitter (ARB)</td>
+<td><strong>Intralox</strong></td>
+</tr>
+<tr>
+<td>Vision / scan tunnel cameras / scanners</td>
+<td><strong>SICK</strong></td>
+</tr>
+<tr>
+<td>Singulator + vision system</td>
+<td><strong>Visicon (Vitronic)</strong></td>
+</tr>
+<tr>
+<td>Power turn conveyors</td>
+<td><strong>Transnorm</strong> and <strong>Flow Turn</strong></td>
+</tr>
+<tr>
+<td>Transport conveyors / scan conveyor</td>
+<td><strong>Talos</strong></td>
+</tr>
+<tr>
+<td>Cargo scale</td>
+<td><strong>Rice Lake (iQUBE indicator)</strong></td>
+</tr>
+<tr>
+<td>Gear motors</td>
+<td><strong>NORD</strong></td>
+</tr>
+<tr>
+<td>AC motors</td>
+<td><strong>Baldor</strong></td>
+</tr>
+<tr>
+<td>PLCs, VFDs, HMIs</td>
+<td><strong>Rockwell / Allen-Bradley</strong></td>
+</tr>
+<tr>
+<td>Plow diverters, accumulation/buffering, runout sorters</td>
+<td>DMW&amp;H custom builds</td>
+</tr>
+</tbody>
+</table>
+<p>That’s roughly <strong>10-12 separately authored OEM content
+packages</strong> plus DMW&amp;H’s integrator overlay, all wrapped
+around hundreds of physical asset instances on the Memphis floor.</p>
+<hr />
+<h2 id="the-three-customers-and-why-each-pays">The three customers and
+why each pays</h2>
+<p>There are three types of customers, and they’re paying us for
+fundamentally different things.</p>
+<h3 id="the-integrator-dmwh">1. The Integrator (DMW&amp;H)</h3>
+<p><strong>What they buy:</strong> A productivity tool for their service
+organization across their entire project portfolio.</p>
+<p><strong>Why they pay:</strong> Service contracts are 30-40% margin
+while installs are 8-15%. Anything that makes service techs more
+productive — fewer truck rolls, faster MTTR, better first-time-fix rates
+— lets them either bid more competitively or pocket more margin. They
+pay because the platform pays for itself in fewer escalations and lower
+overtime.</p>
+<p><strong>For DMW&amp;H specifically:</strong> They’re a respected
+mid-size MHI integrator. They likely have 30-60 active service projects
+across their portfolio at any given time. Memphis S25 is one of
+those.</p>
+<p><strong>Typical price:</strong> $42k/yr (Pro, ≤250 assets) →
+$90-120k/yr (Enterprise, ≤1,000 assets) → custom above.</p>
+<h3
+id="the-oem-honeywell-intelligrated-intralox-sick-visicon-transnorm-flow-turn-talos-rice-lake-etc.">2.
+The OEM (Honeywell Intelligrated, Intralox, SICK, Visicon, Transnorm,
+Flow Turn, Talos, Rice Lake, etc.)</h3>
+<p><strong>What they buy:</strong> Branded content distribution and
+aftermarket parts revenue capture across their entire installed fleet,
+regardless of which integrator installed it.</p>
+<p><strong>Why they pay:</strong> OEMs make thin margin selling
+equipment. The real money is in 15-20 years of parts, service, and
+consumables after the install. Right now most of that revenue leaks to
+third-party parts distributors (Grainger, Motion Industries,
+McMaster-Carr) because techs in the field don’t know where to order
+genuine OEM parts. When every QR scan on an OEM’s equipment routes to
+that OEM’s authoritative parts catalog, recovered aftermarket revenue
+dwarfs the subscription cost.</p>
+<p><strong>Typical price:</strong> - Specialty OEM (Flow Turn, Talos,
+Visicon): <strong>$30-50k/yr</strong> - Mid-size OEM (Transnorm, Rice
+Lake): <strong>$60-100k/yr</strong> - Major OEM (Honeywell
+Intelligrated, Intralox, SICK): <strong>$150-250k/yr</strong></p>
+<h3 id="the-end-customer-fedex">3. The End-Customer (FedEx)</h3>
+<p><strong>What they buy:</strong> A single unified view of every piece
+of equipment in their facility, regardless of who built it or installed
+it, with full audit trails for compliance and competency tracking for
+safety.</p>
+<p><strong>Why they pay:</strong> FedEx Memphis is one of the largest
+sortation hubs in the world, with hundreds of pieces of equipment from
+dozens of vendors across decades of installations. Their in-house
+maintenance team needs unified documentation, OSHA / safety-compliance
+audit trails, and competency records for technician training. FedEx as
+an organization runs ~30 hubs of varying sizes, so a single-site signup
+is a foothold for an enterprise rollout.</p>
+<p><strong>Typical price:</strong> $80-150k/yr per major facility, with
+multi-site discounts for hub-level rollouts.</p>
+<hr />
+<h2 id="how-the-s25-project-becomes-three-revenue-streams">How the S25
+project becomes three revenue streams</h2>
+<p>Year-by-year revenue from FedEx Memphis S25 alone, assuming a
+realistic adoption curve:</p>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 7%" />
+<col style="width: 26%" />
+<col style="width: 17%" />
+<col style="width: 30%" />
+<col style="width: 18%" />
+</colgroup>
+<thead>
+<tr>
+<th>Year</th>
+<th>Integrator (DMW&amp;H)</th>
+<th>OEM signups</th>
+<th>End-Customer (FedEx)</th>
+<th>Annual Total</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>$42k subscription</td>
+<td>—</td>
+<td>—</td>
+<td><strong>$42k</strong></td>
+</tr>
+<tr>
+<td>2</td>
+<td>$42k</td>
+<td>Honeywell Intelligrated $150k</td>
+<td>—</td>
+<td><strong>$192k</strong></td>
+</tr>
+<tr>
+<td>3</td>
+<td>$42k</td>
+<td>+ Intralox $80k, SICK $120k</td>
+<td>—</td>
+<td><strong>$392k</strong></td>
+</tr>
+<tr>
+<td>4</td>
+<td>$42k → may roll off Memphis</td>
+<td>+ Transnorm $60k, Flow Turn $40k</td>
+<td>FedEx Memphis $80k (handoff yr-1)</td>
+<td><strong>$472k</strong></td>
+</tr>
+<tr>
+<td>5</td>
+<td>(rolls on other DMW&amp;H projects)</td>
+<td>+ Visicon $40k, Talos $35k, Rice Lake $40k</td>
+<td>FedEx Memphis $130k</td>
+<td><strong>$615k</strong></td>
+</tr>
+<tr>
+<td>6</td>
+<td>—</td>
+<td>All renewing with 5% escalators</td>
+<td>FedEx Memphis $135k</td>
+<td><strong>$650k+</strong></td>
+</tr>
+<tr>
+<td>7</td>
+<td>—</td>
+<td>All renewing</td>
+<td>FedEx Memphis $140k</td>
+<td><strong>$680k+</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>7-year total revenue from the S25 project alone:
+~$3.0M+</strong>, with $650k recurring ARR by year 7.</p>
+<p><strong>Important:</strong> SANTECH already authored the S25 manuals
+as paid services. That authoring is a <strong>sunk cost</strong> to us.
+Loading it onto the platform converts a one-time services payment into
+recurring SaaS revenue from three buyers — without any incremental
+authoring labor.</p>
+<hr />
+<h2 id="the-same-physical-asset-three-legitimate-buyers">The same
+physical asset, three legitimate buyers</h2>
+<p>A common worry is “isn’t it weird that all three pay for the same
+Honeywell sorter?” It’s not — they’re paying for different rights and
+different value:</p>
+<ul>
+<li><strong>Honeywell Intelligrated (OEM)</strong> pays for the right to
+distribute their authoritative content and capture aftermarket parts
+revenue across every Honeywell sorter in the field — at FedEx Memphis,
+at UPS Worldport, at Amazon fulfillment centers, everywhere.</li>
+<li><strong>DMW&amp;H (Integrator)</strong> pays for managing their
+service portfolio — work orders, technician productivity, project
+tracking.</li>
+<li><strong>FedEx (End-Customer)</strong> pays for unified facility
+management, compliance audit trails, and in-house competency
+tracking.</li>
+</ul>
+<p>If DMW&amp;H lost the FedEx Memphis service contract to another
+integrator tomorrow, those Honeywell sorter assets move from DMW&amp;H’s
+tenant to the new integrator’s tenant. Honeywell Intelligrated’s revenue
+doesn’t change. FedEx’s eventual signup doesn’t change. <strong>The OEM
+layer is the durable annuity; the integrator layer rotates as service
+contracts change hands.</strong></p>
+<hr />
+<h2
+id="the-library-flywheel-why-this-business-gets-stronger-over-time">The
+library flywheel — why this business gets stronger over time</h2>
+<p>This is the most important strategic dynamic to understand.</p>
+<h3 id="year-1-empty-library">Year 1 — empty library</h3>
+<p>When the first integrator signs up, the OEM library is empty. Every
+project requires expensive authoring from scratch.</p>
+<h3 id="what-s25-gives-us-as-a-starter">What S25 gives us as a
+starter</h3>
+<p>S25 alone seeds the library with <strong>10-12 of the most common MHI
+OEMs</strong> (Honeywell Intelligrated, Intralox, SICK, Visicon,
+Transnorm, Flow Turn, Talos, Rice Lake, NORD, Baldor, Rockwell). These
+OEMs appear on virtually every major MHI sortation project in North
+America. So <strong>S25 isn’t just one project — it’s a foundational
+library that makes every future integrator project cheaper to
+onboard.</strong></p>
+<h3 id="year-3-library-at-50-coverage">Year 3 — library at 50%
+coverage</h3>
+<p>After 2-3 years and several more projects layered onto the S25
+baseline, you’ve authored content for 20+ MHI OEMs. New integrator
+projects find 60-70% of their equipment already authored. Authoring
+services per project drop to <strong>$30-60k</strong>.</p>
+<h3 id="year-5-library-mature">Year 5 — library mature</h3>
+<p>50+ OEMs covered. New integrator projects pay only
+<strong>$10-20k</strong> for site-specific overlay work. Subscription
+becomes the bulk of integrator spend.</p>
+<h3 id="whats-happening-underneath">What’s happening underneath</h3>
+<p>Each OEM signup does three things at once:</p>
+<ol type="1">
+<li>Adds <strong>recurring subscription revenue</strong> (durable
+annuity)</li>
+<li><strong>Removes per-project authoring cost</strong> for every future
+integrator project that uses that OEM’s equipment</li>
+<li>Increases the <strong>platform’s value to all future
+customers</strong> (network effect)</li>
+</ol>
+<p>The result is a flywheel: more OEMs → easier integrator sales → more
+integrators → more OEM cross-sell opportunities → more OEMs.</p>
+<hr />
+<h2 id="pricing-summary">Pricing summary</h2>
+<h3 id="subscription-tiers">Subscription tiers</h3>
+<table>
+<colgroup>
+<col style="width: 14%" />
+<col style="width: 41%" />
+<col style="width: 26%" />
+<col style="width: 17%" />
+</colgroup>
+<thead>
+<tr>
+<th>Tier</th>
+<th>Target customer</th>
+<th>Asset cap</th>
+<th>Price</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Integrator Starter</strong></td>
+<td>Small dealer/integrator</td>
+<td>50 assets, 25 techs</td>
+<td>$1,200/mo ($14.4k/yr)</td>
+</tr>
+<tr>
+<td><strong>Integrator Pro</strong></td>
+<td>Mid-size integrator</td>
+<td>250 assets, 100 techs</td>
+<td>$3,500/mo ($42k/yr)</td>
+</tr>
+<tr>
+<td><strong>Integrator Enterprise</strong></td>
+<td>Large integrator (DMW&amp;H sized)</td>
+<td>1,000 assets</td>
+<td>$7,500-10,000/mo ($90-120k/yr)</td>
+</tr>
+<tr>
+<td><strong>OEM Small</strong></td>
+<td>Specialty OEM (Flow Turn, Talos, Visicon)</td>
+<td>Unlimited assets, ≤1,000 fleet</td>
+<td>$30-50k/yr</td>
+</tr>
+<tr>
+<td><strong>OEM Standard</strong></td>
+<td>Mid-size OEM (Transnorm, Rice Lake)</td>
+<td>Unlimited, ≤5,000 fleet</td>
+<td>$60-100k/yr</td>
+</tr>
+<tr>
+<td><strong>OEM Major</strong></td>
+<td>Top-tier OEM (Honeywell Intelligrated, Intralox, SICK)</td>
+<td>Unlimited, unlimited fleet</td>
+<td>$150-250k/yr</td>
+</tr>
+<tr>
+<td><strong>End-Customer Site</strong></td>
+<td>Single facility (FedEx Memphis)</td>
+<td>Per-site, custom assets</td>
+<td>$80-150k/yr per site</td>
+</tr>
+<tr>
+<td><strong>End-Customer Enterprise</strong></td>
+<td>Multi-site operator (FedEx all hubs)</td>
+<td>Custom</td>
+<td>Custom, $5k/site/mo floor</td>
+</tr>
+</tbody>
+</table>
+<h3 id="services-one-time-per-engagement">Services (one-time, per
+engagement)</h3>
+<table>
+<colgroup>
+<col style="width: 28%" />
+<col style="width: 46%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>Service</th>
+<th>Typical price</th>
+<th>Margin</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Per-OEM manual authoring (sectioning, parts linking)</td>
+<td>$15-25k</td>
+<td>50-60%</td>
+</tr>
+<tr>
+<td>Site-specific overlay authoring</td>
+<td>$15-25k</td>
+<td>50-60%</td>
+</tr>
+<tr>
+<td>Multi-manual project bundle (like S25’s 5-manual set)</td>
+<td>$80-200k</td>
+<td>50%</td>
+</tr>
+<tr>
+<td>Onboarding &amp; training</td>
+<td>$5-15k</td>
+<td>70%</td>
+</tr>
+</tbody>
+</table>
+<h3 id="add-ons-metered">Add-ons (metered)</h3>
+<ul>
+<li>AI chat overage: <strong>$0.05/message</strong> beyond included
+pool</li>
+<li>Storage overage: <strong>$0.10/GB/mo</strong> beyond included
+quota</li>
+<li>Onboarding agent runs: 5 included/mo, <strong>$250 each</strong>
+thereafter</li>
+</ul>
+<hr />
+<h2 id="cost-structure-why-margins-stay-high">Cost structure — why
+margins stay high</h2>
+<p>The platform itself is cheap to operate at scale. The infrastructure
+cost barely scales with new customers because:</p>
+<ul>
+<li>Each new asset is one database row — kilobytes, not gigabytes.</li>
+<li>Content is stored once and served from edge CDN — adding more
+customers doesn’t multiply storage.</li>
+<li>AI chat is the only real variable cost, and overage pricing covers
+heavy users.</li>
+</ul>
+<p>A typical OEM at 2,000 fielded units paying $40k/yr generates roughly
+<strong>$500/yr in actual platform costs</strong> — meaning <strong>~98%
+gross margin</strong> at the unit level.</p>
+<p>The real costs that scale are headcount: sales reps, customer
+success, content authors. Those grow with revenue and are
+controllable.</p>
+<p><strong>Target gross margin at scale: 80-85%</strong>, factoring in
+services revenue (lower margin) and content authoring labor.</p>
+<hr />
+<h2
+id="the-s25-leverage-move-converting-authored-content-into-platform-ip">The
+S25 leverage move — converting authored content into platform IP</h2>
+<p>SANTECH has already invested significant authoring labor into S25
+across 5 manuals. That labor was paid for once, by FedEx/DMW&amp;H, as a
+services engagement.</p>
+<p><strong>The leverage:</strong> We can re-purpose the S25 authoring as
+the foundation of our platform’s library — without doing new work — and
+use that content to:</p>
+<ol type="1">
+<li><strong>Pitch DMW&amp;H</strong> to subscribe to the platform: “Your
+S25 documentation is already structured; the platform makes it actually
+usable in the field.”</li>
+<li><strong>Pitch each OEM</strong> (Honeywell, Intralox, SICK, etc.) to
+take ownership of their slice: “Your equipment is already authored from
+S25; sign up and own it across your full fleet for a fraction of new
+authoring cost.”</li>
+<li><strong>Pitch FedEx</strong> to subscribe at the site level: “We
+already authored the manuals. Now your techs can use them via QR scan at
+every machine.”</li>
+</ol>
+<p>This turns a finite services engagement into a perpetual platform
+asset. The same authored content gets resold three times (and
+counting).</p>
+<hr />
+<h2 id="why-this-is-a-venture-scale-business-not-a-niche-tool">Why this
+is a venture-scale business, not a niche tool</h2>
+<p>Three structural reasons the model compounds:</p>
+<ol type="1">
+<li><p><strong>Three-sided market with layered revenue.</strong> Most
+B2B SaaS has one buyer. We have three buyers per asset, each paying for
+different value, with the OEM layer being a durable annuity that
+survives integrator turnover.</p></li>
+<li><p><strong>Network effects from the OEM library.</strong> Once 50+
+MHI OEMs are on the platform, every new integrator project finds most of
+its equipment pre-authored. The platform becomes the de facto standard,
+not because we marketed it well but because the alternative is paying
+$150k+ to author from scratch.</p></li>
+<li><p><strong>High switching cost from physical-world lock-in.</strong>
+QR stickers are physically attached to equipment for 20 years. Audit
+logs, training records, work-order history, and procedure evidence are
+compliance assets that can’t be casually migrated. Once a customer is on
+the platform, leaving is hard.</p></li>
+</ol>
+<hr />
+<h2 id="risks-and-mitigations">Risks and mitigations</h2>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 66%" />
+</colgroup>
+<thead>
+<tr>
+<th>Risk</th>
+<th>Mitigation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DMW&amp;H tries to build their own internal tool</td>
+<td>Stay ahead on AI/RAG, content library breadth, multi-tenant overlay
+complexity</td>
+</tr>
+<tr>
+<td>FedEx refuses to pay at handoff, equipment goes “dark”</td>
+<td>Tenant deactivation kills QR resolution; make handoff motion easy
+with discounted year-1; pursue OEM signups so content stays alive even
+if integrator/end-customer churns</td>
+</tr>
+<tr>
+<td>Honeywell concerned about sharing content with competing
+integrators</td>
+<td>Content licensing terms — OEM owns base layer; integrator overlays
+are per-tenant, not shared upstream</td>
+</tr>
+<tr>
+<td>Big OEM (Honeywell, Daifuku) tries to build a competitor</td>
+<td>Speed advantage; lock in mid-tier and specialty OEMs first; partner
+rather than compete</td>
+</tr>
+<tr>
+<td>AI cost spike</td>
+<td>Overage pricing built into contract; switch to cheaper models for
+routine queries</td>
+</tr>
+<tr>
+<td>FedEx procurement requires SOC 2 / SAML SSO before they’ll sign</td>
+<td>Start SOC 2 Type I roadmap now; SAML/generic OIDC is ~2 weeks of dev
+work</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="year-1-plan-in-one-paragraph">Year-1 plan in one paragraph</h2>
+<p><strong>Q1-Q2:</strong> Convert the existing S25 authoring into
+platform IP. Land DMW&amp;H at $42-90k/yr Enterprise tier as the
+founding integrator using the SANTECH/S25 reference. Use that to land
+2-4 additional mid-size MHI integrators at $42k/yr each. <strong>ARR
+floor by mid-year: $200k.</strong> <strong>Q3:</strong> Cross-sell into
+S25’s OEMs in priority order — start with the most
+parts-revenue-motivated (Honeywell Intelligrated, Intralox, SICK). Goal:
+1-2 OEMs signed at $80-150k/yr by end of Q3. <strong>Q4:</strong> Pitch
+FedEx Memphis at the site level using DMW&amp;H + OEM coverage as the
+value story. Target $80k pilot signing for one hub. Close gaps in SAML
+SSO, CMMS webhook integration, and analytics dashboards in parallel.
+<strong>Year-1 ARR target: $400-600k</strong> with 6-10 paying tenants.
+Year-2 the OEM motion compounds toward $1.5-3M ARR.</p>
+<hr />
+<h2 id="the-mental-model-that-makes-this-click">The mental model that
+makes this click</h2>
+<p>A single piece of equipment — say, one Honeywell Intelligrated
+cross-belt sorter at FedEx Memphis — has multiple legitimate
+stakeholders:</p>
+<ul>
+<li><strong>The OEM owns the title</strong> — Honeywell made it, their
+parts go in it, their manual covers it</li>
+<li><strong>The Integrator holds the service lease</strong> — DMW&amp;H
+is contractually responsible for keeping it running</li>
+<li><strong>The End-Customer owns the premises</strong> — it’s at FedEx
+Memphis, on FedEx property, FedEx techs operate it daily</li>
+</ul>
+<p>Each stakeholder pays us for <strong>their relationship to the
+asset</strong>, not for the asset itself. That’s why all three can pay
+simultaneously without it feeling unfair, and why the layered revenue
+compounds across the equipment’s full 20-year service life.</p>
+<p>The platform’s job is to make the QR sticker on the equipment outlive
+any single contract that put it there.</p>
+</body>
+</html>

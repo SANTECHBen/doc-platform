@@ -28,7 +28,17 @@ const EnvSchema = z.object({
   // up when the LLM is given retrieved context and asked to answer. Roughly
   // 5x cheaper per turn than Opus.
   ANTHROPIC_MODEL: z.string().default('claude-sonnet-4-6'),
+  // Verifier model for the two-pass grounding check. Cheap & fast — it's
+  // doing a structured "does sentence X appear in chunk Y" classification.
+  ANTHROPIC_VERIFIER_MODEL: z.string().default('claude-haiku-4-5-20251001'),
   EMBEDDING_MODEL: z.string().default('voyage-3-large'),
+
+  // OpenAI — used for voice (Whisper STT and tts-1-hd). Optional: when
+  // unset, voice routes return 503 and the PWA disables voice features.
+  OPENAI_API_KEY: optionalNonEmptyString,
+  OPENAI_STT_MODEL: z.string().default('whisper-1'),
+  OPENAI_TTS_MODEL: z.string().default('tts-1-hd'),
+  OPENAI_TTS_VOICE: z.string().default('alloy'),
 
   // Public origins — allowed by CORS, used in presented URLs.
   PUBLIC_PWA_ORIGIN: z.string().url().default('http://localhost:3000'),
@@ -101,6 +111,17 @@ const EnvSchema = z.object({
   MUX_TOKEN_SECRET: z.string().optional(),
   MUX_WEBHOOK_SECRET: z.string().optional(),
   MUX_PLAYBACK_POLICY: z.enum(['public', 'signed']).default('public'),
+
+  // Optional Slack incoming-webhook URL. When set, every /feedback POST
+  // also pings this webhook so SANTECH gets real-time visibility during
+  // the beta program without polling the DB. Submission still always
+  // writes to the feedback table — Slack is just a sidecar.
+  FEEDBACK_SLACK_WEBHOOK: optionalUrl,
+
+  // Sentry DSN for error reporting. When unset, the SDK is initialized as
+  // a no-op so local dev doesn't need an account. Set in Fly secrets for
+  // production: `flyctl secrets set SENTRY_DSN=...`.
+  SENTRY_DSN: optionalUrl,
 });
 
 export type Env = z.infer<typeof EnvSchema>;

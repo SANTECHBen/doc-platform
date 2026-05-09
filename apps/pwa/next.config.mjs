@@ -1,3 +1,16 @@
+import withSerwistInit from '@serwist/next';
+
+// Service worker wrapper — caches app shell + recently-viewed manuals so the
+// PWA stays partially usable when the warehouse wifi drops out. Disabled in
+// dev to avoid the worker shadowing live HMR.
+const withSerwist = withSerwistInit({
+  swSrc: 'src/app/sw.ts',
+  swDest: 'public/sw.js',
+  cacheOnNavigation: true,
+  reloadOnOnline: true,
+  disable: process.env.NODE_ENV === 'development',
+});
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -36,4 +49,4 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+export default withSerwist(nextConfig);

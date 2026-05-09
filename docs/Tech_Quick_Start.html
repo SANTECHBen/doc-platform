@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Equipment Hub — Tech Quick-Start</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      white-space: pre-wrap;
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <style>
+  @page {
+    size: letter;
+    margin: 0.85in 0.9in;
+  }
+  html {
+    font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-size: 11pt;
+    color: #1a1a1a;
+    line-height: 1.55;
+  }
+  body {
+    max-width: 7.5in;
+    margin: 0 auto;
+    padding: 0;
+  }
+  header.title-block {
+    text-align: center;
+    margin: 0.5in 0 0.6in;
+    padding-bottom: 0.4in;
+    border-bottom: 2px solid #0b1f3a;
+  }
+  .title {
+    font-size: 28pt;
+    font-weight: 700;
+    color: #0b1f3a;
+    margin: 0 0 0.15em;
+    display: block;
+  }
+  .subtitle {
+    font-size: 13pt;
+    color: #4a5568;
+    font-weight: 400;
+    font-style: italic;
+    display: block;
+  }
+  .date {
+    margin-top: 1em;
+    font-size: 10pt;
+    color: #718096;
+    letter-spacing: 0.05em;
+    display: block;
+  }
+  h1 {
+    font-size: 22pt;
+    font-weight: 700;
+    color: #0b1f3a;
+    letter-spacing: -0.01em;
+    margin: 1.2em 0 0.4em;
+    border-bottom: 3px solid #0b1f3a;
+    padding-bottom: 0.2em;
+    page-break-after: avoid;
+  }
+  h2 {
+    font-size: 16pt;
+    font-weight: 700;
+    color: #0b1f3a;
+    margin: 1.5em 0 0.45em;
+    padding-bottom: 0.12em;
+    border-bottom: 1px solid #d0d7e2;
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 12.5pt;
+    font-weight: 600;
+    color: #1f3a5f;
+    margin: 1.1em 0 0.3em;
+    page-break-after: avoid;
+  }
+  p {
+    margin: 0.55em 0;
+  }
+  strong {
+    color: #0b1f3a;
+    font-weight: 600;
+  }
+  ul, ol {
+    margin: 0.5em 0 0.8em;
+    padding-left: 1.4em;
+  }
+  li {
+    margin: 0.2em 0;
+  }
+  hr {
+    border: none;
+    border-top: 1px solid #d0d7e2;
+    margin: 1.6em 0;
+  }
+  blockquote {
+    margin: 0.8em 0;
+    padding: 0.5em 1em;
+    border-left: 3px solid #4a90e2;
+    background: #f7fafc;
+    color: #2d3748;
+  }
+  code {
+    font-family: "Consolas", "Monaco", "Courier New", monospace;
+    font-size: 9.5pt;
+    background: #f1f4f8;
+    padding: 0.1em 0.35em;
+    border-radius: 3px;
+    color: #c0392b;
+  }
+  pre {
+    background: #f8fafc;
+    border: 1px solid #d0d7e2;
+    border-radius: 4px;
+    padding: 1em 1.2em;
+    margin: 0.9em 0;
+    page-break-inside: avoid;
+    font-size: 8.5pt;
+    line-height: 1.4;
+  }
+  pre code {
+    background: transparent;
+    padding: 0;
+    color: #1a1a1a;
+    white-space: pre;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1em 0;
+    font-size: 10pt;
+    page-break-inside: avoid;
+  }
+  thead {
+    background: #0b1f3a;
+  }
+  thead th {
+    color: #ffffff;
+    padding: 0.55em 0.7em;
+    text-align: left;
+    font-weight: 600;
+    border: 1px solid #0b1f3a;
+  }
+  td {
+    padding: 0.5em 0.7em;
+    border: 1px solid #d0d7e2;
+    vertical-align: top;
+  }
+  tbody tr:nth-child(even) {
+    background: #f7fafc;
+  }
+  a {
+    color: #2563eb;
+    text-decoration: none;
+  }
+  @media print {
+    h2, h3 { page-break-after: avoid; }
+    table, pre, blockquote { page-break-inside: avoid; }
+  }
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Equipment Hub — Tech Quick-Start</h1>
+<p class="subtitle">One-Page Reference for Technicians</p>
+<p class="date">May 2026</p>
+</header>
+<h1 id="equipment-hub-tech-quick-start">Equipment Hub — Tech
+Quick-Start</h1>
+<p>A one-page reference for technicians on the floor. Print, laminate,
+post near the equipment.</p>
+<hr />
+<h2 id="step-1-find-the-qr-sticker">Step 1 — Find the QR sticker</h2>
+<p>Look for a square Equipment Hub sticker on the equipment. It’s
+usually near the nameplate, the control panel, or the access door. Each
+piece of equipment has its own sticker.</p>
+<h2 id="step-2-scan-it">Step 2 — Scan it</h2>
+<p>Open the camera on <strong>any phone or tablet</strong> — iPhone,
+Android, no app to install. Point the camera at the sticker. A link
+appears at the top of the screen. Tap it.</p>
+<h2 id="step-3-get-what-you-need">Step 3 — Get what you need</h2>
+<p>The screen shows the equipment you scanned. Across the bottom, five
+tabs:</p>
+<ul>
+<li><strong>Docs</strong> — manuals, drawings, schematics, videos.
+Sectioned by part — scan a part QR and only the relevant pages
+show.</li>
+<li><strong>Parts</strong> — every part on this machine. Tap one to see
+drawings, replacement procedures, and part numbers.</li>
+<li><strong>Training</strong> — required training for this equipment.
+Lessons, quizzes, sign-offs.</li>
+<li><strong>Chat</strong> — ask the AI a question about this machine.
+Answers come from the manuals — safety-critical procedures are quoted
+verbatim.</li>
+<li><strong>Issues</strong> — see open work orders, or report a new
+one.</li>
+</ul>
+<h2 id="got-a-problem-report-it">Got a problem? Report it</h2>
+<p>In the <strong>Issues</strong> tab, tap <strong>Report
+issue</strong>. Add a short title, severity, and a photo if you have
+one. The work order goes straight to your maintenance team.</p>
+<h2 id="got-feedback-for-the-platform-itself">Got feedback for the
+platform itself?</h2>
+<p>Tap the <strong>speech-bubble icon</strong> in the top-right of the
+screen at any time. Tell us what’s broken, what’s missing, or what’s
+confusing. The SANTECH beta team reads every submission.</p>
+<hr />
+<h2 id="tips-that-matter-on-the-floor">Tips that matter on the
+floor</h2>
+<ul>
+<li><strong>No signal?</strong> Most of what you’ve recently viewed
+still works. Reports get queued and submitted when signal returns.</li>
+<li><strong>Bright sunlight wrecking the screen?</strong> Tap the
+sun/moon icon (top-right) to switch to dark mode.</li>
+<li><strong>Found a step that’s wrong in the manual?</strong> Use the
+feedback button. We’ll route it to the OEM.</li>
+<li><strong>Photos for safety-critical work</strong> are required. The
+platform won’t let you mark a step done without them — that’s the audit
+trail.</li>
+</ul>
+<hr />
+<p><strong>Need help?</strong> Email
+<code>support@equipmenthub.io</code> or use the in-app feedback
+widget.</p>
+<p><strong>Beta program runs through
+<code>&lt;&lt;DATE_END&gt;&gt;</code>.</strong> Your tenant stays live
+as long as the program runs. After that, your sponsor decides whether to
+continue — your maintenance team will be notified either way.</p>
+</body>
+</html>

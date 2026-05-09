@@ -132,6 +132,10 @@ export function ProcedureRunner({
   const [retryable, setRetryable] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Pointer to the measurement section so a server-side "out of spec"
+  // rejection can scroll the relevant input into view — on a small phone
+  // the error banner is at the top and the measurement is below the fold.
+  const measurementSectionRef = useRef<HTMLDivElement>(null);
 
   // Lock body scroll while the runner is up.
   useEffect(() => {
@@ -425,6 +429,14 @@ export function ProcedureRunner({
       if (msg.includes('out of spec')) {
         setMeasurementDraft((prev) => ({ ...prev, outOfSpec: true }));
         setError('Value is out of spec — confirm an override reason to continue.');
+        // Pull the measurement input into view so the user doesn't have to
+        // hunt for it after seeing the error banner up top.
+        requestAnimationFrame(() => {
+          measurementSectionRef.current?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center',
+          });
+        });
       } else {
         // Network / 5xx / unknown — drafts are already persisted, so a
         // simple retry button is safe and doesn't lose any captured evidence.
@@ -667,11 +679,13 @@ export function ProcedureRunner({
           )}
 
           {step.measurementSpec && (
-            <MeasurementBlock
-              spec={step.measurementSpec}
-              draft={measurementDraft}
-              onChange={setMeasurementDraft}
-            />
+            <div ref={measurementSectionRef}>
+              <MeasurementBlock
+                spec={step.measurementSpec}
+                draft={measurementDraft}
+                onChange={setMeasurementDraft}
+              />
+            </div>
           )}
 
           <label className="flex flex-col gap-1.5">

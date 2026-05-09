@@ -49,7 +49,26 @@
       "Read(//c/c/doc-platform/packages/**)",
       "Read(//c/c/doc-platform/packages/db/**)",
       "Bash(pnpm run *)",
-      "Bash(git reset *)"
+      "Bash(git reset *)",
+      "Bash(npm ls *)",
+      "Bash(mkdir -p /tmp/job-aid-docx)",
+      "Read(//tmp/**)",
+      "Bash(npm init *)",
+      "Bash(npm install *)",
+      "Bash(node build.mjs C:/doc-platform/JOB_AID.docx)",
+      "Bash(unzip -l /c/doc-platform/JOB_AID.docx)",
+      "Bash(jobs -l)",
+      "Bash(kill 1245)",
+      "Bash(kill 1243)",
+      "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
+      "Bash(pnpm typecheck *)",
+      "Bash(pnpm exec *)",
+      "Bash(git commit *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\doc-platform\\\\apps\\\\pwa\\\\src\" -Recurse -Name)",
+      "Bash(xargs ls *)",
+      "Bash(Select-String -Pattern \"\\(migration|schema|drizzle\\)\")",
+      "Bash(procedure\")",
+      "PowerShell(git *)"
     ]
   }
 }

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@platform/viewer": "workspace:*",
+    "@sentry/nextjs": "^10.52.0",
     "@tiptap/extension-image": "^2",
     "@tiptap/extension-link": "^2",
     "@tiptap/extension-placeholder": "^2",

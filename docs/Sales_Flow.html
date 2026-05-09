@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Sales Flow &amp; Customer Journey</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      white-space: pre-wrap;
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <style>
+  @page {
+    size: letter;
+    margin: 0.85in 0.9in;
+  }
+  html {
+    font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-size: 11pt;
+    color: #1a1a1a;
+    line-height: 1.55;
+  }
+  body {
+    max-width: 7.5in;
+    margin: 0 auto;
+    padding: 0;
+  }
+  header.title-block {
+    text-align: center;
+    margin: 0.5in 0 0.6in;
+    padding-bottom: 0.4in;
+    border-bottom: 2px solid #0b1f3a;
+  }
+  .title {
+    font-size: 28pt;
+    font-weight: 700;
+    color: #0b1f3a;
+    margin: 0 0 0.15em;
+    display: block;
+  }
+  .subtitle {
+    font-size: 13pt;
+    color: #4a5568;
+    font-weight: 400;
+    font-style: italic;
+    display: block;
+  }
+  .date {
+    margin-top: 1em;
+    font-size: 10pt;
+    color: #718096;
+    letter-spacing: 0.05em;
+    display: block;
+  }
+  h1 {
+    font-size: 22pt;
+    font-weight: 700;
+    color: #0b1f3a;
+    letter-spacing: -0.01em;
+    margin: 1.2em 0 0.4em;
+    border-bottom: 3px solid #0b1f3a;
+    padding-bottom: 0.2em;
+    page-break-after: avoid;
+  }
+  h2 {
+    font-size: 16pt;
+    font-weight: 700;
+    color: #0b1f3a;
+    margin: 1.5em 0 0.45em;
+    padding-bottom: 0.12em;
+    border-bottom: 1px solid #d0d7e2;
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 12.5pt;
+    font-weight: 600;
+    color: #1f3a5f;
+    margin: 1.1em 0 0.3em;
+    page-break-after: avoid;
+  }
+  p {
+    margin: 0.55em 0;
+  }
+  strong {
+    color: #0b1f3a;
+    font-weight: 600;
+  }
+  ul, ol {
+    margin: 0.5em 0 0.8em;
+    padding-left: 1.4em;
+  }
+  li {
+    margin: 0.2em 0;
+  }
+  hr {
+    border: none;
+    border-top: 1px solid #d0d7e2;
+    margin: 1.6em 0;
+  }
+  blockquote {
+    margin: 0.8em 0;
+    padding: 0.5em 1em;
+    border-left: 3px solid #4a90e2;
+    background: #f7fafc;
+    color: #2d3748;
+  }
+  code {
+    font-family: "Consolas", "Monaco", "Courier New", monospace;
+    font-size: 9.5pt;
+    background: #f1f4f8;
+    padding: 0.1em 0.35em;
+    border-radius: 3px;
+    color: #c0392b;
+  }
+  pre {
+    background: #f8fafc;
+    border: 1px solid #d0d7e2;
+    border-radius: 4px;
+    padding: 1em 1.2em;
+    margin: 0.9em 0;
+    page-break-inside: avoid;
+    font-size: 8.5pt;
+    line-height: 1.4;
+  }
+  pre code {
+    background: transparent;
+    padding: 0;
+    color: #1a1a1a;
+    white-space: pre;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1em 0;
+    font-size: 10pt;
+    page-break-inside: avoid;
+  }
+  thead {
+    background: #0b1f3a;
+  }
+  thead th {
+    color: #ffffff;
+    padding: 0.55em 0.7em;
+    text-align: left;
+    font-weight: 600;
+    border: 1px solid #0b1f3a;
+  }
+  td {
+    padding: 0.5em 0.7em;
+    border: 1px solid #d0d7e2;
+    vertical-align: top;
+  }
+  tbody tr:nth-child(even) {
+    background: #f7fafc;
+  }
+  a {
+    color: #2563eb;
+    text-decoration: none;
+  }
+  @media print {
+    h2, h3 { page-break-after: avoid; }
+    table, pre, blockquote { page-break-inside: avoid; }
+  }
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Sales Flow &amp; Customer Journey</h1>
+<p class="subtitle">Visual Playbook — FedEx S25 Reference</p>
+<p class="date">May 2026</p>
+</header>
+<h1 id="sales-flow-customer-journey">Sales Flow &amp; Customer
+Journey</h1>
+<p>Visual playbook for how deals start, grow, and compound over time.
+Worked against the <strong>FedEx Memphis Secondary 25 (S25)</strong>
+project as the reference case.</p>
+<hr />
+<h2 id="the-s25-reference-project-at-a-glance">The S25 reference project
+at a glance</h2>
+<pre><code>FedEx Memphis Secondary 25 (S25) Sort System
+─────────────────────────────────────────────
+End-Customer:  FedEx Corporation, Memphis, TN
+Integrator:    DMW&amp;H (Fairfield, NJ)
+Documentation: SANTECH (5 manuals, already authored)
+
+OEMs in the system:
+  ▸ Honeywell Intelligrated   — cross-belt sorter
+  ▸ Intralox                  — flow splitter (ARB)
+  ▸ SICK                      — vision / scan tunnel
+  ▸ Visicon (Vitronic)        — singulator vision
+  ▸ Transnorm                 — power turns / merges
+  ▸ Flow Turn                 — power turn conveyors
+  ▸ Talos                     — transport / scan conveyors
+  ▸ Rice Lake                 — cargo scale (iQUBE)
+  ▸ NORD                      — gear motors
+  ▸ Baldor                    — AC motors
+  ▸ Rockwell / Allen-Bradley  — PLCs, VFDs, HMIs</code></pre>
+<hr />
+<h2 id="diagram-1-how-s25-becomes-three-layered-revenue-streams">Diagram
+1: How S25 becomes three layered revenue streams</h2>
+<p>This is the core dynamic. One integration project at FedEx Memphis
+generates revenue from three different buyers across a 7-year
+window.</p>
+<pre><code>TIME →
+
+YEAR 1               YEAR 2-3             YEAR 4+              YEAR 7+
+─────────────        ─────────────        ─────────────        ─────────────
+
+[INTEGRATOR]    →    [INTEGRATOR]    →    [INTEGRATOR]    →    [INTEGRATOR]
+ DMW&amp;H                DMW&amp;H                DMW&amp;H                DMW&amp;H
+ $42k/yr              $42-90k/yr           $90k/yr or rolls    (still on
+                                            off Memphis         platform for
+                                                                other projects)
+
+                     [OEM #1]        →    [OEM #1]        →    [OEM #1]
+                      Honeywell            Honeywell            Honeywell
+                      Intelligrated        Intelligrated        Intelligrated
+                      $150k/yr             $158k/yr             $175k/yr
+
+                     [OEM #2]        →    [OEM #2]        →    [OEM #2]
+                      Intralox             Intralox             Intralox
+                      $80k/yr              $85k/yr              $95k/yr
+
+                     [OEM #3]        →    [OEM #3]        →    [OEM #3]
+                      SICK                 SICK                 SICK
+                      $120k/yr             $126k/yr             $140k/yr
+
+                                          [OEMs #4-8]    →    [OEMs #4-8]
+                                          Transnorm,           same
+                                          Flow Turn,
+                                          Visicon,
+                                          Talos,
+                                          Rice Lake
+                                          ~$215k/yr combined
+
+                                          [END-CUSTOMER]   →   [END-CUSTOMER]
+                                           FedEx Memphis        FedEx Memphis
+                                           $80k yr-1 (disc.)    $130-140k/yr
+                                           $130k yr-2+
+
+
+ANNUAL REVENUE FROM THIS ONE PROJECT:
+
+  Y1: $42k        Y2-3: $392k         Y4: $475k+           Y7: $680k+
+
+7-YEAR TOTAL: ~$3.0M+ from one integration project</code></pre>
+<p><strong>Key insight:</strong> DMW&amp;H rolls off Memphis at handoff
+(year 3-4), but the OEM revenue compounds <em>forever</em> and FedEx
+takes over the operational layer. The platform never stops being paid
+for that equipment. <strong>The OEM layer is the durable
+annuity.</strong></p>
+<hr />
+<h2 id="diagram-2-the-customer-acquisition-flow">Diagram 2: The customer
+acquisition flow</h2>
+<p>How we actually find, qualify, and close each customer type.</p>
+<pre><code>                    ┌────────────────────────┐
+                    │  LEAD                  │
+                    │  Source: tradeshow,    │
+                    │  outbound, referral    │
+                    └────────┬───────────────┘
+                             ↓
+                    ┌────────────────────────┐
+                    │  QUALIFY: Which type?  │
+                    └────────┬───────────────┘
+                             │
+              ┌──────────────┼──────────────────┐
+              ↓              ↓                  ↓
+      ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+      │ INTEGRATOR   │  │     OEM      │  │ END-CUSTOMER │
+      │ (priority 1) │  │ (priority 2) │  │ (priority 3) │
+      │              │  │              │  │              │
+      │ DMW&amp;H, peer  │  │ Honeywell,   │  │ FedEx hubs,  │
+      │ MHI firms    │  │ Intralox,    │  │ UPS, Amazon, │
+      │              │  │ SICK, etc.   │  │ 3PLs         │
+      └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+             │                  │                  │
+             ↓                  ↓                  ↓
+      ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+      │ Pitch:       │  │ Pitch:       │  │ Pitch:       │
+      │ Service org  │  │ Aftermarket  │  │ Unified      │
+      │ productivity │  │ parts revenue│  │ compliance + │
+      │              │  │ + brand ctrl │  │ training     │
+      └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+             ↓                  ↓                  ↓
+      ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+      │ Demo using   │  │ Demo their   │  │ Demo unified │
+      │ S25 / SANTECH│  │ equipment    │  │ multi-OEM    │
+      │ as reference │  │ already in   │  │ view at      │
+      │              │  │ platform     │  │ peer hub     │
+      └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+             ↓                  ↓                  ↓
+      ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+      │ Close in     │  │ Close in     │  │ Close in     │
+      │ 30-90 days   │  │ 6-12 months  │  │ 9-12 months  │
+      └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+             ↓                  ↓                  ↓
+      ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+      │ $42-120k/yr  │  │ $30-250k/yr  │  │ $80-150k/yr  │
+      └──────────────┘  └──────────────┘  └──────────────┘</code></pre>
+<p><strong>Sales priority order:</strong> Start with DMW&amp;H (already
+a SANTECH services customer), close 1-2 peer integrators. Use those wins
+to land OEMs in S25’s bill of materials. Use OEM partnerships to pull
+FedEx in at the site level.</p>
+<hr />
+<h2 id="diagram-3-the-land-and-expand-motion-within-dmwh">Diagram 3: The
+land-and-expand motion within DMW&amp;H</h2>
+<p>Once DMW&amp;H signs as the founding integrator, here’s how the
+relationship grows.</p>
+<pre><code>LAND
+─────
+
+  Month 0:   DMW&amp;H signs Enterprise tier ($90k/yr)
+             S25 + their other ~30 active projects in tenant
+                            │
+                            ↓
+EXPAND PHASE 1 (within DMW&amp;H)
+──────────────
+
+  Month 3:   They author 2-3 more projects beyond S25
+             Asset count grows. Still in Enterprise tier.
+                            │
+                            ↓
+  Month 6:   Sales pull DMW&amp;H Service VP into platform
+             ROI conversation. Renewal de-risked.
+                            │
+                            ↓
+EXPAND PHASE 2 (cross-sell to OEMs in S25&#39;s BOM)
+──────────────
+
+  Month 9:   &quot;Hey Honeywell, your sorter is in our platform
+             via S25. Your manuals are already authored.
+             Want to control your own content across every
+             Honeywell sorter in the field?&quot;
+             Honeywell signs: +$150k/yr
+                            │
+                            ↓
+  Month 12:  Same pitch to Intralox: +$80k/yr
+                            │
+                            ↓
+  Month 15:  SICK signs: +$120k/yr
+             Transnorm signs: +$60k/yr
+                            │
+                            ↓
+EXPAND PHASE 3 (FedEx pull-through)
+──────────────
+
+  Month 18:  FedEx Memphis maintenance manager sees techs
+             scanning QR codes and asks for site-level access.
+             FedEx Memphis pilot tenant: +$80k/yr (year 1 disc.)
+                            │
+                            ↓
+TOTAL FROM THIS ONE LANDING (Month 18):
+  $90k DMW&amp;H + $410k OEM + $80k FedEx = $580k ARR</code></pre>
+<p><strong>The lesson:</strong> A single integrator landing — when
+paired with deliberate OEM cross-sell and end-customer pull-through —
+generates 5-7x its own subscription value within 18 months. <strong>The
+S25 project specifically is gold because SANTECH already authored the
+OEM content; the OEM cross-sell pitch writes itself.</strong></p>
+<hr />
+<h2
+id="diagram-4-the-handoff-trigger-what-happens-when-warranty-ends">Diagram
+4: The handoff trigger — what happens when warranty ends</h2>
+<p>The most important moment in the customer lifecycle. Handle this well
+and revenue compounds; handle it poorly and it churns.</p>
+<pre><code>                  ┌──────────────────────────────────┐
+                  │  S25 warranty period ending      │
+                  │  (typically year 2-3 post go-live)│
+                  └─────────────┬────────────────────┘
+                                ↓
+                  ┌──────────────────────────────────┐
+                  │  60 days before handover:        │
+                  │  Trigger automated outreach to   │
+                  │  FedEx Memphis + DMW&amp;H           │
+                  └─────────────┬────────────────────┘
+                                ↓
+                  ┌──────────────────────────────────┐
+                  │  Three possible outcomes         │
+                  └─────────────┬────────────────────┘
+                                │
+              ┌─────────────────┼─────────────────┐
+              ↓                 ↓                 ↓
+      ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+      │ Outcome A    │  │ Outcome B    │  │ Outcome C    │
+      │ DMW&amp;H keeps  │  │ FedEx takes  │  │ Neither pays │
+      │ long-term    │  │ Memphis      │  │              │
+      │ service      │  │ in-house     │  │              │
+      │ contract     │  │              │  │              │
+      └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+             ↓                  ↓                  ↓
+      ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+      │ DMW&amp;H keeps  │  │ Productized  │  │ DMW&amp;H tenant │
+      │ paying as-is │  │ &quot;Project     │  │ deactivates  │
+      │              │  │ Handoff&quot; SKU │  │ for Memphis. │
+      │              │  │ at 50% off   │  │ QR codes go  │
+      │              │  │ year-1       │  │ dark UNLESS  │
+      │              │  │              │  │ OEMs are     │
+      │              │  │ FedEx pays   │  │ signed up:   │
+      │              │  │ $80k yr-1,   │  │ then content │
+      │              │  │ $130k+ ongoing│  │ stays alive. │
+      └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+             ↓                  ↓                  ↓
+      ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+      │ Revenue:     │  │ Revenue:     │  │ Revenue:     │
+      │ Unchanged    │  │ +$80-130k    │  │ Loss of      │
+      │              │  │ (replaces    │  │ DMW&amp;H + FedEx│
+      │              │  │ DMW&amp;H Memphis│  │ for Memphis; │
+      │              │  │ slice)       │  │ OEMs survive │
+      └──────────────┘  └──────────────┘  └──────────────┘</code></pre>
+<p><strong>Mitigation for Outcome C:</strong> Push hard on OEM signups
+in years 1-2 (Honeywell, Intralox, SICK first). Even if both DMW&amp;H
+and FedEx churn from Memphis, the OEM layer keeps paying and the
+equipment stays “live” on the platform.</p>
+<hr />
+<h2 id="diagram-5-the-library-flywheel-s25-as-foundational-seed">Diagram
+5: The library flywheel — S25 as foundational seed</h2>
+<p>How S25’s already-authored content makes future integrator sales
+progressively easier.</p>
+<pre><code>TODAY (S25 already authored)
+────────────────────────────
+
+  Library state:  10-12 OEMs partially authored from S25
+                  (Honeywell Intelligrated, Intralox, SICK,
+                  Visicon, Transnorm, Flow Turn, Talos, Rice
+                  Lake, NORD, Baldor, Rockwell)
+              │
+              ↓
+  This is the foundation library — most major MHI
+  projects use 60-70% of these same OEMs.
+
+
+YEAR 1: First few integrator deals
+──────────────────────────────────
+
+  New integrator signs up
+              │
+              ↓
+  Per-project authoring cost: $30-60k
+  (only the OEMs not in S25&#39;s footprint)
+              │
+              ↓
+  Easier sell than from-scratch — most equipment
+  pre-authored from S25 baseline
+
+
+YEAR 3: 20+ OEMs in library
+───────────────────────────
+
+  New integrator signs up
+              │
+              ↓
+  Per-project authoring cost:  $15-30k
+              │
+              ↓
+  Faster integrator growth (10-15/year)
+
+
+YEAR 5: 50+ OEMs in library
+───────────────────────────
+
+  New integrator signs up
+              │
+              ↓
+  Per-project authoring cost:  $10-20k
+              │
+              ↓
+  No-brainer — sign in a week
+              │
+              ↓
+  Each new integrator becomes a vehicle for
+  more OEM cross-sells, accelerating the loop.</code></pre>
+<p><strong>The strategic implication:</strong> S25 isn’t just a customer
+reference — it’s a content seed. Every OEM signed up from S25’s bill of
+materials makes every future integrator sale cheaper and easier.</p>
+<hr />
+<h2 id="diagram-6-the-oem-cross-sell-sequence-from-s25">Diagram 6: The
+OEM cross-sell sequence from S25</h2>
+<p>Priority order for pitching the OEMs whose equipment is in S25.</p>
+<pre><code>TIER 1 — Highest leverage (do first, target Q2-Q3 of Year 1)
+────────────────────────────────────────────────────────────
+  Why: Largest installed base, largest aftermarket parts
+  revenue at stake, biggest annual contract values
+
+  ▸ Honeywell Intelligrated    target $150k/yr
+    (S25 sorter; ~thousands of similar sorters in N. America)
+
+  ▸ Intralox                   target $80-100k/yr
+    (S25 ARB flow splitter; massive installed base)
+
+  ▸ SICK                       target $120-150k/yr
+    (S25 vision tunnel; on virtually every modern sortation)
+
+
+TIER 2 — Mid-size OEMs (do next, target Q4 Year 1)
+──────────────────────────────────────────────────
+  ▸ Transnorm           target $60k/yr
+  ▸ Rice Lake           target $40-60k/yr
+  ▸ Visicon (Vitronic)  target $40-50k/yr
+
+
+TIER 3 — Specialty OEMs (Year 2)
+────────────────────────────────
+  ▸ Flow Turn           target $40k/yr
+  ▸ Talos               target $35k/yr
+  ▸ NORD                target $30k/yr
+  ▸ Baldor (ABB)        target $40k/yr
+
+
+TIER 4 — Controls / horizontal players (Year 2+)
+────────────────────────────────────────────────
+  ▸ Rockwell / Allen-Bradley   target $80k+/yr
+    (PLCs, VFDs, FactoryTalk — touches every project,
+     potentially partner-tier deal)
+
+
+CUMULATIVE OEM ARR FROM S25&#39;s BOM IF ALL SIGN:
+────────────────────────────────────────────────
+  Tier 1:        $350-400k
+  + Tier 2:      $140-170k
+  + Tier 3:      $145k
+  + Tier 4:      $80k+
+  ──────────────────────
+  TOTAL:         $715-795k/yr from OEMs alone</code></pre>
+<p><strong>Note:</strong> You don’t need to land all of them. Landing
+Tier 1 alone (Honeywell, Intralox, SICK) is <strong>$350k+ ARR from a
+single project’s bill of materials.</strong></p>
+<hr />
+<h2 id="pricing-reference-card">Pricing reference card</h2>
+<p>Quick-reference pricing to use in conversations.</p>
+<table>
+<thead>
+<tr>
+<th>Customer</th>
+<th>Starting price</th>
+<th>Typical</th>
+<th>Top tier</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Integrator</td>
+<td>$14.4k/yr</td>
+<td>$42-90k/yr</td>
+<td>$90-120k/yr</td>
+</tr>
+<tr>
+<td>OEM (specialty)</td>
+<td>$30k/yr</td>
+<td>$40-60k/yr</td>
+<td>$80k/yr</td>
+</tr>
+<tr>
+<td>OEM (mid-size)</td>
+<td>$60k/yr</td>
+<td>$80-100k/yr</td>
+<td>$120k/yr</td>
+</tr>
+<tr>
+<td>OEM (major)</td>
+<td>$150k/yr</td>
+<td>$180k/yr</td>
+<td>$250k/yr</td>
+</tr>
+<tr>
+<td>End-customer (per site)</td>
+<td>$80k/yr</td>
+<td>$130k/yr</td>
+<td>$150k/yr</td>
+</tr>
+</tbody>
+</table>
+<p><strong>One-time services:</strong> - Single OEM manual authoring:
+$15-25k - Site overlay authoring: $15-25k - Multi-manual project bundle
+(S25-style, 5 manuals): $80-200k</p>
+<p><strong>Add-ons (metered):</strong> - AI chat overage: $0.05/msg -
+Storage overage: $0.10/GB/mo - Onboarding agent runs: $250 each beyond
+included pool</p>
+<hr />
+<h2 id="sales-process-checklist">Sales process checklist</h2>
+<p>Use this for every new prospect.</p>
+<h3 id="discovery-30-60-minutes">Discovery (30-60 minutes)</h3>
+<ul class="task-list">
+<li><label><input type="checkbox" />Identify customer type (Integrator /
+OEM / End-Customer)</label></li>
+<li><label><input type="checkbox" />Confirm fit: do they operate in MHI
+/ industrial automation?</label></li>
+<li><label><input type="checkbox" />Quantify scope: how many assets /
+projects / dealers / sites?</label></li>
+<li><label><input type="checkbox" />Identify champion (Director of
+Service, VP Aftermarket, Maintenance Manager)</label></li>
+<li><label><input type="checkbox" />Identify economic buyer (different
+from champion above the $50k mark)</label></li>
+</ul>
+<h3 id="demo-45-60-minutes-use-the-s25-reference">Demo (45-60 minutes) —
+use the S25 reference</h3>
+<ul class="task-list">
+<li><label><input type="checkbox" />Open S25 reference — DMW&amp;H
+tenant view, FedEx Memphis assets</label></li>
+<li><label><input type="checkbox" />Show QR scan → asset hub → linked
+sections from S25 manuals</label></li>
+<li><label><input type="checkbox" />Show authoring UX (PDF outline
+picker on real S25 manual)</label></li>
+<li><label><input type="checkbox" />Show AI chat answering an S25
+maintenance question with safety guardrails</label></li>
+<li><label><input type="checkbox" />Show audit log + procedure
+evidence</label></li>
+<li><label><input type="checkbox" /><strong>If OEM:</strong> show their
+equipment from S25 already in platform → “this is yours, with a few
+clicks”</label></li>
+<li><label><input type="checkbox" /><strong>If integrator:</strong> show
+DMW&amp;H portfolio view with S25 + neighbor projects</label></li>
+<li><label><input type="checkbox" /><strong>If end-customer:</strong>
+show multi-OEM unified view + compliance reports for FedEx
+Memphis</label></li>
+</ul>
+<h3 id="proposal-within-5-days-of-demo">Proposal (within 5 days of
+demo)</h3>
+<ul class="task-list">
+<li><label><input type="checkbox" />Subscription tier recommendation
+with asset count justification</label></li>
+<li><label><input type="checkbox" />Authoring services line items with
+library credit (where applicable — most S25 OEMs already 30-60%
+authored)</label></li>
+<li><label><input type="checkbox" />Multi-year pricing option (3-year @
+15% off)</label></li>
+<li><label><input type="checkbox" />Founding-customer terms (if early
+enough)</label></li>
+<li><label><input type="checkbox" />Implementation timeline (4-6 weeks
+typical)</label></li>
+</ul>
+<h3
+id="close-target-30-90-days-for-integrators-6-12-months-for-oemsend-customers">Close
+(target: 30-90 days for integrators, 6-12 months for
+OEMs/end-customers)</h3>
+<ul class="task-list">
+<li><label><input type="checkbox" />Procurement / legal
+review</label></li>
+<li><label><input type="checkbox" />Security questionnaire (SOC 2
+roadmap one-pager)</label></li>
+<li><label><input type="checkbox" />DPA / data-handling
+terms</label></li>
+<li><label><input type="checkbox" />Signed MSA + Order Form</label></li>
+<li><label><input type="checkbox" />Onboarding kickoff
+scheduled</label></li>
+</ul>
+<h3 id="post-close-expand-within-90-days">Post-close expand (within 90
+days)</h3>
+<ul class="task-list">
+<li><label><input type="checkbox" />Identify OEMs in their portfolio for
+cross-sell (use S25 BOM as template)</label></li>
+<li><label><input type="checkbox" />Identify end-customers for
+pull-through</label></li>
+<li><label><input type="checkbox" />Schedule QBR for month
+6</label></li>
+<li><label><input type="checkbox" />Set asset-growth milestones for
+tier-up triggers</label></li>
+</ul>
+</body>
+</html>

@@ -23,6 +23,7 @@
     "@platform/ai": "workspace:*",
     "@platform/db": "workspace:*",
     "@platform/shared": "workspace:*",
+    "@sentry/node": "^10.52.0",
     "drizzle-orm": "^0.35.3",
     "fastify": "^5.0.0",
     "fastify-type-provider-zod": "^4.0.1",

@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Equipment Hub — iPad Edition · Connected Worker Platform for MHI</title>
+<style>
+  /* ============================================================
+     iPad MARKETING PIECE — system fonts only,
+     simplified bezel styling so Edge's PDF renderer doesn't
+     flatten layered box-shadows into black blocks.
+     ============================================================ */
+  :root {
+    --bg:           #fafaf9;
+    --surface:      #ffffff;
+    --surface-alt:  #f5f5f4;
+    --ink-1:        #0a0a0a;
+    --ink-2:        #404040;
+    --ink-3:        #737373;
+    --ink-mute:     #a3a3a3;
+    --line:         #e5e5e4;
+    --line-soft:    #f0f0ee;
+    --navy:         #0b1f3a;
+    --navy-deep:    #050d1f;
+    --accent:       #ea580c;
+    --accent-soft:  #fff7ed;
+    --accent-glow:  #fb923c;
+    --radius-sm:    6px;
+    --radius:       12px;
+  }
+
+  @page { size: letter; margin: 0; }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  html, body { background: var(--bg); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                 "Helvetica Neue", Arial, system-ui, sans-serif;
+    color: var(--ink-1);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  img { max-width: 100%; display: block; }
+  a { color: inherit; text-decoration: none; }
+
+  /* Each <section> = one printed page */
+  section {
+    width: 8.5in;
+    height: 11in;
+    padding: 0.4in 0.65in 0.45in;
+    page-break-after: always;
+    page-break-inside: avoid;
+    overflow: hidden;
+    position: relative;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+  }
+  section:last-of-type { page-break-after: auto; }
+
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .section-eyebrow {
+    font-size: 10.5px;
+    color: var(--accent);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  /* ---------- iPAD MOCKUP — bezel applied directly to <img> ---------- */
+  .ipad {
+    display: inline-block;
+    box-shadow: 0 14px 28px -12px rgba(11, 31, 58, 0.28);
+    line-height: 0;
+  }
+  .ipad img {
+    display: block;
+    width: 100%;
+    border-radius: 14px;
+    border: 4px solid #1a1a1a;
+  }
+
+  /* ============================================================
+     PAGE 1 — HERO (single large iPad on right)
+     ============================================================ */
+  .hero {
+    background:
+      radial-gradient(ellipse 70% 50% at 50% 20%, rgba(234, 88, 12, 0.07) 0%, transparent 60%),
+      radial-gradient(ellipse 50% 50% at 100% 30%, rgba(11, 31, 58, 0.04) 0%, transparent 60%),
+      var(--bg);
+  }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.15fr;
+    gap: 0.4in;
+    align-items: center;
+    flex: 1;
+    margin-top: 8px;
+  }
+  h1.hero-title {
+    font-size: 44px;
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    line-height: 1.04;
+    margin-bottom: 16px;
+  }
+  h1.hero-title .accent {
+    background: linear-gradient(120deg, var(--accent) 0%, #f97316 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .hero-sub {
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--ink-2);
+    margin-bottom: 20px;
+    max-width: 4in;
+  }
+  .hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    color: var(--ink-3);
+    font-size: 11px;
+  }
+  .hero-meta .item { display: flex; align-items: center; gap: 5px; }
+  .hero-meta svg { width: 11px; height: 11px; }
+
+  .hero-visual {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.1in;
+  }
+  .hero-visual .ipad {
+    width: 100%;
+    max-width: 4.2in;
+  }
+
+  .logo-strip {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+  .logo-strip .label {
+    font-size: 9px;
+    color: var(--ink-3);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .logo-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 22px;
+    color: var(--ink-mute);
+    font-weight: 700;
+    font-size: 11px;
+  }
+
+  /* Tablet badge in top corner */
+  .tablet-badge {
+    position: absolute;
+    top: 0.4in;
+    right: 0.65in;
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: var(--ink-1);
+    color: white;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .tablet-badge::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-glow);
+  }
+
+  /* ---------- SECTION TITLES ---------- */
+  .section-title {
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.1;
+    margin-bottom: 10px;
+    max-width: 6.5in;
+  }
+  .section-sub {
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--ink-2);
+    max-width: 5.5in;
+    margin-bottom: 28px;
+  }
+
+  /* ---------- HOW IT WORKS ---------- */
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    counter-reset: step;
+  }
+  .step {
+    padding: 18px;
+    border-radius: var(--radius);
+    background: var(--surface-alt);
+    border: 1px solid var(--line);
+  }
+  .step::before {
+    counter-increment: step;
+    content: counter(step, decimal-leading-zero);
+    font-family: "SFMono-Regular", "Consolas", monospace;
+    font-size: 11px;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 10px;
+    display: block;
+  }
+  .step-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    background: white;
+    border: 1px solid var(--line);
+    display: grid;
+    place-items: center;
+    margin-bottom: 12px;
+    color: var(--navy);
+  }
+  .step-icon svg { width: 16px; height: 16px; }
+  .step h3 {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 6px;
+  }
+  .step p {
+    font-size: 11.5px;
+    color: var(--ink-2);
+    line-height: 1.5;
+  }
+  .why-callout {
+    margin-top: 24px;
+    padding: 16px 20px;
+    background: var(--surface-alt);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .why-callout .feat-tag { margin-bottom: 4px; }
+  .why-callout div {
+    font-size: 12px;
+    color: var(--ink-2);
+    line-height: 1.55;
+  }
+
+  /* ---------- FEATURE PAGES ---------- */
+  .feature-page .feature-blocks {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-around;
+    gap: 24px;
+    padding: 10px 0;
+  }
+  .feature-block {
+    display: grid;
+    grid-template-columns: 1fr 1.15fr;
+    gap: 0.35in;
+    align-items: center;
+  }
+  .feature-block.flip .feat-text { order: 2; }
+  .feature-block.flip .feat-image { order: 1; }
+  .feat-tag {
+    font-family: "SFMono-Regular", "Consolas", monospace;
+    font-size: 10px;
+    color: var(--accent);
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+  .feat-text h3 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.18;
+    margin-bottom: 8px;
+  }
+  .feat-text p {
+    font-size: 11.5px;
+    line-height: 1.55;
+    color: var(--ink-2);
+    margin-bottom: 10px;
+  }
+  .feat-text ul { list-style: none; }
+  .feat-text li {
+    padding: 5px 0;
+    border-top: 1px solid var(--line);
+    font-size: 10.5px;
+    color: var(--ink-2);
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    line-height: 1.4;
+  }
+  .feat-text li:last-child { border-bottom: 1px solid var(--line); }
+  .feat-text li::before {
+    content: '';
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-top: 6px;
+    flex-shrink: 0;
+  }
+  .feat-image {
+    text-align: center;
+  }
+  .feat-image .ipad {
+    width: 100%;
+    max-width: 3.4in;
+    margin: 0 auto;
+  }
+  .feat-image.duo {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: center;
+  }
+  .feat-image.duo .ipad {
+    max-width: 2.9in;
+  }
+
+  /* Single full-width feature */
+  .feature-block.single {
+    grid-template-columns: 1fr 1.2fr;
+    align-items: center;
+    flex: 1;
+  }
+  .feature-block.single .feat-image {
+    align-self: center;
+  }
+
+  /* ---------- THREE-SIDED PAGE ---------- */
+  .three-sides {
+    background: var(--navy);
+    color: white;
+  }
+  .three-sides .section-title { color: white; }
+  .three-sides .section-sub { color: rgba(255, 255, 255, 0.7); }
+  .three-sides .section-eyebrow { color: var(--accent-glow); }
+  .sides-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  .side {
+    padding: 22px 20px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius);
+  }
+  .side-tag {
+    font-family: "SFMono-Regular", "Consolas", monospace;
+    font-size: 10px;
+    color: var(--accent-glow);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .side h4 {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: white;
+    margin-bottom: 6px;
+  }
+  .side p {
+    font-size: 11px;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.65);
+    margin-bottom: 14px;
+  }
+  .side .price {
+    font-size: 10px;
+    font-family: "SFMono-Regular", "Consolas", monospace;
+    color: rgba(255, 255, 255, 0.85);
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .side .price b {
+    color: var(--accent-glow);
+    display: block;
+    font-size: 17px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin-top: 2px;
+  }
+
+  .quote-block {
+    margin-top: auto;
+    padding: 22px 26px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius);
+    background: rgba(255, 255, 255, 0.025);
+    text-align: center;
+  }
+  .quote-mark {
+    font-size: 30px;
+    color: var(--accent-glow);
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+  .quote-text {
+    font-size: 16px;
+    line-height: 1.45;
+    letter-spacing: -0.018em;
+    color: white;
+    font-weight: 500;
+    margin-bottom: 10px;
+    max-width: 5.5in;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .quote-attr {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.5);
+    letter-spacing: 0.04em;
+  }
+  .quote-attr b { color: white; font-weight: 600; }
+
+  /* ---------- CTA PAGE ---------- */
+  .cta-section {
+    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-deep) 100%);
+    color: white;
+    text-align: center;
+  }
+  .cta-section::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 60% 80% at 30% 0%, rgba(234, 88, 12, 0.18) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 80% at 70% 100%, rgba(251, 146, 60, 0.1) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .cta-inner {
+    position: relative;
+    z-index: 2;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 0.4in 0;
+  }
+  .cta-section .section-eyebrow { color: var(--accent-glow); }
+  .cta-section h2 {
+    font-size: 38px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
+    margin-bottom: 14px;
+  }
+  .cta-section .desc {
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: rgba(255, 255, 255, 0.75);
+    margin-bottom: 22px;
+    max-width: 5.5in;
+  }
+  .cta-btn {
+    display: inline-flex;
+    background: white;
+    color: var(--navy);
+    font-size: 13px;
+    padding: 12px 24px;
+    font-weight: 600;
+    border-radius: 7px;
+    gap: 8px;
+    align-items: center;
+  }
+  .cta-fine {
+    margin-top: 10px;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.5);
+  }
+  .cta-pricing {
+    margin-top: 36px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    max-width: 4.6in;
+    width: 100%;
+  }
+  .cta-pricing .row {
+    text-align: left;
+    padding: 12px 14px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 7px;
+  }
+  .cta-pricing .row b {
+    display: block;
+    font-family: "SFMono-Regular", "Consolas", monospace;
+    font-size: 9.5px;
+    color: var(--accent-glow);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 3px;
+  }
+  .cta-pricing .row span {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.85);
+  }
+</style>
+</head>
+<body>
+
+<!-- ============================== PAGE 1 — HERO ============================== -->
+<section class="hero">
+  <div class="tablet-badge">iPad Edition</div>
+
+  <div class="hero-grid">
+    <div class="hero-text">
+      <h1 class="hero-title">
+        Built for the<br>
+        <span class="accent">workshop tablet</span>.<br>
+        Optimized for techs.
+      </h1>
+      <p class="hero-sub">
+        The same Connected Worker Platform — purpose-built for material
+        handling and industrial automation — at full iPad scale. More
+        manual on screen, more parts visible, fewer taps to fix the
+        machine. No app to install; runs in Safari, installs to home
+        screen, works offline for recently-viewed content.
+      </p>
+      <div class="hero-meta">
+        <span class="item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+          Native PWA, no App Store
+        </span>
+        <span class="item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+          Same auth, same data
+        </span>
+        <span class="item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+          Offline-ready
+        </span>
+      </div>
+    </div>
+
+    <div class="hero-visual">
+      <div class="ipad"><img src="../ipad_ex_1.png" alt="Asset overview on iPad"></div>
+    </div>
+  </div>
+
+  <div class="logo-strip">
+    <div class="label">Authored content for</div>
+    <div class="logo-row">
+      <span>Honeywell&nbsp;Intelligrated</span>
+      <span>Intralox</span>
+      <span>SICK</span>
+      <span>Visicon</span>
+      <span>Transnorm</span>
+      <span>Rice&nbsp;Lake</span>
+      <span>Flow&nbsp;Turn</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== PAGE 2 — HOW ============================== -->
+<section>
+  <div class="section-eyebrow">How it works on iPad</div>
+  <h2 class="section-title">A workshop tablet at every line.</h2>
+  <p class="section-sub">
+    Mount an iPad next to each major machine. Same QR scan flow,
+    expanded canvas — the maintenance team gets a tablet-class view of
+    the manuals, parts, and procedures they reach for every day.
+  </p>
+
+  <div class="steps">
+    <div class="step">
+      <div class="step-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="3" height="3"/><rect x="18" y="14" width="3" height="3"/><rect x="14" y="18" width="3" height="3"/><rect x="18" y="18" width="3" height="3"/></svg>
+      </div>
+      <h3>Mount it on the line</h3>
+      <p>Wall-mounted iPads at every major sub-system. Always charged, always available, always pointed at the equipment they cover.</p>
+    </div>
+    <div class="step">
+      <div class="step-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M9 20h6"/></svg>
+      </div>
+      <h3>Scan or pin the asset</h3>
+      <p>Pin a wall-mounted tablet to a specific machine, or use the iPad's camera to scan QR codes on adjacent equipment. Same session model, same audit trail.</p>
+    </div>
+    <div class="step">
+      <div class="step-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+      </div>
+      <h3>Full canvas, full content</h3>
+      <p>More manual on screen, parts and exploded views beside the diagram, AI assistant in a side panel. Fewer taps to do the same job — measurably faster MTTR.</p>
+    </div>
+  </div>
+
+  <div class="why-callout">
+    <div class="feat-tag">Why iPad</div>
+    <div>
+      A 12-inch canvas makes a meaningful difference for maintenance
+      work — schematics readable without zoom, BOM and exploded view
+      side-by-side, AI assistant in a docked side panel. Same platform
+      and authoring; different ergonomics. Wall-mount one at every line
+      and your floor becomes self-service for routine work.
+    </div>
+  </div>
+</section>
+
+<!-- ============================== PAGE 3 — FEATURES 1 & 2 ============================== -->
+<section class="feature-page">
+  <div class="feature-blocks">
+    <div class="feature-block">
+      <div class="feat-text">
+        <div class="feat-tag">01 · Identification</div>
+        <h3>The whole asset, one glance.</h3>
+        <p>Brand-aware UI shows model code, serial, content revision, customer, install date, and any open work orders — laid out across the iPad's full canvas without scrolling.</p>
+        <ul>
+          <li>Scoped to the exact serial — two identical machines at different sites can have different content versions</li>
+          <li>Branded per OEM with custom logos, colors, and accessibility-validated contrast</li>
+          <li>Server-side QR resolution — re-target on equipment swap, revoke on theft</li>
+        </ul>
+      </div>
+      <div class="feat-image">
+        <div class="ipad"><img src="../ipad_ex_1.png" alt="Asset overview"></div>
+      </div>
+    </div>
+
+    <div class="feature-block flip">
+      <div class="feat-text">
+        <div class="feat-tag">02 · Documentation</div>
+        <h3>Sectioned by part. Anchored to the page.</h3>
+        <p>Manuals split into part-specific sections. The iPad grid view shows section thumbnails, page ranges, and unverified field-procedure overlays at a glance.</p>
+        <ul>
+          <li>Page anchors with optional Y-crops for sub-page boundaries</li>
+          <li>Automatic re-validation when OEM publishes a manual revision</li>
+          <li>Field-captured procedures show as unverified until an admin promotes them</li>
+        </ul>
+      </div>
+      <div class="feat-image">
+        <div class="ipad"><img src="../ipad_ex_3.png" alt="Documents grid"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== PAGE 4 — FEATURES 3 & 4 ============================== -->
+<section class="feature-page">
+  <div class="feature-blocks">
+    <div class="feature-block">
+      <div class="feat-text">
+        <div class="feat-tag">03 · AI assistant</div>
+        <h3>An AI that knows your equipment.</h3>
+        <p>Plain-English questions, cited answers grounded on this asset's published content. Safety-critical procedures quoted verbatim. The iPad's wider chat surface makes long technical answers easy to scan.</p>
+        <ul>
+          <li>RAG retrieval over the asset's pinned content version</li>
+          <li>Refuses to summarize lockout/tagout — quotes the OEM directly</li>
+          <li>Source citations on every paragraph</li>
+        </ul>
+      </div>
+      <div class="feat-image">
+        <div class="ipad"><img src="../ipad_ex_7.png" alt="AI assistant"></div>
+      </div>
+    </div>
+
+    <div class="feature-block flip">
+      <div class="feat-text">
+        <div class="feat-tag">04 · Parts catalog</div>
+        <h3>Every part, every diagram, one tap.</h3>
+        <p>Searchable by part number, name, position, or cross-reference. Each part links to its install procedure, exploded views, and OEM-branded ordering — re-routing aftermarket revenue back to the OEM.</p>
+        <ul>
+          <li>BOM hierarchy with parent-part drill-down</li>
+          <li>Cross-reference search for legacy part numbers</li>
+          <li>OEM-controlled ordering links — capture aftermarket leakage</li>
+        </ul>
+      </div>
+      <div class="feat-image">
+        <div class="ipad"><img src="../ipad_ex_6.png" alt="Parts list"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== PAGE 5 — FEATURES 5 & 6 ============================== -->
+<section class="feature-page">
+  <div class="feature-blocks">
+    <div class="feature-block">
+      <div class="feat-text">
+        <div class="feat-tag">05 · Issue reporting</div>
+        <h3>Report from the line in 30 seconds.</h3>
+        <p>Severity, photos, attachments — issues route to maintenance with the asset, scan history, and content rev attached. The iPad form keeps the asset header in view while the work-order is being filled.</p>
+        <ul>
+          <li>Native camera capture with auto-attached EXIF metadata</li>
+          <li>Five severity levels with color-coded urgency</li>
+          <li>CMMS bidirectional sync (Maximo, UpKeep, Fiix) on roadmap</li>
+        </ul>
+      </div>
+      <div class="feat-image">
+        <div class="ipad"><img src="../ipad_ex_2.png" alt="Work order form"></div>
+      </div>
+    </div>
+
+    <div class="feature-block flip">
+      <div class="feat-text">
+        <div class="feat-tag">06 · Field authoring</div>
+        <h3>Capture tribal knowledge in real time.</h3>
+        <p>Techs document procedures right at the equipment. Voice-to-title, step-by-step photo and video evidence on a tablet keyboard, time-stamped on every action. Saved as <em>unverified</em> drafts; admin promotes them to published content.</p>
+        <ul>
+          <li>Voice input for step titles and notes — gloved hands welcome</li>
+          <li>Auto-saved drafts survive battery death, app crash, lost signal</li>
+          <li>Admin promotion workflow keeps the field log honest</li>
+          <li>Procedures become reusable training material on promotion</li>
+        </ul>
+      </div>
+      <div class="feat-image duo">
+        <div class="ipad"><img src="../ipad_ex_4.png" alt="Procedure title input"></div>
+        <div class="ipad"><img src="../ipad_ex_5.png" alt="Step capture"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== PAGE 6 — THREE-SIDED ============================== -->
+<section class="three-sides">
+  <div class="section-eyebrow">Three-sided platform</div>
+  <h2 class="section-title">Same QR. Three buyers. Different value.</h2>
+  <p class="section-sub">
+    OEMs, integrators, and end-customers each pay for different value from
+    the same physical asset. Mounted iPads on the floor are the
+    end-customer's investment; the platform underneath is shared.
+  </p>
+
+  <div class="sides-grid">
+    <div class="side">
+      <div class="side-tag">OEM</div>
+      <h4>Capture aftermarket revenue</h4>
+      <p>Brand every Honeywell sorter, every Intralox splitter, every SICK scanner with content that routes parts orders back to you — no leakage to third-party distributors.</p>
+      <div class="price">
+        Starting at
+        <b>$30k / yr</b>
+      </div>
+    </div>
+    <div class="side">
+      <div class="side-tag">Integrator</div>
+      <h4>Service margin protection</h4>
+      <p>Faster MTTR, better first-time-fix rate, and lower truck-roll frequency across your active project portfolio. Service contracts stay profitable.</p>
+      <div class="price">
+        Starting at
+        <b>$42k / yr</b>
+      </div>
+    </div>
+    <div class="side">
+      <div class="side-tag">End-customer</div>
+      <h4>Workshop tablets at every line</h4>
+      <p>Mount iPads at every major sub-system. One platform across every OEM, every integrator, every decade of installed equipment. Audit trails included.</p>
+      <div class="price">
+        Starting at
+        <b>$80k / yr per site</b>
+      </div>
+    </div>
+  </div>
+
+  <div class="quote-block">
+    <div class="quote-mark">&ldquo;</div>
+    <p class="quote-text">
+      A 12-inch canvas at every line turns documentation from a thing
+      techs ignore into a thing they reach for. Same platform — different
+      ergonomics, measurably better outcomes.
+    </p>
+    <div class="quote-attr">
+      <b>SANTECH</b> · Documentation services since 2003
+    </div>
+  </div>
+</section>
+
+<!-- ============================== PAGE 7 — CTA ============================== -->
+<section class="cta-section">
+  <div class="cta-inner">
+    <div class="section-eyebrow">Beta program</div>
+    <h2>Five companies.<br>Ninety days. $0 to participate.</h2>
+    <p class="desc">
+      We're selecting five MHI integrators and OEMs for a structured 90-day
+      beta. SANTECH authors your content, ships branded QR labels, runs
+      weekly check-ins, and gives you founding-member pricing at day 90.
+      Estimated value of included services: ~$25,000.
+    </p>
+    <a href="#" class="cta-btn">
+      Request a beta slot
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+    </a>
+    <div class="cta-fine">Founding-member pricing locks 50% off list for 24 months</div>
+
+    <div class="cta-pricing">
+      <div class="row"><b>Integrator</b><span>$42 – 120k / yr</span></div>
+      <div class="row"><b>OEM</b><span>$30 – 250k / yr</span></div>
+      <div class="row"><b>End-Customer</b><span>$80 – 150k / yr per site</span></div>
+      <div class="row"><b>Founding member</b><span>50% off list, 24 mo lock</span></div>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

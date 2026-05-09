@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ArrowUp, Camera, ChevronDown, FileText, Sparkles, Square, Trash2, X } from 'lucide-react';
+import { ArrowUp, AudioLines, Camera, ChevronDown, FileText, Sparkles, Square, Trash2, X } from 'lucide-react';
 import type { AssetHubPayload } from '@/lib/shared-schema';
-import { streamChat, uploadFile, type ChatCitation, type UploadResult } from '@/lib/api';
+import { streamChat, uploadFile, type ChatCitation, type UploadResult, type VerifyResult } from '@/lib/api';
+import { VoiceMode } from '@/components/voice-mode';
 
 type UserTurn = { role: 'user'; text: string; imageUrl?: string };
 type AssistantTurn = {
@@ -13,6 +14,7 @@ type AssistantTurn = {
   text: string;
   citations: ChatCitation[];
   streaming: boolean;
+  verify?: VerifyResult;
 };
 type Turn = UserTurn | AssistantTurn;
 
@@ -104,6 +106,7 @@ export function ChatTab({
   const cameraRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const [voiceOpen, setVoiceOpen] = useState(false);
 
   // Persist whenever a meaningful piece of the conversation changes.
   useEffect(() => {
@@ -232,6 +235,10 @@ export function ChatTab({
                 citations: event.citations,
                 streaming: false,
               })),
+            );
+          } else if (event.type === 'verify') {
+            setTurns((t) =>
+              updateLastAssistant(t, (a) => ({ ...a, verify: event.verify })),
             );
           } else if (event.type === 'error') {
             setError(event.message);
@@ -373,6 +380,16 @@ export function ChatTab({
           placeholder={attachment ? 'Describe what to do with the photo…' : 'What does fault E-217 mean?'}
           disabled={pending}
         />
+        <button
+          type="button"
+          onClick={() => setVoiceOpen(true)}
+          disabled={pending}
+          aria-label="Voice mode"
+          title="Voice mode"
+          className="inline-flex h-9 w-9 items-center justify-center rounded text-ink-secondary transition hover:bg-surface-elevated hover:text-ink-primary disabled:opacity-50"
+        >
+          <AudioLines size={16} strokeWidth={2} />
+        </button>
         <label
           className={`inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded text-ink-secondary transition hover:bg-surface-elevated hover:text-ink-primary ${
             uploading || pending ? 'opacity-50' : ''
@@ -415,6 +432,34 @@ export function ChatTab({
           </button>
         )}
       </form>
+
+      {voiceOpen && (
+        <VoiceMode
+          assetInstanceId={hub.assetInstance.id}
+          {...(partId ? { partId } : {})}
+          {...(conversationId ? { initialConversationId: conversationId } : {})}
+          devUserId={DEV_USER_ID}
+          devOrgId={DEV_ORG_ID}
+          onClose={({ conversationId: cid, turns: voiceTurns }) => {
+            setVoiceOpen(false);
+            if (cid) setConversationId(cid);
+            if (voiceTurns.length === 0) return;
+            setTurns((existing) => [
+              ...existing,
+              ...voiceTurns.map((t) =>
+                t.role === 'user'
+                  ? ({ role: 'user', text: t.text } satisfies UserTurn)
+                  : ({
+                      role: 'assistant',
+                      text: t.text,
+                      citations: [],
+                      streaming: false,
+                    } satisfies AssistantTurn),
+              ),
+            ]);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -459,7 +504,18 @@ function TurnView({ turn }: { turn: Turn }) {
         <span className="caption" style={{ color: 'rgb(var(--ink-brand))' }}>
           Assistant
         </span>
+        {!turn.streaming && turn.verify && (
+          <GroundingBadge verify={turn.verify} />
+        )}
       </div>
+
+      {!turn.streaming && turn.verify && ordered.length > 0 && (
+        <EvidenceBar verify={turn.verify} sources={ordered} />
+      )}
+      {!turn.streaming && turn.verify?.conflict && (
+        <ConflictBanner reason={turn.verify.conflict} />
+      )}
+
       <div className="assistant-msg">
         <div className="markdown-body">
           {turn.text.length === 0 && turn.streaming ? (
@@ -478,7 +534,136 @@ function TurnView({ turn }: { turn: Turn }) {
         {!turn.streaming && ordered.length > 0 && (
           <SourcesList sources={ordered} />
         )}
+
+        {!turn.streaming && turn.verify && (
+          <GroundingPanel verify={turn.verify} />
+        )}
       </div>
+    </div>
+  );
+}
+
+function summarizeVerify(verify: VerifyResult): {
+  total: number;
+  supported: number;
+  weak: number;
+  unsupported: number;
+  level: 'verified' | 'mostly' | 'speculative';
+} {
+  let supported = 0;
+  let weak = 0;
+  let unsupported = 0;
+  for (const s of verify.sentences) {
+    if (s.level === 'supported') supported += 1;
+    else if (s.level === 'weak') weak += 1;
+    else unsupported += 1;
+  }
+  const total = verify.sentences.length;
+  const level: 'verified' | 'mostly' | 'speculative' =
+    total > 0 && unsupported === 0 && weak === 0
+      ? 'verified'
+      : total > 0 && unsupported === 0
+        ? 'mostly'
+        : 'speculative';
+  return { total, supported, weak, unsupported, level };
+}
+
+function GroundingBadge({ verify }: { verify: VerifyResult }): React.ReactElement {
+  const s = summarizeVerify(verify);
+  const label =
+    s.level === 'verified'
+      ? 'Verified'
+      : s.level === 'mostly'
+        ? 'Mostly grounded'
+        : 'Review needed';
+  return (
+    <span className={`grounding-badge grounding-${s.level}`} title={`${s.supported}/${s.total} claims supported`}>
+      {label}
+    </span>
+  );
+}
+
+// Stacked bar showing per-source contribution. Each segment is keyed to the
+// citation index so [1]/[2]/[3] in prose match the bar at a glance.
+function EvidenceBar({
+  verify,
+  sources,
+}: {
+  verify: VerifyResult;
+  sources: ChatCitation[];
+}): React.ReactElement | null {
+  const total = verify.sources.reduce((acc, s) => acc + Math.max(0, s.weight), 0);
+  if (total <= 0) return null;
+  const indexById = new Map(sources.map((s, i) => [s.chunkId, i + 1]));
+  return (
+    <div className="evidence-bar" aria-label="Source contribution">
+      {verify.sources
+        .filter((s) => s.weight > 0 && indexById.has(s.chunkId))
+        .map((s) => {
+          const pct = (s.weight / total) * 100;
+          const idx = indexById.get(s.chunkId);
+          return (
+            <span
+              key={s.chunkId}
+              className="evidence-bar-seg"
+              style={{ width: `${pct.toFixed(2)}%` }}
+              title={`Source [${idx}] · ${pct.toFixed(0)}%`}
+              data-idx={idx}
+            />
+          );
+        })}
+    </div>
+  );
+}
+
+function ConflictBanner({ reason }: { reason: string }): React.ReactElement {
+  return (
+    <div className="conflict-banner" role="alert">
+      <span className="led led-warn" />
+      <span className="conflict-banner-label">Sources differ</span>
+      <span className="conflict-banner-reason">{reason}</span>
+    </div>
+  );
+}
+
+// Compact grounding panel — only renders when there are weak/unsupported
+// claims worth reviewing. Hidden when everything is fully supported (the
+// badge already says "Verified").
+function GroundingPanel({ verify }: { verify: VerifyResult }): React.ReactElement | null {
+  const [open, setOpen] = useState(false);
+  const flagged = verify.sentences.filter(
+    (s) => s.level === 'weak' || s.level === 'unsupported',
+  );
+  if (flagged.length === 0) return null;
+  return (
+    <div className="grounding-panel">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="grounding-panel-toggle"
+      >
+        <span className="led led-warn" />
+        {flagged.length} claim{flagged.length === 1 ? '' : 's'} need review
+        <ChevronDown
+          size={12}
+          strokeWidth={2.5}
+          style={{ transform: open ? 'rotate(180deg)' : 'none' }}
+          className="transition-transform"
+        />
+      </button>
+      {open && (
+        <ul className="grounding-panel-list">
+          {flagged.map((s, i) => (
+            <li key={i} className={`grounding-panel-item grounding-${s.level}`}>
+              <span className="grounding-panel-tag">
+                {s.level === 'weak' ? 'Weak' : 'Unsupported'}
+              </span>
+              <span>{s.text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

@@ -268,6 +268,87 @@ export interface UploadResult {
   url: string;
 }
 
+export type FeedbackCategory = 'bug' | 'feature' | 'question' | 'praise' | 'other';
+
+export async function submitFeedback(params: {
+  message: string;
+  category: FeedbackCategory;
+  qrCode?: string;
+  assetInstanceId?: string;
+  contactEmail?: string;
+}): Promise<{ id: string }> {
+  const viewport =
+    typeof window !== 'undefined'
+      ? { w: window.innerWidth, h: window.innerHeight }
+      : undefined;
+  const res = await fetch(`${CLIENT_API_BASE}/feedback`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      ...params,
+      viewport,
+      browserUa: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
+      appVersion: process.env.NEXT_PUBLIC_APP_VERSION ?? 'dev',
+    }),
+  });
+  if (!res.ok) throw new Error(`Feedback ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { id: string };
+}
+
+// ---------------------------------------------------------------------------
+// Voice (STT + TTS) and AI-first preflight brief.
+// ---------------------------------------------------------------------------
+
+export interface PreflightBrief {
+  assetModelDisplayName: string;
+  serialNumber: string;
+  pinnedVersionLabel: string | null;
+  openWorkOrders: { count: number; samples: Array<{ title: string; severity: string }> };
+  recentResolved: { count: number; commonTitle: string | null };
+  recentDocUpdates: Array<{ title: string; kind: string; at: string }>;
+  greeting: string;
+}
+
+export async function fetchPreflight(assetInstanceId: string): Promise<PreflightBrief> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/ai/preflight/${encodeURIComponent(assetInstanceId)}`,
+    { cache: 'no-store' },
+  );
+  if (!res.ok) throw new Error(`Preflight ${res.status}: ${await res.text()}`);
+  return (await res.json()) as PreflightBrief;
+}
+
+export async function transcribeAudio(blob: Blob): Promise<string> {
+  const form = new FormData();
+  form.append('audio', blob, 'recording.webm');
+  const res = await fetch(`${CLIENT_API_BASE}/ai/voice/transcribe`, {
+    method: 'POST',
+    body: form,
+  });
+  if (res.status === 503) throw new Error('Voice transcription is not configured.');
+  if (!res.ok) throw new Error(`Transcribe ${res.status}: ${await res.text()}`);
+  const json = (await res.json()) as { text: string };
+  return json.text;
+}
+
+// Streamed audio response. Returns the response so the caller can pipe
+// `response.body` into MediaSource for true streaming or use response.blob()
+// for simple end-to-end playback.
+export async function speak(
+  text: string,
+  opts?: { voice?: string; speed?: number; signal?: AbortSignal },
+): Promise<Response> {
+  const res = await fetch(`${CLIENT_API_BASE}/ai/voice/speak`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text, voice: opts?.voice, speed: opts?.speed, format: 'mp3' }),
+    signal: opts?.signal,
+  });
+  if (res.status === 503) throw new Error('Voice synthesis is not configured.');
+  if (!res.ok) throw new Error(`Speak ${res.status}: ${await res.text()}`);
+  return res;
+}
+
 export async function uploadFile(
   file: File,
   devUserId: string,
@@ -450,10 +531,22 @@ export interface ChatReply {
   };
 }
 
+export interface VerifySentence {
+  text: string;
+  level: 'supported' | 'weak' | 'unsupported';
+  chunkIds: string[];
+}
+export interface VerifyResult {
+  sentences: VerifySentence[];
+  sources: Array<{ chunkId: string; weight: number }>;
+  conflict: string | null;
+}
+
 export type ChatStreamEvent =
   | { type: 'conversation'; conversationId: string }
   | { type: 'delta'; text: string }
   | { type: 'done'; messageId: string; citations: ChatCitation[]; usage: ChatReply['usage'] }
+  | { type: 'verify'; verify: VerifyResult }
   | { type: 'error'; message: string };
 
 // ---------------------------------------------------------------------------
@@ -1139,6 +1232,8 @@ function parseSSE(raw: string): ChatStreamEvent | null {
           citations: data.citations,
           usage: data.usage,
         };
+      case 'verify':
+        return { type: 'verify', verify: data as VerifyResult };
       case 'error':
         return { type: 'error', message: data.message };
       default:

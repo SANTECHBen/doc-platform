@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Equipment Hub — Connected Worker Platform for MHI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:           #fafaf9;
+    --surface:      #ffffff;
+    --surface-alt:  #f5f5f4;
+    --ink-1:        #0a0a0a;
+    --ink-2:        #404040;
+    --ink-3:        #737373;
+    --ink-mute:     #a3a3a3;
+    --line:         #e5e5e4;
+    --line-soft:    #f0f0ee;
+
+    --navy:         #0b1f3a;
+    --navy-deep:    #050d1f;
+    --accent:       #ea580c;
+    --accent-soft:  #fff7ed;
+    --accent-glow:  #fb923c;
+
+    --radius-sm:    6px;
+    --radius:       12px;
+    --radius-lg:    20px;
+    --radius-xl:    28px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'Inter', -apple-system, "Segoe UI", system-ui, sans-serif;
+    color: var(--ink-1);
+    background: var(--bg);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  img { max-width: 100%; display: block; }
+  a { color: inherit; text-decoration: none; }
+  code, .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+  /* ---------- HEADER ---------- */
+  .top {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    backdrop-filter: blur(14px) saturate(140%);
+    background: rgba(250, 250, 249, 0.85);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .top-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 14px 28px;
+    display: flex;
+    align-items: center;
+    gap: 32px;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 16px;
+    letter-spacing: -0.01em;
+    color: var(--ink-1);
+  }
+  .logo-mark {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    background: linear-gradient(135deg, var(--navy) 0%, var(--accent) 130%);
+    display: grid;
+    place-items: center;
+    color: white;
+    font-weight: 800;
+    font-size: 14px;
+  }
+  .top-nav {
+    display: flex;
+    gap: 28px;
+    margin-left: auto;
+    font-size: 14px;
+    color: var(--ink-2);
+  }
+  .top-nav a:hover { color: var(--ink-1); }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    border-radius: var(--radius-sm);
+    font-weight: 500;
+    font-size: 14px;
+    border: 1px solid transparent;
+    transition: all 180ms ease;
+    cursor: pointer;
+  }
+  .btn-primary {
+    background: var(--ink-1);
+    color: white;
+  }
+  .btn-primary:hover {
+    background: var(--accent);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px -8px rgba(234, 88, 12, 0.5);
+  }
+  .btn-ghost {
+    color: var(--ink-2);
+    border-color: var(--line);
+    background: transparent;
+  }
+  .btn-ghost:hover { border-color: var(--ink-1); color: var(--ink-1); }
+  .btn-lg { padding: 14px 26px; font-size: 15px; }
+
+  /* ---------- HERO ---------- */
+  .hero {
+    position: relative;
+    overflow: hidden;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 0%, rgba(234, 88, 12, 0.08) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 50% at 100% 30%, rgba(11, 31, 58, 0.05) 0%, transparent 60%),
+      var(--bg);
+    padding: 96px 28px 72px;
+  }
+  .hero-grid {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 48px;
+    align-items: center;
+  }
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 20px;
+  }
+  .eyebrow .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 4px rgba(234, 88, 12, 0.15);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 4px rgba(234, 88, 12, 0.15); }
+    50%      { box-shadow: 0 0 0 8px rgba(234, 88, 12, 0.05); }
+  }
+  h1.hero-title {
+    font-size: clamp(40px, 5.5vw, 68px);
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    line-height: 1.02;
+    color: var(--ink-1);
+    margin-bottom: 22px;
+  }
+  h1.hero-title .accent {
+    background: linear-gradient(120deg, var(--accent) 0%, #f97316 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .hero-sub {
+    font-size: 18px;
+    line-height: 1.6;
+    color: var(--ink-2);
+    max-width: 560px;
+    margin-bottom: 32px;
+  }
+  .hero-ctas { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .hero-meta {
+    margin-top: 28px;
+    display: flex;
+    gap: 24px;
+    color: var(--ink-3);
+    font-size: 13.5px;
+  }
+  .hero-meta .item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .hero-visual {
+    position: relative;
+    height: 600px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .phone {
+    position: absolute;
+    border-radius: 26px;
+    overflow: hidden;
+    box-shadow:
+      0 30px 60px -20px rgba(11, 31, 58, 0.3),
+      0 18px 36px -18px rgba(11, 31, 58, 0.22),
+      0 0 0 6px #1a1a1a,
+      0 0 0 7px #2a2a2a;
+    background: #1a1a1a;
+    transition: transform 400ms cubic-bezier(0.2, 0.8, 0.3, 1);
+  }
+  .phone img { width: 100%; display: block; }
+  .phone:hover { transform: scale(1.02) translateY(-4px); }
+  .phone-1 {
+    width: 280px;
+    z-index: 3;
+    transform: rotate(-4deg) translateX(-30px);
+  }
+  .phone-2 {
+    width: 240px;
+    z-index: 2;
+    transform: rotate(8deg) translate(140px, -40px);
+    opacity: 0.95;
+  }
+  .phone-3 {
+    width: 220px;
+    z-index: 1;
+    transform: rotate(-12deg) translate(-130px, 90px);
+    opacity: 0.85;
+  }
+  .glow {
+    position: absolute;
+    width: 420px;
+    height: 420px;
+    background: radial-gradient(circle, rgba(234, 88, 12, 0.25) 0%, transparent 60%);
+    filter: blur(40px);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ---------- LOGO STRIP ---------- */
+  .logos {
+    padding: 60px 28px 40px;
+    border-top: 1px solid var(--line-soft);
+    border-bottom: 1px solid var(--line-soft);
+    background: var(--surface);
+  }
+  .logos-inner {
+    max-width: 1100px;
+    margin: 0 auto;
+    text-align: center;
+  }
+  .logos-label {
+    font-size: 12.5px;
+    color: var(--ink-3);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 28px;
+  }
+  .logo-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 56px;
+    color: var(--ink-mute);
+    font-weight: 700;
+    font-size: 17px;
+    letter-spacing: -0.01em;
+  }
+  .logo-row .item {
+    transition: color 180ms;
+  }
+  .logo-row .item:hover { color: var(--ink-2); }
+
+  /* ---------- SECTION DEFAULTS ---------- */
+  section { padding: 120px 28px; }
+  .container { max-width: 1200px; margin: 0 auto; }
+  .section-eyebrow {
+    font-size: 12.5px;
+    color: var(--accent);
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  .section-title {
+    font-size: clamp(32px, 3.8vw, 48px);
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.1;
+    color: var(--ink-1);
+    margin-bottom: 18px;
+    max-width: 720px;
+  }
+  .section-sub {
+    font-size: 17.5px;
+    line-height: 1.6;
+    color: var(--ink-2);
+    max-width: 640px;
+  }
+
+  /* ---------- HOW IT WORKS ---------- */
+  .how {
+    background: var(--surface);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .steps {
+    margin-top: 64px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 32px;
+    counter-reset: step;
+  }
+  .step {
+    position: relative;
+    padding: 32px 28px;
+    border-radius: var(--radius);
+    background: var(--surface-alt);
+    border: 1px solid var(--line);
+    transition: transform 280ms ease, box-shadow 280ms ease, border-color 280ms ease;
+  }
+  .step:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 18px 40px -18px rgba(11, 31, 58, 0.15);
+    border-color: var(--accent);
+  }
+  .step::before {
+    counter-increment: step;
+    content: counter(step, decimal-leading-zero);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 14px;
+    display: block;
+  }
+  .step h3 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--ink-1);
+    margin-bottom: 10px;
+  }
+  .step p {
+    font-size: 15px;
+    color: var(--ink-2);
+    line-height: 1.6;
+  }
+  .step-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    background: white;
+    border: 1px solid var(--line);
+    display: grid;
+    place-items: center;
+    margin-bottom: 18px;
+    color: var(--navy);
+  }
+  .step-icon svg { width: 22px; height: 22px; }
+
+  /* ---------- FEATURES ---------- */
+  .features {
+    background: var(--bg);
+  }
+  .feature-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 64px;
+    align-items: center;
+    margin-top: 80px;
+  }
+  .feature-row:first-of-type { margin-top: 60px; }
+  .feature-row.flip .feat-text { order: 2; }
+  .feature-row.flip .feat-image { order: 1; }
+  .feat-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--accent);
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    margin-bottom: 12px;
+  }
+  .feat-text h3 {
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.15;
+    color: var(--ink-1);
+    margin-bottom: 14px;
+  }
+  .feat-text p {
+    font-size: 16.5px;
+    line-height: 1.65;
+    color: var(--ink-2);
+    margin-bottom: 18px;
+  }
+  .feat-text ul {
+    list-style: none;
+  }
+  .feat-text li {
+    padding: 10px 0;
+    border-top: 1px solid var(--line);
+    font-size: 14.5px;
+    color: var(--ink-2);
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .feat-text li:last-child { border-bottom: 1px solid var(--line); }
+  .feat-text li::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-top: 8px;
+    flex-shrink: 0;
+  }
+  .feat-image {
+    position: relative;
+  }
+  .feat-image .phone {
+    width: 320px;
+    margin: 0 auto;
+  }
+  .feat-image.duo {
+    display: flex;
+    gap: 24px;
+    justify-content: center;
+  }
+  .feat-image.duo .phone {
+    width: 250px;
+  }
+  .feat-image.duo .phone:nth-child(2) {
+    transform: translateY(40px);
+  }
+  .feat-bg {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at center, rgba(234, 88, 12, 0.05) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ---------- THREE-SIDED MARKET ---------- */
+  .three-sides {
+    background: var(--navy);
+    color: white;
+    border-radius: 0;
+  }
+  .three-sides .section-title { color: white; }
+  .three-sides .section-sub { color: rgba(255, 255, 255, 0.7); }
+  .three-sides .section-eyebrow { color: var(--accent-glow); }
+  .sides-grid {
+    margin-top: 64px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 28px;
+  }
+  .side {
+    position: relative;
+    padding: 36px 28px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius);
+    transition: all 280ms ease;
+  }
+  .side:hover {
+    background: rgba(255, 255, 255, 0.07);
+    transform: translateY(-3px);
+    border-color: rgba(251, 146, 60, 0.4);
+  }
+  .side-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    color: var(--accent-glow);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 14px;
+  }
+  .side h4 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: white;
+    margin-bottom: 10px;
+  }
+  .side p {
+    font-size: 14.5px;
+    line-height: 1.6;
+    color: rgba(255, 255, 255, 0.65);
+    margin-bottom: 18px;
+  }
+  .side .price {
+    font-size: 13px;
+    font-family: 'JetBrains Mono', monospace;
+    color: rgba(255, 255, 255, 0.85);
+    padding-top: 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .side .price b {
+    color: var(--accent-glow);
+    display: block;
+    font-size: 22px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin-top: 4px;
+  }
+
+  /* ---------- QUOTE ---------- */
+  .quote-section {
+    background: var(--surface);
+    padding: 120px 28px;
+    border-top: 1px solid var(--line-soft);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .quote-inner {
+    max-width: 880px;
+    margin: 0 auto;
+    text-align: center;
+  }
+  .quote-mark {
+    font-size: 60px;
+    color: var(--accent);
+    line-height: 1;
+    margin-bottom: 16px;
+  }
+  .quote-text {
+    font-size: clamp(22px, 2.6vw, 30px);
+    line-height: 1.4;
+    letter-spacing: -0.018em;
+    color: var(--ink-1);
+    font-weight: 500;
+    margin-bottom: 28px;
+  }
+  .quote-attr {
+    font-size: 13.5px;
+    color: var(--ink-3);
+    letter-spacing: 0.04em;
+  }
+  .quote-attr b { color: var(--ink-1); font-weight: 600; }
+
+  /* ---------- CTA ---------- */
+  .cta-section {
+    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-deep) 100%);
+    color: white;
+    text-align: center;
+    overflow: hidden;
+    position: relative;
+  }
+  .cta-section::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 60% 80% at 30% 0%, rgba(234, 88, 12, 0.2) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 80% at 70% 100%, rgba(251, 146, 60, 0.1) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .cta-inner {
+    position: relative;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  .cta-section .section-eyebrow { color: var(--accent-glow); }
+  .cta-section h2 {
+    font-size: clamp(36px, 4.5vw, 56px);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
+    margin-bottom: 18px;
+  }
+  .cta-section p {
+    font-size: 18px;
+    line-height: 1.55;
+    color: rgba(255, 255, 255, 0.75);
+    margin-bottom: 36px;
+  }
+  .cta-btn {
+    background: white;
+    color: var(--navy);
+    font-size: 16px;
+    padding: 18px 36px;
+    font-weight: 600;
+    border-radius: 8px;
+    transition: transform 200ms ease, box-shadow 200ms ease;
+    display: inline-flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .cta-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 24px 50px -16px rgba(255, 255, 255, 0.4);
+  }
+  .cta-fine {
+    margin-top: 16px;
+    font-size: 13.5px;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  /* ---------- FOOTER ---------- */
+  footer {
+    background: var(--bg);
+    padding: 48px 28px 64px;
+    border-top: 1px solid var(--line-soft);
+  }
+  .footer-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    color: var(--ink-3);
+    font-size: 13.5px;
+  }
+
+  /* ---------- ANIMATIONS ---------- */
+  .reveal {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 700ms ease, transform 700ms ease;
+  }
+  .reveal.in {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* ---------- RESPONSIVE ---------- */
+  @media (max-width: 920px) {
+    .hero-grid { grid-template-columns: 1fr; }
+    .hero-visual { height: 480px; }
+    .steps { grid-template-columns: 1fr; }
+    .feature-row { grid-template-columns: 1fr; gap: 36px; }
+    .feature-row.flip .feat-text { order: 0; }
+    .feature-row.flip .feat-image { order: 0; }
+    .sides-grid { grid-template-columns: 1fr; }
+    section { padding: 80px 24px; }
+    .top-nav { display: none; }
+    .hero { padding: 64px 24px 48px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-inner">
+    <a href="#" class="logo">
+      <span class="logo-mark">EH</span>
+      <span>Equipment Hub</span>
+    </a>
+    <nav class="top-nav">
+      <a href="#how">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#beta">Beta program</a>
+    </nav>
+    <a href="#beta" class="btn btn-primary">Join the beta</a>
+  </div>
+</header>
+
+<!-- ============== HERO ============== -->
+<section class="hero">
+  <div class="hero-grid">
+    <div class="hero-text reveal">
+      <div class="eyebrow">
+        <span class="dot"></span>
+        <span>Beta · Q3 2026 · 5 spots</span>
+      </div>
+      <h1 class="hero-title">
+        Scan a QR.<br>
+        Get the <span class="accent">right manual</span>,<br>
+        every time.
+      </h1>
+      <p class="hero-sub">
+        A Connected Worker Platform purpose-built for material handling and
+        industrial automation. Stick a code on every machine. Your technicians
+        scan, see authored content scoped to that exact serial, and resolve
+        issues without flipping through 700-page PDFs.
+      </p>
+      <div class="hero-ctas">
+        <a href="#beta" class="btn btn-primary btn-lg">
+          Apply for the beta
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+        </a>
+        <a href="#how" class="btn btn-ghost btn-lg">See how it works</a>
+      </div>
+      <div class="hero-meta">
+        <span class="item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+          No app to install
+        </span>
+        <span class="item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+          Built for shop floor
+        </span>
+        <span class="item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+          Compliance-grade audit
+        </span>
+      </div>
+    </div>
+
+    <div class="hero-visual reveal">
+      <div class="glow"></div>
+      <div class="phone phone-3"><img src="../example-2.jpg" alt="Documents"></div>
+      <div class="phone phone-1"><img src="../example-1.jpg" alt="Asset overview"></div>
+      <div class="phone phone-2"><img src="../example-3.jpg" alt="AI assistant"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== LOGO STRIP ============== -->
+<div class="logos">
+  <div class="logos-inner">
+    <div class="logos-label">Authored content for</div>
+    <div class="logo-row">
+      <span class="item">Honeywell&nbsp;Intelligrated</span>
+      <span class="item">Intralox</span>
+      <span class="item">SICK</span>
+      <span class="item">Visicon</span>
+      <span class="item">Transnorm</span>
+      <span class="item">Rice&nbsp;Lake</span>
+      <span class="item">Flow&nbsp;Turn</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============== HOW IT WORKS ============== -->
+<section class="how" id="how">
+  <div class="container">
+    <div class="reveal">
+      <div class="section-eyebrow">How it works</div>
+      <h2 class="section-title">From scan to fix in three steps.</h2>
+      <p class="section-sub">
+        No new hardware. No new software for your team. Your existing
+        documentation becomes a structured, searchable, audited resource.
+      </p>
+    </div>
+
+    <div class="steps">
+      <div class="step reveal">
+        <div class="step-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="3" height="3"/><rect x="18" y="14" width="3" height="3"/><rect x="14" y="18" width="3" height="3"/><rect x="18" y="18" width="3" height="3"/></svg>
+        </div>
+        <h3>Stick a QR on the machine</h3>
+        <p>Branded QR labels printed and shipped. Place them next to nameplates, control panels, or access doors. Each code resolves server-side — re-targetable, revocable, audit-logged.</p>
+      </div>
+      <div class="step reveal">
+        <div class="step-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 18h.01"/><rect x="5" y="2" width="14" height="20" rx="3"/></svg>
+        </div>
+        <h3>Tech scans with any phone</h3>
+        <p>Native camera, no app to install. The PWA loads instantly and resolves to the asset's authored content pack — model, serial, content rev, install date, all in one screen.</p>
+      </div>
+      <div class="step reveal">
+        <div class="step-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+        </div>
+        <h3>Right answer, every time</h3>
+        <p>Section-anchored manuals, parts lists with diagrams, structured procedures, AI assistant grounded on your published content. Safety-critical procedures quoted verbatim — never paraphrased.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== FEATURES ============== -->
+<section class="features" id="features">
+  <div class="container">
+    <div class="reveal">
+      <div class="section-eyebrow">Features</div>
+      <h2 class="section-title">Built for technicians who don't have time to scroll.</h2>
+      <p class="section-sub">
+        Every interaction is scoped to a single physical asset. Authored
+        once per OEM model, resolved per serial, audited per scan.
+      </p>
+    </div>
+
+    <!-- Feature 1 -->
+    <div class="feature-row reveal">
+      <div class="feat-text">
+        <div class="feat-tag">01 · Identification</div>
+        <h3>One scan. The whole asset.</h3>
+        <p>
+          Brand-aware UI shows model code, serial, content revision,
+          customer, install date, and any open work orders — before the tech
+          even reads a manual. The asset is the home page; everything else
+          flows from there.
+        </p>
+        <ul>
+          <li>Scoped to the exact serial — two identical machines at different sites can have different content versions</li>
+          <li>Branded per OEM with custom logos, colors, and accessibility-validated contrast</li>
+          <li>Server-side QR resolution: re-target on equipment swap, revoke on theft</li>
+        </ul>
+      </div>
+      <div class="feat-image">
+        <div class="feat-bg"></div>
+        <div class="phone"><img src="../example-1.jpg" alt="Asset overview"></div>
+      </div>
+    </div>
+
+    <!-- Feature 2 -->
+    <div class="feature-row flip reveal">
+      <div class="feat-text">
+        <div class="feat-tag">02 · Documentation</div>
+        <h3>Sectioned by part. Anchored to the page.</h3>
+        <p>
+          Manuals split into part-specific sections. Page ranges for PDFs,
+          time codes for video, text excerpts for markdown. Authored once
+          against an asset model — one source of truth per OEM doc, not 31
+          pre-split copies.
+        </p>
+        <ul>
+          <li>Page anchors with optional Y-crops for sub-page boundaries</li>
+          <li>Automatic re-validation when OEM publishes a manual revision</li>
+          <li>Procedures author-able as structured checklists with step-by-step evidence</li>
+        </ul>
+      </div>
+      <div class="feat-image">
+        <div class="feat-bg"></div>
+        <div class="phone"><img src="../example-2.jpg" alt="Documents"></div>
+      </div>
+    </div>
+
+    <!-- Feature 3 -->
+    <div class="feature-row reveal">
+      <div class="feat-text">
+        <div class="feat-tag">03 · AI assistant</div>
+        <h3>Plain English in. Cited answers out.</h3>
+        <p>
+          Ask anything about the equipment. Answers are grounded on the
+          published content for that exact serial — every claim traces back
+          to a section in the manuals. Safety-critical procedures are quoted
+          <em>verbatim</em>, never paraphrased.
+        </p>
+        <ul>
+          <li>RAG retrieval over the asset's pinned content version</li>
+          <li>Refuses to summarize lockout/tagout — quotes the OEM directly</li>
+          <li>Source citations on every paragraph</li>
+        </ul>
+      </div>
+      <div class="feat-image">
+        <div class="feat-bg"></div>
+        <div class="phone"><img src="../example-3.jpg" alt="AI assistant"></div>
+      </div>
+    </div>
+
+    <!-- Feature 4 -->
+    <div class="feature-row flip reveal">
+      <div class="feat-text">
+        <div class="feat-tag">04 · Procedure viewer</div>
+        <h3>Open straight to the right page.</h3>
+        <p>
+          PDF sections render at the exact page range with safety warnings
+          visually flagged. Pinch-to-zoom on phones, fullscreen on tablets.
+          Every view is audit-logged with timestamp, user, and content
+          revision — enterprise-grade compliance trail.
+        </p>
+        <ul>
+          <li>Native PDF rendering (pdfjs); no print-and-scan workflow</li>
+          <li>Safety-critical banner forces verbatim review before override</li>
+          <li>Scoped to the asset's pinned content version — frozen for audit</li>
+        </ul>
+      </div>
+      <div class="feat-image">
+        <div class="feat-bg"></div>
+        <div class="phone"><img src="../example-4.jpg" alt="PDF section"></div>
+      </div>
+    </div>
+
+    <!-- Feature 5 -->
+    <div class="feature-row reveal">
+      <div class="feat-text">
+        <div class="feat-tag">05 · Parts catalog</div>
+        <h3>Every part, every diagram, one tap.</h3>
+        <p>
+          Searchable by part number, name, position, or cross-reference.
+          Each part links to its install procedure, exploded views, and
+          OEM-branded ordering — re-routing aftermarket parts revenue back
+          to the OEM that built the equipment.
+        </p>
+        <ul>
+          <li>BOM hierarchy with parent-part drill-down</li>
+          <li>Cross-reference search for legacy part numbers</li>
+          <li>OEM-controlled ordering links — capture aftermarket leakage</li>
+        </ul>
+      </div>
+      <div class="feat-image">
+        <div class="feat-bg"></div>
+        <div class="phone"><img src="../example-5.jpg" alt="Parts list"></div>
+      </div>
+    </div>
+
+    <!-- Feature 6 -->
+    <div class="feature-row flip reveal">
+      <div class="feat-text">
+        <div class="feat-tag">06 · Issue reporting</div>
+        <h3>Report from the floor in 30 seconds.</h3>
+        <p>
+          Severity, photos, attachments — issues route to maintenance with
+          the asset, scan history, and content rev already attached. Phase 2
+          syncs work orders to your CMMS via webhook (Maximo, UpKeep, Fiix)
+          so your existing system stays the source of truth.
+        </p>
+        <ul>
+          <li>Native camera capture with auto-attached EXIF metadata</li>
+          <li>Five severity levels with color-coded urgency</li>
+          <li>CMMS bidirectional sync on roadmap</li>
+        </ul>
+      </div>
+      <div class="feat-image">
+        <div class="feat-bg"></div>
+        <div class="phone"><img src="../example-6.jpg" alt="Work order form"></div>
+      </div>
+    </div>
+
+    <!-- Feature 7 -->
+    <div class="feature-row reveal">
+      <div class="feat-text">
+        <div class="feat-tag">07 · Field authoring</div>
+        <h3>Capture tribal knowledge in real time.</h3>
+        <p>
+          Techs document procedures right at the equipment. Voice-to-title,
+          step-by-step photo and video evidence, time-stamped on every
+          action. Saved as <em>unverified</em> drafts; an admin promotes them
+          to published content. Turn institutional knowledge into authored
+          content without a paper checklist in sight.
+        </p>
+        <ul>
+          <li>Voice input for step titles and notes — gloved hands welcome</li>
+          <li>Auto-saved drafts survive battery death, app crash, lost signal</li>
+          <li>Admin promotion workflow keeps the field log honest</li>
+        </ul>
+      </div>
+      <div class="feat-image duo">
+        <div class="feat-bg"></div>
+        <div class="phone"><img src="../example-7.jpg" alt="Document procedure start"></div>
+        <div class="phone"><img src="../example-8.jpg" alt="Document procedure step"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== THREE-SIDED MARKET ============== -->
+<section class="three-sides" id="pricing">
+  <div class="container">
+    <div class="reveal">
+      <div class="section-eyebrow">Three-sided platform</div>
+      <h2 class="section-title">Same QR. Three buyers. Different value.</h2>
+      <p class="section-sub">
+        OEMs, integrators, and end-customers each pay for different value
+        from the same physical asset. The QR sticker outlives any single
+        contract — and revenue compounds across the equipment's full
+        20-year service life.
+      </p>
+    </div>
+
+    <div class="sides-grid">
+      <div class="side reveal">
+        <div class="side-tag">OEM</div>
+        <h4>Capture aftermarket revenue</h4>
+        <p>
+          Brand every Honeywell sorter, every Intralox splitter, every SICK
+          scanner with content that routes parts orders straight back to
+          you — no leakage to third-party distributors.
+        </p>
+        <div class="price">
+          Starting at
+          <b>$30k / yr</b>
+        </div>
+      </div>
+      <div class="side reveal">
+        <div class="side-tag">Integrator</div>
+        <h4>Service margin protection</h4>
+        <p>
+          Faster MTTR, better first-time-fix rate, and lower truck-roll
+          frequency across your active project portfolio. Service contracts
+          stay profitable.
+        </p>
+        <div class="price">
+          Starting at
+          <b>$42k / yr</b>
+        </div>
+      </div>
+      <div class="side reveal">
+        <div class="side-tag">End-customer</div>
+        <h4>Unified facility documentation</h4>
+        <p>
+          One platform across every OEM, every integrator, every decade of
+          installed equipment. Audit trails, training records, and competency
+          tracking in one place.
+        </p>
+        <div class="price">
+          Starting at
+          <b>$80k / yr per site</b>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== QUOTE ============== -->
+<section class="quote-section">
+  <div class="quote-inner reveal">
+    <div class="quote-mark">"</div>
+    <p class="quote-text">
+      The whole point is to make the QR sticker on the equipment outlive
+      any single contract that put it there. The integrator changes. The
+      service org turns over. The platform — and the authored content —
+      stays.
+    </p>
+    <div class="quote-attr">
+      <b>SANTECH</b> · Documentation services since 2003 · Reference deployment with DMW&amp;H
+    </div>
+  </div>
+</section>
+
+<!-- ============== CTA ============== -->
+<section class="cta-section" id="beta">
+  <div class="cta-inner reveal">
+    <div class="section-eyebrow">Beta program</div>
+    <h2>Five companies. Ninety days.<br>$0 to participate.</h2>
+    <p>
+      We're selecting five MHI integrators and OEMs for a structured 90-day
+      beta. SANTECH authors your content, ships branded QR labels, runs
+      weekly check-ins, and gives you founding-member pricing at day 90.
+      Estimated value of the included services: ~$25,000.
+    </p>
+    <a href="mailto:" class="cta-btn">
+      Request a beta slot
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+    </a>
+    <div class="cta-fine">Founding-member pricing locks 50% off list for 24 months</div>
+  </div>
+</section>
+
+<footer>
+  <div class="footer-inner">
+    <div>Equipment Hub · Built by SANTECH</div>
+    <div class="mono">© 2026 · Material Handling &amp; Industrial Automation</div>
+  </div>
+</footer>
+
+<script>
+  // Scroll-triggered reveal animations
+  const observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('in');
+        observer.unobserve(entry.target);
+      }
+    }
+  }, { threshold: 0.1, rootMargin: '0px 0px -8% 0px' });
+
+  for (const el of document.querySelectorAll('.reveal')) {
+    observer.observe(el);
+  }
+
+  // Subtle parallax on hero phones — only on desktop, only if reduced motion is OK
+  if (window.matchMedia('(min-width: 920px)').matches &&
+      !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    const phones = document.querySelectorAll('.hero-visual .phone');
+    let raf = 0;
+    document.addEventListener('mousemove', (e) => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const cx = window.innerWidth / 2;
+        const cy = window.innerHeight / 2;
+        const dx = (e.clientX - cx) / cx;
+        const dy = (e.clientY - cy) / cy;
+        phones.forEach((p, i) => {
+          const factor = (i + 1) * 6;
+          const baseTransform = p.style.getPropertyValue('--base') ||
+            getComputedStyle(p).transform;
+          p.style.translate = `${dx * factor}px ${dy * factor}px`;
+        });
+      });
+    });
+  }
+</script>
+
+</body>
+</html>

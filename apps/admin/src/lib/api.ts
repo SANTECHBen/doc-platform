@@ -436,6 +436,40 @@ export async function listAuditEvents(): Promise<AdminAuditEvent[]> {
   return (await res.json()) as AdminAuditEvent[];
 }
 
+export interface AdminAnalytics {
+  windowDays: number;
+  scope: { orgIds: string[] | 'all'; orgIdRequested: string | null };
+  scans: number;
+  hubViews: number;
+  blockedScans: number;
+  activeAssets: number;
+  workOrdersOpened: number;
+  workOrdersStatusChanges: number;
+  procedureRunsStarted: number;
+  procedureRunsFinished: number;
+  procedureRunsAbandoned: number;
+  contentPacksPublished: number;
+  sectionsCreated: number;
+  aiChatMessages: number | null;
+  feedbackSubmissions: number;
+  scansByDay: Array<{ day: string; count: number }>;
+}
+
+export async function getAnalytics(params: {
+  days?: number;
+  orgId?: string;
+} = {}): Promise<AdminAnalytics> {
+  const qs = new URLSearchParams();
+  if (params.days != null) qs.set('days', String(params.days));
+  if (params.orgId) qs.set('orgId', params.orgId);
+  const res = await fetch(`${API_BASE}/admin/analytics?${qs}`, {
+    cache: 'no-store',
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminAnalytics;
+}
+
 export async function createOrganization(params: {
   type: 'oem' | 'dealer' | 'integrator' | 'end_customer';
   name: string;

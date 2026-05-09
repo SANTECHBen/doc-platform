@@ -28,6 +28,10 @@ import { registerAdminSections } from './routes/admin-sections';
 import { registerProcedureRoutes } from './routes/procedures';
 import { registerAdminProcedureSteps } from './routes/admin-procedure-steps';
 import { registerFieldProcedureRoutes } from './routes/field-procedures';
+import { registerFeedbackRoutes } from './routes/feedback';
+import { registerAnalyticsRoutes } from './routes/analytics';
+import { registerVoiceRoutes } from './routes/voice';
+import { registerPreflightRoutes } from './routes/preflight';
 
 export async function buildApp(ctx: AppContext) {
   const app = Fastify({
@@ -81,6 +85,10 @@ export async function buildApp(ctx: AppContext) {
   await registerProcedureRoutes(app);
   await registerAdminProcedureSteps(app);
   await registerFieldProcedureRoutes(app);
+  await registerFeedbackRoutes(app);
+  await registerAnalyticsRoutes(app);
+  await registerVoiceRoutes(app);
+  await registerPreflightRoutes(app);
 
   return app;
 }

@@ -15,6 +15,25 @@ import { ChatTab } from './chat-tab';
 import { TrainingTab } from './training-tab';
 import { PartsTab } from './parts-tab';
 import { IssuesPanel } from './issues-panel';
+import { VoiceMode } from '@/components/voice-mode';
+
+// Auto-launch the voice greeter once per QR scan. We key off the
+// assetInstanceId so a fresh scan re-engages voice; refreshing the same hub
+// in the same tab does not.
+const VOICE_LAUNCH_FLAG_PREFIX = 'eh:voice-launched:';
+function shouldAutoLaunchVoice(assetInstanceId: string): boolean {
+  if (typeof window === 'undefined') return false;
+  // Respect a global opt-out (set via the keyboard fallback button).
+  if (window.localStorage.getItem('eh:voice-disabled') === '1') return false;
+  // Per-tab session storage so each scan engages voice once.
+  const key = `${VOICE_LAUNCH_FLAG_PREFIX}${assetInstanceId}`;
+  if (window.sessionStorage.getItem(key) === '1') return false;
+  window.sessionStorage.setItem(key, '1');
+  return true;
+}
+
+const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
+const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
 
 type TabKey = 'overview' | 'docs' | 'training' | 'parts' | 'chat';
 
@@ -39,6 +58,17 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
   const [openIssueCount, setOpenIssueCount] = useState<number>(
     hub.tabs.openWorkOrders.count,
   );
+  const [voiceOpen, setVoiceOpen] = useState(false);
+
+  // AI-first scan landing: auto-open the voice greeter on first arrival at
+  // this asset hub. Skipped if the user previously chose "Keyboard" or if
+  // the dev user IDs aren't configured (chat backend will reject anyway).
+  useEffect(() => {
+    if (!DEV_USER_ID || !DEV_ORG_ID) return;
+    if (shouldAutoLaunchVoice(hub.assetInstance.id)) {
+      setVoiceOpen(true);
+    }
+  }, [hub.assetInstance.id]);
 
   // Hydrate the active tab from the URL hash on mount so deep links
   // (`#docs`) land on the right tab. Then keep the hash in sync as the
@@ -108,6 +138,49 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
       </div>
 
       <TabBar hub={hub} active={active} setActive={changeTab} position="bottom" />
+
+      {voiceOpen && DEV_USER_ID && DEV_ORG_ID && (
+        <VoiceMode
+          assetInstanceId={hub.assetInstance.id}
+          devUserId={DEV_USER_ID}
+          devOrgId={DEV_ORG_ID}
+          onClose={({ conversationId, turns }) => {
+            setVoiceOpen(false);
+            // Hand the conversation off to the chat tab so the tech can
+            // see the transcript and continue typing or scrolling.
+            if (conversationId || turns.length > 0) {
+              try {
+                const key = `eh:chat:v1:${hub.assetInstance.id}`;
+                const existingRaw = window.localStorage.getItem(key);
+                const existing = existingRaw ? JSON.parse(existingRaw) : null;
+                const merged = {
+                  conversationId:
+                    conversationId ?? existing?.conversationId,
+                  turns: [
+                    ...(existing?.turns ?? []),
+                    ...turns.map((t) =>
+                      t.role === 'user'
+                        ? { role: 'user' as const, text: t.text }
+                        : {
+                            role: 'assistant' as const,
+                            text: t.text,
+                            citations: [],
+                            streaming: false,
+                          },
+                    ),
+                  ],
+                };
+                window.localStorage.setItem(key, JSON.stringify(merged));
+                // Switch to the assistant tab so the tech sees the transcript.
+                if (turns.length > 0) changeTab('chat');
+              } catch {
+                // localStorage failures are non-fatal — conversation lives on
+                // the server.
+              }
+            }
+          }}
+        />
+      )}
     </>
   );
 }
