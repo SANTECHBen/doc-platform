@@ -289,10 +289,34 @@ ${visibleProcedures
   )
   .join('\n')}
 
-If the user is asking HOW TO perform a maintenance task that clearly matches one of these procedures, reply with EXACTLY this — no prose around it, no citations, no preamble:
-[procedure:THE_UUID]
-The PWA will open a hands-free, step-by-step runner with voice playback. Choose a procedure ONLY when the match is unambiguous; if the user is asking a diagnostic or definitional question (e.g., "what does fault E-217 mean") answer normally with grounded prose.`
+If the user's question matches one of these procedures EXACTLY, reply with ONLY this — no prose, no preamble, no citations:
+[procedure:THE_UUID]`
       : '';
+
+    // The [steps] directive — the AI's escape hatch when the answer is
+    // procedural but no authored procedure matches. Extract steps from
+    // retrieved chunks and emit a structured JSON payload that the PWA
+    // renders as the same hands-free job-aid UI. This is what makes
+    // "how do I…" answers ALWAYS show as step cards regardless of
+    // whether procedures were pre-authored. Verbatim quoting still
+    // applies for safety-critical steps.
+    const stepsDirective = `
+
+PRIORITY ORDER FOR PROCEDURAL ANSWERS:
+1. If an AUTHORED procedure above clearly matches → emit [procedure:UUID]
+2. Else if the answer is any sequence of steps ("how do I…", "walk me through…", "what's the procedure for…") → emit a [steps] directive (see below)
+3. Else (diagnostic/definitional/single-instruction questions) → reply normally with prose and [cite:…] markers.
+
+[steps] FORMAT — output ONLY the directive, nothing else around it:
+[steps]{"title":"<short title>","steps":[{"text":"<single step ≤200 chars>","safetyCritical":true|false},…]}[/steps]
+
+Rules:
+- Strict valid JSON between the tags. No backticks, comments, or trailing commas.
+- One element per atomic action. 5–15 steps typical; do not collapse multiple actions.
+- safetyCritical=true ONLY when the step involves LOCKOUT/TAGOUT, electrical isolation, PPE, or comes from a safety-critical document.
+- Quote safety-critical step text verbatim from the source. Paraphrasing other steps is fine.
+- Pull steps from the retrieved chunks; do not invent.
+- Do not write any prose before, after, or between the [steps] tags. The directive is the entire response.`;
 
     // Build system prompt.
     const safetyDirective = buildSafetyDirective(chunks);
@@ -309,7 +333,7 @@ The PWA will open a hands-free, step-by-step runner with voice playback. Choose 
           part: partContext,
         },
         safetyDirective,
-      ) + procedureDirective;
+      ) + authoredProcedureCatalog + stepsDirective;
 
     // Record the user's message now so it survives even if the stream fails later.
     // Image attachment is noted inline so the history is complete.
@@ -476,11 +500,16 @@ The PWA will open a hands-free, step-by-step runner with voice playback. Choose 
 
       // Two-pass verifier. After the main answer is fully streamed, ask a
       // smaller model whether each sentence in the answer is actually
-      // supported by the retrieved chunks. The result lets the PWA render
-      // an evidence map (per-sentence support markers + per-source weights)
-      // without paying that latency on the first byte. We let this fail
-      // silently — the answer is already in front of the user, this is
-      // additive trust UI.
+      // supported by the retrieved chunks. Skipped for directive
+      // responses ([procedure:UUID] or [steps]…[/steps]) — there's no
+      // prose to verify and the verifier would just spend ~2s shrugging.
+      const isDirective =
+        /^\s*\[procedure:[0-9a-f-]+\]\s*$/i.test(accumulated) ||
+        /\[steps\][\s\S]*\[\/steps\]/i.test(accumulated);
+      if (isDirective) {
+        // No verifier work — close out cleanly so the PWA stops the
+        // "thinking" indicator immediately.
+      } else
       try {
         const verify = await runVerifier({
           anthropic,

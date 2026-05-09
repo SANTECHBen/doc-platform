@@ -28,26 +28,69 @@ import {
 // (capture evidence). This is the "virtual job aid" mode — voice-first,
 // no evidence capture, no scrolling. Closing returns to the caller.
 
+// The runner accepts either an authored procedure (looked up by docId)
+// or inline step data emitted by the AI's [steps] directive. Both sources
+// normalize to the same internal shape so the UI is identical.
+export type JobAidSource =
+  | { kind: 'doc'; docId: string; devUserId: string; devOrgId: string }
+  | {
+      kind: 'inline';
+      title: string;
+      steps: Array<{ title: string; bodyMarkdown?: string | null; safetyCritical?: boolean }>;
+    };
+
 interface Props {
-  docId: string;
-  devUserId: string;
-  devOrgId: string;
+  source: JobAidSource;
   /** Called when the tech taps Close or finishes the last step. */
   onClose: (state: { completed: boolean }) => void;
-  /** Speak step content automatically when shown? Default true; the
-   *  /chat tab launcher passes false on first-step entry to skip the
-   *  auto-greet (the chat answer already played). */
+  /** Speak step content automatically when shown? Default true. */
   autoSpeak?: boolean;
 }
 
-export function VirtualJobAid({
-  docId,
-  devUserId,
-  devOrgId,
-  onClose,
-  autoSpeak = true,
-}: Props): React.ReactElement {
-  const [doc, setDoc] = useState<ProcedureDocFullDto | null>(null);
+// Internal normalized shape — what the renderer actually consumes.
+interface ResolvedJobAid {
+  title: string;
+  steps: Array<{
+    title: string;
+    bodyMarkdown: string | null;
+    safetyCritical: boolean;
+    media: Array<{ kind: 'image' | 'video'; url?: string | null; caption?: string; storageKey: string }>;
+    substeps: Array<{ id?: string; title: string; bodyMarkdown?: string | null }>;
+  }>;
+}
+
+function normalizeFromDoc(doc: ProcedureDocFullDto): ResolvedJobAid {
+  return {
+    title: doc.document.title,
+    steps: doc.steps.map((s) => ({
+      title: s.title,
+      bodyMarkdown: s.bodyMarkdown ?? null,
+      safetyCritical: s.safetyCritical,
+      media: s.media,
+      substeps: s.substeps,
+    })),
+  };
+}
+
+function normalizeFromInline(
+  inline: Extract<JobAidSource, { kind: 'inline' }>,
+): ResolvedJobAid {
+  return {
+    title: inline.title,
+    steps: inline.steps.map((s) => ({
+      title: s.title,
+      bodyMarkdown: s.bodyMarkdown ?? null,
+      safetyCritical: !!s.safetyCritical,
+      media: [],
+      substeps: [],
+    })),
+  };
+}
+
+export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): React.ReactElement {
+  const [resolved, setResolved] = useState<ResolvedJobAid | null>(
+    source.kind === 'inline' ? normalizeFromInline(source) : null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
   const [speaking, setSpeaking] = useState(false);
@@ -65,13 +108,15 @@ export function VirtualJobAid({
     };
   }, []);
 
-  // Fetch the procedure once.
+  // Fetch the procedure once for doc-source. Inline source is already
+  // resolved at mount.
   useEffect(() => {
+    if (source.kind !== 'doc') return;
     let cancelled = false;
     (async () => {
       try {
-        const full = await getProcedureDoc(docId, devUserId, devOrgId);
-        if (!cancelled) setDoc(full);
+        const full = await getProcedureDoc(source.docId, source.devUserId, source.devOrgId);
+        if (!cancelled) setResolved(normalizeFromDoc(full));
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       }
@@ -79,7 +124,8 @@ export function VirtualJobAid({
     return () => {
       cancelled = true;
     };
-  }, [docId, devUserId, devOrgId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source.kind === 'doc' ? source.docId : null]);
 
   // Tear down audio on unmount.
   useEffect(() => {
@@ -107,14 +153,14 @@ export function VirtualJobAid({
 
   const speakCurrent = useCallback(async () => {
     if (muted) return;
-    const step = doc?.steps[stepIdx];
+    const step = resolved?.steps[stepIdx];
     if (!step) return;
     stopPlayback();
 
     // Compose the spoken text. Prepend a safety lead-in for safety-critical
     // steps — the LED is visual, but voice users need an audible cue.
     const lead = step.safetyCritical ? 'Safety critical step. ' : '';
-    const numbering = `Step ${stepIdx + 1} of ${doc!.steps.length}. `;
+    const numbering = `Step ${stepIdx + 1} of ${resolved!.steps.length}. `;
     const body = step.bodyMarkdown
       ? // Strip markdown noise that reads poorly aloud (heading hashes,
         // list markers, link syntax). Keep the prose; the runner already
@@ -158,21 +204,21 @@ export function VirtualJobAid({
       setSpeaking(false);
       sourceRef.current = null;
     }
-  }, [doc, stepIdx, muted]);
+  }, [resolved, stepIdx, muted]);
 
   // Auto-speak when the step changes.
   useEffect(() => {
-    if (!doc || !autoSpeak || muted) return;
+    if (!resolved || !autoSpeak || muted) return;
     void speakCurrent();
     return () => stopPlayback();
     // intentional: speakCurrent is stable enough; we want this to fire on
     // step change, not on every re-render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, stepIdx, autoSpeak, muted]);
+  }, [resolved, stepIdx, autoSpeak, muted]);
 
   function next() {
-    if (!doc) return;
-    if (stepIdx >= doc.steps.length - 1) {
+    if (!resolved) return;
+    if (stepIdx >= resolved.steps.length - 1) {
       stopPlayback();
       onClose({ completed: true });
       return;
@@ -206,7 +252,7 @@ export function VirtualJobAid({
     });
   }
 
-  if (error && !doc) {
+  if (error && !resolved) {
     return (
       <div className="vja-root" role="dialog" aria-label="Procedure">
         <button type="button" className="vja-close" onClick={close} aria-label="Close">
@@ -219,7 +265,7 @@ export function VirtualJobAid({
       </div>
     );
   }
-  if (!doc) {
+  if (!resolved) {
     return (
       <div className="vja-root" role="dialog" aria-label="Loading procedure">
         <div className="vja-loading">Loading procedure…</div>
@@ -227,19 +273,19 @@ export function VirtualJobAid({
     );
   }
 
-  const step = doc.steps[stepIdx];
-  const isLast = stepIdx === doc.steps.length - 1;
-  const totalSteps = doc.steps.length;
+  const step = resolved.steps[stepIdx];
+  const isLast = stepIdx === resolved.steps.length - 1;
+  const totalSteps = resolved.steps.length;
 
   return (
-    <div className="vja-root" role="dialog" aria-label={doc.document.title}>
+    <div className="vja-root" role="dialog" aria-label={resolved.title}>
       <header className="vja-topbar">
         <div className="vja-topbar-meta">
           <span className="caption inline-flex items-center gap-1.5">
             <ListChecks size={12} strokeWidth={1.75} />
             VIRTUAL JOB AID
           </span>
-          <h2 className="vja-doc-title">{doc.document.title}</h2>
+          <h2 className="vja-doc-title">{resolved.title}</h2>
         </div>
         <button
           type="button"
@@ -257,7 +303,7 @@ export function VirtualJobAid({
 
       {/* Progress strip — one segment per step, current pulses. */}
       <div className="vja-progress" aria-hidden>
-        {doc.steps.map((_, i) => (
+        {resolved.steps.map((_, i) => (
           <span
             key={i}
             className="vja-progress-seg"

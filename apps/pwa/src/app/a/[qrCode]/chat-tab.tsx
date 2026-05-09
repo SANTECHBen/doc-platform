@@ -9,14 +9,66 @@ import { streamChat, uploadFile, type ChatCitation, type UploadResult, type Veri
 import { VoiceMode } from '@/components/voice-mode';
 import { VirtualJobAid } from '@/components/virtual-job-aid';
 
-// AI emits [procedure:<uuid>] as its entire response when it judges that a
-// matching authored procedure should take over the screen. We detect it
-// here and swap the assistant turn's render for a "Walk me through this"
-// launcher card that opens VirtualJobAid full-screen on tap.
+// The AI emits one of two directives when its answer is a procedure:
+//
+//   [procedure:<uuid>]            ← a hand-authored procedure exists; open it
+//   [steps]{...JSON...}[/steps]   ← inline step data extracted from PDF/etc.
+//
+// Either way we render a "Walk me through this" launcher card in place of
+// the prose bubble; tapping it opens VirtualJobAid full-screen.
 const PROCEDURE_DIRECTIVE_RE = /\[procedure:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/i;
+const STEPS_DIRECTIVE_RE = /\[steps\]([\s\S]*?)\[\/steps\]/i;
+
+interface InlineSteps {
+  title: string;
+  steps: Array<{ title: string; bodyMarkdown?: string | null; safetyCritical?: boolean }>;
+}
+
 function extractProcedureId(text: string): string | null {
   const m = PROCEDURE_DIRECTIVE_RE.exec(text);
   return m && m[1] ? m[1] : null;
+}
+
+// Defensive parse — the model can produce slightly malformed JSON. Common
+// failure modes: trailing comma, smart quotes, missing closing brace. We
+// reject anything we can't parse cleanly; the fall-through is the regular
+// prose render which is still useful information for the tech.
+function extractInlineSteps(text: string): InlineSteps | null {
+  const m = STEPS_DIRECTIVE_RE.exec(text);
+  if (!m || !m[1]) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(m[1].trim());
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object') return null;
+  const obj = parsed as Record<string, unknown>;
+  const title = typeof obj.title === 'string' ? obj.title : '';
+  const stepsArr = Array.isArray(obj.steps) ? obj.steps : [];
+  const steps = stepsArr
+    .map((s) => {
+      if (!s || typeof s !== 'object') return null;
+      // Schema accepts either { text } (current model output convention)
+      // or { title, bodyMarkdown } (procedure-doc shape) — we normalize.
+      const sObj = s as Record<string, unknown>;
+      const stepTitle =
+        typeof sObj.text === 'string'
+          ? sObj.text
+          : typeof sObj.title === 'string'
+            ? sObj.title
+            : null;
+      if (!stepTitle) return null;
+      return {
+        title: stepTitle,
+        bodyMarkdown:
+          typeof sObj.bodyMarkdown === 'string' ? sObj.bodyMarkdown : null,
+        safetyCritical: !!sObj.safetyCritical,
+      };
+    })
+    .filter((s): s is NonNullable<typeof s> => s !== null);
+  if (steps.length === 0) return null;
+  return { title: title || 'Procedure', steps };
 }
 
 type UserTurn = { role: 'user'; text: string; imageUrl?: string };
@@ -118,15 +170,18 @@ export function ChatTab({
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const [voiceOpen, setVoiceOpen] = useState(false);
-  const [virtualJobAidId, setVirtualJobAidId] = useState<string | null>(null);
+  type JobAidEventSource =
+    | { kind: 'doc'; procedureId: string }
+    | { kind: 'inline'; inline: InlineSteps };
+  const [jobAid, setJobAid] = useState<JobAidEventSource | null>(null);
 
-  // Listen for procedure-launch events fired by ProcedureLauncherCard. A
-  // window event keeps the launcher cards decoupled from where they're
-  // rendered (chat tab, voice mode, future surfaces).
+  // Listen for launcher events fired by either ProcedureLauncherCard or
+  // InlineStepsLauncherCard. A window event keeps the launchers decoupled
+  // from where they're rendered (chat tab, voice mode, future surfaces).
   useEffect(() => {
     function onOpen(e: Event) {
-      const id = (e as CustomEvent<{ procedureId: string }>).detail?.procedureId;
-      if (id) setVirtualJobAidId(id);
+      const detail = (e as CustomEvent<{ source: JobAidEventSource }>).detail;
+      if (detail?.source) setJobAid(detail.source);
     }
     window.addEventListener('virtual-job-aid:open', onOpen);
     return () => window.removeEventListener('virtual-job-aid:open', onOpen);
@@ -485,12 +540,23 @@ export function ChatTab({
         />
       )}
 
-      {virtualJobAidId && (
+      {jobAid && (
         <VirtualJobAid
-          docId={virtualJobAidId}
-          devUserId={DEV_USER_ID}
-          devOrgId={DEV_ORG_ID}
-          onClose={() => setVirtualJobAidId(null)}
+          source={
+            jobAid.kind === 'doc'
+              ? {
+                  kind: 'doc',
+                  docId: jobAid.procedureId,
+                  devUserId: DEV_USER_ID,
+                  devOrgId: DEV_ORG_ID,
+                }
+              : {
+                  kind: 'inline',
+                  title: jobAid.inline.title,
+                  steps: jobAid.inline.steps,
+                }
+          }
+          onClose={() => setJobAid(null)}
         />
       )}
     </div>
@@ -528,13 +594,17 @@ function TurnView({ turn }: { turn: Turn }) {
     );
   }
 
-  // Procedure directive — render a launcher card instead of prose. Only
-  // applies after streaming completes (otherwise we'd flicker between
-  // partial-text and the card while the directive arrives token-by-token).
+  // Directive — render a launcher card instead of prose. Only applies
+  // after streaming completes (otherwise we'd flicker between partial
+  // text and the card as the directive arrives token-by-token).
   if (!turn.streaming) {
     const procedureId = extractProcedureId(turn.text);
     if (procedureId) {
       return <ProcedureLauncherCard procedureId={procedureId} />;
+    }
+    const inline = extractInlineSteps(turn.text);
+    if (inline) {
+      return <InlineStepsLauncherCard inline={inline} />;
     }
   }
 
@@ -611,7 +681,9 @@ function ProcedureLauncherCard({ procedureId }: { procedureId: string }): React.
 
   function open() {
     window.dispatchEvent(
-      new CustomEvent('virtual-job-aid:open', { detail: { procedureId } }),
+      new CustomEvent('virtual-job-aid:open', {
+        detail: { source: { kind: 'doc', procedureId } },
+      }),
     );
   }
   return (
@@ -634,6 +706,48 @@ function ProcedureLauncherCard({ procedureId }: { procedureId: string }): React.
         <span className="procedure-launcher-text">
           <span className="procedure-launcher-eyebrow">Walk me through this</span>
           <span className="procedure-launcher-title">{title ?? 'Loading procedure…'}</span>
+        </span>
+        <span className="procedure-launcher-cta">
+          <Play size={16} strokeWidth={2.5} />
+        </span>
+      </button>
+    </div>
+  );
+}
+
+// Mounted when the AI emits an inline [steps] directive. No extra fetch
+// required — the steps are already in the directive payload. Opens the
+// runner with `kind: 'inline'` so the same UI/UX is shared.
+function InlineStepsLauncherCard({ inline }: { inline: InlineSteps }): React.ReactElement {
+  function open() {
+    window.dispatchEvent(
+      new CustomEvent('virtual-job-aid:open', {
+        detail: { source: { kind: 'inline', inline } },
+      }),
+    );
+  }
+  return (
+    <div className="max-w-[92%]">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="led" />
+        <span className="caption" style={{ color: 'rgb(var(--ink-brand))' }}>
+          Assistant
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={open}
+        className="procedure-launcher"
+        aria-label="Open step-by-step walkthrough"
+      >
+        <span className="procedure-launcher-icon">
+          <ListChecks size={20} strokeWidth={2} />
+        </span>
+        <span className="procedure-launcher-text">
+          <span className="procedure-launcher-eyebrow">
+            Walk me through this · {inline.steps.length} steps
+          </span>
+          <span className="procedure-launcher-title">{inline.title}</span>
         </span>
         <span className="procedure-launcher-cta">
           <Play size={16} strokeWidth={2.5} />
