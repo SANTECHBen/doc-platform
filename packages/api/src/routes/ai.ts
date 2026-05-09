@@ -275,7 +275,7 @@ Extract in 2–3 sentences the key observable facts: any visible fault codes, al
         ? procedureCatalogRows
         : procedureCatalogRows.filter((p) => scopedDocumentIds!.includes(p.id));
 
-    const procedureDirective = visibleProcedures.length
+    const authoredProcedureCatalog = visibleProcedures.length
       ? `\n\nAVAILABLE STEP-BY-STEP PROCEDURES (authored, hands-free runner):
 ${visibleProcedures
   .slice(0, 30)
