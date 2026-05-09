@@ -974,7 +974,17 @@ function DocumentRow({
       </span>
       {doc.safetyCritical && <Pill tone="warning">safety</Pill>}
       <ExtractionBadge status={doc.extractionStatus} />
-      {!editing && (
+      {!editing && doc.kind === 'structured_procedure' && (
+        <Link
+          href={`/procedures/${doc.id}/edit`}
+          className="inline-flex items-center gap-1 rounded border border-accent/40 bg-accent/5 px-2 py-1 text-xs font-medium text-accent hover:border-accent hover:bg-accent/10"
+          title="Open the full-page procedure editor"
+        >
+          <ListChecks size={12} strokeWidth={2} />
+          Edit
+        </Link>
+      )}
+      {!editing && doc.kind !== 'structured_procedure' && (
         <Link
           href={`/documents/${doc.id}?tab=sections`}
           className="inline-flex items-center gap-1 rounded border border-line bg-surface-raised px-2 py-1 text-xs font-medium text-ink-primary hover:border-brand/40 hover:bg-brand/5"

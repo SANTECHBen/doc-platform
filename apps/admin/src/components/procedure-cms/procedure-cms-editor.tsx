@@ -96,13 +96,15 @@ export function ProcedureCmsEditor({ doc, steps, onChanged }: Props) {
     }
     if (pendingRef.current === 0) {
       setStatus({ kind: 'saved', at: Date.now() });
-      // Decay back to idle after a moment so the badge doesn't loiter.
+      // Linger long enough for an author who's actively typing to glance
+      // up and see the confirmation. Decays to "All changes saved" idle
+      // state after this.
       setTimeout(
         () =>
           setStatus((s) =>
-            s.kind === 'saved' && Date.now() - s.at >= 1800 ? { kind: 'idle' } : s,
+            s.kind === 'saved' && Date.now() - s.at >= 2700 ? { kind: 'idle' } : s,
           ),
-        2000,
+        3000,
       );
     } else {
       setStatus({ kind: 'saving', pending: pendingRef.current });
@@ -396,18 +398,24 @@ export function ProcedureCmsEditor({ doc, steps, onChanged }: Props) {
 }
 
 function SaveStatusPill({ status }: { status: SaveStatus }) {
+  // Larger, higher-contrast surfaces — auto-save is invisible if the
+  // status pill is too quiet to notice.
   if (status.kind === 'saving') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-2.5 py-0.5 text-xs font-medium text-accent">
-        <Loader2 className="size-3 animate-spin" />
+      <span className="inline-flex items-center gap-2 rounded-full bg-accent px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm">
+        <Loader2 className="size-4 animate-spin" />
         Saving…
       </span>
     );
   }
   if (status.kind === 'saved') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-signal-ok/10 px-2.5 py-0.5 text-xs font-medium text-signal-ok">
-        <CheckCircle2 className="size-3" />
+      <span
+        className="inline-flex items-center gap-2 rounded-full bg-signal-ok px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm"
+        // Brief flash so the author actually sees the confirmation before
+        // it decays back to the steady-state pill.
+      >
+        <CheckCircle2 className="size-4" />
         Saved
       </span>
     );
@@ -415,17 +423,17 @@ function SaveStatusPill({ status }: { status: SaveStatus }) {
   if (status.kind === 'error') {
     return (
       <span
-        className="inline-flex items-center gap-1.5 rounded-full bg-signal-fault/10 px-2.5 py-0.5 text-xs font-medium text-signal-fault"
+        className="inline-flex items-center gap-2 rounded-full bg-signal-fault px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm"
         title={status.message}
       >
-        <AlertTriangle className="size-3" />
+        <AlertTriangle className="size-4" />
         Save failed — retry
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-0.5 text-xs font-medium text-ink-tertiary">
-      <CheckCircle2 className="size-3" />
+    <span className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3.5 py-1.5 text-sm font-medium text-ink-secondary">
+      <CheckCircle2 className="size-4 text-signal-ok" />
       All changes saved
     </span>
   );
