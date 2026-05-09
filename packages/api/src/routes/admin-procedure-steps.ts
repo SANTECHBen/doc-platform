@@ -109,7 +109,10 @@ const BlocksArraySchema = z.array(StepBlockSchema).max(40);
 const StepCreateBody = z
   .object({
     kind: StepKindEnum,
-    title: z.string().min(1).max(200),
+    // Allow empty titles on create — the CMS pattern is to add an empty
+    // step card the user types into inline. The runner renders "Untitled
+    // step" when blank so the row is still scannable.
+    title: z.string().max(200),
     bodyMarkdown: z.string().max(10000).nullable().optional(),
     safetyCritical: z.boolean().optional(),
     orderingHint: z.number().int().optional(),
@@ -133,7 +136,7 @@ const StepCreateBody = z
 const StepPatchBody = z
   .object({
     kind: StepKindEnum.optional(),
-    title: z.string().min(1).max(200).optional(),
+    title: z.string().max(200).optional(),
     bodyMarkdown: z.string().max(10000).nullable().optional(),
     safetyCritical: z.boolean().optional(),
     orderingHint: z.number().int().optional(),
