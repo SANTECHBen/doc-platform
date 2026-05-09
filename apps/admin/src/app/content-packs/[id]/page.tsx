@@ -497,7 +497,7 @@ function AddDocumentForm({
         <Select value={kind} onChange={(e) => setKind(e.target.value as DocumentKind)}>
           <optgroup label="Text">
             <option value="markdown">Markdown document</option>
-            <option value="structured_procedure">Structured procedure (markdown)</option>
+            <option value="structured_procedure">Structured procedure (step-by-step + voiceover)</option>
           </optgroup>
           <optgroup label="Uploaded files">
             <option value="pdf">PDF</option>
