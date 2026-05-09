@@ -1,6 +1,67 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { schema, type Database } from '@platform/db';
 import { requireAuthOrScan } from '../middleware/scan-session';
+import {
+  computeSttCostCents,
+  computeTtsCostCents,
+  enforceVoiceQuota,
+  getUsageSnapshot,
+  maybeFireSpendAlarm,
+  QuotaExceededError,
+  recordVoiceUsage,
+  resolveQuota,
+  type VoiceQuotaKind,
+} from '../lib/voice-quota';
+
+// Resolve the org context for a voice request. Auth user takes precedence
+// (their home org owns the cost). Falls back to the QR's owning org for
+// scan-session traffic. Returns null if neither is present (callers should
+// have already called requireAuthOrScan; this is belt-and-suspenders).
+async function resolveQuotaContext(
+  request: FastifyRequest,
+  db: Database,
+): Promise<{
+  organizationId: string;
+  organizationName: string;
+  storedQuota: import('@platform/db').VoiceQuotaConfig | null;
+  userId: string | null;
+  assetInstanceId: string | null;
+} | null> {
+  const orgId = request.auth?.organizationId ?? request.scanSession?.organizationId;
+  if (!orgId) return null;
+  const org = await db.query.organizations.findFirst({
+    where: eq(schema.organizations.id, orgId),
+    columns: { id: true, name: true, voiceQuota: true },
+  });
+  if (!org) return null;
+  return {
+    organizationId: org.id,
+    organizationName: org.name,
+    storedQuota: org.voiceQuota ?? null,
+    userId: request.auth?.userId ?? null,
+    assetInstanceId: request.scanSession?.assetInstanceId ?? null,
+  };
+}
+
+// Translate a thrown quota error into a 429 response. Returns true if it
+// handled the error (caller should not continue), false otherwise.
+function maybeReplyQuotaExceeded(
+  err: unknown,
+  reply: FastifyReply,
+): err is QuotaExceededError {
+  if (err instanceof QuotaExceededError) {
+    reply.header('retry-after', String(err.retryAfterSeconds));
+    reply.code(429).send({
+      error: err.message,
+      reason: err.reason,
+      retryAfterSeconds: err.retryAfterSeconds,
+    });
+    return true;
+  }
+  return false;
+}
 
 // Voice I/O for the AI-first scan experience.
 //
@@ -31,7 +92,7 @@ export async function registerVoiceRoutes(app: FastifyInstance) {
   // Anyone with auth or a valid scan session can transcribe — there's no
   // scope concern here; the audio is the user's own utterance.
   app.post('/ai/voice/transcribe', async (request, reply) => {
-    const { env } = app.ctx;
+    const { env, db } = app.ctx;
     requireAuthOrScan(request);
     if (!env.OPENAI_API_KEY) {
       return reply
@@ -40,6 +101,19 @@ export async function registerVoiceRoutes(app: FastifyInstance) {
     }
     if (!request.isMultipart()) {
       return reply.badRequest('Expected multipart/form-data with an audio file.');
+    }
+
+    // Resolve quota context up front so a quota breach short-circuits before
+    // we burn time pulling the audio body off the wire. Note: STT cost can't
+    // be predicted from headers (we only know duration after Whisper sees
+    // it), so the pre-flight check is daily-turns + monthly-$ only.
+    const ctx = await resolveQuotaContext(request, db);
+    if (!ctx) return reply.unauthorized();
+    try {
+      await enforceVoiceQuota(db, ctx.organizationId, ctx.storedQuota, 'stt');
+    } catch (err) {
+      if (maybeReplyQuotaExceeded(err, reply)) return;
+      throw err;
     }
 
     const file = await request.file();
@@ -59,7 +133,11 @@ export async function registerVoiceRoutes(app: FastifyInstance) {
     });
     form.append('file', blob, file.filename || 'recording.webm');
     form.append('model', env.OPENAI_STT_MODEL);
-    form.append('response_format', 'json');
+    // verbose_json gives us duration in seconds — needed for accurate
+    // cost accounting against Whisper's per-minute pricing. The shape
+    // is a strict superset of plain json, so the response handling stays
+    // simple.
+    form.append('response_format', 'verbose_json');
     // Hint the model with our domain. Industrial maintenance vocabulary:
     // fault codes (E-217, ALM-12), part numbers, OEM jargon. Whisper uses
     // the prompt as a soft prior, not a hard constraint — safe to over-hint.
@@ -78,14 +156,27 @@ export async function registerVoiceRoutes(app: FastifyInstance) {
       request.log.error({ status: upstream.status, text }, 'Whisper STT failed');
       return reply.internalServerError('Transcription failed.');
     }
-    const json = (await upstream.json()) as { text?: string };
+    const json = (await upstream.json()) as { text?: string; duration?: number };
+    const seconds = Math.max(1, Math.ceil(json.duration ?? 0));
+
+    // Record + alarm. Detached from the response — we still want to return
+    // the transcript even if the ledger write hiccups.
+    void recordAndAlarm({
+      app,
+      ctx,
+      kind: 'stt',
+      units: seconds,
+      costCents: computeSttCostCents(seconds),
+      log: request.log,
+    });
+
     return reply.send({ text: (json.text ?? '').trim() });
   });
 
   // TTS — streams the synthesized audio straight through. Browsers can play
   // the response with HTMLAudioElement or MediaSource for true streaming.
   app.post('/ai/voice/speak', { schema: { body: SpeakBodySchema } }, async (request, reply) => {
-    const { env } = app.ctx;
+    const { env, db } = app.ctx;
     requireAuthOrScan(request);
     if (!env.OPENAI_API_KEY) {
       return reply
@@ -94,6 +185,19 @@ export async function registerVoiceRoutes(app: FastifyInstance) {
     }
     const body = request.body as z.infer<typeof SpeakBodySchema>;
     const voice = body.voice ?? env.OPENAI_TTS_VOICE;
+    const charsToSynthesize = body.text.length;
+
+    // Pre-flight quota check. We know the exact char count up-front, so we
+    // pass it as additionalUnits — the monthly TTS cap rejects requests
+    // that *would* push us over the line, not just ones that already have.
+    const ctx = await resolveQuotaContext(request, db);
+    if (!ctx) return reply.unauthorized();
+    try {
+      await enforceVoiceQuota(db, ctx.organizationId, ctx.storedQuota, 'tts', charsToSynthesize);
+    } catch (err) {
+      if (maybeReplyQuotaExceeded(err, reply)) return;
+      throw err;
+    }
 
     const upstream = await fetch('https://api.openai.com/v1/audio/speech', {
       method: 'POST',
@@ -138,6 +242,18 @@ export async function registerVoiceRoutes(app: FastifyInstance) {
     }
     reply.hijack();
 
+    // Record usage now — synth has been authorized and we know the char
+    // count; even if the network drops mid-stream, vendor cost is incurred
+    // (OpenAI bills on input chars, not delivered audio bytes).
+    void recordAndAlarm({
+      app,
+      ctx,
+      kind: 'tts',
+      units: charsToSynthesize,
+      costCents: computeTtsCostCents(charsToSynthesize, env.OPENAI_TTS_MODEL),
+      log: request.log,
+    });
+
     const reader = upstream.body.getReader();
     try {
       while (true) {
@@ -151,4 +267,40 @@ export async function registerVoiceRoutes(app: FastifyInstance) {
       reply.raw.end();
     }
   });
+}
+
+// Detached usage write + alarm check. Run after the upstream call has been
+// authorized — by this point the vendor cost is incurred regardless of
+// what happens to the client connection. Errors only log; we never want a
+// ledger hiccup to fail a paying customer's voice turn.
+async function recordAndAlarm(args: {
+  app: FastifyInstance;
+  ctx: NonNullable<Awaited<ReturnType<typeof resolveQuotaContext>>>;
+  kind: VoiceQuotaKind;
+  units: number;
+  costCents: number;
+  log: { warn: (...a: unknown[]) => void; error: (...a: unknown[]) => void };
+}) {
+  const { db, env } = args.app.ctx;
+  try {
+    await recordVoiceUsage(db, {
+      organizationId: args.ctx.organizationId,
+      userId: args.ctx.userId,
+      assetInstanceId: args.ctx.assetInstanceId,
+      kind: args.kind,
+      units: args.units,
+      costCents: args.costCents,
+    });
+    const fresh = await getUsageSnapshot(db, args.ctx.organizationId);
+    maybeFireSpendAlarm({
+      webhookUrl: env.VOICE_ALERT_SLACK_WEBHOOK ?? undefined,
+      organizationId: args.ctx.organizationId,
+      organizationName: args.ctx.organizationName,
+      quota: resolveQuota(args.ctx.storedQuota),
+      snapshot: fresh,
+      log: args.log,
+    });
+  } catch (err) {
+    args.log.error('voice usage record failed', err);
+  }
 }

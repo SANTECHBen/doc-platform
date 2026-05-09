@@ -61,6 +61,18 @@ export const organizations = pgTable('organizations', {
   // This is an opt-in privacy setting, typically flipped on by end-customer
   // orgs that don't want the asset content viewable by anyone with the URL.
   requireScanAccess: boolean('require_scan_access').notNull().default(false),
+  // Voice/AI cost quota. null = use the default tier ('standard') from
+  // packages/api/src/lib/voice-quota.ts. See VoiceQuotaConfig for the
+  // full shape (tier, dailyTurnsCap, monthlyTtsCharCap, monthlyDollarCap,
+  // alertDailyDollarThreshold). Stored inline so the quota check is one
+  // round trip, not two.
+  voiceQuota: jsonb('voice_quota').$type<{
+    tier: 'free' | 'standard' | 'pro' | 'enterprise' | 'custom';
+    dailyTurnsCap: number | null;
+    monthlyTtsCharCap: number | null;
+    monthlyDollarCap: number | null;
+    alertDailyDollarThreshold: number | null;
+  } | null>(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

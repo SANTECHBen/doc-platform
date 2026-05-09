@@ -16,3 +16,4 @@ export * from './agent';
 export * from './document-sections';
 export * from './procedures';
 export * from './feedback';
+export * from './voice-usage';

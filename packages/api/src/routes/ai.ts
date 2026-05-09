@@ -11,6 +11,13 @@ import {
 import { AIChatRequestSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth';
 import { getScope, requireOrgInScope } from '../middleware/scope';
+import {
+  computeVerifyCostCents,
+  getUsageSnapshot,
+  maybeFireSpendAlarm,
+  recordVoiceUsage,
+  resolveQuota,
+} from '../lib/voice-quota';
 
 export async function registerAIRoutes(app: FastifyInstance) {
   // Server-Sent Events stream of a grounded troubleshooter turn.
@@ -436,7 +443,44 @@ Extract in 2–3 sentences the key observable facts: any visible fault codes, al
           chunks,
           citedChunkIds: referencedChunkIds,
         });
-        if (verify) write('verify', verify);
+        if (verify) {
+          write('verify', verify.result);
+          // Charge the verifier call against the org's voice budget so the
+          // chat-driven cost is visible alongside STT/TTS. Detached so a
+          // ledger hiccup never breaks the chat turn the user already saw.
+          void (async () => {
+            try {
+              const totalTokens = verify.inputTokens + verify.outputTokens;
+              await recordVoiceUsage(db, {
+                organizationId: instance.site.organizationId,
+                userId: auth.userId,
+                assetInstanceId: instance.id,
+                kind: 'verify',
+                units: totalTokens,
+                costCents: computeVerifyCostCents({
+                  inputTokens: verify.inputTokens,
+                  outputTokens: verify.outputTokens,
+                }),
+              });
+              const org = await db.query.organizations.findFirst({
+                where: eq(schema.organizations.id, instance.site.organizationId),
+                columns: { id: true, name: true, voiceQuota: true },
+              });
+              if (!org) return;
+              const fresh = await getUsageSnapshot(db, org.id);
+              maybeFireSpendAlarm({
+                webhookUrl: env.VOICE_ALERT_SLACK_WEBHOOK ?? undefined,
+                organizationId: org.id,
+                organizationName: org.name,
+                quota: resolveQuota(org.voiceQuota ?? null),
+                snapshot: fresh,
+                log: request.log,
+              });
+            } catch (err) {
+              request.log.warn({ err }, 'verifier usage record failed');
+            }
+          })();
+        }
       } catch (err) {
         request.log.warn({ err }, 'verifier pass failed; skipping');
       }
@@ -488,13 +532,19 @@ interface VerifyResult {
   conflict: string | null;
 }
 
+interface VerifyOutcome {
+  result: VerifyResult;
+  inputTokens: number;
+  outputTokens: number;
+}
+
 async function runVerifier(input: {
   anthropic: import('@platform/ai').Anthropic;
   model: string;
   answer: string;
   chunks: SafetyFlaggedChunk[];
   citedChunkIds: string[];
-}): Promise<VerifyResult | null> {
+}): Promise<VerifyOutcome | null> {
   const { anthropic, model, answer, chunks, citedChunkIds } = input;
   // Strip the [cite:UUID] markers — the verifier rates the prose, not the
   // markers. We hand the chunks separately as the truth set.
@@ -575,5 +625,9 @@ Output ONLY a JSON object. No prose. No code fences. Schema:
     : [];
 
   const conflict = typeof obj.conflict === 'string' ? obj.conflict : null;
-  return { sentences, sources, conflict };
+  return {
+    result: { sentences, sources, conflict },
+    inputTokens: resp.usage.input_tokens,
+    outputTokens: resp.usage.output_tokens,
+  };
 }

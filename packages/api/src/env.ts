@@ -122,6 +122,12 @@ const EnvSchema = z.object({
   // a no-op so local dev doesn't need an account. Set in Fly secrets for
   // production: `flyctl secrets set SENTRY_DSN=...`.
   SENTRY_DSN: optionalUrl,
+
+  // Voice spend alarm Slack webhook. Optional. When set, the API fires a
+  // one-shot daily ping per (org, UTC day) when an org crosses its
+  // alertDailyDollarThreshold. Hard caps still apply regardless — this
+  // is for visibility, not enforcement.
+  VOICE_ALERT_SLACK_WEBHOOK: optionalUrl,
 });
 
 export type Env = z.infer<typeof EnvSchema>;
