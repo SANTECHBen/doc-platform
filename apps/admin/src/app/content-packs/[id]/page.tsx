@@ -11,6 +11,7 @@ import {
   FilePlus2,
   GraduationCap,
   Link2,
+  ListChecks,
   Loader2,
   Package,
   Pencil,
@@ -235,6 +236,12 @@ export default function ContentPackDetail({
                   <SecondaryButton onClick={() => setModuleOpen(v.id)} disabled={busy}>
                     <GraduationCap size={14} strokeWidth={2} /> Add module
                   </SecondaryButton>
+                  <PrimaryButton
+                    onClick={() => router.push(`/procedures/new?versionId=${encodeURIComponent(v.id)}`)}
+                    disabled={busy}
+                  >
+                    <ListChecks size={14} strokeWidth={2} /> New procedure
+                  </PrimaryButton>
                   <SecondaryButton onClick={() => setAddOpen(v.id)} disabled={busy}>
                     <FilePlus2 size={14} strokeWidth={2} /> Add document
                   </SecondaryButton>
@@ -507,7 +514,6 @@ function AddDocumentForm({
         <Select value={kind} onChange={(e) => setKind(e.target.value as DocumentKind)}>
           <optgroup label="Text">
             <option value="markdown">Markdown document</option>
-            <option value="structured_procedure">Structured procedure (step-by-step + voiceover)</option>
           </optgroup>
           <optgroup label="Uploaded files">
             <option value="pdf">PDF</option>
