@@ -1291,6 +1291,9 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
             : null,
           audioDurationMs: s.audioDurationMs,
           audioSource: s.audioSource,
+          // Typed structured-content blocks. New authoring writes here;
+          // legacy rows fall back to bodyMarkdown until edited.
+          blocks: s.blocks ?? [],
           media: (s.media ?? []).map((m) => ({
             ...m,
             url: storage.publicUrl(m.storageKey),

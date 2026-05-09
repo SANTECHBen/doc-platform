@@ -394,6 +394,7 @@ function AddDocumentForm({
   versionId: string;
   onCreated: () => Promise<void>;
 }) {
+  const router = useRouter();
   const [kind, setKind] = useState<DocumentKind>('markdown');
   const [title, setTitle] = useState('');
   const [language, setLanguage] = useState('en');
@@ -482,7 +483,15 @@ function AddDocumentForm({
         body.contentType = upload.contentType;
         body.sizeBytes = upload.size;
       }
-      await createDocument(versionId, body);
+      const created = await createDocument(versionId, body);
+      // For structured procedures, jump straight into the full-page
+      // authoring view — that's where everything happens (steps, blocks,
+      // voiceover). Sticking the author back in the pack list and asking
+      // them to find the doc adds friction for no benefit.
+      if (kind === 'structured_procedure' && created.id) {
+        router.push(`/procedures/${encodeURIComponent(created.id)}/edit`);
+        return;
+      }
       await onCreated();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

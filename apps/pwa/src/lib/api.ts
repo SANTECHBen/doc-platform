@@ -672,6 +672,26 @@ export interface ProcedureDocMetadata {
   verification: { enabled: boolean; notes: string | null };
 }
 
+// Discriminated union for typed step content blocks rendered by the
+// VirtualJobAid template. Authoring side is in the admin app; the PWA
+// only consumes the result.
+export type StepBlock =
+  | { kind: 'paragraph'; text: string }
+  | {
+      kind: 'callout';
+      tone: 'safety' | 'warning' | 'tip' | 'note';
+      title?: string;
+      text: string;
+    }
+  | { kind: 'bullet_list'; items: string[] }
+  | { kind: 'numbered_list'; items: string[] }
+  | {
+      kind: 'key_value';
+      columns: [string, string];
+      rows: Array<[string, string]>;
+    }
+  | { kind: 'photo_inline'; storageKey: string; caption?: string };
+
 export interface ProcedureStepDto {
   id: string;
   documentId: string;
@@ -691,6 +711,9 @@ export interface ProcedureStepDto {
   audioUrl?: string | null;
   audioDurationMs?: number | null;
   audioSource?: 'uploaded' | 'generated' | null;
+  /** Typed structured content. When non-empty, the runner renders these
+   *  in order (template owns the visual style) and ignores bodyMarkdown. */
+  blocks?: StepBlock[];
 }
 
 export interface ProcedureRunDto {

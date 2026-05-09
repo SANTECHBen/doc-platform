@@ -4,8 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
+  AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  Info,
+  Lightbulb,
   ListChecks,
   RefreshCw,
   ShieldAlert,
@@ -17,6 +20,7 @@ import {
   getProcedureDoc,
   speak,
   type ProcedureDocFullDto,
+  type StepBlock,
 } from '@/lib/api';
 
 // VirtualJobAid — hands-free, step-at-a-time procedure walkthrough that
@@ -53,6 +57,7 @@ interface ResolvedJobAid {
   steps: Array<{
     title: string;
     bodyMarkdown: string | null;
+    blocks: StepBlock[];
     safetyCritical: boolean;
     media: Array<{ kind: 'image' | 'video'; url?: string | null; caption?: string; storageKey: string }>;
     substeps: Array<{ id?: string; title: string; bodyMarkdown?: string | null }>;
@@ -65,15 +70,21 @@ interface ResolvedJobAid {
 function normalizeFromDoc(doc: ProcedureDocFullDto): ResolvedJobAid {
   return {
     title: doc.document.title,
-    steps: doc.steps.map((s) => ({
-      title: s.title,
-      bodyMarkdown: s.bodyMarkdown ?? null,
-      safetyCritical: s.safetyCritical,
-      media: s.media,
-      substeps: s.substeps,
-      audioUrl: (s as ProcedureDocFullDto['steps'][number] & { audioUrl?: string | null })
-        .audioUrl ?? null,
-    })),
+    steps: doc.steps.map((s) => {
+      const augmented = s as ProcedureDocFullDto['steps'][number] & {
+        audioUrl?: string | null;
+        blocks?: StepBlock[];
+      };
+      return {
+        title: s.title,
+        bodyMarkdown: s.bodyMarkdown ?? null,
+        blocks: augmented.blocks ?? [],
+        safetyCritical: s.safetyCritical,
+        media: s.media,
+        substeps: s.substeps,
+        audioUrl: augmented.audioUrl ?? null,
+      };
+    }),
   };
 }
 
@@ -85,6 +96,7 @@ function normalizeFromInline(
     steps: inline.steps.map((s) => ({
       title: s.title,
       bodyMarkdown: s.bodyMarkdown ?? null,
+      blocks: [],
       safetyCritical: !!s.safetyCritical,
       media: [],
       substeps: [],
@@ -218,16 +230,39 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
     }
 
     // Path 2 — live TTS fallback (used when no authored audio exists).
+    // Prefer typed blocks for the spoken script; structured text reads
+    // better than paraphrased markdown. Fall back to bodyMarkdown for
+    // legacy procedures.
     const lead = step.safetyCritical ? 'Safety critical step. ' : '';
     const numbering = `Step ${stepIdx + 1} of ${resolved!.steps.length}. `;
-    const body = step.bodyMarkdown
-      ? step.bodyMarkdown
-          .replace(/[#>*_`]/g, '')
-          .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
-          .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '')
-          .replace(/\s+/g, ' ')
-          .trim()
-      : '';
+    let body = '';
+    if (step.blocks.length > 0) {
+      body = step.blocks
+        .map((b) => {
+          switch (b.kind) {
+            case 'paragraph':
+              return b.text;
+            case 'callout':
+              return `${b.tone === 'safety' || b.tone === 'warning' ? `${b.tone}. ` : ''}${b.title ? b.title + '. ' : ''}${b.text}`;
+            case 'bullet_list':
+            case 'numbered_list':
+              return b.items.join('. ');
+            case 'key_value':
+              return b.rows.map(([k, v]) => `${k}, ${v}.`).join(' ');
+            case 'photo_inline':
+              return ''; // visual-only
+          }
+        })
+        .filter((s) => s.trim().length > 0)
+        .join(' ');
+    } else if (step.bodyMarkdown) {
+      body = step.bodyMarkdown
+        .replace(/[#>*_`]/g, '')
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
+        .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
     const text = `${lead}${numbering}${step.title}.${body ? ' ' + body : ''}`;
     if (text.length === 0) return;
 
@@ -385,11 +420,24 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
               )}
             </div>
             <h1 className="vja-step-title">{step.title}</h1>
-            {step.bodyMarkdown && (
+            {/* Typed blocks take precedence — the template renders each
+                kind with consistent visual style. Legacy procedures fall
+                back to their bodyMarkdown until they're migrated. */}
+            {step.blocks.length > 0 ? (
+              <div className="vja-blocks">
+                {step.blocks.map((b, i) => (
+                  <BlockRenderer
+                    key={i}
+                    block={b}
+                    media={step.media}
+                  />
+                ))}
+              </div>
+            ) : step.bodyMarkdown ? (
               <div className="markdown-body vja-step-body">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{step.bodyMarkdown}</ReactMarkdown>
               </div>
-            )}
+            ) : null}
             {step.media.length > 0 && (
               <ul className="vja-step-media">
                 {step.media.map((m, i) => (
@@ -465,4 +513,122 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
       </footer>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Block renderer — the template that controls visual style for every block
+// kind. Authors choose semantic block types (callout, list, key-value);
+// this component owns the entire visual treatment so every procedure looks
+// identical across the library regardless of who authored it.
+// ---------------------------------------------------------------------------
+
+function BlockRenderer({
+  block,
+  media,
+}: {
+  block: StepBlock;
+  media: Array<{ kind: 'image' | 'video'; url?: string | null; caption?: string; storageKey: string }>;
+}): React.ReactElement | null {
+  switch (block.kind) {
+    case 'paragraph':
+      // Auto-detect bare URLs and turn them into links. We intentionally
+      // don't support inline formatting (bold, italic) — that's the
+      // template's job, not the author's.
+      return <p className="vja-block-paragraph">{linkifyText(block.text)}</p>;
+
+    case 'callout': {
+      const tone = block.tone;
+      const Icon =
+        tone === 'safety'
+          ? ShieldAlert
+          : tone === 'warning'
+            ? AlertTriangle
+            : tone === 'tip'
+              ? Lightbulb
+              : Info;
+      return (
+        <aside className={`vja-block-callout vja-callout-${tone}`}>
+          <span className="vja-callout-icon" aria-hidden>
+            <Icon size={18} strokeWidth={2} />
+          </span>
+          <div className="vja-callout-body">
+            {block.title && <p className="vja-callout-title">{block.title}</p>}
+            <p className="vja-callout-text">{linkifyText(block.text)}</p>
+          </div>
+        </aside>
+      );
+    }
+
+    case 'bullet_list':
+      return (
+        <ul className="vja-block-list">
+          {block.items.map((it, i) => (
+            <li key={i}>{linkifyText(it)}</li>
+          ))}
+        </ul>
+      );
+
+    case 'numbered_list':
+      return (
+        <ol className="vja-block-list vja-block-list-numbered">
+          {block.items.map((it, i) => (
+            <li key={i}>{linkifyText(it)}</li>
+          ))}
+        </ol>
+      );
+
+    case 'key_value':
+      return (
+        <table className="vja-block-kv">
+          <thead>
+            <tr>
+              <th>{block.columns[0]}</th>
+              <th>{block.columns[1]}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {block.rows.map((row, i) => (
+              <tr key={i}>
+                <td>{row[0]}</td>
+                <td>{row[1]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      );
+
+    case 'photo_inline': {
+      const m = media.find((mm) => mm.storageKey === block.storageKey);
+      if (!m || m.kind !== 'image' || !m.url) return null;
+      return (
+        <figure className="vja-block-photo">
+          <img src={m.url} alt={block.caption ?? ''} />
+          {(block.caption ?? m.caption) && (
+            <figcaption>{block.caption ?? m.caption}</figcaption>
+          )}
+        </figure>
+      );
+    }
+  }
+}
+
+// Lightweight linkify — detects http(s):// URLs in text and wraps them
+// in <a>. Avoids pulling in a markdown parser for plain prose; the
+// authoring surface only allows bare URLs anyway (no markdown link syntax).
+function linkifyText(text: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  const re = /(https?:\/\/[^\s)]+)/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    parts.push(
+      <a key={m.index} href={m[1]} target="_blank" rel="noopener noreferrer">
+        {m[1]}
+      </a>,
+    );
+    last = m.index + m[1]!.length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts.length > 0 ? parts : text;
 }

@@ -162,7 +162,7 @@ export function ChatTab({
         devOrgId: DEV_ORG_ID,
       });
       const editorUrl = adminBaseUrl
-        ? `${adminBaseUrl}/documents/${encodeURIComponent(result.documentId)}?tab=steps`
+        ? `${adminBaseUrl}/procedures/${encodeURIComponent(result.documentId)}/edit`
         : null;
       toast.success(
         `Created draft procedure with ${result.stepCount} step${result.stepCount === 1 ? '' : 's'}`,

@@ -14,14 +14,14 @@ import {
   ShieldAlert,
   Trash2,
 } from 'lucide-react';
-import { RichTextEditor } from '@/components/rich-text-editor';
-import { uploadFile } from '@/lib/api';
 import {
   type AdminProcedureStep,
   type ProcedureStepKind,
+  type StepBlock,
   type UpdateProcedureStepInput,
 } from '@/lib/api';
 import { VoiceoverPanel } from './voiceover-panel';
+import { BlockListEditor } from './block-editor';
 
 interface Props {
   step: AdminProcedureStep;
@@ -69,22 +69,22 @@ export function StepCard({
   // Local-state mirrors of editable fields. Auto-save debounce flushes
   // them upstream; we never block typing on the network.
   const [title, setTitle] = useState(step.title);
-  const [bodyMarkdown, setBodyMarkdown] = useState(step.bodyMarkdown ?? '');
+  const [blocks, setBlocks] = useState<StepBlock[]>(step.blocks ?? []);
   const [kind, setKind] = useState<ProcedureStepKind>(step.kind);
   const [safetyCritical, setSafetyCritical] = useState(step.safetyCritical);
 
-  // Debounce refs — separate timers per field so a slow body edit doesn't
+  // Debounce refs — separate timers per field so a slow block edit doesn't
   // delay a quick title save. 600ms feels responsive without spamming the
   // server while the user is mid-sentence.
   const titleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const bodyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const blocksTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // If the parent reloads the step (e.g. after audio update), keep the
   // local mirrors aligned UNLESS the user has unsaved edits. The parent
   // typically reloads only on shape-changing mutations.
   useEffect(() => {
     setTitle(step.title);
-    setBodyMarkdown(step.bodyMarkdown ?? '');
+    setBlocks(step.blocks ?? []);
     setKind(step.kind);
     setSafetyCritical(step.safetyCritical);
   }, [step.id, step.updatedAt]);
@@ -97,15 +97,22 @@ export function StepCard({
       if (v && v !== step.title) void onPatch({ title: v });
     }, 600);
   }
-  function onBodyChange(next: string) {
-    setBodyMarkdown(next);
-    if (bodyTimer.current) clearTimeout(bodyTimer.current);
-    bodyTimer.current = setTimeout(() => {
-      const v = next.trim();
-      if (v !== (step.bodyMarkdown ?? '')) {
-        void onPatch({ bodyMarkdown: v.length === 0 ? null : v });
-      }
+  function onBlocksChange(next: StepBlock[]) {
+    setBlocks(next);
+    if (blocksTimer.current) clearTimeout(blocksTimer.current);
+    blocksTimer.current = setTimeout(() => {
+      void onPatch({ blocks: next });
     }, 800);
+  }
+  // Migrate the legacy bodyMarkdown into a single paragraph block — one-
+  // click affordance shown by BlockListEditor when the step has no blocks
+  // yet but does have legacy markdown content.
+  function onImportLegacy() {
+    const md = (step.bodyMarkdown ?? '').trim();
+    if (!md) return;
+    const next: StepBlock[] = [{ kind: 'paragraph', text: md }];
+    setBlocks(next);
+    void onPatch({ blocks: next, bodyMarkdown: null });
   }
   function onKindChange(next: ProcedureStepKind) {
     setKind(next);
@@ -142,11 +149,10 @@ export function StepCard({
         const v = title.trim();
         if (v && v !== step.title) void onPatch({ title: v });
       }
-      if (bodyTimer.current) {
-        clearTimeout(bodyTimer.current);
-        const v = bodyMarkdown.trim();
-        if (v !== (step.bodyMarkdown ?? '')) {
-          void onPatch({ bodyMarkdown: v.length === 0 ? null : v });
+      if (blocksTimer.current) {
+        clearTimeout(blocksTimer.current);
+        if (JSON.stringify(blocks) !== JSON.stringify(step.blocks ?? [])) {
+          void onPatch({ blocks });
         }
       }
     };
@@ -214,8 +220,10 @@ export function StepCard({
         </button>
       </header>
 
-      {/* Body — title, body markdown, voiceover panel. Inline forms only;
-          no drawers, no modals. This is what makes it feel like a CMS. */}
+      {/* Body — title, structured block list, voiceover panel. Inline
+          forms only; no drawers, no modals, no markdown syntax — the
+          template renders block kinds with consistent visual style so
+          procedures look identical across the library. */}
       <div className="flex flex-col gap-4 p-4">
         <div className="flex items-start gap-3">
           <KindIcon className="mt-2 size-5 shrink-0 text-ink-tertiary" />
@@ -228,18 +236,13 @@ export function StepCard({
           />
         </div>
 
-        <div className="rounded-md border border-line-subtle bg-surface">
-          <RichTextEditor
-            value={bodyMarkdown}
-            onChange={onBodyChange}
-            placeholder="Detailed instructions, warnings, hyperlinks. Use the toolbar for bold / italic / lists / links."
-            minHeight={120}
-            onImageUpload={async (file) => {
-              const r = await uploadFile(file);
-              return r.url;
-            }}
-          />
-        </div>
+        <BlockListEditor
+          blocks={blocks}
+          onChange={onBlocksChange}
+          stepMedia={(step as AdminProcedureStep & { media?: Array<{ storageKey: string; kind: 'image' | 'video'; url?: string | null; caption?: string }> }).media ?? []}
+          legacyBodyMarkdown={step.bodyMarkdown}
+          onImportLegacy={onImportLegacy}
+        />
 
         <VoiceoverPanel step={step} onChanged={onAudioChanged} />
       </div>

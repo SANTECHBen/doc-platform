@@ -134,6 +134,13 @@
       "when": 1778785200000,
       "tag": "0018_procedure_step_audio",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1778871600000,
+      "tag": "0019_step_blocks",
+      "breakpoints": true
     }
   ]
 }

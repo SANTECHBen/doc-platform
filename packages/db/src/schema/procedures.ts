@@ -57,6 +57,51 @@ export type ProcedureStepMedia = {
   caption?: string;
 };
 
+// Typed content blocks on a step. Replaces the freeform `bodyMarkdown`
+// field with a discriminated union that the template renders. Authors
+// pick block kinds from a slash menu; they never type formatting
+// syntax. The template owns all visual style — every callout looks the
+// same, every key-value table looks the same — so the cognitive cost
+// to a tech reading mid-procedure is constant across the library.
+//
+// Storage: jsonb array on procedure_steps.blocks (default: empty array).
+// Render order = array order. The legacy `bodyMarkdown` field stays as
+// a fallback for unmigrated rows; new authoring writes only blocks.
+export type StepBlock =
+  | {
+      kind: 'paragraph';
+      /** Plain text. Inline links are auto-detected at render time;
+       *  authors cannot apply bold/italic/etc. — that's the template's job. */
+      text: string;
+    }
+  | {
+      kind: 'callout';
+      /** Visual treatment selected by the author; styled by the template. */
+      tone: 'safety' | 'warning' | 'tip' | 'note';
+      title?: string;
+      text: string;
+    }
+  | {
+      kind: 'bullet_list';
+      items: string[];
+    }
+  | {
+      kind: 'numbered_list';
+      items: string[];
+    }
+  | {
+      kind: 'key_value';
+      /** Heading row labels — exactly two columns for v1. */
+      columns: [string, string];
+      rows: Array<[string, string]>;
+    }
+  | {
+      kind: 'photo_inline';
+      /** References an item already in step.media[] by storageKey. */
+      storageKey: string;
+      caption?: string;
+    };
+
 // Discriminated union for measurement specs. Numeric covers torque/spec
 // values; pass_fail covers visual inspections; free_text covers things
 // like "record the serial number on the replacement part."
@@ -116,6 +161,15 @@ export const procedureSteps = pgTable(
     // from procedure_step_completions.photos, which is evidence per-run.
     media: jsonb('media')
       .$type<ProcedureStepMedia[]>()
+      .notNull()
+      .default([]),
+
+    // Typed structured content blocks. New authoring writes here; legacy
+    // procedures still carry their content in `bodyMarkdown` until
+    // migrated. The template renders the array in order — see StepBlock
+    // for the discriminated union.
+    blocks: jsonb('blocks')
+      .$type<StepBlock[]>()
       .notNull()
       .default([]),
 

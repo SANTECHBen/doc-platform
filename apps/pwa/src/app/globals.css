@@ -2279,6 +2279,162 @@
     font-family: ui-monospace, SFMono-Regular, monospace;
   }
 
+  /* =========================================================================
+     STRUCTURED CONTENT BLOCKS — template owns visual style; authors pick
+     semantic block kinds and the renderer paints them identically every time
+     ========================================================================= */
+  .vja-blocks {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .vja-block-paragraph {
+    font-size: 17px;
+    line-height: 1.55;
+    color: rgb(var(--ink-secondary));
+    margin: 0;
+  }
+  .vja-block-paragraph a {
+    color: rgb(var(--ink-brand));
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  /* Callouts — four tones, all share the same shape; only the accent and
+     icon-tint change. Visual hierarchy is consistent across the library. */
+  .vja-block-callout {
+    display: flex;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid;
+    background: rgb(var(--surface-raised));
+  }
+  .vja-callout-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: flex-start;
+    padding-top: 2px;
+  }
+  .vja-callout-body { min-width: 0; flex: 1; }
+  .vja-callout-title {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 0 0 4px 0;
+  }
+  .vja-callout-text {
+    font-size: 16px;
+    line-height: 1.5;
+    margin: 0;
+    color: rgb(var(--ink-primary));
+  }
+  .vja-callout-safety {
+    border-color: rgb(var(--signal-safety) / 0.5);
+    background: rgb(var(--signal-safety) / 0.06);
+  }
+  .vja-callout-safety .vja-callout-icon { color: rgb(var(--signal-safety)); }
+  .vja-callout-safety .vja-callout-title { color: rgb(var(--signal-safety)); }
+  .vja-callout-warning {
+    border-color: rgb(var(--signal-warn) / 0.5);
+    background: rgb(var(--signal-warn) / 0.07);
+  }
+  .vja-callout-warning .vja-callout-icon { color: rgb(var(--signal-warn)); }
+  .vja-callout-warning .vja-callout-title { color: rgb(var(--signal-warn)); }
+  .vja-callout-tip {
+    border-color: rgb(var(--signal-info) / 0.5);
+    background: rgb(var(--signal-info) / 0.06);
+  }
+  .vja-callout-tip .vja-callout-icon { color: rgb(var(--signal-info)); }
+  .vja-callout-tip .vja-callout-title { color: rgb(var(--signal-info)); }
+  .vja-callout-note {
+    border-color: rgb(var(--line-strong));
+    background: rgb(var(--surface-elevated));
+  }
+  .vja-callout-note .vja-callout-icon { color: rgb(var(--ink-secondary)); }
+  .vja-callout-note .vja-callout-title { color: rgb(var(--ink-secondary)); }
+
+  /* Lists — same chrome for bullet and numbered; numbering style swap only. */
+  .vja-block-list {
+    margin: 0;
+    padding-left: 22px;
+    font-size: 16px;
+    line-height: 1.6;
+    color: rgb(var(--ink-primary));
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .vja-block-list-numbered {
+    list-style: decimal;
+  }
+  .vja-block-list:not(.vja-block-list-numbered) {
+    list-style: disc;
+  }
+  .vja-block-list a {
+    color: rgb(var(--ink-brand));
+    text-decoration: underline;
+  }
+
+  /* Key/value tables — clean two-column layout. Renders identically
+     whether content is torque values, parts list, or limits. */
+  .vja-block-kv {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    border: 1px solid rgb(var(--line));
+    border-radius: 10px;
+    overflow: hidden;
+    font-size: 15px;
+  }
+  .vja-block-kv thead th {
+    background: rgb(var(--surface-elevated));
+    color: rgb(var(--ink-tertiary));
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid rgb(var(--line));
+  }
+  .vja-block-kv tbody td {
+    padding: 10px 12px;
+    border-top: 1px solid rgb(var(--line) / 0.6);
+    color: rgb(var(--ink-primary));
+  }
+  .vja-block-kv tbody tr:first-child td { border-top: 0; }
+  .vja-block-kv td:first-child {
+    color: rgb(var(--ink-secondary));
+    font-weight: 500;
+  }
+  .vja-block-kv td:last-child {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    font-size: 14px;
+  }
+
+  /* Inline photo — references a photo already on the step's media[].
+     Same border + caption treatment as the step's own media gallery so
+     they read as a single visual system. */
+  .vja-block-photo {
+    margin: 0;
+    overflow: hidden;
+    border-radius: 10px;
+    background: rgb(var(--surface-inset));
+    border: 1px solid rgb(var(--line) / 0.6);
+  }
+  .vja-block-photo img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .vja-block-photo figcaption {
+    padding: 8px 12px;
+    font-size: 13px;
+    color: rgb(var(--ink-secondary));
+  }
+
   /* Launcher card — replaces the assistant text bubble when the AI emits
      a [procedure:UUID] directive. Reads as a tappable surface, not prose. */
   .procedure-launcher {

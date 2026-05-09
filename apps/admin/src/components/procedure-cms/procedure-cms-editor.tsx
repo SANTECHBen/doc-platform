@@ -333,13 +333,22 @@ export function ProcedureCmsEditor({ doc, steps, onChanged }: Props) {
             Generate all audio
           </button>
           {doc.kind === 'structured_procedure' && (
-            <a
-              href={`/documents/${encodeURIComponent(doc.id)}?tab=overview`}
-              className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-primary transition hover:border-accent/40 hover:bg-accent/5"
-            >
-              <ExternalLink className="size-3.5" />
-              Overview
-            </a>
+            <>
+              <a
+                href={`/procedures/${encodeURIComponent(doc.id)}/edit`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-accent/5 px-3 py-1.5 text-xs font-medium text-accent transition hover:border-accent hover:bg-accent/10"
+                title="Open the distraction-free full-page authoring view"
+              >
+                <ExternalLink className="size-3.5" />
+                Full-page editor
+              </a>
+              <a
+                href={`/documents/${encodeURIComponent(doc.id)}?tab=overview`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-primary transition hover:border-accent/40 hover:bg-accent/5"
+              >
+                Overview
+              </a>
+            </>
           )}
         </div>
       </div>

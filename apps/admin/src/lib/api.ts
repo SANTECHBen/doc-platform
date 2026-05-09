@@ -1665,6 +1665,26 @@ export type MeasurementSpec =
       maxLen?: number;
     };
 
+// Discriminated union for typed step content blocks. The author picks a
+// block kind from a slash menu; the template owns visual style. This is
+// what makes every procedure look identical regardless of who wrote it.
+export type StepBlock =
+  | { kind: 'paragraph'; text: string }
+  | {
+      kind: 'callout';
+      tone: 'safety' | 'warning' | 'tip' | 'note';
+      title?: string;
+      text: string;
+    }
+  | { kind: 'bullet_list'; items: string[] }
+  | { kind: 'numbered_list'; items: string[] }
+  | {
+      kind: 'key_value';
+      columns: [string, string];
+      rows: Array<[string, string]>;
+    }
+  | { kind: 'photo_inline'; storageKey: string; caption?: string };
+
 export interface AdminProcedureStep {
   id: string;
   documentId: string;
@@ -1676,6 +1696,9 @@ export interface AdminProcedureStep {
   requiresPhoto: boolean;
   minPhotoCount: number;
   measurementSpec: MeasurementSpec | null;
+  /** Typed structured content. New authoring writes here; legacy rows
+   *  may still have content in bodyMarkdown until edited. */
+  blocks: StepBlock[];
   /** Authored voiceover. Set by upload, in-browser recording, or AI
    *  generation. When present, the runner plays this file at run time
    *  instead of synthesizing TTS — better fidelity, zero per-play cost. */
@@ -1707,6 +1730,7 @@ export interface CreateProcedureStepInput {
   requiresPhoto?: boolean;
   minPhotoCount?: number;
   measurementSpec?: MeasurementSpec | null;
+  blocks?: StepBlock[];
 }
 
 export type UpdateProcedureStepInput = Partial<CreateProcedureStepInput>;

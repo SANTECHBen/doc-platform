@@ -62,6 +62,50 @@ const MeasurementSpecSchema = z.discriminatedUnion('kind', [
   FreeTextSpec,
 ]);
 
+// Discriminated union for typed step blocks. Mirrors StepBlock in
+// packages/db/src/schema/procedures.ts. Server validates the shape so a
+// rogue admin client can't persist incoherent rows.
+const ParagraphBlock = z.object({
+  kind: z.literal('paragraph'),
+  text: z.string().max(8000),
+});
+const CalloutBlock = z.object({
+  kind: z.literal('callout'),
+  tone: z.enum(['safety', 'warning', 'tip', 'note']),
+  title: z.string().max(120).optional(),
+  text: z.string().min(1).max(2000),
+});
+const BulletListBlock = z.object({
+  kind: z.literal('bullet_list'),
+  items: z.array(z.string().min(1).max(800)).min(1).max(50),
+});
+const NumberedListBlock = z.object({
+  kind: z.literal('numbered_list'),
+  items: z.array(z.string().min(1).max(800)).min(1).max(50),
+});
+const KeyValueBlock = z.object({
+  kind: z.literal('key_value'),
+  columns: z.tuple([z.string().min(1).max(60), z.string().min(1).max(60)]),
+  rows: z
+    .array(z.tuple([z.string().min(1).max(200), z.string().min(1).max(200)]))
+    .min(1)
+    .max(60),
+});
+const PhotoInlineBlock = z.object({
+  kind: z.literal('photo_inline'),
+  storageKey: z.string().min(1).max(400),
+  caption: z.string().max(400).optional(),
+});
+const StepBlockSchema = z.discriminatedUnion('kind', [
+  ParagraphBlock,
+  CalloutBlock,
+  BulletListBlock,
+  NumberedListBlock,
+  KeyValueBlock,
+  PhotoInlineBlock,
+]);
+const BlocksArraySchema = z.array(StepBlockSchema).max(40);
+
 const StepCreateBody = z
   .object({
     kind: StepKindEnum,
@@ -72,6 +116,7 @@ const StepCreateBody = z
     requiresPhoto: z.boolean().optional(),
     minPhotoCount: z.number().int().min(0).max(10).optional(),
     measurementSpec: MeasurementSpecSchema.nullable().optional(),
+    blocks: BlocksArraySchema.optional(),
   })
   .refine(
     (b) =>
@@ -95,6 +140,7 @@ const StepPatchBody = z
     requiresPhoto: z.boolean().optional(),
     minPhotoCount: z.number().int().min(0).max(10).optional(),
     measurementSpec: MeasurementSpecSchema.nullable().optional(),
+    blocks: BlocksArraySchema.optional(),
   })
   .refine((v) => Object.keys(v).length > 0, {
     message: 'At least one field is required.',
@@ -122,6 +168,7 @@ function rowToDTO(row: StepRow, opts?: { audioPublicUrl?: string | null }) {
     requiresPhoto: row.requiresPhoto,
     minPhotoCount: row.minPhotoCount,
     measurementSpec: row.measurementSpec,
+    blocks: row.blocks ?? [],
     audioStorageKey: row.audioStorageKey,
     audioContentType: row.audioContentType,
     audioSizeBytes: row.audioSizeBytes,
@@ -307,6 +354,7 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           requiresPhoto: evidence.requiresPhoto,
           minPhotoCount: evidence.minPhotoCount,
           measurementSpec: evidence.measurementSpec ?? null,
+          blocks: body.blocks ?? [],
           createdByUserId: auth.userId,
         })
         .returning();
@@ -373,6 +421,7 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
       if (b.bodyMarkdown !== undefined) patch.bodyMarkdown = b.bodyMarkdown;
       if (b.safetyCritical !== undefined) patch.safetyCritical = b.safetyCritical;
       if (b.orderingHint !== undefined) patch.orderingHint = b.orderingHint;
+      if (b.blocks !== undefined) patch.blocks = b.blocks;
       // Always write the coerced evidence trio if any of them changed,
       // so coherence is preserved.
       if (
