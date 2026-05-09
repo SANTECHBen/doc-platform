@@ -3,10 +3,21 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ArrowUp, AudioLines, Camera, ChevronDown, FileText, Sparkles, Square, Trash2, X } from 'lucide-react';
+import { ArrowUp, AudioLines, Camera, ChevronDown, FileText, ListChecks, Play, Sparkles, Square, Trash2, X } from 'lucide-react';
 import type { AssetHubPayload } from '@/lib/shared-schema';
 import { streamChat, uploadFile, type ChatCitation, type UploadResult, type VerifyResult } from '@/lib/api';
 import { VoiceMode } from '@/components/voice-mode';
+import { VirtualJobAid } from '@/components/virtual-job-aid';
+
+// AI emits [procedure:<uuid>] as its entire response when it judges that a
+// matching authored procedure should take over the screen. We detect it
+// here and swap the assistant turn's render for a "Walk me through this"
+// launcher card that opens VirtualJobAid full-screen on tap.
+const PROCEDURE_DIRECTIVE_RE = /\[procedure:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/i;
+function extractProcedureId(text: string): string | null {
+  const m = PROCEDURE_DIRECTIVE_RE.exec(text);
+  return m && m[1] ? m[1] : null;
+}
 
 type UserTurn = { role: 'user'; text: string; imageUrl?: string };
 type AssistantTurn = {
@@ -107,6 +118,19 @@ export function ChatTab({
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const [voiceOpen, setVoiceOpen] = useState(false);
+  const [virtualJobAidId, setVirtualJobAidId] = useState<string | null>(null);
+
+  // Listen for procedure-launch events fired by ProcedureLauncherCard. A
+  // window event keeps the launcher cards decoupled from where they're
+  // rendered (chat tab, voice mode, future surfaces).
+  useEffect(() => {
+    function onOpen(e: Event) {
+      const id = (e as CustomEvent<{ procedureId: string }>).detail?.procedureId;
+      if (id) setVirtualJobAidId(id);
+    }
+    window.addEventListener('virtual-job-aid:open', onOpen);
+    return () => window.removeEventListener('virtual-job-aid:open', onOpen);
+  }, []);
 
   // Persist whenever a meaningful piece of the conversation changes.
   useEffect(() => {
@@ -460,6 +484,15 @@ export function ChatTab({
           }}
         />
       )}
+
+      {virtualJobAidId && (
+        <VirtualJobAid
+          docId={virtualJobAidId}
+          devUserId={DEV_USER_ID}
+          devOrgId={DEV_ORG_ID}
+          onClose={() => setVirtualJobAidId(null)}
+        />
+      )}
     </div>
   );
 }
@@ -493,6 +526,16 @@ function TurnView({ turn }: { turn: Turn }) {
         )}
       </div>
     );
+  }
+
+  // Procedure directive — render a launcher card instead of prose. Only
+  // applies after streaming completes (otherwise we'd flicker between
+  // partial-text and the card while the directive arrives token-by-token).
+  if (!turn.streaming) {
+    const procedureId = extractProcedureId(turn.text);
+    if (procedureId) {
+      return <ProcedureLauncherCard procedureId={procedureId} />;
+    }
   }
 
   const { rewritten, ordered } = rewriteCitations(turn.text, turn.citations);
@@ -539,6 +582,63 @@ function TurnView({ turn }: { turn: Turn }) {
           <GroundingPanel verify={turn.verify} />
         )}
       </div>
+    </div>
+  );
+}
+
+// Mounted inside an assistant turn whose text is exactly a procedure
+// directive. Fetches the procedure title in the background so the card
+// shows "Walk me through: <title>" instead of an opaque UUID. Tapping
+// opens VirtualJobAid via a window-level event so any host (chat tab or
+// voice mode) can listen.
+function ProcedureLauncherCard({ procedureId }: { procedureId: string }): React.ReactElement {
+  const [title, setTitle] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const mod = await import('@/lib/api');
+        const doc = await mod.getProcedureDoc(procedureId, DEV_USER_ID, DEV_ORG_ID);
+        if (!cancelled) setTitle(doc.document.title);
+      } catch {
+        // Title is decorative — fail soft. Card still works.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [procedureId]);
+
+  function open() {
+    window.dispatchEvent(
+      new CustomEvent('virtual-job-aid:open', { detail: { procedureId } }),
+    );
+  }
+  return (
+    <div className="max-w-[92%]">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="led" />
+        <span className="caption" style={{ color: 'rgb(var(--ink-brand))' }}>
+          Assistant
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={open}
+        className="procedure-launcher"
+        aria-label="Open procedure walkthrough"
+      >
+        <span className="procedure-launcher-icon">
+          <ListChecks size={20} strokeWidth={2} />
+        </span>
+        <span className="procedure-launcher-text">
+          <span className="procedure-launcher-eyebrow">Walk me through this</span>
+          <span className="procedure-launcher-title">{title ?? 'Loading procedure…'}</span>
+        </span>
+        <span className="procedure-launcher-cta">
+          <Play size={16} strokeWidth={2.5} />
+        </span>
+      </button>
     </div>
   );
 }

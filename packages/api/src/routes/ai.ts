@@ -249,21 +249,67 @@ Extract in 2–3 sentences the key observable facts: any visible fault codes, al
     });
     const chunks: SafetyFlaggedChunk[] = await enrichSafety(db, retrieved);
 
+    // Available procedure catalog. We pull every authored
+    // structured_procedure document for the asset's pinned version (and
+    // field captures, if any), filtered to the part scope when set, and
+    // inject titles + summaries into the system prompt so the model can
+    // emit a [procedure:UUID] directive to launch a guided full-screen
+    // walkthrough on the PWA.
+    //
+    // Why this design rather than Anthropic tool-use: this keeps the
+    // streaming flow single-pass. The directive convention also makes
+    // the AI's intent legible in transcript history (we don't have to
+    // reconstruct tool calls from the message log).
+    const procedureCatalogRows = await db.query.documents.findMany({
+      where: and(
+        inArray(schema.documents.contentPackVersionId, versionIds),
+        eq(schema.documents.kind, 'structured_procedure'),
+      ),
+      columns: { id: true, title: true, bodyMarkdown: true },
+      limit: 80,
+    });
+    // If part-scoped, restrict to procedures whose docs are author-linked
+    // to the part. Reuses the same scopedDocumentIds the retriever did.
+    const visibleProcedures =
+      scopedDocumentIds === undefined
+        ? procedureCatalogRows
+        : procedureCatalogRows.filter((p) => scopedDocumentIds!.includes(p.id));
+
+    const procedureDirective = visibleProcedures.length
+      ? `\n\nAVAILABLE STEP-BY-STEP PROCEDURES (authored, hands-free runner):
+${visibleProcedures
+  .slice(0, 30)
+  .map(
+    (p) =>
+      `- [${p.id}] ${p.title}${
+        p.bodyMarkdown
+          ? ` — ${p.bodyMarkdown.replace(/\s+/g, ' ').slice(0, 140)}`
+          : ''
+      }`,
+  )
+  .join('\n')}
+
+If the user is asking HOW TO perform a maintenance task that clearly matches one of these procedures, reply with EXACTLY this — no prose around it, no citations, no preamble:
+[procedure:THE_UUID]
+The PWA will open a hands-free, step-by-step runner with voice playback. Choose a procedure ONLY when the match is unambiguous; if the user is asking a diagnostic or definitional question (e.g., "what does fault E-217 mean") answer normally with grounded prose.`
+      : '';
+
     // Build system prompt.
     const safetyDirective = buildSafetyDirective(chunks);
-    const systemText = buildSystemPrompt(
-      {
-        assetModelDisplayName: instance.model.displayName,
-        assetModelCategory: instance.model.category,
-        serialNumber: instance.serialNumber,
-        siteName: instance.site.name,
-        contentPackVersionLabel:
-          instance.pinnedContentPackVersion?.versionLabel ?? null,
-        chunks,
-        part: partContext,
-      },
-      safetyDirective,
-    );
+    const systemText =
+      buildSystemPrompt(
+        {
+          assetModelDisplayName: instance.model.displayName,
+          assetModelCategory: instance.model.category,
+          serialNumber: instance.serialNumber,
+          siteName: instance.site.name,
+          contentPackVersionLabel:
+            instance.pinnedContentPackVersion?.versionLabel ?? null,
+          chunks,
+          part: partContext,
+        },
+        safetyDirective,
+      ) + procedureDirective;
 
     // Record the user's message now so it survives even if the stream fails later.
     // Image attachment is noted inline so the history is complete.

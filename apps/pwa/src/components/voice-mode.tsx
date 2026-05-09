@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Keyboard, X } from 'lucide-react';
 import { VoiceOrb, type VoiceOrbState } from './voice-orb';
+import { VirtualJobAid } from './virtual-job-aid';
 import {
   fetchPreflight,
   speak,
@@ -10,6 +11,9 @@ import {
   transcribeAudio,
   type PreflightBrief,
 } from '@/lib/api';
+
+const PROCEDURE_DIRECTIVE_RE =
+  /\[procedure:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/i;
 
 // Full-screen voice experience. Opens automatically on QR scan (once per
 // session), and any time the user taps the mic button in the chat composer.
@@ -56,6 +60,10 @@ export function VoiceMode(props: Props): React.ReactElement {
   const [turns, setTurns] = useState<VoiceTurn[]>([]);
   const [needsGesture, setNeedsGesture] = useState(true);
   const [preflight, setPreflight] = useState<PreflightBrief | null>(null);
+  // When the AI emits [procedure:UUID], we suspend the voice greeter and
+  // mount VirtualJobAid in its place — same overlay, hands-free walkthrough.
+  // Clearing the id resumes voice mode and goes back to listening.
+  const [procedureId, setProcedureId] = useState<string | null>(null);
   const conversationIdRef = useRef<string | undefined>(props.initialConversationId);
 
   // Audio infra. Allocated lazily on first user gesture so iOS doesn't
@@ -399,6 +407,25 @@ export function VoiceMode(props: Props): React.ReactElement {
     chatAbortRef.current = null;
 
     const cleaned = assistantText.replace(/\[cite:[a-f0-9-]{8,}\]/gi, '').trim();
+
+    // Procedure handoff — the AI signaled a hands-free walkthrough is the
+    // right answer. Skip TTS of the directive and mount VirtualJobAid in
+    // place. The procedure runner has its own TTS layer per step.
+    const procMatch = PROCEDURE_DIRECTIVE_RE.exec(cleaned);
+    if (procMatch && procMatch[1]) {
+      // Stop the mic loop while the runner is up — it owns the audio path.
+      stopRecording();
+      micAnalyserRef.current?.disconnect();
+      setOrbState('idle');
+      setStatusLine('Walking you through the procedure');
+      setProcedureId(procMatch[1]);
+      setTurns((t) => [
+        ...t,
+        { role: 'assistant', text: `Opened procedure walkthrough.` },
+      ]);
+      return;
+    }
+
     if (cleaned) {
       setTurns((t) => [...t, { role: 'assistant', text: cleaned }]);
       setTranscript(cleaned);
@@ -459,6 +486,36 @@ export function VoiceMode(props: Props): React.ReactElement {
     if (start === null) return;
     const end = e.changedTouches[0]?.clientY ?? start;
     if (end - start > 120) close();
+  }
+
+  // While a procedure walkthrough is active, that runner takes over the
+  // whole overlay. Closing it returns control to voice mode (back to
+  // listening so the tech can ask another question hands-free).
+  if (procedureId) {
+    return (
+      <VirtualJobAid
+        docId={procedureId}
+        devUserId={props.devUserId}
+        devOrgId={props.devOrgId}
+        onClose={() => {
+          setProcedureId(null);
+          // Re-attach mic to the analyser so audio reactivity resumes,
+          // then drop back into the listen loop.
+          const ctx = audioCtxRef.current;
+          const stream = micStreamRef.current;
+          const an = micAnalyserRef.current;
+          if (ctx && stream && an) {
+            try {
+              const src = ctx.createMediaStreamSource(stream);
+              src.connect(an);
+            } catch {
+              // already connected — fine
+            }
+          }
+          void startListening();
+        }}
+      />
+    );
   }
 
   return (

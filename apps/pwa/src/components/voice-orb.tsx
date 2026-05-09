@@ -91,31 +91,45 @@ export function VoiceOrb({ state, analyser, size = 280, className }: Props) {
       }
     };
 
+    // Multiply an "r g b" triplet by a scalar to get a darker variant for
+    // the rim. Keeps the orb tinted by the OEM brand color without a second
+    // CSS variable to wire.
+    const tint = (rgb: string, factor: number): string => {
+      const parts = rgb.split(/\s+/).map((n) => Number(n));
+      if (parts.length !== 3) return rgb;
+      return parts
+        .map((c) => Math.max(0, Math.min(255, Math.round(c * factor))))
+        .join(' ');
+    };
+
     const draw = (now: number) => {
       const t = (now - t0) / 1000;
       const s = stateRef.current;
 
-      // Per-state colors. RGB triplets ("r g b") so we can compose alpha.
+      // Per-state palette. Each state gets a hi (specular), a hue (mid-body
+      // saturation), and an implicit dark rim derived from the hue.
       let inner = '255 255 255';
-      let outerHue = brand;
+      let hue = brand;
       switch (s) {
         case 'idle':
           inner = '255 255 255';
-          outerHue = brand;
+          hue = brand;
           break;
         case 'listening':
-          inner = '180 240 255';
-          outerHue = '90 200 255'; // cyan
+          inner = '210 245 255';
+          hue = '60 170 255'; // tighter, more saturated cyan
           break;
         case 'thinking':
-          inner = '230 215 255';
-          outerHue = '160 110 255'; // violet
+          inner = '235 220 255';
+          hue = '140 90 255'; // saturated violet
           break;
         case 'speaking':
-          inner = '255 240 220';
-          outerHue = brand;
+          inner = '255 245 230';
+          hue = brand;
           break;
       }
+      const rim = tint(hue, 0.55); // deeper version of hue — pulls edge in
+      const aura = tint(hue, 0.85); // slightly muted hue for the soft halo
 
       // Amplitude — analyser when available, else a deterministic wave that
       // gives idle/thinking life without microphone input.
@@ -124,72 +138,103 @@ export function VoiceOrb({ state, analyser, size = 280, className }: Props) {
         s === 'listening' || s === 'speaking'
           ? Math.min(1, measured * 4) // scale up — typical RMS ≈ 0.05–0.25
           : s === 'thinking'
-            ? 0.25 + 0.1 * Math.sin(t * 1.6)
-            : 0.15 + 0.08 * Math.sin(t * 0.9); // idle breathing
+            ? 0.22 + 0.08 * Math.sin(t * 1.6)
+            : 0.12 + 0.06 * Math.sin(t * 0.9); // idle breathing
 
-      // Critically damped follower — fast attack, gentle release.
       const k = target > ampRef.current ? 0.35 : 0.08;
       ampRef.current = ampRef.current + (target - ampRef.current) * k;
       const amp = ampRef.current;
 
-      // Background — fully clear so the overlay's backdrop shows through.
       ctx.clearRect(0, 0, size, size);
 
-      // Outer aura — three concentric blurred halos at offset phases. Adds
-      // organic life without per-pixel noise.
+      // ------------------------------------------------------------------
+      // Layer 1 — outer aura. Tight (≈1.3× core radius max) and dim.
+      //   The previous version filled most of the canvas; that's what made
+      //   it read as a watercolor blob. Two layers, both inside ~70% of the
+      //   canvas, give a clean halo without bleed.
+      // ------------------------------------------------------------------
       const haloLayers: Array<{ r: number; a: number; phase: number }> = [
-        { r: baseRadius * (1.9 + amp * 0.6), a: 0.18, phase: 0 },
-        { r: baseRadius * (1.55 + amp * 0.5), a: 0.28, phase: 1.7 },
-        { r: baseRadius * (1.25 + amp * 0.4), a: 0.42, phase: 3.4 },
+        { r: baseRadius * (1.32 + amp * 0.35), a: 0.16, phase: 0 },
+        { r: baseRadius * (1.14 + amp * 0.25), a: 0.26, phase: 1.7 },
       ];
       for (const h of haloLayers) {
-        const wobble = 1 + 0.04 * Math.sin(t * 1.2 + h.phase);
+        const wobble = 1 + 0.03 * Math.sin(t * 1.2 + h.phase);
         const r = h.r * wobble;
-        const g = ctx.createRadialGradient(center, center, baseRadius * 0.4, center, center, r);
-        g.addColorStop(0, `rgba(${outerHue} / ${h.a})`);
-        g.addColorStop(0.6, `rgba(${outerHue} / ${h.a * 0.35})`);
-        g.addColorStop(1, `rgba(${outerHue} / 0)`);
+        const g = ctx.createRadialGradient(center, center, baseRadius * 0.78, center, center, r);
+        g.addColorStop(0, `rgba(${aura} / ${h.a})`);
+        g.addColorStop(0.55, `rgba(${aura} / ${h.a * 0.45})`);
+        g.addColorStop(1, `rgba(${aura} / 0)`);
         ctx.fillStyle = g;
         ctx.beginPath();
         ctx.arc(center, center, r, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      // Core — bright nucleus with subtle scale on amplitude.
-      const coreR = baseRadius * (0.95 + amp * 0.35);
+      // ------------------------------------------------------------------
+      // Layer 2 — core. Saturation HOLDS to ~85% of the radius and only
+      // rolls off in the last 15%. That's what gives the "glass marble"
+      // edge instead of a fade. The dark rim color at 92-100% is what your
+      // eye reads as a defined boundary.
+      // ------------------------------------------------------------------
+      const coreR = baseRadius * (0.96 + amp * 0.18);
       const coreGrad = ctx.createRadialGradient(
-        center - coreR * 0.15,
-        center - coreR * 0.2,
+        center - coreR * 0.18,
+        center - coreR * 0.22,
         0,
         center,
         center,
         coreR,
       );
-      coreGrad.addColorStop(0, `rgba(${inner} / 0.95)`);
-      coreGrad.addColorStop(0.45, `rgba(${outerHue} / 0.85)`);
-      coreGrad.addColorStop(1, `rgba(${outerHue} / 0)`);
+      coreGrad.addColorStop(0, `rgba(${inner} / 1.0)`);
+      coreGrad.addColorStop(0.18, `rgba(${inner} / 0.92)`);
+      coreGrad.addColorStop(0.5, `rgba(${hue} / 1.0)`);
+      coreGrad.addColorStop(0.85, `rgba(${hue} / 0.95)`);
+      coreGrad.addColorStop(0.97, `rgba(${rim} / 0.85)`);
+      coreGrad.addColorStop(1.0, `rgba(${rim} / 0)`);
       ctx.fillStyle = coreGrad;
       ctx.beginPath();
       ctx.arc(center, center, coreR, 0, Math.PI * 2);
       ctx.fill();
 
-      // Specular highlight — top-left inner shimmer for the "glass marble"
-      // look. Pulse the offset slowly so it never feels frozen.
-      const hiR = coreR * 0.55;
-      const hiX = center - coreR * (0.25 + 0.04 * Math.sin(t * 0.7));
-      const hiY = center - coreR * (0.32 + 0.04 * Math.cos(t * 0.7));
+      // ------------------------------------------------------------------
+      // Layer 3 — specular catch-light. Sharper falloff (gradient peaks
+      // brighter, fades faster) than before so it reads as a clean glass
+      // highlight, not a wash. Slow drift on the offset.
+      // ------------------------------------------------------------------
+      const hiR = coreR * 0.42;
+      const hiX = center - coreR * (0.28 + 0.03 * Math.sin(t * 0.7));
+      const hiY = center - coreR * (0.34 + 0.03 * Math.cos(t * 0.7));
       const hiGrad = ctx.createRadialGradient(hiX, hiY, 0, hiX, hiY, hiR);
-      hiGrad.addColorStop(0, 'rgba(255 255 255 / 0.55)');
+      hiGrad.addColorStop(0, 'rgba(255 255 255 / 0.95)');
+      hiGrad.addColorStop(0.35, 'rgba(255 255 255 / 0.45)');
+      hiGrad.addColorStop(0.7, 'rgba(255 255 255 / 0.08)');
       hiGrad.addColorStop(1, 'rgba(255 255 255 / 0)');
       ctx.fillStyle = hiGrad;
       ctx.beginPath();
       ctx.arc(hiX, hiY, hiR, 0, Math.PI * 2);
       ctx.fill();
 
-      // Thinking ring — a thin rotating arc whose head is bright and tail
-      // fades. Skipped on other states to keep visual semantics distinct.
+      // ------------------------------------------------------------------
+      // Layer 4 — small lower-right rim shimmer. A second, much smaller
+      // highlight on the opposite side of the orb gives it a sense of
+      // dimensionality without looking like noise.
+      // ------------------------------------------------------------------
+      const rimR = coreR * 0.18;
+      const rimX = center + coreR * (0.42 + 0.02 * Math.sin(t * 0.5));
+      const rimY = center + coreR * (0.46 + 0.02 * Math.cos(t * 0.5));
+      const rimGrad = ctx.createRadialGradient(rimX, rimY, 0, rimX, rimY, rimR);
+      rimGrad.addColorStop(0, `rgba(${inner} / 0.55)`);
+      rimGrad.addColorStop(1, `rgba(${inner} / 0)`);
+      ctx.fillStyle = rimGrad;
+      ctx.beginPath();
+      ctx.arc(rimX, rimY, rimR, 0, Math.PI * 2);
+      ctx.fill();
+
+      // ------------------------------------------------------------------
+      // Layer 5 — thinking arc. Same as before, just radius pulled in.
+      // ------------------------------------------------------------------
       if (s === 'thinking') {
-        const ringR = baseRadius * 1.05;
+        const ringR = baseRadius * 1.08;
         const headAngle = (t * 1.4) % (Math.PI * 2);
         const arcLen = Math.PI * 1.2;
         for (let i = 0; i < 60; i++) {
@@ -197,7 +242,7 @@ export function VoiceOrb({ state, analyser, size = 280, className }: Props) {
           const a = headAngle - f * arcLen;
           const x = center + Math.cos(a) * ringR;
           const y = center + Math.sin(a) * ringR;
-          ctx.fillStyle = `rgba(${outerHue} / ${(1 - f) * 0.6})`;
+          ctx.fillStyle = `rgba(${hue} / ${(1 - f) * 0.7})`;
           ctx.beginPath();
           ctx.arc(x, y, 1.6 + (1 - f) * 1.4, 0, Math.PI * 2);
           ctx.fill();

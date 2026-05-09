@@ -51,3 +51,8 @@ IntelliSort HDS Maintenance Manual - sections/
 
 # Claude Code session state — local tooling artifact, no value to teammates
 .claude/scheduled_tasks.lock
+
+# Local reference screenshots (orb mocks, error captures, etc.). Keep them
+# on disk but don't ship them — they bloat the repo and rot fast.
+ai_icon.jpg
+ai_icon*.jpg
