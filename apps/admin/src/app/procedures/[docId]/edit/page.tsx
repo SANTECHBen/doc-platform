@@ -21,14 +21,18 @@ import { use, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
+  ArrowRightLeft,
   Loader2,
   ShieldAlert,
 } from 'lucide-react';
 import { useToast } from '@/components/toast';
 import {
   getAdminDocument,
+  getContentPack,
   listProcedureSteps,
+  moveDocumentToVersion,
   updateDocument,
+  type AdminContentPackDetail,
   type AdminDocumentDetail,
   type AdminProcedureStep,
 } from '@/lib/api';
@@ -51,6 +55,13 @@ export default function ProcedureFullPageEditor({
   const [title, setTitle] = useState('');
   const titleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [titleSaving, setTitleSaving] = useState(false);
+
+  // Move-to-version dialog state. Loaded lazily when the user opens the
+  // picker so we don't fetch the full pack tree on every page load.
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [pack, setPack] = useState<AdminContentPackDetail | null>(null);
+  const [packLoading, setPackLoading] = useState(false);
+  const [moveBusy, setMoveBusy] = useState(false);
 
   async function refresh() {
     try {
@@ -103,6 +114,42 @@ export default function ProcedureFullPageEditor({
       router.push(`/documents/${doc.id}`);
     } else {
       router.back();
+    }
+  }
+
+  // Open the move-to-version dialog. Lazy-loads the pack so the version
+  // list is fresh.
+  async function openMove() {
+    setMoveOpen(true);
+    if (!doc) return;
+    setPackLoading(true);
+    try {
+      const fresh = await getContentPack(doc.contentPackId);
+      setPack(fresh);
+    } catch (e) {
+      toast.error('Could not load pack', e instanceof Error ? e.message : String(e));
+    } finally {
+      setPackLoading(false);
+    }
+  }
+
+  async function doMove(targetVersionId: string) {
+    if (!doc || moveBusy || targetVersionId === doc.contentPackVersionId) return;
+    setMoveBusy(true);
+    try {
+      await moveDocumentToVersion({
+        documentId: doc.id,
+        targetVersionId,
+      });
+      toast.success('Procedure moved');
+      setMoveOpen(false);
+      // Refresh so the header shows the new version label and any
+      // version-status banners flip appropriately.
+      await refresh();
+    } catch (e) {
+      toast.error('Move failed', e instanceof Error ? e.message : String(e));
+    } finally {
+      setMoveBusy(false);
     }
   }
 
@@ -192,6 +239,16 @@ export default function ProcedureFullPageEditor({
               )}
             </div>
           </div>
+
+          <button
+            type="button"
+            onClick={openMove}
+            className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-primary transition hover:border-accent/40 hover:bg-accent/5"
+            title="Move this procedure to a different version of the same content pack"
+          >
+            <ArrowRightLeft className="size-3.5" />
+            Move…
+          </button>
         </div>
       </header>
 
@@ -210,6 +267,111 @@ export default function ProcedureFullPageEditor({
           <ProcedureCmsEditor doc={doc} steps={steps} onChanged={refresh} />
         )}
       </div>
+
+      {moveOpen && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-ink-primary/40 backdrop-blur-sm p-4"
+          onClick={() => !moveBusy && setMoveOpen(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="w-full max-w-md overflow-hidden rounded-lg border border-line bg-surface-raised shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header className="flex items-center justify-between border-b border-line-subtle px-4 py-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-semibold text-ink-primary">
+                  Move procedure to a different version
+                </span>
+                <span className="text-xs text-ink-tertiary">
+                  Currently in v{doc.contentPackVersionNumber}
+                  {doc.contentPackVersionStatus === 'draft' ? ' (draft)' : ''}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => !moveBusy && setMoveOpen(false)}
+                aria-label="Close"
+                className="rounded p-1 text-ink-tertiary hover:bg-surface hover:text-ink-primary"
+              >
+                ×
+              </button>
+            </header>
+
+            <div className="max-h-80 overflow-y-auto p-2">
+              {packLoading || !pack ? (
+                <p className="px-3 py-6 text-center text-sm text-ink-tertiary">
+                  <Loader2 className="mx-auto mb-2 size-4 animate-spin" />
+                  Loading versions…
+                </p>
+              ) : pack.versions.length === 0 ? (
+                <p className="px-3 py-6 text-center text-sm text-ink-tertiary">
+                  No other versions in this pack.
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-1">
+                  {[...pack.versions]
+                    .sort((a, b) => b.versionNumber - a.versionNumber)
+                    .map((v) => {
+                      const current = v.id === doc.contentPackVersionId;
+                      return (
+                        <li key={v.id}>
+                          <button
+                            type="button"
+                            onClick={() => doMove(v.id)}
+                            disabled={moveBusy || current}
+                            className={[
+                              'flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm transition',
+                              current
+                                ? 'cursor-not-allowed bg-surface text-ink-tertiary'
+                                : 'hover:bg-accent/5 hover:text-accent',
+                            ].join(' ')}
+                          >
+                            <span className="flex items-center gap-2">
+                              <span className="font-mono text-xs tabular-nums text-ink-tertiary">
+                                v{v.versionLabel ?? v.versionNumber}
+                              </span>
+                              <span
+                                className={[
+                                  'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase',
+                                  v.status === 'published'
+                                    ? 'bg-signal-warn/10 text-signal-warn'
+                                    : v.status === 'draft'
+                                      ? 'bg-signal-info/10 text-signal-info'
+                                      : 'bg-surface text-ink-tertiary',
+                                ].join(' ')}
+                              >
+                                {v.status}
+                              </span>
+                              <span className="text-xs text-ink-tertiary">
+                                {v.documents.length} doc
+                                {v.documents.length === 1 ? '' : 's'}
+                              </span>
+                            </span>
+                            {current ? (
+                              <span className="text-xs text-ink-tertiary">current</span>
+                            ) : (
+                              <span className="text-xs font-medium text-accent">
+                                Move →
+                              </span>
+                            )}
+                          </button>
+                        </li>
+                      );
+                    })}
+                </ul>
+              )}
+            </div>
+            {moveBusy && (
+              <div className="border-t border-line-subtle bg-surface px-4 py-2 text-xs text-ink-tertiary">
+                <Loader2 className="mr-1.5 inline size-3 animate-spin" />
+                Moving…
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }

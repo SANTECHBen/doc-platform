@@ -35,6 +35,7 @@ import { registerPreflightRoutes } from './routes/preflight';
 import { registerAdminVoiceUsageRoutes } from './routes/admin-voice-usage';
 import { registerAdminProcedureAudioRoutes } from './routes/admin-procedure-audio';
 import { registerAdminPromoteRoutes } from './routes/admin-promote';
+import { registerAdminDocumentMoveRoutes } from './routes/admin-document-move';
 import { registerMeRoutes } from './routes/me';
 
 export async function buildApp(ctx: AppContext) {
@@ -96,6 +97,7 @@ export async function buildApp(ctx: AppContext) {
   await registerAdminVoiceUsageRoutes(app);
   await registerAdminProcedureAudioRoutes(app);
   await registerAdminPromoteRoutes(app);
+  await registerAdminDocumentMoveRoutes(app);
   await registerMeRoutes(app);
 
   return app;

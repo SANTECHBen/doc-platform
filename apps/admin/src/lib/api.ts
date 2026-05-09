@@ -1911,6 +1911,39 @@ export async function deleteProcedureStepMedia(
   if (!res.ok) throw new Error(`Media delete ${res.status}: ${await res.text()}`);
 }
 
+// ---------------------------------------------------------------------------
+// Move a document between content pack versions (same pack only). Used to
+// rescue docs from accidental version splits without re-authoring.
+// ---------------------------------------------------------------------------
+
+export async function moveDocumentToVersion(params: {
+  documentId: string;
+  targetVersionId: string;
+}): Promise<{
+  ok: true;
+  documentId: string;
+  fromVersionId: string;
+  toVersionId: string;
+  changed: boolean;
+}> {
+  const res = await fetch(
+    `${API_BASE}/admin/documents/${encodeURIComponent(params.documentId)}/move`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ targetVersionId: params.targetVersionId }),
+    },
+  );
+  if (!res.ok) throw new Error(`Move ${res.status}: ${await res.text()}`);
+  return (await res.json()) as {
+    ok: true;
+    documentId: string;
+    fromVersionId: string;
+    toVersionId: string;
+    changed: boolean;
+  };
+}
+
 export async function patchProcedureStepAudioDuration(
   stepId: string,
   audioDurationMs: number,
