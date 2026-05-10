@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Keyboard, X } from 'lucide-react';
+import { Keyboard, Mic, MicOff, X } from 'lucide-react';
 import { VoiceOrb, type VoiceOrbState } from './voice-orb';
 import { VirtualJobAid } from './virtual-job-aid';
 import {
@@ -40,7 +40,13 @@ interface Props {
   initialConversationId?: string;
   devUserId: string;
   devOrgId: string;
-  onClose: (state: { conversationId?: string; turns: VoiceTurn[] }) => void;
+  onClose: (state: {
+    conversationId?: string;
+    turns: VoiceTurn[];
+    /** True when the user dismissed via the Keyboard action — the parent
+     *  should switch to the chat tab so the conversation continues there. */
+    switchToChat?: boolean;
+  }) => void;
 }
 
 export interface VoiceTurn {
@@ -59,6 +65,7 @@ export function VoiceMode(props: Props): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [turns, setTurns] = useState<VoiceTurn[]>([]);
   const [needsGesture, setNeedsGesture] = useState(true);
+  const [muted, setMuted] = useState(false);
   const [preflight, setPreflight] = useState<PreflightBrief | null>(null);
   // When the AI emits a [procedure:UUID] directive, we suspend the voice
   // greeter and mount VirtualJobAid in its place — same overlay, hands-
@@ -563,12 +570,21 @@ export function VoiceMode(props: Props): React.ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [needsGesture, orbState]);
 
-  function close() {
+  function close(opts?: { switchToChat?: boolean }) {
     teardown();
     props.onClose({
       conversationId: conversationIdRef.current,
       turns,
+      ...(opts?.switchToChat ? { switchToChat: true } : {}),
     });
+  }
+
+  function toggleMute() {
+    const stream = micStreamRef.current;
+    if (!stream) return;
+    const next = !muted;
+    for (const track of stream.getAudioTracks()) track.enabled = !next;
+    setMuted(next);
   }
 
   // Swipe-down to dismiss — small gesture, reads the touch start/end deltas.
@@ -617,6 +633,14 @@ export function VoiceMode(props: Props): React.ReactElement {
     );
   }
 
+  // Show "Muted" instead of the live state when the mic is off — clearer
+  // signal to the tech that the assistant isn't ignoring them.
+  const stateLabel = error
+    ? error
+    : muted && orbState === 'listening'
+      ? 'Muted'
+      : statusLine;
+
   return (
     <div
       className="voice-mode-root"
@@ -625,72 +649,101 @@ export function VoiceMode(props: Props): React.ReactElement {
       role="dialog"
       aria-label="Voice assistant"
     >
-      <button
-        type="button"
-        className="voice-mode-close"
-        onClick={close}
-        aria-label="Close voice mode"
-      >
-        <X size={20} strokeWidth={2.25} />
-      </button>
+      <header className="voice-mode-topbar">
+        <div className="voice-mode-asset">
+          {preflight ? (
+            <>
+              <span className="voice-mode-asset-name">
+                {preflight.assetModelDisplayName}
+              </span>
+              <span className="voice-mode-asset-sep">·</span>
+              <span className="voice-mode-asset-serial">
+                S/N {preflight.serialNumber}
+              </span>
+            </>
+          ) : (
+            <span className="voice-mode-asset-name">Connecting…</span>
+          )}
+        </div>
+        <button
+          type="button"
+          className="voice-mode-close"
+          onClick={() => close()}
+          aria-label="Close voice mode"
+        >
+          <X size={18} strokeWidth={2.25} />
+        </button>
+      </header>
 
-      <div className="voice-mode-asset">
-        {preflight ? (
-          <>
-            <span className="voice-mode-asset-name">{preflight.assetModelDisplayName}</span>
-            <span className="voice-mode-asset-sep">·</span>
-            <span className="voice-mode-asset-serial">S/N {preflight.serialNumber}</span>
-          </>
-        ) : (
-          <span className="voice-mode-asset-name">Connecting…</span>
+      <div className="voice-mode-stage">
+        <button
+          type="button"
+          className="voice-mode-orb-button"
+          onClick={onOrbTap}
+          aria-label={
+            needsGesture
+              ? 'Tap to begin'
+              : orbState === 'listening'
+                ? 'Stop listening'
+                : orbState === 'speaking'
+                  ? 'Interrupt'
+                  : 'Voice'
+          }
+        >
+          <VoiceOrb state={orbState} analyser={activeAnalyser} size={260} />
+        </button>
+
+        <div
+          className="voice-mode-state"
+          aria-live="polite"
+          data-state={orbState}
+          data-muted={muted ? 'true' : 'false'}
+        >
+          {stateLabel}
+        </div>
+
+        {/* Transcript appears only between turns (after the user speaks,
+            before the AI starts speaking back). During 'speaking' the audio
+            IS the channel — showing a wall of text behind the orb just
+            collides visually. */}
+        {transcript && orbState !== 'speaking' && orbState !== 'thinking' && (
+          <p className="voice-mode-transcript" aria-live="polite">
+            {transcript}
+          </p>
         )}
       </div>
 
-      <button
-        type="button"
-        className="voice-mode-orb-button"
-        onClick={onOrbTap}
-        aria-label={
-          needsGesture
-            ? 'Tap to begin'
-            : orbState === 'listening'
-              ? 'Stop listening'
-              : orbState === 'speaking'
-                ? 'Interrupt'
-                : 'Voice'
-        }
-      >
-        <VoiceOrb state={orbState} analyser={activeAnalyser} size={280} />
-      </button>
-
-      <div
-        className="voice-mode-status"
-        aria-live="polite"
-        data-state={orbState}
-      >
-        <span className="voice-mode-status-led" />
-        <span>{error ?? statusLine}</span>
-      </div>
-
-      {/* Transcript appears only between turns (after the user speaks,
-          before the AI starts speaking back). During 'speaking' the audio
-          IS the channel — showing a wall of text behind the orb just
-          collides visually. While 'listening' we show the user's previous
-          utterance so they have feedback their words were heard. */}
-      {transcript && orbState !== 'speaking' && orbState !== 'thinking' && (
-        <p className="voice-mode-transcript" aria-live="polite">
-          {transcript}
-        </p>
-      )}
-
-      <div className="voice-mode-footer">
+      <div className="voice-mode-actionbar" role="toolbar" aria-label="Voice controls">
         <button
           type="button"
-          className="voice-mode-keyboard"
-          onClick={close}
+          className="voice-mode-action"
+          onClick={toggleMute}
+          disabled={needsGesture}
+          aria-label={muted ? 'Unmute microphone' : 'Mute microphone'}
+          aria-pressed={muted}
+          data-active={muted ? 'true' : 'false'}
+        >
+          {muted ? <MicOff size={20} strokeWidth={2} /> : <Mic size={20} strokeWidth={2} />}
+          <span>{muted ? 'Unmute' : 'Mute'}</span>
+        </button>
+
+        <button
+          type="button"
+          className="voice-mode-action voice-mode-action-end"
+          onClick={() => close()}
+          aria-label="End voice mode"
+        >
+          <X size={20} strokeWidth={2} />
+          <span>End</span>
+        </button>
+
+        <button
+          type="button"
+          className="voice-mode-action"
+          onClick={() => close({ switchToChat: true })}
           aria-label="Switch to keyboard"
         >
-          <Keyboard size={16} strokeWidth={2} />
+          <Keyboard size={20} strokeWidth={2} />
           <span>Keyboard</span>
         </button>
       </div>

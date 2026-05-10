@@ -1667,84 +1667,88 @@
   button:active:not(:disabled) { transform: translateY(0.5px); }
 
   /* =========================================================================
-     VOICE MODE — full-screen AI-first overlay (ChatGPT-style)
+     VOICE MODE — immersive overlay. Always renders on a flat near-black
+     surface (regardless of the user's app theme) so the orb glow does the
+     visual work. Three rows: top bar, centered stage, bottom action bar.
      ========================================================================= */
 
   .voice-mode-root {
     position: fixed;
     inset: 0;
     z-index: 100;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 24px;
-    padding: 24px;
-    background:
-      radial-gradient(120% 80% at 50% 35%, rgba(var(--brand-glow) / 0.18), transparent 70%),
-      radial-gradient(80% 60% at 50% 90%, rgba(var(--brand-glow) / 0.10), transparent 70%),
-      rgb(var(--surface-base) / 0.92);
-    backdrop-filter: blur(28px) saturate(140%);
-    -webkit-backdrop-filter: blur(28px) saturate(140%);
-    animation: voiceModeIn 320ms cubic-bezier(0.2, 0.6, 0.2, 1);
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    background: rgb(8 10 13);
+    color: rgb(232 236 241);
+    animation: voiceModeIn 280ms cubic-bezier(0.2, 0.6, 0.2, 1);
   }
   @keyframes voiceModeIn {
     from { opacity: 0; transform: scale(0.985); }
     to   { opacity: 1; transform: scale(1); }
   }
 
-  .voice-mode-close {
-    position: absolute;
-    top: max(16px, env(safe-area-inset-top));
-    right: max(16px, env(safe-area-inset-right));
-    width: 44px;
-    height: 44px;
-    border-radius: 999px;
-    border: 1px solid rgb(var(--line) / 0.6);
-    background: rgb(var(--surface-elevated) / 0.6);
-    color: rgb(var(--ink-secondary));
-    display: inline-flex;
+  .voice-mode-topbar {
+    display: flex;
     align-items: center;
-    justify-content: center;
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    transition: color 120ms ease, background 120ms ease, transform 120ms ease;
-  }
-  .voice-mode-close:hover {
-    color: rgb(var(--ink-primary));
-    background: rgb(var(--surface-elevated) / 0.85);
+    justify-content: space-between;
+    gap: 12px;
+    padding:
+      max(14px, calc(env(safe-area-inset-top) + 6px))
+      max(16px, env(safe-area-inset-right))
+      14px
+      max(16px, env(safe-area-inset-left));
   }
 
   .voice-mode-asset {
-    position: absolute;
-    top: max(20px, calc(env(safe-area-inset-top) + 4px));
-    left: 50%;
-    transform: translateX(-50%);
     display: inline-flex;
-    align-items: center;
+    align-items: baseline;
     gap: 8px;
-    padding: 6px 14px;
-    border-radius: 999px;
-    background: rgb(var(--surface-raised) / 0.6);
-    border: 1px solid rgb(var(--line) / 0.5);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    font-size: 12px;
-    color: rgb(var(--ink-secondary));
-    max-width: calc(100% - 120px);
+    min-width: 0;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+    font-size: 13px;
+    color: rgb(155 166 179);
   }
   .voice-mode-asset-name {
-    color: rgb(var(--ink-primary));
+    color: rgb(232 236 241);
     font-weight: 500;
+    letter-spacing: 0.005em;
   }
-  .voice-mode-asset-sep { color: rgb(var(--ink-tertiary)); }
+  .voice-mode-asset-sep { color: rgb(92 102 116); }
   .voice-mode-asset-serial {
     font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-    font-size: 11px;
-    color: rgb(var(--ink-tertiary));
+    font-size: 12px;
+    color: rgb(92 102 116);
+  }
+
+  .voice-mode-close {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    border-radius: 999px;
+    border: 1px solid rgb(255 255 255 / 0.08);
+    background: rgb(255 255 255 / 0.04);
+    color: rgb(155 166 179);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+  }
+  .voice-mode-close:hover {
+    color: rgb(232 236 241);
+    background: rgb(255 255 255 / 0.08);
+    border-color: rgb(255 255 255 / 0.14);
+  }
+
+  .voice-mode-stage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 28px;
+    padding: 16px 24px;
+    min-height: 0; /* let the row collapse so transcript can scroll */
   }
 
   .voice-mode-orb-button {
@@ -1758,66 +1762,41 @@
   .voice-mode-orb-button:active { transform: scale(0.97); }
   .voice-mode-orb-button:focus-visible {
     outline: 2px solid rgb(var(--brand));
-    outline-offset: 8px;
+    outline-offset: 10px;
   }
 
-  .voice-mode-status {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 16px;
-    border-radius: 999px;
-    background: rgb(var(--surface-raised) / 0.55);
-    border: 1px solid rgb(var(--line) / 0.5);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    font-size: 13px;
-    letter-spacing: 0.02em;
-    color: rgb(var(--ink-primary));
-    min-height: 36px;
+  .voice-mode-state {
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: rgb(232 236 241);
+    min-height: 28px;
+    transition: color 200ms ease;
   }
-  .voice-mode-status-led {
-    width: 7px;
-    height: 7px;
-    border-radius: 999px;
-    background: rgb(var(--ink-tertiary));
-    box-shadow: 0 0 0 0 rgb(var(--ink-tertiary) / 0.0);
-    transition: background 220ms ease, box-shadow 220ms ease;
+  .voice-mode-state[data-state='thinking'] {
+    color: rgb(180 160 240);
   }
-  .voice-mode-status[data-state='listening'] .voice-mode-status-led {
-    background: rgb(90 200 255);
-    box-shadow: 0 0 12px 0 rgb(90 200 255 / 0.6);
-    animation: voiceLedPulse 1.4s ease-in-out infinite;
+  .voice-mode-state[data-state='listening'] {
+    color: rgb(140 200 255);
   }
-  .voice-mode-status[data-state='thinking'] .voice-mode-status-led {
-    background: rgb(160 110 255);
-    box-shadow: 0 0 12px 0 rgb(160 110 255 / 0.6);
-    animation: voiceLedPulse 1.0s ease-in-out infinite;
+  .voice-mode-state[data-state='speaking'] {
+    color: rgb(255 220 180);
   }
-  .voice-mode-status[data-state='speaking'] .voice-mode-status-led {
-    background: rgb(var(--brand));
-    box-shadow: 0 0 14px 0 rgb(var(--brand) / 0.7);
-  }
-  @keyframes voiceLedPulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.5; transform: scale(0.7); }
+  .voice-mode-state[data-muted='true'] {
+    color: rgb(255 160 160);
   }
 
   .voice-mode-transcript {
     max-width: min(560px, calc(100% - 32px));
-    /* Hard ceiling so a long answer can't overlap the orb. Scrolls
-       internally if it overflows. */
     max-height: 30vh;
     overflow-y: auto;
     text-align: center;
-    color: rgb(var(--ink-primary) / 0.92);
+    color: rgb(232 236 241 / 0.86);
     font-size: 17px;
     line-height: 1.5;
     margin: 0;
     padding: 0 8px;
     animation: voiceTranscriptIn 220ms cubic-bezier(0.2, 0.6, 0.2, 1);
-    /* Subtle fade at the bottom so cropped text reads as scrollable, not
-       cut off. */
     -webkit-mask-image: linear-gradient(to bottom, black 80%, transparent);
     mask-image: linear-gradient(to bottom, black 80%, transparent);
   }
@@ -1826,33 +1805,215 @@
     to   { opacity: 1; transform: translateY(0); }
   }
 
-  .voice-mode-footer {
-    position: absolute;
-    bottom: max(20px, calc(env(safe-area-inset-bottom) + 12px));
-    left: 0;
-    right: 0;
+  .voice-mode-actionbar {
     display: flex;
     justify-content: center;
-    gap: 12px;
+    align-items: stretch;
+    gap: 10px;
+    padding:
+      14px
+      max(20px, env(safe-area-inset-right))
+      max(18px, calc(env(safe-area-inset-bottom) + 14px))
+      max(20px, env(safe-area-inset-left));
   }
-  .voice-mode-keyboard {
+  .voice-mode-action {
+    flex: 1 1 0;
+    max-width: 140px;
+    min-height: 56px;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 8px 12px;
+    border-radius: 16px;
+    border: 1px solid rgb(255 255 255 / 0.08);
+    background: rgb(255 255 255 / 0.03);
+    color: rgb(155 166 179);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    transition:
+      color 120ms ease,
+      background 120ms ease,
+      border-color 120ms ease,
+      transform 120ms ease;
+  }
+  .voice-mode-action:hover:not(:disabled) {
+    color: rgb(232 236 241);
+    background: rgb(255 255 255 / 0.06);
+    border-color: rgb(255 255 255 / 0.14);
+  }
+  .voice-mode-action:active:not(:disabled) { transform: translateY(0.5px); }
+  .voice-mode-action:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .voice-mode-action[data-active='true'] {
+    color: rgb(255 180 180);
+    background: rgb(220 90 90 / 0.12);
+    border-color: rgb(220 90 90 / 0.35);
+  }
+  .voice-mode-action-end {
+    color: rgb(255 160 160);
+  }
+  .voice-mode-action-end:hover:not(:disabled) {
+    color: rgb(255 200 200);
+    background: rgb(220 90 90 / 0.14);
+    border-color: rgb(220 90 90 / 0.4);
+  }
+
+  /* =========================================================================
+     MODE CHOOSER — first-touch picker between Hands-Free and Browse. Same
+     near-black surface as voice mode for visual continuity.
+     ========================================================================= */
+
+  .mode-chooser-root {
+    position: fixed;
+    inset: 0;
+    z-index: 95;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 32px;
+    padding:
+      max(32px, calc(env(safe-area-inset-top) + 24px))
+      max(20px, env(safe-area-inset-right))
+      max(32px, calc(env(safe-area-inset-bottom) + 24px))
+      max(20px, env(safe-area-inset-left));
+    background: rgb(8 10 13);
+    color: rgb(232 236 241);
+    animation: voiceModeIn 280ms cubic-bezier(0.2, 0.6, 0.2, 1);
+  }
+
+  .mode-chooser-asset {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .mode-chooser-asset-name {
+    font-size: 18px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: rgb(232 236 241);
+  }
+  .mode-chooser-asset-serial {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    color: rgb(92 102 116);
+  }
+
+  .mode-chooser-title {
+    font-size: 26px;
+    font-weight: 500;
+    letter-spacing: -0.015em;
+    line-height: 1.2;
+    color: rgb(232 236 241);
+    margin: 0;
+  }
+
+  .mode-chooser-options {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 520px;
+    width: 100%;
+    margin: 0 auto;
+  }
+
+  .mode-chooser-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-height: 96px;
+    padding: 18px 20px;
+    border-radius: 18px;
+    border: 1px solid rgb(255 255 255 / 0.08);
+    background: rgb(255 255 255 / 0.03);
+    color: rgb(232 236 241);
+    text-align: left;
+    transition:
+      background 140ms ease,
+      border-color 140ms ease,
+      transform 120ms ease;
+  }
+  .mode-chooser-card:hover {
+    background: rgb(255 255 255 / 0.06);
+    border-color: rgb(255 255 255 / 0.16);
+  }
+  .mode-chooser-card:active { transform: translateY(0.5px); }
+
+  .mode-chooser-card-icon {
+    flex-shrink: 0;
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgb(255 255 255 / 0.05);
+    color: rgb(155 166 179);
+  }
+  .mode-chooser-card-icon[data-tone='brand'] {
+    background: rgb(var(--brand) / 0.16);
+    color: rgb(var(--brand));
+    box-shadow: inset 0 0 0 1px rgb(var(--brand) / 0.25);
+  }
+
+  .mode-chooser-card-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .mode-chooser-card-title {
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    color: rgb(232 236 241);
+  }
+  .mode-chooser-card-sub {
+    font-size: 13px;
+    color: rgb(155 166 179);
+  }
+
+  /* =========================================================================
+     TALK FAB — re-entry pill for voice mode. Anchored bottom-right above
+     the bottom tab bar (z-index 40), visible on every non-chat tab.
+     ========================================================================= */
+
+  .app-talk-fab {
+    position: fixed;
+    right: max(16px, env(safe-area-inset-right));
+    bottom: calc(84px + 16px + env(safe-area-inset-bottom));
+    z-index: 39;
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 10px 16px;
+    height: 44px;
+    padding: 0 18px 0 16px;
     border-radius: 999px;
-    background: rgb(var(--surface-raised) / 0.7);
-    border: 1px solid rgb(var(--line) / 0.6);
-    color: rgb(var(--ink-secondary));
-    font-size: 13px;
+    border: 1px solid rgb(var(--brand) / 0.4);
+    background: rgb(var(--brand) / 0.14);
+    color: rgb(var(--brand));
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.005em;
+    box-shadow:
+      0 6px 16px -8px rgb(0 0 0 / 0.5),
+      0 0 0 1px rgb(0 0 0 / 0.04);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    transition: color 120ms ease, background 120ms ease;
+    transition:
+      background 140ms ease,
+      border-color 140ms ease,
+      transform 120ms ease;
   }
-  .voice-mode-keyboard:hover {
-    color: rgb(var(--ink-primary));
-    background: rgb(var(--surface-elevated));
+  .app-talk-fab:hover {
+    background: rgb(var(--brand) / 0.22);
+    border-color: rgb(var(--brand) / 0.55);
   }
+  .app-talk-fab:active { transform: translateY(0.5px); }
 
   /* =========================================================================
      GROUNDING / EVIDENCE MAP

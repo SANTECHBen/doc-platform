@@ -16,21 +16,8 @@ import { TrainingTab } from './training-tab';
 import { PartsTab } from './parts-tab';
 import { IssuesPanel } from './issues-panel';
 import { VoiceMode } from '@/components/voice-mode';
-
-// Auto-launch the voice greeter once per QR scan. We key off the
-// assetInstanceId so a fresh scan re-engages voice; refreshing the same hub
-// in the same tab does not.
-const VOICE_LAUNCH_FLAG_PREFIX = 'eh:voice-launched:';
-function shouldAutoLaunchVoice(assetInstanceId: string): boolean {
-  if (typeof window === 'undefined') return false;
-  // Respect a global opt-out (set via the keyboard fallback button).
-  if (window.localStorage.getItem('eh:voice-disabled') === '1') return false;
-  // Per-tab session storage so each scan engages voice once.
-  const key = `${VOICE_LAUNCH_FLAG_PREFIX}${assetInstanceId}`;
-  if (window.sessionStorage.getItem(key) === '1') return false;
-  window.sessionStorage.setItem(key, '1');
-  return true;
-}
+import { ModeChooser, type ChosenMode } from '@/components/mode-chooser';
+import { TalkFab } from '@/components/talk-fab';
 
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
 const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
@@ -53,22 +40,30 @@ function readTabFromHash(): TabKey | null {
   return (TAB_KEYS as string[]).includes(h) ? (h as TabKey) : null;
 }
 
+// Mode choice gates the asset hub. 'choosing' shows the ModeChooser
+// overlay; 'voice' opens VoiceMode immediately; 'browse' renders the
+// normal hub. The choice is intentional and not persisted — every QR
+// scan / refresh starts in 'choosing'.
+type Mode = 'choosing' | 'voice' | 'browse';
+
 export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: string }) {
   const [active, setActive] = useState<TabKey>('overview');
   const [openIssueCount, setOpenIssueCount] = useState<number>(
     hub.tabs.openWorkOrders.count,
   );
+  const [mode, setMode] = useState<Mode>(
+    DEV_USER_ID && DEV_ORG_ID ? 'choosing' : 'browse',
+  );
   const [voiceOpen, setVoiceOpen] = useState(false);
 
-  // AI-first scan landing: auto-open the voice greeter on first arrival at
-  // this asset hub. Skipped if the user previously chose "Keyboard" or if
-  // the dev user IDs aren't configured (chat backend will reject anyway).
-  useEffect(() => {
-    if (!DEV_USER_ID || !DEV_ORG_ID) return;
-    if (shouldAutoLaunchVoice(hub.assetInstance.id)) {
+  function pickMode(chosen: ChosenMode) {
+    if (chosen === 'voice') {
+      setMode('voice');
       setVoiceOpen(true);
+    } else {
+      setMode('browse');
     }
-  }, [hub.assetInstance.id]);
+  }
 
   // Hydrate the active tab from the URL hash on mount so deep links
   // (`#docs`) land on the right tab. Then keep the hash in sync as the
@@ -139,13 +134,36 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
 
       <TabBar hub={hub} active={active} setActive={changeTab} position="bottom" />
 
+      {/* Floating Talk pill — re-entry into voice mode after dismissal.
+          Hidden on the chat tab (composer has its own mic icon) and while
+          the voice overlay is already open. */}
+      {mode === 'browse' && active !== 'chat' && !voiceOpen && DEV_USER_ID && DEV_ORG_ID && (
+        <TalkFab
+          onClick={() => {
+            setMode('voice');
+            setVoiceOpen(true);
+          }}
+        />
+      )}
+
+      {mode === 'choosing' && DEV_USER_ID && DEV_ORG_ID && (
+        <ModeChooser
+          assetName={hub.assetModel.displayName}
+          serialNumber={hub.assetInstance.serialNumber}
+          onPick={pickMode}
+        />
+      )}
+
       {voiceOpen && DEV_USER_ID && DEV_ORG_ID && (
         <VoiceMode
           assetInstanceId={hub.assetInstance.id}
           devUserId={DEV_USER_ID}
           devOrgId={DEV_ORG_ID}
-          onClose={({ conversationId, turns }) => {
+          onClose={({ conversationId, turns, switchToChat }) => {
             setVoiceOpen(false);
+            // Drop back into Browse mode so the chooser doesn't reappear
+            // (and so the Talk pill becomes visible for re-entry).
+            setMode('browse');
             // Hand the conversation off to the chat tab so the tech can
             // see the transcript and continue typing or scrolling.
             if (conversationId || turns.length > 0) {
@@ -171,12 +189,15 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
                   ],
                 };
                 window.localStorage.setItem(key, JSON.stringify(merged));
-                // Switch to the assistant tab so the tech sees the transcript.
-                if (turns.length > 0) changeTab('chat');
               } catch {
                 // localStorage failures are non-fatal — conversation lives on
                 // the server.
               }
+            }
+            // Switch to the chat tab when the user explicitly chose Keyboard,
+            // or whenever there's a transcript to show.
+            if (switchToChat || turns.length > 0) {
+              changeTab('chat');
             }
           }}
         />
