@@ -70,6 +70,11 @@ export function VoiceMode(props: Props): React.ReactElement {
   // Audio infra. Allocated lazily on first user gesture so iOS doesn't
   // mark the AudioContext as auto-started (which would silence everything).
   const audioCtxRef = useRef<AudioContext | null>(null);
+  // Silent looping <audio> primer. iOS routes Web Audio output to the
+  // ringer/silent volume bus unless an HTMLMediaElement is already playing
+  // when the AudioContext is created — without this, the volume rocker
+  // controls ringer volume (not media) and TTS is silent in vibrate mode.
+  const silentPrimerRef = useRef<HTMLAudioElement | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const micAnalyserRef = useRef<AnalyserNode | null>(null);
   const ttsAnalyserRef = useRef<AnalyserNode | null>(null);
@@ -127,6 +132,42 @@ export function VoiceMode(props: Props): React.ReactElement {
       audioCtxRef.current.close().catch(() => {});
     }
     audioCtxRef.current = null;
+    if (silentPrimerRef.current) {
+      try {
+        silentPrimerRef.current.pause();
+      } catch {
+        // ignore
+      }
+      const url = silentPrimerRef.current.src;
+      silentPrimerRef.current.src = '';
+      silentPrimerRef.current = null;
+      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+    }
+  }
+
+  // Build a tiny (100 ms) silent WAV as a blob URL. Used as the priming
+  // track that switches iOS into the media-playback audio session — see
+  // silentPrimerRef for the full reason.
+  function makeSilentAudioUrl(): string {
+    const sampleRate = 8000;
+    const numSamples = 800;
+    const bytes = new Uint8Array(44 + numSamples);
+    const view = new DataView(bytes.buffer);
+    bytes.set([0x52, 0x49, 0x46, 0x46], 0); // "RIFF"
+    view.setUint32(4, 36 + numSamples, true);
+    bytes.set([0x57, 0x41, 0x56, 0x45], 8); // "WAVE"
+    bytes.set([0x66, 0x6d, 0x74, 0x20], 12); // "fmt "
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true); // PCM
+    view.setUint16(22, 1, true); // mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate, true);
+    view.setUint16(32, 1, true);
+    view.setUint16(34, 8, true);
+    bytes.set([0x64, 0x61, 0x74, 0x61], 36); // "data"
+    view.setUint32(40, numSamples, true);
+    for (let i = 0; i < numSamples; i++) bytes[44 + i] = 0x80; // 0x80 = silence (8-bit unsigned)
+    return URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' }));
   }
 
   // ---------- audio bootstrap ----------
@@ -142,6 +183,24 @@ export function VoiceMode(props: Props): React.ReactElement {
       console.warn('[voice] preflight failed', e);
       return null;
     });
+
+    // Prime the iOS audio session with a silent looping <audio> element
+    // BEFORE creating the AudioContext. Without this, Web Audio output
+    // routes to the ringer/silent volume bus — meaning the side volume
+    // buttons adjust the ringer (not media), and TTS is muted entirely
+    // when the phone's silent switch is on. Best-effort; failures here
+    // don't block voice mode on platforms that don't have this quirk.
+    try {
+      const primer = new Audio();
+      primer.src = makeSilentAudioUrl();
+      primer.loop = true;
+      primer.setAttribute('playsinline', 'true');
+      primer.preload = 'auto';
+      silentPrimerRef.current = primer;
+      await primer.play();
+    } catch (err) {
+      console.warn('[voice] silent priming failed; volume bus may be wrong on iOS', err);
+    }
 
     try {
       const Ctx =
