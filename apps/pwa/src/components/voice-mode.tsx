@@ -79,6 +79,11 @@ export function VoiceMode(props: Props): React.ReactElement {
   const micAnalyserRef = useRef<AnalyserNode | null>(null);
   const ttsAnalyserRef = useRef<AnalyserNode | null>(null);
   const ttsSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  // TTS plays through a plain <audio> element — Web Audio output goes to
+  // the earpiece at ringer volume on iOS once getUserMedia puts the page
+  // in PlayAndRecord mode, but HTMLMediaElement playback still routes
+  // through the speaker at media volume.
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recorderChunksRef = useRef<Blob[]>([]);
   const recorderStartRef = useRef<number>(0);
@@ -111,6 +116,17 @@ export function VoiceMode(props: Props): React.ReactElement {
       }
       ttsSourceRef.current.disconnect();
       ttsSourceRef.current = null;
+    }
+    if (ttsAudioRef.current) {
+      try {
+        ttsAudioRef.current.pause();
+      } catch {
+        // already paused
+      }
+      const url = ttsAudioRef.current.src;
+      ttsAudioRef.current.src = '';
+      ttsAudioRef.current = null;
+      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
     }
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
       try {
@@ -252,41 +268,62 @@ export function VoiceMode(props: Props): React.ReactElement {
   // ---------- TTS playback ----------
 
   async function speakText(text: string) {
-    const ctx = audioCtxRef.current;
-    const tts = ttsAnalyserRef.current;
-    if (!ctx || !tts) return;
     setOrbState('speaking');
     setStatusLine('Speaking');
-    setActiveAnalyser(tts);
-    lastActiveAnalyserRef.current = tts;
+    // Pass null analyser — the orb falls back to a procedural "speaking"
+    // pulse instead of audio-reactive amplitude. Trade-off: we can't tap
+    // HTMLAudioElement output for an analyser without routing through
+    // ctx.destination, which would put us back on the earpiece bus.
+    setActiveAnalyser(null);
+    lastActiveAnalyserRef.current = null;
+    let url: string | null = null;
     try {
       const resp = await speak(text);
-      const buf = await resp.arrayBuffer();
-      const decoded = await ctx.decodeAudioData(buf);
-      const source = ctx.createBufferSource();
-      source.buffer = decoded;
-      source.connect(tts);
-      tts.connect(ctx.destination);
-      ttsSourceRef.current = source;
+      const blob = await resp.blob();
+      url = URL.createObjectURL(blob);
+      const audioEl = new Audio();
+      audioEl.src = url;
+      audioEl.setAttribute('playsinline', 'true');
+      audioEl.preload = 'auto';
+      ttsAudioRef.current = audioEl;
       await new Promise<void>((resolve) => {
-        source.onended = () => resolve();
-        source.start();
+        const done = () => {
+          audioEl.onended = null;
+          audioEl.onerror = null;
+          resolve();
+        };
+        audioEl.onended = done;
+        audioEl.onerror = done;
+        audioEl.play().catch(done);
       });
     } catch (err) {
       console.warn('[voice] TTS failed', err);
     } finally {
-      ttsSourceRef.current = null;
+      if (ttsAudioRef.current) {
+        try {
+          ttsAudioRef.current.pause();
+        } catch {
+          // already paused
+        }
+        ttsAudioRef.current.src = '';
+        ttsAudioRef.current = null;
+      }
+      if (url) URL.revokeObjectURL(url);
     }
   }
 
   function interruptTTS() {
-    if (ttsSourceRef.current) {
+    const audioEl = ttsAudioRef.current;
+    if (audioEl) {
       try {
-        ttsSourceRef.current.stop();
+        audioEl.pause();
       } catch {
         // already done
       }
-      ttsSourceRef.current = null;
+      const url = audioEl.src;
+      audioEl.src = '';
+      ttsAudioRef.current = null;
+      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
     }
   }
 

@@ -132,14 +132,30 @@ export function VoiceOrb({ state, analyser, size = 280, className }: Props) {
       const aura = tint(hue, 0.85); // slightly muted hue for the soft halo
 
       // Amplitude — analyser when available, else a deterministic wave that
-      // gives idle/thinking life without microphone input.
+      // gives idle/thinking life without microphone input. 'speaking' on
+      // iOS plays via HTMLAudioElement (no analyser tap possible without
+      // re-routing audio to the earpiece bus), so we pulse procedurally.
       const measured = sampleAmplitude();
-      const target =
-        s === 'listening' || s === 'speaking'
-          ? Math.min(1, measured * 4) // scale up — typical RMS ≈ 0.05–0.25
-          : s === 'thinking'
-            ? 0.22 + 0.08 * Math.sin(t * 1.6)
-            : 0.12 + 0.06 * Math.sin(t * 0.9); // idle breathing
+      const hasAnalyser = analyserRef.current !== null;
+      let target: number;
+      if (s === 'listening' || s === 'speaking') {
+        if (hasAnalyser) {
+          target = Math.min(1, measured * 4); // scale up — typical RMS ≈ 0.05–0.25
+        } else if (s === 'speaking') {
+          // Synthesized "talking" cadence — mixed sines feel more like speech
+          // than a single sine wave.
+          target =
+            0.32 +
+            0.22 * Math.abs(Math.sin(t * 5.2)) +
+            0.14 * Math.abs(Math.sin(t * 7.1 + 0.7));
+        } else {
+          target = 0;
+        }
+      } else if (s === 'thinking') {
+        target = 0.22 + 0.08 * Math.sin(t * 1.6);
+      } else {
+        target = 0.12 + 0.06 * Math.sin(t * 0.9); // idle breathing
+      }
 
       const k = target > ampRef.current ? 0.35 : 0.08;
       ampRef.current = ampRef.current + (target - ampRef.current) * k;
