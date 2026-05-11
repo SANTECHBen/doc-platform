@@ -557,12 +557,41 @@ If no authored procedure plausibly matches, do NOT improvise a step list. Answer
           sectionDirective = `[section:${winner}]`;
         }
       }
-      if (sectionDirective) {
+      // Synthetic fallback: when no authored section overlaps the citations,
+      // derive a page range directly from the cited chunks (each chunk
+      // already knows what page it came from). Lets the visual fallback work
+      // even if the admin hasn't authored documentSections rows on the PDF.
+      let pdfPageDirective: string | null = null;
+      if (
+        !sectionDirective &&
+        !procedureUuidValid &&
+        citedChunks.length > 0
+      ) {
+        const pagesByDoc = new Map<string, number[]>();
+        for (const c of citedChunks) {
+          if (c.page === null) continue;
+          const arr = pagesByDoc.get(c.documentId) ?? [];
+          arr.push(c.page);
+          pagesByDoc.set(c.documentId, arr);
+        }
+        if (pagesByDoc.size > 0) {
+          const top = [...pagesByDoc.entries()].sort(
+            (a, b) => b[1].length - a[1].length,
+          )[0]!;
+          const [docId, pages] = top;
+          const pageStart = Math.min(...pages);
+          const pageEnd = Math.max(...pages);
+          pdfPageDirective = `[pdfpage:${docId}:${pageStart}:${pageEnd}]`;
+        }
+      }
+
+      const fallbackDirective = sectionDirective ?? pdfPageDirective;
+      if (fallbackDirective) {
         // If the original was a bad procedure UUID, prepend a separator so
         // both directives are present in the accumulated stream. The PWA
-        // gives precedence to [section:…], so this turns a 404 into a
-        // working visual answer.
-        const append = procMatch ? `\n${sectionDirective}` : ` ${sectionDirective}`;
+        // gives precedence to section/pdfpage over procedure, so this turns
+        // a 404 into a working visual answer.
+        const append = procMatch ? `\n${fallbackDirective}` : ` ${fallbackDirective}`;
         accumulated += append;
         write('delta', { text: append });
       }
