@@ -355,13 +355,6 @@ export function ChatTab({
     <div className="flex flex-col gap-4">
       <div className="chat-banner">
         <span className="led" />
-        <span
-          className="font-mono text-[10.5px] font-medium uppercase tracking-[0.1em]"
-          style={{ color: 'rgb(var(--ink-brand))' }}
-        >
-          {partId ? 'Grounded on this part' : 'Grounded on this asset'}
-        </span>
-        <span className="text-ink-tertiary">·</span>
         <span className="font-mono text-[11.5px] text-ink-secondary">
           {partId && partName
             ? partName

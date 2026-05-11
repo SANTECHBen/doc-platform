@@ -164,9 +164,9 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
       <TabBar hub={hub} active={active} setActive={changeTab} position="bottom" />
 
       {/* Floating Talk pill — re-entry into voice mode after dismissal.
-          Hidden on the chat tab (composer has its own mic icon) and while
-          the voice overlay is already open. */}
-      {mode === 'browse' && active !== 'chat' && !voiceOpen && DEV_USER_ID && DEV_ORG_ID && (
+          Visible only on the Assistant tab so it doesn't crowd the
+          Overview / Docs / Training / Parts surfaces. */}
+      {mode === 'browse' && active === 'chat' && !voiceOpen && DEV_USER_ID && DEV_ORG_ID && (
         <TalkFab
           onClick={() => {
             setMode('voice');

@@ -1,10 +1,8 @@
 import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { ThemeToggle } from '@/components/theme-toggle';
-import { DensityToggle } from '@/components/density-toggle';
 import { ScanWall } from '@/components/scan-wall';
 import { BrandLogo } from '@/components/brand-logo';
-import { FeedbackWidget } from '@/components/feedback-widget';
 import { AssetHubTabs } from './tabs';
 import { resolveAssetHub } from '@/lib/api';
 import { SCAN_COOKIE_NAME, verifyScanSessionValue } from '@/lib/scan-session';
@@ -120,9 +118,7 @@ export default async function AssetHubPage({
             {hub.brand.displayName}
           </span>
         </div>
-        <DensityToggle />
         <ThemeToggle />
-        <FeedbackWidget qrCode={qrCode} assetInstanceId={hub.assetInstance.id} />
       </header>
 
       <div className="app-scroll page-enter flex flex-col gap-4">
