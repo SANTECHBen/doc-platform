@@ -123,6 +123,13 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const htmlAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Epoch counter — incremented every time playback is stopped. Each
+  // speakCurrent invocation captures its epoch on entry and checks after
+  // every await; if a newer epoch has taken over (e.g. user pressed Next
+  // mid-fetch), the older invocation abandons before starting playback.
+  // Without this the prior step's audio can complete its fetch + decode
+  // after Next was pressed and play concurrently with the new step's.
+  const playEpochRef = useRef(0);
 
   // Lock body scroll while open.
   useEffect(() => {
@@ -164,6 +171,7 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
   }, []);
 
   function stopPlayback() {
+    playEpochRef.current++;
     if (sourceRef.current) {
       try {
         sourceRef.current.stop();
@@ -179,7 +187,15 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
       } catch {
         // ignore
       }
-      htmlAudioRef.current.src = '';
+      // removeAttribute + load() is the spec-correct way to fully detach
+      // the source — `src = ''` can leave the element in a "loading"
+      // state on some browsers where playback resumes after a delay.
+      htmlAudioRef.current.removeAttribute('src');
+      try {
+        htmlAudioRef.current.load();
+      } catch {
+        // ignore
+      }
       htmlAudioRef.current = null;
     }
     setSpeaking(false);
@@ -189,43 +205,44 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
     if (muted) return;
     const step = resolved?.steps[stepIdx];
     if (!step) return;
+    // stopPlayback increments the epoch — capture ours AFTER stopping so
+    // we get the new value, then bail out of any subsequent async section
+    // whose epoch has been bumped again.
     stopPlayback();
+    const myEpoch = playEpochRef.current;
+    const isStale = () => playEpochRef.current !== myEpoch;
 
     // Path 1 — authored voiceover. Always preferred when present: better
     // fidelity (custom emphasis, your shop voice), zero per-play cost,
     // streams from CDN. We use HTMLAudioElement rather than WebAudio so
     // browsers do their normal preload/seek/codec handling.
     if (step.audioUrl) {
+      let audio: HTMLAudioElement | null = null;
       try {
         setSpeaking(true);
-        const audio = new Audio(step.audioUrl);
+        audio = new Audio(step.audioUrl);
         audio.preload = 'auto';
         audio.crossOrigin = 'anonymous';
+        if (isStale()) {
+          // Superseded between the muted-check and now (extremely unlikely,
+          // but defensive). Don't even start playback.
+          return;
+        }
         htmlAudioRef.current = audio;
         await new Promise<void>((resolve, reject) => {
-          audio.onended = () => resolve();
-          audio.onerror = () => reject(new Error('audio load failed'));
-          audio.play().catch(reject);
+          audio!.onended = () => resolve();
+          audio!.onerror = () => reject(new Error('audio load failed'));
+          audio!.play().catch(reject);
         });
       } catch (err) {
         console.warn('[virtual-job-aid] authored audio failed, falling back to TTS', err);
         // Fall through to TTS path below.
       } finally {
-        if (htmlAudioRef.current) {
+        if (htmlAudioRef.current === audio) {
           htmlAudioRef.current = null;
         }
         setSpeaking(false);
       }
-      // If authored audio played successfully we're done.
-      if (!step.audioUrl || htmlAudioRef.current === null) {
-        // Authored play attempt completed (success or graceful fail).
-        // If the play succeeded onended fired and we exit cleanly. If it
-        // errored we deliberately fall through to TTS below.
-      }
-      // Whether success or failure, exit so we don't double-speak. The
-      // caller catches a missing audio by re-invoking speakCurrent if it
-      // wants TTS too — but practically audio failures are rare and
-      // double-speaking would be worse UX.
       return;
     }
 
@@ -266,6 +283,7 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
     const text = `${lead}${numbering}${step.title}.${body ? ' ' + body : ''}`;
     if (text.length === 0) return;
 
+    let source: AudioBufferSourceNode | null = null;
     try {
       const Ctx =
         window.AudioContext ??
@@ -273,24 +291,31 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
       if (!audioCtxRef.current) audioCtxRef.current = new Ctx();
       const ctx = audioCtxRef.current;
       if (ctx.state === 'suspended') await ctx.resume();
+      if (isStale()) return;
 
       setSpeaking(true);
       const resp = await speak(text);
+      if (isStale()) return;
       const buf = await resp.arrayBuffer();
+      if (isStale()) return;
       const decoded = await ctx.decodeAudioData(buf);
-      const source = ctx.createBufferSource();
+      if (isStale()) return;
+
+      source = ctx.createBufferSource();
       source.buffer = decoded;
       source.connect(ctx.destination);
       sourceRef.current = source;
       await new Promise<void>((resolve) => {
-        source.onended = () => resolve();
-        source.start();
+        source!.onended = () => resolve();
+        source!.start();
       });
     } catch (err) {
       console.warn('[virtual-job-aid] TTS failed', err);
     } finally {
       setSpeaking(false);
-      sourceRef.current = null;
+      if (sourceRef.current === source) {
+        sourceRef.current = null;
+      }
     }
   }, [resolved, stepIdx, muted]);
 
