@@ -181,6 +181,57 @@ export function VoiceMode(props: Props): React.ReactElement {
     }
   }
 
+  // ---------- mic lifecycle ----------
+  //
+  // The mic is only held while we're actively listening. Holding it during
+  // TTS playback would put Android Chrome into "communication" audio mode
+  // (because echo cancellation is requested) — and the volume rocker then
+  // controls the in-call stream instead of media. So we acquire fresh at
+  // the start of each listen cycle and stop the tracks before TTS plays.
+  // Chrome caches the permission grant so re-acquisition is instant.
+
+  async function acquireMicForListening(): Promise<AnalyserNode | null> {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return null;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      // Re-apply mute state if the user toggled it between turns.
+      if (muted) {
+        for (const t of stream.getAudioTracks()) t.enabled = false;
+      }
+      micStreamRef.current = stream;
+      const src = ctx.createMediaStreamSource(stream);
+      const an = ctx.createAnalyser();
+      an.fftSize = 1024;
+      an.smoothingTimeConstant = 0.4;
+      src.connect(an);
+      micAnalyserRef.current = an;
+      return an;
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `Couldn't access the microphone: ${err.message}`
+          : 'Microphone access was denied.',
+      );
+      return null;
+    }
+  }
+
+  function releaseMic() {
+    if (micStreamRef.current) {
+      for (const t of micStreamRef.current.getAudioTracks()) t.stop();
+      micStreamRef.current = null;
+    }
+    micAnalyserRef.current?.disconnect();
+    micAnalyserRef.current = null;
+  }
+
   // Build a tiny (100 ms) silent WAV as a blob URL. Used as the priming
   // track that switches iOS into the media-playback audio session — see
   // silentPrimerRef for the full reason.
@@ -272,25 +323,14 @@ export function VoiceMode(props: Props): React.ReactElement {
       return;
     }
 
-    // Background mic acquisition. We don't await this here — greeting
-    // playback can begin before the mic prompt is even dismissed. The
-    // promise is awaited later, just before transitioning to listening.
-    const micReadyPromise: Promise<boolean> = (async () => {
+    // Background mic permission probe. We acquire the stream just to drive
+    // the permission prompt (on first run), then release immediately so
+    // playback during the greeting isn't on the communication bus. The
+    // real mic acquisition happens later in startListening().
+    const micPermissionPromise: Promise<boolean> = (async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-        });
-        micStreamRef.current = stream;
-        const src = ctx.createMediaStreamSource(stream);
-        const an = ctx.createAnalyser();
-        an.fftSize = 1024;
-        an.smoothingTimeConstant = 0.4;
-        src.connect(an);
-        micAnalyserRef.current = an;
+        const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+        for (const t of probe.getAudioTracks()) t.stop();
         return true;
       } catch (err) {
         setError(
@@ -311,7 +351,7 @@ export function VoiceMode(props: Props): React.ReactElement {
       await speakText(result.brief.greeting);
     }
 
-    const micOk = await micReadyPromise;
+    const micOk = await micPermissionPromise;
     if (!micOk) {
       setOrbState('idle');
       setNeedsGesture(true);
@@ -395,9 +435,14 @@ export function VoiceMode(props: Props): React.ReactElement {
   // ---------- listening / VAD ----------
 
   async function startListening() {
+    // Fresh mic acquisition for this listen turn. Permission is cached
+    // (browser-side) after the unlock() probe, so this is instant.
+    const an = await acquireMicForListening();
     const stream = micStreamRef.current;
-    const an = micAnalyserRef.current;
-    if (!stream || !an) return;
+    if (!stream || !an) {
+      setOrbState('idle');
+      return;
+    }
 
     setOrbState('listening');
     setStatusLine('Listening');
@@ -499,6 +544,10 @@ export function VoiceMode(props: Props): React.ReactElement {
     const chunks = recorderChunksRef.current;
     recorderChunksRef.current = [];
     recorderRef.current = null;
+    // We've consumed everything we need from the mic for this turn.
+    // Release it now so the upcoming TTS plays on the media bus on
+    // Android (rather than the communication / voice-call bus).
+    releaseMic();
     if (chunks.length === 0) {
       // Silent recording — just keep listening.
       void startListening();
@@ -639,10 +688,14 @@ export function VoiceMode(props: Props): React.ReactElement {
   }
 
   function toggleMute() {
-    const stream = micStreamRef.current;
-    if (!stream) return;
     const next = !muted;
-    for (const track of stream.getAudioTracks()) track.enabled = !next;
+    // The mic is released between turns (during TTS) — in that window the
+    // toggle just updates state; the new mute setting is applied when the
+    // mic is reacquired in acquireMicForListening().
+    const stream = micStreamRef.current;
+    if (stream) {
+      for (const track of stream.getAudioTracks()) track.enabled = !next;
+    }
     setMuted(next);
   }
 
