@@ -113,6 +113,22 @@ export async function getDocument(id: string): Promise<DocumentBody | null> {
   return (await res.json()) as DocumentBody;
 }
 
+/** Section + parent doc for one section ID. Used by SectionViewerOverlay
+ *  when the AI emits a [section:UUID] directive in voice mode. */
+export interface SectionBundle {
+  document: DocumentBody;
+  section: PwaDocumentSection;
+}
+
+export async function getSection(id: string): Promise<SectionBundle | null> {
+  const res = await fetch(`${CLIENT_API_BASE}/sections/${encodeURIComponent(id)}`, {
+    cache: 'no-store',
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as SectionBundle;
+}
+
 export interface TrainingModuleSummary {
   id: string;
   title: string;

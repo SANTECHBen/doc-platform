@@ -7,7 +7,11 @@ import {
   getEffectiveOrgScope,
   requireAuthOrScan,
 } from '../middleware/scan-session';
-import { fetchPwaSectionsByDoc, type PwaSection } from '../lib/pwa-sections';
+import {
+  fetchPwaSectionsByDoc,
+  toPwaSection,
+  type PwaSection,
+} from '../lib/pwa-sections';
 
 export async function registerContentRoutes(app: FastifyInstance) {
   // List documents in a pinned ContentPackVersion. Gated on auth-or-scan:
@@ -193,6 +197,51 @@ export async function registerContentRoutes(app: FastifyInstance) {
         thumbnailUrl: doc.thumbnailStorageKey
           ? storage.publicUrl(doc.thumbnailStorageKey)
           : null,
+      };
+    },
+  );
+
+  // Fetch one section + its parent document body. Used by the voice
+  // mode's SectionViewerOverlay — the AI emits [section:UUID] in its
+  // streamed answer, and the overlay needs both the section anchor +
+  // the doc to render the PDF page (or text excerpt). One round-trip
+  // keeps the perceived latency low.
+  app.get<{ Params: { id: string } }>(
+    '/sections/:id',
+    { schema: { params: z.object({ id: UuidSchema }) } },
+    async (request, reply) => {
+      const { db, storage } = app.ctx;
+      requireAuthOrScan(request);
+      const scope = await getEffectiveOrgScope(request, db);
+      if (!scope) return reply.unauthorized();
+
+      const section = await db.query.documentSections.findFirst({
+        where: eq(schema.documentSections.id, request.params.id),
+      });
+      if (!section) return reply.notFound();
+      if (section.needsRevalidation) return reply.notFound();
+
+      const doc = await db.query.documents.findFirst({
+        where: eq(schema.documents.id, section.documentId),
+        with: { packVersion: { with: { pack: true } } },
+      });
+      if (!doc) return reply.notFound();
+      if (
+        !scope.all &&
+        !scope.orgIds.includes(doc.packVersion.pack.ownerOrganizationId)
+      ) {
+        return reply.notFound();
+      }
+
+      return {
+        document: {
+          ...doc,
+          fileUrl: doc.storageKey ? storage.publicUrl(doc.storageKey) : null,
+          thumbnailUrl: doc.thumbnailStorageKey
+            ? storage.publicUrl(doc.thumbnailStorageKey)
+            : null,
+        },
+        section: toPwaSection(section),
       };
     },
   );

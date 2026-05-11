@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Keyboard, Mic, MicOff, X } from 'lucide-react';
 import { VoiceOrb, type VoiceOrbState } from './voice-orb';
 import { VirtualJobAid } from './virtual-job-aid';
+import { SectionViewerOverlay } from './section-viewer-overlay';
 import {
   fetchPreflight,
   speak,
@@ -14,6 +15,8 @@ import {
 
 const PROCEDURE_DIRECTIVE_RE =
   /\[procedure:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/i;
+const SECTION_DIRECTIVE_RE =
+  /\[section:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/i;
 
 // Full-screen voice experience. Opens automatically on QR scan (once per
 // session), and any time the user taps the mic button in the chat composer.
@@ -85,6 +88,11 @@ export function VoiceMode(props: Props): React.ReactElement {
   // free walkthrough. Clearing the source resumes voice mode and goes
   // back to listening.
   const [jobAidSource, setJobAidSource] = useState<{ docId: string } | null>(null);
+  // When the AI emits a [section:UUID] directive, we mount the section
+  // overlay in place of the orb. Used as the fallback when no authored
+  // procedure matches — the section visual is shown while TTS narrates
+  // the AI's prose answer. Closing returns to the listening loop.
+  const [sectionId, setSectionId] = useState<string | null>(null);
   const conversationIdRef = useRef<string | undefined>(props.initialConversationId);
 
   // Audio infra. Allocated lazily on first user gesture so iOS doesn't
@@ -620,10 +628,16 @@ export function VoiceMode(props: Props): React.ReactElement {
 
     const cleaned = assistantText.replace(/\[cite:[a-f0-9-]{8,}\]/gi, '').trim();
 
+    // Section directive wins over procedure: the server emits [section:…]
+    // either as a fallback when no authored procedure matches, or as a
+    // recovery when the AI hallucinated a procedure UUID. Either way, if
+    // a section is present we prefer it.
+    const sectionMatch = SECTION_DIRECTIVE_RE.exec(cleaned);
+    const procMatch = !sectionMatch ? PROCEDURE_DIRECTIVE_RE.exec(cleaned) : null;
+
     // Procedure handoff — the AI signaled an authored procedure walkthrough
     // is the right answer. Skip TTS-of-the-directive and mount VirtualJobAid
     // in place; the runner has its own per-step audio (authored or TTS).
-    const procMatch = PROCEDURE_DIRECTIVE_RE.exec(cleaned);
     if (procMatch && procMatch[1]) {
       stopRecording();
       micAnalyserRef.current?.disconnect();
@@ -637,10 +651,31 @@ export function VoiceMode(props: Props): React.ReactElement {
       return;
     }
 
-    if (cleaned) {
-      setTurns((t) => [...t, { role: 'assistant', text: cleaned }]);
-      setTranscript(cleaned);
-      await speakText(cleaned);
+    // Strip both directives from the spoken prose. The section directive
+    // is purely a UI signal; we don't want it read aloud.
+    const prose = cleaned
+      .replace(SECTION_DIRECTIVE_RE, '')
+      .replace(PROCEDURE_DIRECTIVE_RE, '')
+      .trim();
+
+    if (sectionMatch && sectionMatch[1]) {
+      setOrbState('idle');
+      setStatusLine('Showing the section from the docs');
+      setSectionId(sectionMatch[1]);
+      if (prose) {
+        setTurns((t) => [...t, { role: 'assistant', text: prose }]);
+        setTranscript(prose);
+        // TTS narrates the answer while the section overlay is visible.
+        // Listening doesn't resume until the user closes the overlay.
+        await speakText(prose);
+      }
+      return;
+    }
+
+    if (prose) {
+      setTurns((t) => [...t, { role: 'assistant', text: prose }]);
+      setTranscript(prose);
+      await speakText(prose);
     }
     // Loop: after speaking, automatically listen again.
     void startListening();
@@ -710,6 +745,22 @@ export function VoiceMode(props: Props): React.ReactElement {
     if (start === null) return;
     const end = e.changedTouches[0]?.clientY ?? start;
     if (end - start > 120) close();
+  }
+
+  // While the section overlay is up, it covers the orb completely (same
+  // pattern as the procedure walkthrough below). TTS keeps playing in
+  // the background; the listen loop only resumes when the user closes it.
+  if (sectionId) {
+    return (
+      <SectionViewerOverlay
+        sectionId={sectionId}
+        onClose={() => {
+          setSectionId(null);
+          interruptTTS();
+          void startListening();
+        }}
+      />
+    );
   }
 
   // While a procedure walkthrough is active, that runner takes over the

@@ -502,6 +502,71 @@ If no authored procedure plausibly matches, do NOT improvise a step list. Answer
         }),
       );
 
+      // -----------------------------------------------------------------
+      // Section directive resolution.
+      //
+      // Two cases attach a [section:UUID] directive to the response:
+      //   1. The response is prose (no procedure directive) — the PWA
+      //      shows the cited PDF section as a hands-free visual while
+      //      TTS narrates the prose.
+      //   2. The response is [procedure:UUID] but the UUID isn't in the
+      //      catalog (Haiku hallucination). Falling through to a section
+      //      gives the tech a useful answer instead of a 404.
+      //
+      // Resolution: for each cited chunk, find sections in the same
+      // document whose page_range covers the chunk's page. Score by chunk
+      // count; highest wins. Only page_range sections for v1 — text_range
+      // anchor-matching is a future enhancement.
+      // -----------------------------------------------------------------
+      const procMatch = /^\s*\[procedure:([0-9a-f-]+)\]\s*$/i.exec(accumulated);
+      const procedureUuidValid =
+        procMatch != null &&
+        visibleProcedures.some((p) => p.id === procMatch[1]!.toLowerCase());
+
+      let sectionDirective: string | null = null;
+      if (!procedureUuidValid && citedChunks.length > 0) {
+        const docIds = [...new Set(citedChunks.map((c) => c.documentId))];
+        const sectionRows = await db.query.documentSections.findMany({
+          where: and(
+            inArray(schema.documentSections.documentId, docIds),
+            eq(schema.documentSections.needsRevalidation, false),
+          ),
+        });
+        const sectionScore = new Map<string, number>();
+        for (const ch of citedChunks) {
+          if (ch.page === null) continue;
+          const docSections = sectionRows.filter(
+            (s) => s.documentId === ch.documentId,
+          );
+          for (const sec of docSections) {
+            if (
+              sec.kind === 'page_range' &&
+              sec.pageStart !== null &&
+              sec.pageEnd !== null &&
+              ch.page >= sec.pageStart &&
+              ch.page <= sec.pageEnd
+            ) {
+              sectionScore.set(sec.id, (sectionScore.get(sec.id) ?? 0) + 1);
+            }
+          }
+        }
+        if (sectionScore.size > 0) {
+          const winner = [...sectionScore.entries()].sort(
+            (a, b) => b[1] - a[1],
+          )[0]![0];
+          sectionDirective = `[section:${winner}]`;
+        }
+      }
+      if (sectionDirective) {
+        // If the original was a bad procedure UUID, prepend a separator so
+        // both directives are present in the accumulated stream. The PWA
+        // gives precedence to [section:…], so this turns a 404 into a
+        // working visual answer.
+        const append = procMatch ? `\n${sectionDirective}` : ` ${sectionDirective}`;
+        accumulated += append;
+        write('delta', { text: append });
+      }
+
       const usage = {
         inputTokens: finalMsg.usage.input_tokens,
         cachedInputTokens: finalMsg.usage.cache_read_input_tokens ?? undefined,
