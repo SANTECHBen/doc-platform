@@ -31,6 +31,11 @@ const EnvSchema = z.object({
   // Verifier model for the two-pass grounding check. Cheap & fast — it's
   // doing a structured "does sentence X appear in chunk Y" classification.
   ANTHROPIC_VERIFIER_MODEL: z.string().default('claude-haiku-4-5-20251001'),
+  // Chat model used when the request is from voice mode. Tuned for latency
+  // — techs asking spoken questions tolerate latency far worse than typed
+  // questions, and their queries tend to be quick lookups where Haiku is
+  // plenty. Text chat still uses ANTHROPIC_MODEL above (Sonnet).
+  ANTHROPIC_VOICE_MODEL: z.string().default('claude-haiku-4-5-20251001'),
   EMBEDDING_MODEL: z.string().default('voyage-3-large'),
 
   // OpenAI — used for voice (Whisper STT and tts-1-hd). Optional: when

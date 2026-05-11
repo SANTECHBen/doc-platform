@@ -430,8 +430,14 @@ If no authored procedure plausibly matches, do NOT improvise a step list. Answer
         currentUserContent = body.message ?? '';
       }
 
+      // Voice mode uses the faster (Haiku) model — techs speaking under a
+      // chiller need quick lookups, not the long-form depth Sonnet adds.
+      // Text chat falls through to the default Sonnet model.
+      const chatModel =
+        body.mode === 'voice' ? env.ANTHROPIC_VOICE_MODEL : env.ANTHROPIC_MODEL;
+
       const stream = anthropic.messages.stream({
-        model: env.ANTHROPIC_MODEL,
+        model: chatModel,
         max_tokens: 1024,
         system: [
           { type: 'text', text: systemText, cache_control: { type: 'ephemeral' } },
@@ -509,7 +515,7 @@ If no authored procedure plausibly matches, do NOT improvise a step list. Answer
           role: 'assistant',
           content: accumulated,
           citations: persistedCitations,
-          modelId: env.ANTHROPIC_MODEL,
+          modelId: chatModel,
           inputTokens: { total: usage.inputTokens, cached: usage.cachedInputTokens },
           outputTokens: { total: usage.outputTokens },
         })

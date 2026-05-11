@@ -32,6 +32,10 @@ export const AIChatRequestSchema = z.object({
   // Used by the PWA part-detail hub's Assistant tab so answers cite only the
   // docs explicitly curated for that part.
   partId: UuidSchema.optional(),
+  // Optional: surface hint. 'voice' uses a faster model (Haiku) tuned for
+  // quick lookup-style questions where latency matters more than depth.
+  // 'text' (default) keeps the deeper model (Sonnet) for typed questions.
+  mode: z.enum(['voice', 'text']).optional().default('text'),
 }).refine((b) => b.message.trim().length > 0 || !!b.imageStorageKey, {
   message: 'Provide a message, an image, or both.',
 });

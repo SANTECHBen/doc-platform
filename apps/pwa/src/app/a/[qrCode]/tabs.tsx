@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   FileText,
   GraduationCap,
@@ -15,9 +15,10 @@ import { ChatTab } from './chat-tab';
 import { TrainingTab } from './training-tab';
 import { PartsTab } from './parts-tab';
 import { IssuesPanel } from './issues-panel';
-import { VoiceMode } from '@/components/voice-mode';
+import { VoiceMode, type PrefetchedGreeting } from '@/components/voice-mode';
 import { ModeChooser, type ChosenMode } from '@/components/mode-chooser';
 import { TalkFab } from '@/components/talk-fab';
+import { fetchPreflight, speak } from '@/lib/api';
 
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
 const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
@@ -55,6 +56,34 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
     DEV_USER_ID && DEV_ORG_ID ? 'choosing' : 'browse',
   );
   const [voiceOpen, setVoiceOpen] = useState(false);
+
+  // Prefetch the greeting (preflight + TTS blob) the moment the chooser
+  // is up, so tapping Hands-Free starts speaking ~immediately rather than
+  // waiting on a serial round-trip to OpenAI TTS. We accept that ~half of
+  // chooser displays will end up picking Browse and discarding the audio
+  // — the per-greeting cost is ~$0.003 and the perceived-latency win is
+  // significant. Stored as a promise so VoiceMode can await it.
+  const greetingPrefetchRef = useRef<Promise<PrefetchedGreeting | null> | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (mode !== 'choosing') return;
+    if (!DEV_USER_ID || !DEV_ORG_ID) return;
+    if (greetingPrefetchRef.current) return;
+    greetingPrefetchRef.current = (async () => {
+      try {
+        const brief = await fetchPreflight(hub.assetInstance.id);
+        if (!brief.greeting) return { brief, blob: null };
+        const resp = await speak(brief.greeting);
+        const blob = await resp.blob();
+        return { brief, blob };
+      } catch (err) {
+        console.warn('[hub] greeting prefetch failed', err);
+        return null;
+      }
+    })();
+  }, [mode, hub.assetInstance.id]);
 
   function pickMode(chosen: ChosenMode) {
     if (chosen === 'voice') {
@@ -159,8 +188,13 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
           assetInstanceId={hub.assetInstance.id}
           devUserId={DEV_USER_ID}
           devOrgId={DEV_ORG_ID}
+          prefetched={greetingPrefetchRef.current ?? undefined}
           onClose={({ conversationId, turns, switchToChat }) => {
             setVoiceOpen(false);
+            // Discard the prefetch — it was for the initial scan greeting.
+            // If the tech re-engages voice via the Talk pill we'll fetch
+            // fresh (preflight may have changed; greeting was one-shot).
+            greetingPrefetchRef.current = null;
             // Drop back into Browse mode so the chooser doesn't reappear
             // (and so the Talk pill becomes visible for re-entry).
             setMode('browse');

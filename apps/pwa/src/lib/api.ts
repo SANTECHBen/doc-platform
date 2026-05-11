@@ -1255,6 +1255,8 @@ export async function streamChat(
     devOrgId: string;
     /** Scope retrieval to a specific part (author-linked docs only). */
     partId?: string;
+    /** Surface hint. 'voice' routes to a faster model server-side. */
+    mode?: 'voice' | 'text';
   },
   onEvent: (e: ChatStreamEvent) => void,
   signal?: AbortSignal,
@@ -1272,6 +1274,7 @@ export async function streamChat(
       message: params.message,
       imageStorageKey: params.imageStorageKey,
       partId: params.partId,
+      mode: params.mode,
     }),
     signal,
   });

@@ -32,6 +32,15 @@ const PROCEDURE_DIRECTIVE_RE =
 // X or swipe-down: dismisses; conversationId is returned to the parent so
 //   the existing ChatTab thread continues seamlessly.
 
+/** Result of the parent-side greeting prefetch. `blob` is the synthesized
+ *  audio for the brief.greeting string, or null when the brief had no
+ *  greeting text. The whole result is null when the prefetch failed and
+ *  voice mode should fall back to fetching itself. */
+export interface PrefetchedGreeting {
+  brief: PreflightBrief;
+  blob: Blob | null;
+}
+
 interface Props {
   assetInstanceId: string;
   partId?: string;
@@ -40,6 +49,10 @@ interface Props {
   initialConversationId?: string;
   devUserId: string;
   devOrgId: string;
+  /** Promise that may have been started earlier (e.g. while the mode chooser
+   *  was on screen) to pre-warm the preflight + greeting TTS. When provided
+   *  and resolved with a blob, the greeting plays immediately on unlock. */
+  prefetched?: Promise<PrefetchedGreeting | null>;
   onClose: (state: {
     conversationId?: string;
     turns: VoiceTurn[];
@@ -200,12 +213,19 @@ export function VoiceMode(props: Props): React.ReactElement {
     setNeedsGesture(false);
     setStatusLine('Listening for your voice…');
 
-    // Fetch preflight in parallel with audio setup — both round-trips race.
-    const briefPromise = fetchPreflight(props.assetInstanceId).catch((e) => {
-      // Preflight failure shouldn't block voice mode; we just skip the brief.
-      console.warn('[voice] preflight failed', e);
-      return null;
-    });
+    // Source of truth for the preflight brief + optional pre-rendered
+    // greeting audio. Prefer the parent's prefetch (kicked off while the
+    // mode chooser was visible); fall back to a fresh fetchPreflight that
+    // races audio setup if no prefetch was provided.
+    const briefAndAudioPromise: Promise<PrefetchedGreeting | null> =
+      props.prefetched
+        ? props.prefetched.catch(() => null)
+        : fetchPreflight(props.assetInstanceId)
+            .then((brief): PrefetchedGreeting => ({ brief, blob: null }))
+            .catch((e) => {
+              console.warn('[voice] preflight failed', e);
+              return null;
+            });
 
     // Prime the iOS audio session with a silent looping <audio> element
     // BEFORE creating the AudioContext. Without this, Web Audio output
@@ -263,11 +283,13 @@ export function VoiceMode(props: Props): React.ReactElement {
       return;
     }
 
-    const brief = await briefPromise;
-    setPreflight(brief);
+    const result = await briefAndAudioPromise;
+    setPreflight(result?.brief ?? null);
 
-    if (brief?.greeting) {
-      await speakText(brief.greeting);
+    if (result?.blob) {
+      await playAudioBlob(result.blob);
+    } else if (result?.brief?.greeting) {
+      await speakText(result.brief.greeting);
     }
     void startListening();
   }
@@ -275,6 +297,18 @@ export function VoiceMode(props: Props): React.ReactElement {
   // ---------- TTS playback ----------
 
   async function speakText(text: string) {
+    let blob: Blob;
+    try {
+      const resp = await speak(text);
+      blob = await resp.blob();
+    } catch (err) {
+      console.warn('[voice] TTS fetch failed', err);
+      return;
+    }
+    await playAudioBlob(blob);
+  }
+
+  async function playAudioBlob(blob: Blob) {
     setOrbState('speaking');
     setStatusLine('Speaking');
     // Pass null analyser — the orb falls back to a procedural "speaking"
@@ -285,8 +319,6 @@ export function VoiceMode(props: Props): React.ReactElement {
     lastActiveAnalyserRef.current = null;
     let url: string | null = null;
     try {
-      const resp = await speak(text);
-      const blob = await resp.blob();
       url = URL.createObjectURL(blob);
       const audioEl = new Audio();
       audioEl.src = url;
@@ -488,6 +520,7 @@ export function VoiceMode(props: Props): React.ReactElement {
           message: userText,
           devUserId: props.devUserId,
           devOrgId: props.devOrgId,
+          mode: 'voice',
           ...(props.partId ? { partId: props.partId } : {}),
         },
         (event) => {
