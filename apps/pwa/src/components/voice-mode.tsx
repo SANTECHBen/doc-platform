@@ -245,29 +245,18 @@ export function VoiceMode(props: Props): React.ReactElement {
       console.warn('[voice] silent priming failed; volume bus may be wrong on iOS', err);
     }
 
+    // Create the AudioContext now (inside the user gesture window). Mic
+    // setup is kicked off in parallel — the user shouldn't have to wait
+    // for the iOS permission prompt before they hear the greeting.
+    let ctx: AudioContext;
     try {
       const Ctx =
         window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const ctx = new Ctx();
+      ctx = new Ctx();
       audioCtxRef.current = ctx;
       if (ctx.state === 'suspended') await ctx.resume();
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-      micStreamRef.current = stream;
-      const src = ctx.createMediaStreamSource(stream);
-      const an = ctx.createAnalyser();
-      an.fftSize = 1024;
-      an.smoothingTimeConstant = 0.4;
-      src.connect(an);
-      micAnalyserRef.current = an;
-
-      // TTS analyser — separate node so we can swap the orb feed cleanly.
+      // TTS analyser placeholder (vestigial; HTMLAudio playback doesn't tap
+      // it, but other code still references the ref).
       const tts = ctx.createAnalyser();
       tts.fftSize = 1024;
       tts.smoothingTimeConstant = 0.4;
@@ -275,13 +264,43 @@ export function VoiceMode(props: Props): React.ReactElement {
     } catch (err) {
       setError(
         err instanceof Error
-          ? `Couldn't access the microphone: ${err.message}`
-          : 'Microphone access was denied.',
+          ? `Couldn't create audio context: ${err.message}`
+          : 'Audio is not supported on this device.',
       );
       setOrbState('idle');
       setNeedsGesture(true);
       return;
     }
+
+    // Background mic acquisition. We don't await this here — greeting
+    // playback can begin before the mic prompt is even dismissed. The
+    // promise is awaited later, just before transitioning to listening.
+    const micReadyPromise: Promise<boolean> = (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+        micStreamRef.current = stream;
+        const src = ctx.createMediaStreamSource(stream);
+        const an = ctx.createAnalyser();
+        an.fftSize = 1024;
+        an.smoothingTimeConstant = 0.4;
+        src.connect(an);
+        micAnalyserRef.current = an;
+        return true;
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? `Couldn't access the microphone: ${err.message}`
+            : 'Microphone access was denied.',
+        );
+        return false;
+      }
+    })();
 
     const result = await briefAndAudioPromise;
     setPreflight(result?.brief ?? null);
@@ -290,6 +309,13 @@ export function VoiceMode(props: Props): React.ReactElement {
       await playAudioBlob(result.blob);
     } else if (result?.brief?.greeting) {
       await speakText(result.brief.greeting);
+    }
+
+    const micOk = await micReadyPromise;
+    if (!micOk) {
+      setOrbState('idle');
+      setNeedsGesture(true);
+      return;
     }
     void startListening();
   }

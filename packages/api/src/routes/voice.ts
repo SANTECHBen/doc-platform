@@ -178,13 +178,20 @@ export async function registerVoiceRoutes(app: FastifyInstance) {
   app.post('/ai/voice/speak', { schema: { body: SpeakBodySchema } }, async (request, reply) => {
     const { env, db } = app.ctx;
     requireAuthOrScan(request);
-    if (!env.OPENAI_API_KEY) {
+
+    // Pick provider: ElevenLabs takes priority when configured, falls back
+    // to OpenAI. Both providers can be unset → 503.
+    const useElevenLabs = !!(env.ELEVENLABS_API_KEY && env.ELEVENLABS_VOICE_ID);
+    if (!useElevenLabs && !env.OPENAI_API_KEY) {
       return reply
         .code(503)
-        .send({ error: 'Voice synthesis is not configured (OPENAI_API_KEY).' });
+        .send({
+          error:
+            'Voice synthesis is not configured (set ELEVENLABS_API_KEY+ELEVENLABS_VOICE_ID, or OPENAI_API_KEY).',
+        });
     }
+
     const body = request.body as z.infer<typeof SpeakBodySchema>;
-    const voice = body.voice ?? env.OPENAI_TTS_VOICE;
     const charsToSynthesize = body.text.length;
 
     // Pre-flight quota check. We know the exact char count up-front, so we
@@ -199,23 +206,67 @@ export async function registerVoiceRoutes(app: FastifyInstance) {
       throw err;
     }
 
-    const upstream = await fetch('https://api.openai.com/v1/audio/speech', {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${env.OPENAI_API_KEY}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: env.OPENAI_TTS_MODEL,
-        voice,
-        input: body.text,
-        format: body.format,
-        ...(body.speed ? { speed: body.speed } : {}),
-      }),
-    });
+    let upstream: Response;
+    let billingModel: string;
+    if (useElevenLabs) {
+      billingModel = env.ELEVENLABS_MODEL_ID;
+      // ElevenLabs format mapping. Their output_format param wants codec +
+      // sample rate + bitrate. Default Flash output is mp3_44100_128.
+      const outputFormat =
+        body.format === 'mp3'
+          ? 'mp3_44100_128'
+          : body.format === 'opus'
+            ? 'opus_48000_64'
+            : body.format === 'aac'
+              ? 'mp3_44100_128' // ElevenLabs has no AAC — fall back to mp3
+              : 'pcm_44100';
+      upstream = await fetch(
+        `https://api.elevenlabs.io/v1/text-to-speech/${env.ELEVENLABS_VOICE_ID}?output_format=${outputFormat}`,
+        {
+          method: 'POST',
+          headers: {
+            'xi-api-key': env.ELEVENLABS_API_KEY!,
+            'content-type': 'application/json',
+            accept: body.format === 'mp3' ? 'audio/mpeg' : 'audio/*',
+          },
+          body: JSON.stringify({
+            text: body.text,
+            model_id: env.ELEVENLABS_MODEL_ID,
+            // Reasonable defaults; tunable later if Ben wants more/less
+            // emotion. Stability balances consistency vs expressiveness.
+            voice_settings: {
+              stability: 0.5,
+              similarity_boost: 0.75,
+              style: 0,
+              use_speaker_boost: true,
+            },
+          }),
+        },
+      );
+    } else {
+      billingModel = env.OPENAI_TTS_MODEL;
+      const voice = body.voice ?? env.OPENAI_TTS_VOICE;
+      upstream = await fetch('https://api.openai.com/v1/audio/speech', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${env.OPENAI_API_KEY!}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: env.OPENAI_TTS_MODEL,
+          voice,
+          input: body.text,
+          format: body.format,
+          ...(body.speed ? { speed: body.speed } : {}),
+        }),
+      });
+    }
     if (!upstream.ok || !upstream.body) {
       const text = await upstream.text().catch(() => '');
-      request.log.error({ status: upstream.status, text }, 'OpenAI TTS failed');
+      request.log.error(
+        { status: upstream.status, text, provider: useElevenLabs ? 'elevenlabs' : 'openai' },
+        'TTS provider failed',
+      );
       return reply.internalServerError('Speech synthesis failed.');
     }
 
@@ -250,7 +301,7 @@ export async function registerVoiceRoutes(app: FastifyInstance) {
       ctx,
       kind: 'tts',
       units: charsToSynthesize,
-      costCents: computeTtsCostCents(charsToSynthesize, env.OPENAI_TTS_MODEL),
+      costCents: computeTtsCostCents(charsToSynthesize, billingModel),
       log: request.log,
     });
 

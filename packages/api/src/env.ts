@@ -45,6 +45,15 @@ const EnvSchema = z.object({
   OPENAI_TTS_MODEL: z.string().default('tts-1-hd'),
   OPENAI_TTS_VOICE: z.string().default('alloy'),
 
+  // ElevenLabs — preferred live TTS when set. Lower first-byte latency
+  // (~75 ms with Flash v2.5 vs ~500 ms+ for OpenAI tts-1-hd) and better
+  // voice quality, at ~10x the per-character cost. STT still uses Whisper;
+  // ELEVENLABS_API_KEY only affects the /ai/voice/speak path. Procedure
+  // voiceover uploads are unaffected (those are pre-rendered files).
+  ELEVENLABS_API_KEY: optionalNonEmptyString,
+  ELEVENLABS_VOICE_ID: optionalNonEmptyString,
+  ELEVENLABS_MODEL_ID: z.string().default('eleven_flash_v2_5'),
+
   // Public origins — allowed by CORS, used in presented URLs.
   PUBLIC_PWA_ORIGIN: z.string().url().default('http://localhost:3000'),
   PUBLIC_ADMIN_ORIGIN: z.string().url().default('http://localhost:3002'),

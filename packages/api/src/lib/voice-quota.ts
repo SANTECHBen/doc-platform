@@ -17,6 +17,10 @@ export const PRICING = {
   // TTS-1-HD: $30 / 1M chars → 0.003  cents / char
   tts1PerCharCents: 0.0015,
   tts1HdPerCharCents: 0.003,
+  // ElevenLabs Flash v2.5: ~$0.30 / 1k chars → 0.03 cents / char
+  // Approximate; ElevenLabs bills by credits per character with subscription
+  // tier discounts. This is the pay-as-you-go ceiling.
+  elevenLabsPerCharCents: 0.03,
   // Haiku 4.5: $1/Mtok input, $5/Mtok output → 0.0001 / 0.0005 cents per token
   haikuInputPerTokenCents: 0.0001,
   haikuOutputPerTokenCents: 0.0005,
@@ -27,9 +31,12 @@ export function computeSttCostCents(seconds: number): number {
 }
 
 export function computeTtsCostCents(chars: number, model: string): number {
-  const perChar = model.toLowerCase().includes('hd')
-    ? PRICING.tts1HdPerCharCents
-    : PRICING.tts1PerCharCents;
+  const m = model.toLowerCase();
+  const perChar = m.startsWith('eleven')
+    ? PRICING.elevenLabsPerCharCents
+    : m.includes('hd')
+      ? PRICING.tts1HdPerCharCents
+      : PRICING.tts1PerCharCents;
   return Math.max(0, chars) * perChar;
 }
 
