@@ -2033,7 +2033,10 @@
   .app-talk-fab {
     position: fixed;
     right: max(16px, env(safe-area-inset-right));
-    bottom: calc(84px + 16px + env(safe-area-inset-bottom));
+    /* Sit above both the bottom tab bar (~84px) AND the chat composer
+       (~64px) on the Assistant tab so the pill never blocks the send /
+       camera / mic action buttons in the composer row. */
+    bottom: calc(84px + 64px + 12px + env(safe-area-inset-bottom));
     z-index: 39;
     display: inline-flex;
     align-items: center;

@@ -100,6 +100,10 @@ export function VoiceMode(props: Props): React.ReactElement {
   // to the listening loop.
   const [sectionSource, setSectionSource] = useState<SectionViewerSource | null>(null);
   const conversationIdRef = useRef<string | undefined>(props.initialConversationId);
+  // Set true in teardown so any async work that hadn't yet started
+  // playback (in-flight TTS fetch, awaited prefetch blob) abandons
+  // instead of starting audio after the user has dismissed voice mode.
+  const closedRef = useRef(false);
 
   // Audio infra. Allocated lazily on first user gesture so iOS doesn't
   // mark the AudioContext as auto-started (which would silence everything).
@@ -137,6 +141,7 @@ export function VoiceMode(props: Props): React.ReactElement {
   }, []);
 
   function teardown() {
+    closedRef.current = true;
     chatAbortRef.current?.abort();
     if (silenceCheckRef.current) {
       cancelAnimationFrame(silenceCheckRef.current);
@@ -357,6 +362,7 @@ export function VoiceMode(props: Props): React.ReactElement {
     })();
 
     const result = await briefAndAudioPromise;
+    if (closedRef.current) return;
     setPreflight(result?.brief ?? null);
 
     if (result?.blob) {
@@ -364,6 +370,7 @@ export function VoiceMode(props: Props): React.ReactElement {
     } else if (result?.brief?.greeting) {
       await speakText(result.brief.greeting);
     }
+    if (closedRef.current) return;
 
     const micOk = await micPermissionPromise;
     if (!micOk) {
@@ -381,6 +388,7 @@ export function VoiceMode(props: Props): React.ReactElement {
   // ---------- TTS playback ----------
 
   async function speakText(text: string) {
+    if (closedRef.current) return;
     let blob: Blob;
     try {
       const resp = await speak(text);
@@ -389,10 +397,12 @@ export function VoiceMode(props: Props): React.ReactElement {
       console.warn('[voice] TTS fetch failed', err);
       return;
     }
+    if (closedRef.current) return;
     await playAudioBlob(blob);
   }
 
   async function playAudioBlob(blob: Blob) {
+    if (closedRef.current) return;
     setOrbState('speaking');
     setStatusLine('Speaking');
     // Pass null analyser — the orb falls back to a procedural "speaking"
