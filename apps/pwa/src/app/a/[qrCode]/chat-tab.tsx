@@ -7,10 +7,12 @@ import { ArrowUp, AudioLines, BookPlus, Camera, ChevronDown, FileText, ListCheck
 import type { AssetHubPayload } from '@/lib/shared-schema';
 import {
   fetchMe,
+  listDocuments,
   promoteAiMessageToProcedure,
   streamChat,
   uploadFile,
   type ChatCitation,
+  type DocumentListItem,
   type MeIdentity,
   type UploadResult,
   type VerifyResult,
@@ -140,6 +142,11 @@ export function ChatTab({
   const [jobAid, setJobAid] = useState<{ procedureId: string } | null>(null);
   const [me, setMe] = useState<MeIdentity | null>(null);
   const [promoting, setPromoting] = useState<string | null>(null);
+  // Suggestions shown in the empty state. Derived from this asset's
+  // authored procedures + doc titles so the prompts are real options
+  // for THIS equipment, not hard-coded examples. null = still loading,
+  // empty array = no usable content yet (we'll fall back to generic).
+  const [suggestions, setSuggestions] = useState<string[] | null>(null);
   const toast = useToast();
 
   // Pull identity once. The /me result decides whether we render the
@@ -149,6 +156,46 @@ export function ChatTab({
     if (!DEV_USER_ID || !DEV_ORG_ID) return;
     void fetchMe(DEV_USER_ID, DEV_ORG_ID).then(setMe).catch(() => setMe(null));
   }, []);
+
+  // Build empty-state suggestions from this asset's actual content.
+  // Procedures first (they map directly to the [procedure:UUID] runner),
+  // then a few PDF/markdown titles. Cheap one-shot fetch on mount.
+  useEffect(() => {
+    const versionId = hub.pinnedContentPackVersion?.id;
+    if (!versionId) {
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const docs = await listDocuments(versionId);
+        if (cancelled) return;
+        const procedures = docs.filter(
+          (d: DocumentListItem) => d.kind === 'structured_procedure',
+        );
+        const otherDocs = docs.filter(
+          (d: DocumentListItem) =>
+            d.kind !== 'structured_procedure' &&
+            d.title.trim().length > 0,
+        );
+        const prompts: string[] = [];
+        for (const p of procedures.slice(0, 3)) {
+          prompts.push(`Walk me through ${p.title.toLowerCase()}`);
+        }
+        for (const d of otherDocs) {
+          if (prompts.length >= 3) break;
+          prompts.push(`What does ${d.title} cover?`);
+        }
+        setSuggestions(prompts);
+      } catch {
+        if (!cancelled) setSuggestions([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hub.pinnedContentPackVersion?.id]);
 
   const adminBaseUrl = process.env.NEXT_PUBLIC_ADMIN_ORIGIN ?? '';
 
@@ -382,11 +429,16 @@ export function ChatTab({
           <div className="chat-empty">
             <div className="chat-empty-prompts">
               <span className="chat-empty-cap">Try asking</span>
-              {[
-                'What does fault E-217 mean?',
-                'What is the oil charge volume?',
-                'Walk me through replacing the divert actuator',
-              ].map((q) => (
+              {(suggestions && suggestions.length > 0
+                ? suggestions
+                : [
+                    // Generic fallback only when this asset has no
+                    // authored content yet.
+                    'What does this equipment do?',
+                    'Are there any open work orders?',
+                    'What documentation is available?',
+                  ]
+              ).map((q) => (
                 <button
                   key={q}
                   type="button"

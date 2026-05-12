@@ -101,22 +101,27 @@ export default async function AssetHubPage({
       <header className="app-topbar">
         <div className="app-topbar-brand">
           {hub.brand.logoUrl ? (
+            // Logo carries the brand identity on its own — don't pair
+            // with the company name (redundant when the logo already
+            // spells it out).
             <BrandLogo
               src={hub.brand.logoUrl}
               alt={hub.brand.displayName}
               initials={hub.brand.initials}
             />
           ) : (
-            <div
-              className="brand-mark-square"
-              style={{ width: 22, height: 22, fontSize: 10 }}
-            >
-              {hub.brand.initials}
-            </div>
+            <>
+              <div
+                className="brand-mark-square"
+                style={{ width: 22, height: 22, fontSize: 10 }}
+              >
+                {hub.brand.initials}
+              </div>
+              <span className="text-sm font-medium text-ink-primary">
+                {hub.brand.displayName}
+              </span>
+            </>
           )}
-          <span className="text-sm font-medium text-ink-primary">
-            {hub.brand.displayName}
-          </span>
         </div>
         <ThemeToggle />
       </header>
