@@ -325,8 +325,12 @@ export function ChatTab({
     setError(null);
   }
 
-  async function send() {
-    const text = input.trim();
+  async function send(overrideText?: string) {
+    // overrideText lets the Try Asking buttons fire a prompt directly
+    // without going through setInput first (state updates aren't
+    // synchronous, so reading from `input` immediately after setInput
+    // would still see the old value).
+    const text = (overrideText ?? input).trim();
     if ((!text && !attachment) || pending) return;
     setInput('');
     setError(null);
@@ -443,7 +447,8 @@ export function ChatTab({
                   key={q}
                   type="button"
                   className="chat-empty-prompt"
-                  onClick={() => setInput(q)}
+                  onClick={() => void send(q)}
+                  disabled={pending}
                 >
                   <span className="chat-empty-prompt-mark">›</span>
                   <span className="chat-empty-prompt-text">{q}</span>

@@ -29,19 +29,31 @@ import {
 } from '@/lib/api';
 import { nextStepAfterSave } from '@/lib/setup-status';
 
-// Broad MHE/IA equipment families — the seed uses 'asrs'. These are suggested
-// values; the field accepts any lowercase string.
-const COMMON_CATEGORIES = [
-  'conveyor',
-  'sortation',
-  'asrs',
-  'agv',
-  'amr',
-  'palletizer',
-  'robotic_cell',
-  'lift',
-  'packing',
-  'other',
+// Suggested equipment types for the asset-model form. The field accepts
+// any string the admin types — this list just powers the autocomplete
+// datalist. Sorted alphabetically; admins can extend by typing anything.
+const COMMON_EQUIPMENT_TYPES = [
+  'Bulk Bag',
+  'Cargo Scale',
+  'Control Panel',
+  'Curve Conveyor',
+  'Diverter',
+  'Exception Conveyor',
+  'Field Device',
+  'Inline Scale',
+  'Metering Conveyor',
+  'No Read',
+  'Non-Con',
+  'Other',
+  'Recirculation',
+  'Relabel Slide',
+  'Runout Feeders',
+  'Scanner',
+  'Singulator',
+  'Sorter',
+  'Splitter',
+  'Transport Conveyor',
+  'Volume Measurement',
 ];
 
 export default function AssetModelsPage() {
@@ -114,7 +126,7 @@ export default function AssetModelsPage() {
               <tr>
                 <th className="px-4 py-2" style={{ width: 80 }}></th>
                 <th className="px-4 py-2">Model</th>
-                <th className="px-4 py-2">Category</th>
+                <th className="px-4 py-2">Equipment Type</th>
                 <th className="px-4 py-2">OEM</th>
                 <th className="px-4 py-2">Instances</th>
                 <th className="px-4 py-2">Content packs</th>
@@ -202,7 +214,7 @@ function NewAssetModelForm({
   const [ownerOrganizationId, setOwner] = useState(lockedOrg?.id ?? oems[0]?.id ?? '');
   const [modelCode, setModelCode] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [category, setCategory] = useState('conveyor');
+  const [category, setCategory] = useState('');
   const [description, setDescription] = useState('');
   const [imageStorageKey, setImageStorageKey] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -291,7 +303,11 @@ function NewAssetModelForm({
           required
         />
       </Field>
-      <Field label="Category" required hint="Broad equipment family.">
+      <Field
+        label="Equipment Type"
+        required
+        hint="Pick from the list or type a new one — admins can add any value."
+      >
         <input
           list="cat-options"
           value={category}
@@ -300,7 +316,7 @@ function NewAssetModelForm({
           required
         />
         <datalist id="cat-options">
-          {COMMON_CATEGORIES.map((c) => (
+          {COMMON_EQUIPMENT_TYPES.map((c) => (
             <option key={c} value={c} />
           ))}
         </datalist>
