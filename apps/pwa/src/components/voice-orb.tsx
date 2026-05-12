@@ -2,17 +2,25 @@
 
 import { useEffect, useRef } from 'react';
 
-// VoiceOrb — ChatGPT-voice-style animated orb. Pure canvas (no SVG/3D libs)
-// so it stays smooth on mid-tier mobile. Four states drive distinct moods:
+// VoiceOrb — oscilloscope-style waveform visualizer. Reads as a service
+// instrument rather than the generic AI-assistant orb. Pure 2D canvas,
+// no SVG / WebGL, so it stays smooth on mid-tier mobile.
 //
-//   idle      — slow breathing pulse, low saturation
-//   listening — amplitude-reactive scale + cyan tint, mic analyser drives it
-//   thinking  — slow rotating shimmer + violet tint, no audio input
-//   speaking  — amplitude-reactive scale + brand glow, TTS analyser drives it
+// Composition:
+//   • Circular scope frame — a thin brand-tinted ring; the "bezel".
+//   • Centered waveform — a horizontal time-domain line. When an
+//     AnalyserNode is supplied (listening state), it draws the live
+//     mic data. Otherwise it renders a procedural wave whose amplitude
+//     and frequency are state-dependent.
+//   • Crosshair horizon — faint center line + vertical playhead, like
+//     a real oscilloscope display.
+//   • Center pulse dot — small bright marker that grows with amplitude.
 //
-// `analyser` is an optional WebAudio AnalyserNode; when supplied, the orb
-// samples its RMS each frame and feeds it into the scale. When absent, the
-// orb falls back to a deterministic time-based wave so it never sits still.
+// State signals via hue + waveform character:
+//   idle       — soft brand glow, very low amplitude line (heartbeat)
+//   listening  — cyan, live waveform from mic analyser
+//   thinking   — violet, rolling sine wave + scanning sweep
+//   speaking   — warm brand color, layered procedural wave
 
 export type VoiceOrbState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
@@ -25,14 +33,11 @@ interface Props {
 
 export function VoiceOrb({ state, analyser, size = 280, className }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  // Smoothed amplitude — keeps the orb from jittering on every frame even
-  // when the analyser is noisy. Updated inside the rAF loop.
+  // Smoothed amplitude — keeps the scope from jittering each frame.
   const ampRef = useRef(0);
   const stateRef = useRef<VoiceOrbState>(state);
   const analyserRef = useRef<AnalyserNode | null>(analyser ?? null);
 
-  // Mirror props into refs so the rAF loop sees the latest without
-  // re-binding the loop on every render.
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
@@ -54,25 +59,27 @@ export function VoiceOrb({ state, analyser, size = 280, className }: Props) {
     ctx.scale(dpr, dpr);
 
     const center = size / 2;
-    const baseRadius = size * 0.32;
+    const scopeR = size * 0.42; // outer scope ring radius
+    const traceR = size * 0.34; // half-width of the visible waveform
+    const traceH = size * 0.18; // peak-to-peak height of the wave
 
-    // Read brand color from CSS so the orb stays themed with the OEM palette
-    // when one is configured. Defaults to white-hot if --brand isn't set.
     const cssVar = (name: string, fallback: string) => {
       const v = getComputedStyle(document.documentElement)
         .getPropertyValue(name)
         .trim();
       return v || fallback;
     };
-    const brand = cssVar('--brand', '247 117 49'); // RGB triplet
+    const brand = cssVar('--brand', '247 117 49');
+
+    // Reusable buffer for the analyser samples.
+    const fft = new Uint8Array(1024);
+    // Sample buffer for the rendered waveform (256 points spread across
+    // the trace width — enough resolution to look like a real scope).
+    const SAMPLES = 256;
+    const waveform = new Float32Array(SAMPLES);
 
     let raf = 0;
-    let t0 = performance.now();
-    // Allocate a sized backing buffer so the typed array is concretely
-    // Uint8Array<ArrayBuffer>, which is what AnalyserNode expects (lib.dom
-    // typings reject ArrayBufferLike unions in strict mode).
-    const fftBuf = new ArrayBuffer(1024);
-    const fft = new Uint8Array(fftBuf);
+    const t0 = performance.now();
 
     const sampleAmplitude = (): number => {
       const an = analyserRef.current;
@@ -91,176 +98,224 @@ export function VoiceOrb({ state, analyser, size = 280, className }: Props) {
       }
     };
 
-    // Multiply an "r g b" triplet by a scalar to get a darker variant for
-    // the rim. Keeps the orb tinted by the OEM brand color without a second
-    // CSS variable to wire.
-    const tint = (rgb: string, factor: number): string => {
-      const parts = rgb.split(/\s+/).map((n) => Number(n));
-      if (parts.length !== 3) return rgb;
-      return parts
-        .map((c) => Math.max(0, Math.min(255, Math.round(c * factor))))
-        .join(' ');
+    // Fill the waveform buffer from the analyser's time-domain data.
+    // Decimates the analyser's larger buffer down to SAMPLES points.
+    const fillFromAnalyser = (): boolean => {
+      const an = analyserRef.current;
+      if (!an) return false;
+      try {
+        const N = Math.min(fft.length, an.frequencyBinCount);
+        an.getByteTimeDomainData(fft);
+        const step = Math.max(1, Math.floor(N / SAMPLES));
+        for (let i = 0; i < SAMPLES; i++) {
+          const idx = Math.min(N - 1, i * step);
+          waveform[i] = (fft[idx]! - 128) / 128;
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    // Procedural waveform — used when no analyser is wired or it returns
+    // silence. Each state has its own character.
+    const fillProcedural = (t: number, s: VoiceOrbState, amp: number) => {
+      for (let i = 0; i < SAMPLES; i++) {
+        const x = i / SAMPLES; // 0..1
+        let v = 0;
+        if (s === 'thinking') {
+          // Rolling sine + traveling sweep window.
+          v =
+            0.5 * Math.sin((x + t * 0.6) * Math.PI * 4) +
+            0.25 * Math.sin((x + t * 1.3) * Math.PI * 9);
+          // Envelope so the wave doesn't reach the edges.
+          v *= Math.sin(x * Math.PI);
+        } else if (s === 'speaking') {
+          // Layered higher-frequency wave that mimics speech cadence.
+          v =
+            0.55 * Math.sin((x + t * 1.4) * Math.PI * 6) +
+            0.30 * Math.sin((x + t * 2.1) * Math.PI * 11) +
+            0.15 * Math.sin((x + t * 0.9) * Math.PI * 19);
+          v *= Math.sin(x * Math.PI);
+          v *= 0.6 + amp * 1.4;
+        } else if (s === 'listening') {
+          // Fallback when analyser hasn't returned a usable signal yet —
+          // gentle "armed" wave.
+          v = 0.25 * Math.sin((x + t * 0.8) * Math.PI * 3) * Math.sin(x * Math.PI);
+        } else {
+          // idle: slow heartbeat
+          v = 0.18 * Math.sin((x + t * 0.4) * Math.PI * 2) * Math.sin(x * Math.PI);
+        }
+        waveform[i] = v;
+      }
     };
 
     const draw = (now: number) => {
       const t = (now - t0) / 1000;
       const s = stateRef.current;
 
-      // Per-state palette. Each state gets a hi (specular), a hue (mid-body
-      // saturation), and an implicit dark rim derived from the hue.
-      let inner = '255 255 255';
+      // Hue selection per state.
       let hue = brand;
       switch (s) {
         case 'idle':
-          inner = '255 255 255';
           hue = brand;
           break;
         case 'listening':
-          inner = '210 245 255';
-          hue = '60 170 255'; // tighter, more saturated cyan
+          hue = '60 170 255';
           break;
         case 'thinking':
-          inner = '235 220 255';
-          hue = '140 90 255'; // saturated violet
+          hue = '140 90 255';
           break;
         case 'speaking':
-          inner = '255 245 230';
           hue = brand;
           break;
       }
-      const rim = tint(hue, 0.55); // deeper version of hue — pulls edge in
-      const aura = tint(hue, 0.85); // slightly muted hue for the soft halo
 
-      // Amplitude — analyser when available, else a deterministic wave that
-      // gives idle/thinking life without microphone input. 'speaking' on
-      // iOS plays via HTMLAudioElement (no analyser tap possible without
-      // re-routing audio to the earpiece bus), so we pulse procedurally.
+      // Amplitude — analyser when available, else a deterministic wave
+      // that gives idle/thinking life without microphone input.
       const measured = sampleAmplitude();
       const hasAnalyser = analyserRef.current !== null;
       let target: number;
-      if (s === 'listening' || s === 'speaking') {
-        if (hasAnalyser) {
-          target = Math.min(1, measured * 4); // scale up — typical RMS ≈ 0.05–0.25
-        } else if (s === 'speaking') {
-          // Synthesized "talking" cadence — mixed sines feel more like speech
-          // than a single sine wave.
-          target =
-            0.32 +
-            0.22 * Math.abs(Math.sin(t * 5.2)) +
-            0.14 * Math.abs(Math.sin(t * 7.1 + 0.7));
-        } else {
-          target = 0;
-        }
+      if (s === 'listening' && hasAnalyser) {
+        target = Math.min(1, measured * 4);
+      } else if (s === 'speaking') {
+        // No analyser tap on HTMLAudio playback — procedural pulse.
+        target =
+          0.32 +
+          0.22 * Math.abs(Math.sin(t * 5.2)) +
+          0.14 * Math.abs(Math.sin(t * 7.1 + 0.7));
+      } else if (s === 'listening') {
+        target = 0.2 + 0.08 * Math.sin(t * 1.5);
       } else if (s === 'thinking') {
-        target = 0.22 + 0.08 * Math.sin(t * 1.6);
+        target = 0.25 + 0.08 * Math.sin(t * 1.6);
       } else {
-        target = 0.12 + 0.06 * Math.sin(t * 0.9); // idle breathing
+        target = 0.13 + 0.06 * Math.sin(t * 0.85);
       }
-
       const k = target > ampRef.current ? 0.35 : 0.08;
       ampRef.current = ampRef.current + (target - ampRef.current) * k;
       const amp = ampRef.current;
 
       ctx.clearRect(0, 0, size, size);
 
-      // ------------------------------------------------------------------
-      // Layer 1 — outer aura. Tight (≈1.3× core radius max) and dim.
-      //   The previous version filled most of the canvas; that's what made
-      //   it read as a watercolor blob. Two layers, both inside ~70% of the
-      //   canvas, give a clean halo without bleed.
-      // ------------------------------------------------------------------
-      const haloLayers: Array<{ r: number; a: number; phase: number }> = [
-        { r: baseRadius * (1.32 + amp * 0.35), a: 0.16, phase: 0 },
-        { r: baseRadius * (1.14 + amp * 0.25), a: 0.26, phase: 1.7 },
-      ];
-      for (const h of haloLayers) {
-        const wobble = 1 + 0.03 * Math.sin(t * 1.2 + h.phase);
-        const r = h.r * wobble;
-        const g = ctx.createRadialGradient(center, center, baseRadius * 0.78, center, center, r);
-        g.addColorStop(0, `rgba(${aura} / ${h.a})`);
-        g.addColorStop(0.55, `rgba(${aura} / ${h.a * 0.45})`);
-        g.addColorStop(1, `rgba(${aura} / 0)`);
-        ctx.fillStyle = g;
+      // --- Soft glow halo (subtle backdrop, sets the hue) -------------
+      const halo = ctx.createRadialGradient(
+        center,
+        center,
+        scopeR * 0.5,
+        center,
+        center,
+        scopeR * 1.6,
+      );
+      halo.addColorStop(0, `rgba(${hue} / 0.16)`);
+      halo.addColorStop(0.6, `rgba(${hue} / 0.05)`);
+      halo.addColorStop(1, `rgba(${hue} / 0)`);
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(center, center, scopeR * 1.6, 0, Math.PI * 2);
+      ctx.fill();
+
+      // --- Scope bezel rings ------------------------------------------
+      // Outer ring
+      ctx.lineWidth = 1.25;
+      ctx.strokeStyle = `rgba(${hue} / 0.55)`;
+      ctx.beginPath();
+      ctx.arc(center, center, scopeR, 0, Math.PI * 2);
+      ctx.stroke();
+      // Inner ring (slightly fainter, looks like a recessed bezel)
+      ctx.lineWidth = 0.75;
+      ctx.strokeStyle = `rgba(${hue} / 0.28)`;
+      ctx.beginPath();
+      ctx.arc(center, center, scopeR * 0.92, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // --- Background tick marks (oscilloscope grid feel) -------------
+      ctx.strokeStyle = `rgba(${hue} / 0.18)`;
+      ctx.lineWidth = 0.5;
+      // Horizon line (center)
+      ctx.beginPath();
+      ctx.moveTo(center - traceR, center);
+      ctx.lineTo(center + traceR, center);
+      ctx.stroke();
+      // Vertical tick marks at 25% / 50% / 75%
+      for (const f of [0.25, 0.5, 0.75]) {
+        const x = center - traceR + traceR * 2 * f;
         ctx.beginPath();
-        ctx.arc(center, center, r, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.moveTo(x, center - 4);
+        ctx.lineTo(x, center + 4);
+        ctx.stroke();
       }
 
-      // ------------------------------------------------------------------
-      // Layer 2 — core. Saturation HOLDS to ~85% of the radius and only
-      // rolls off in the last 15%. That's what gives the "glass marble"
-      // edge instead of a fade. The dark rim color at 92-100% is what your
-      // eye reads as a defined boundary.
-      // ------------------------------------------------------------------
-      const coreR = baseRadius * (0.96 + amp * 0.18);
-      const coreGrad = ctx.createRadialGradient(
-        center - coreR * 0.18,
-        center - coreR * 0.22,
-        0,
-        center,
-        center,
-        coreR,
-      );
-      coreGrad.addColorStop(0, `rgba(${inner} / 1.0)`);
-      coreGrad.addColorStop(0.18, `rgba(${inner} / 0.92)`);
-      coreGrad.addColorStop(0.5, `rgba(${hue} / 1.0)`);
-      coreGrad.addColorStop(0.85, `rgba(${hue} / 0.95)`);
-      coreGrad.addColorStop(0.97, `rgba(${rim} / 0.85)`);
-      coreGrad.addColorStop(1.0, `rgba(${rim} / 0)`);
-      ctx.fillStyle = coreGrad;
+      // --- The waveform itself ----------------------------------------
+      // For listening: use live mic data when available; otherwise
+      // procedural so we never show a dead-flat scope (looks broken).
+      let usedAnalyser = false;
+      if (s === 'listening' && hasAnalyser) {
+        usedAnalyser = fillFromAnalyser();
+      }
+      if (!usedAnalyser) {
+        fillProcedural(t, s, amp);
+      }
+
+      // Scale: live mic data is already -1..1; amplify a bit so quiet
+      // speech still draws visible peaks.
+      const scale = s === 'listening' && usedAnalyser ? 1.8 : 1.0;
+      const heightScale = traceH * 0.5 * (0.6 + amp * 1.2);
+
+      // Drop shadow / outer glow on the trace.
+      ctx.strokeStyle = `rgba(${hue} / 0.35)`;
+      ctx.lineWidth = 5;
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.arc(center, center, coreR, 0, Math.PI * 2);
+      for (let i = 0; i < SAMPLES; i++) {
+        const x = center - traceR + (i / (SAMPLES - 1)) * traceR * 2;
+        const y = center + waveform[i]! * heightScale * scale;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      // Sharp trace line on top.
+      ctx.strokeStyle = `rgba(${hue} / 0.95)`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i = 0; i < SAMPLES; i++) {
+        const x = center - traceR + (i / (SAMPLES - 1)) * traceR * 2;
+        const y = center + waveform[i]! * heightScale * scale;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      // --- Center playhead dot ----------------------------------------
+      const dotR = 2.5 + amp * 3;
+      const dotGrad = ctx.createRadialGradient(center, center, 0, center, center, dotR * 4);
+      dotGrad.addColorStop(0, `rgba(${hue} / 0.95)`);
+      dotGrad.addColorStop(0.4, `rgba(${hue} / 0.4)`);
+      dotGrad.addColorStop(1, `rgba(${hue} / 0)`);
+      ctx.fillStyle = dotGrad;
+      ctx.beginPath();
+      ctx.arc(center, center, dotR * 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = `rgba(255 255 255 / 0.95)`;
+      ctx.beginPath();
+      ctx.arc(center, center, dotR, 0, Math.PI * 2);
       ctx.fill();
 
-      // ------------------------------------------------------------------
-      // Layer 3 — specular catch-light. Sharper falloff (gradient peaks
-      // brighter, fades faster) than before so it reads as a clean glass
-      // highlight, not a wash. Slow drift on the offset.
-      // ------------------------------------------------------------------
-      const hiR = coreR * 0.42;
-      const hiX = center - coreR * (0.28 + 0.03 * Math.sin(t * 0.7));
-      const hiY = center - coreR * (0.34 + 0.03 * Math.cos(t * 0.7));
-      const hiGrad = ctx.createRadialGradient(hiX, hiY, 0, hiX, hiY, hiR);
-      hiGrad.addColorStop(0, 'rgba(255 255 255 / 0.95)');
-      hiGrad.addColorStop(0.35, 'rgba(255 255 255 / 0.45)');
-      hiGrad.addColorStop(0.7, 'rgba(255 255 255 / 0.08)');
-      hiGrad.addColorStop(1, 'rgba(255 255 255 / 0)');
-      ctx.fillStyle = hiGrad;
-      ctx.beginPath();
-      ctx.arc(hiX, hiY, hiR, 0, Math.PI * 2);
-      ctx.fill();
-
-      // ------------------------------------------------------------------
-      // Layer 4 — small lower-right rim shimmer. A second, much smaller
-      // highlight on the opposite side of the orb gives it a sense of
-      // dimensionality without looking like noise.
-      // ------------------------------------------------------------------
-      const rimR = coreR * 0.18;
-      const rimX = center + coreR * (0.42 + 0.02 * Math.sin(t * 0.5));
-      const rimY = center + coreR * (0.46 + 0.02 * Math.cos(t * 0.5));
-      const rimGrad = ctx.createRadialGradient(rimX, rimY, 0, rimX, rimY, rimR);
-      rimGrad.addColorStop(0, `rgba(${inner} / 0.55)`);
-      rimGrad.addColorStop(1, `rgba(${inner} / 0)`);
-      ctx.fillStyle = rimGrad;
-      ctx.beginPath();
-      ctx.arc(rimX, rimY, rimR, 0, Math.PI * 2);
-      ctx.fill();
-
-      // ------------------------------------------------------------------
-      // Layer 5 — thinking arc. Same as before, just radius pulled in.
-      // ------------------------------------------------------------------
+      // --- Thinking sweep --------------------------------------------
+      // Same semantic as before — a rotating arc says "waiting on the
+      // model." Drawn as a faint sweep along the outer scope ring.
       if (s === 'thinking') {
-        const ringR = baseRadius * 1.08;
-        const headAngle = (t * 1.4) % (Math.PI * 2);
-        const arcLen = Math.PI * 1.2;
-        for (let i = 0; i < 60; i++) {
-          const f = i / 60;
+        const headAngle = (t * 1.6) % (Math.PI * 2);
+        const arcLen = Math.PI * 0.9;
+        for (let i = 0; i < 48; i++) {
+          const f = i / 48;
           const a = headAngle - f * arcLen;
-          const x = center + Math.cos(a) * ringR;
-          const y = center + Math.sin(a) * ringR;
-          ctx.fillStyle = `rgba(${hue} / ${(1 - f) * 0.7})`;
+          const x = center + Math.cos(a) * scopeR;
+          const y = center + Math.sin(a) * scopeR;
+          ctx.fillStyle = `rgba(${hue} / ${(1 - f) * 0.85})`;
           ctx.beginPath();
-          ctx.arc(x, y, 1.6 + (1 - f) * 1.4, 0, Math.PI * 2);
+          ctx.arc(x, y, 1.3 + (1 - f) * 1.3, 0, Math.PI * 2);
           ctx.fill();
         }
       }
@@ -276,8 +331,6 @@ export function VoiceOrb({ state, analyser, size = 280, className }: Props) {
     <canvas
       ref={canvasRef}
       className={className}
-      // Hint the browser to composite this on its own layer — keeps the
-      // orb buttery during route transitions.
       style={{ willChange: 'transform' }}
       aria-hidden
     />
