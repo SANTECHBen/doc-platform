@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ArrowUp, AudioLines, BookPlus, Camera, ChevronDown, FileText, ListChecks, Play, Sparkles, Square, Trash2, X } from 'lucide-react';
+import { ArrowUp, AudioLines, BookPlus, Camera, ChevronDown, FileText, ListChecks, Play, Square, Trash2, X } from 'lucide-react';
 import type { AssetHubPayload } from '@/lib/shared-schema';
 import {
   fetchMe,
@@ -379,14 +379,25 @@ export function ChatTab({
         className="flex max-h-[60vh] min-h-[300px] flex-col gap-4 overflow-y-auto pr-1"
       >
         {turns.length === 0 && (
-          <div className="flex flex-col items-center gap-2 py-12 text-center">
-            <p className="text-base text-ink-secondary">
-              {partId ? 'Ask about this part.' : 'Ask about this equipment.'}
-            </p>
-            <p className="max-w-sm text-sm text-ink-tertiary">
-              Answers are grounded on the published content for this exact serial.
-              Safety-critical procedures are quoted verbatim.
-            </p>
+          <div className="chat-empty">
+            <div className="chat-empty-prompts">
+              <span className="chat-empty-cap">Try asking</span>
+              {[
+                'What does fault E-217 mean?',
+                'What is the oil charge volume?',
+                'Walk me through replacing the divert actuator',
+              ].map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  className="chat-empty-prompt"
+                  onClick={() => setInput(q)}
+                >
+                  <span className="chat-empty-prompt-mark">›</span>
+                  <span className="chat-empty-prompt-text">{q}</span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {turns.map((t, i) => (
@@ -462,7 +473,6 @@ export function ChatTab({
         }}
         className="composer"
       >
-        <Sparkles size={16} strokeWidth={2} style={{ color: 'rgb(var(--ink-brand))' }} />
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}

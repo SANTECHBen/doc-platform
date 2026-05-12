@@ -1417,27 +1417,73 @@
     font-size: 12.5px;
     color: rgb(var(--ink-brand));
   }
+  /* Empty-state "service log" layout — replaces the centered bubble
+     placeholder. Reads as a tappable inventory of starter questions. */
+  .chat-empty {
+    padding: 24px 4px 8px;
+  }
+  .chat-empty-prompts {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .chat-empty-cap {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-tertiary));
+    padding: 0 2px 6px;
+  }
+  .chat-empty-prompt {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 10px 8px;
+    border: 0;
+    background: transparent;
+    color: rgb(var(--ink-secondary));
+    text-align: left;
+    font-family: inherit;
+    font-size: 14px;
+    border-top: 1px solid rgb(var(--line) / 0.5);
+    cursor: pointer;
+    transition: color 120ms ease, background 120ms ease;
+  }
+  .chat-empty-prompt:hover {
+    color: rgb(var(--ink-primary));
+    background: rgb(var(--surface-elevated) / 0.5);
+  }
+  .chat-empty-prompt-mark {
+    font-family: var(--font-mono);
+    color: rgb(var(--brand));
+    flex-shrink: 0;
+    font-weight: 600;
+  }
+  .chat-empty-prompt-text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* Service-log style — turns sit inline against the page surface, not
+     in chat bubbles. Brand-color accent strip anchors each side. */
   .user-msg {
-    max-width: 80%;
+    max-width: 90%;
     margin-left: auto;
-    padding: 12px 16px;
-    background: rgb(var(--brand));
-    color: rgb(var(--brand-ink));
-    border-radius: 10px 10px 2px 10px;
+    padding: 10px 14px 10px 0;
+    color: rgb(var(--ink-primary));
+    border-right: 2px solid rgb(var(--brand));
     font-size: 14px;
     line-height: 1.5;
-    box-shadow: 0 2px 8px rgba(var(--brand-glow), var(--brand-glow-a));
+    text-align: right;
   }
   .assistant-msg {
-    background: rgb(var(--surface-raised));
-    border: 1px solid rgb(var(--line));
-    border-radius: 6px;
-    padding: 18px 20px;
+    padding: 12px 0 12px 14px;
+    border-left: 2px solid rgb(var(--brand));
     font-size: 14px;
     line-height: 1.6;
     color: rgb(var(--ink-primary));
-    /* Subtle spring entry — slight upward drift + slight overshoot scale.
-       Cheap on the GPU; reads as "alive" without being noisy. */
     animation: assistantMsgIn 380ms cubic-bezier(0.34, 1.42, 0.64, 1);
   }
   @keyframes assistantMsgIn {
@@ -1495,19 +1541,21 @@
     margin-top: 4px;
   }
 
+  /* Composer — fixed control strip styled like the bottom tab bar so it
+     reads as part of the instrument chrome, not a floating chat box. */
   .composer {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 8px 8px 8px 14px;
-    background: rgb(var(--surface-raised));
-    border: 1px solid rgb(var(--line));
-    border-radius: 8px;
-    transition: all 160ms ease;
+    padding: 10px 8px 10px 14px;
+    background: rgb(var(--surface-base));
+    border: 0;
+    border-top: 1px solid rgb(var(--line));
+    border-radius: 0;
+    transition: border-color 160ms ease;
   }
   .composer:focus-within {
-    border-color: rgb(var(--brand));
-    box-shadow: 0 0 0 3px rgba(var(--brand-soft-v), var(--brand-soft-a));
+    border-top-color: rgb(var(--brand));
   }
   .composer input {
     flex: 1;

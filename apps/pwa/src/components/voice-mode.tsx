@@ -371,7 +371,11 @@ export function VoiceMode(props: Props): React.ReactElement {
       setNeedsGesture(true);
       return;
     }
-    void startListening();
+    // Tap-to-speak: don't auto-open the mic after the greeting. The tech
+    // taps the orb when they're ready, which avoids false triggers from
+    // ambient noise (chillers, HVAC, nearby conversation).
+    setOrbState('idle');
+    setStatusLine('Tap to speak');
   }
 
   // ---------- TTS playback ----------
@@ -563,13 +567,15 @@ export function VoiceMode(props: Props): React.ReactElement {
     // Android (rather than the communication / voice-call bus).
     releaseMic();
     if (chunks.length === 0) {
-      // Silent recording — just keep listening.
-      void startListening();
+      // Silent recording — go back to idle and let the tech retry.
+      setOrbState('idle');
+      setStatusLine("Didn't catch that — tap to try again");
       return;
     }
     const elapsed = performance.now() - recorderStartRef.current;
     if (elapsed < MIN_UTTERANCE_MS) {
-      void startListening();
+      setOrbState('idle');
+      setStatusLine("Didn't catch that — tap to try again");
       return;
     }
     const blob = new Blob(chunks, { type: mime });
@@ -583,11 +589,13 @@ export function VoiceMode(props: Props): React.ReactElement {
       userText = await transcribeAudio(blob);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Transcription failed.');
-      void startListening();
+      setOrbState('idle');
+      setStatusLine('Tap to try again');
       return;
     }
     if (!userText) {
-      void startListening();
+      setOrbState('idle');
+      setStatusLine("Didn't catch that — tap to try again");
       return;
     }
 
@@ -627,7 +635,8 @@ export function VoiceMode(props: Props): React.ReactElement {
       if (!abort.signal.aborted) {
         setError(err instanceof Error ? err.message : 'Assistant failed.');
       }
-      void startListening();
+      setOrbState('idle');
+      setStatusLine('Tap to try again');
       return;
     }
     chatAbortRef.current = null;
@@ -699,8 +708,11 @@ export function VoiceMode(props: Props): React.ReactElement {
       setTranscript(prose);
       await speakText(prose);
     }
-    // Loop: after speaking, automatically listen again.
-    void startListening();
+    // Tap-to-speak: park on idle waiting for the tech's next tap. The mic
+    // stays closed until they explicitly engage, so background noise can't
+    // open a new turn.
+    setOrbState('idle');
+    setStatusLine('Tap to speak');
   }
 
   // ---------- orb tap handler ----------
@@ -730,6 +742,13 @@ export function VoiceMode(props: Props): React.ReactElement {
     if (orbState === 'thinking') {
       // Cancel the in-flight chat turn — let the user redirect.
       chatAbortRef.current?.abort();
+      void startListening();
+      return;
+    }
+    if (orbState === 'idle') {
+      // Tap-to-speak: tech is parked between turns; open the mic for the
+      // next utterance. The VAD silence detector auto-ends the recording,
+      // and another tap also ends it.
       void startListening();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -771,7 +790,8 @@ export function VoiceMode(props: Props): React.ReactElement {
 
   // While the section overlay is up, it covers the orb completely (same
   // pattern as the procedure walkthrough below). TTS keeps playing in
-  // the background; the listen loop only resumes when the user closes it.
+  // the background; the orb returns to idle on close so the tech can
+  // tap to ask a follow-up.
   if (sectionSource) {
     return (
       <SectionViewerOverlay
@@ -779,15 +799,16 @@ export function VoiceMode(props: Props): React.ReactElement {
         onClose={() => {
           setSectionSource(null);
           interruptTTS();
-          void startListening();
+          setOrbState('idle');
+          setStatusLine('Tap to speak');
         }}
       />
     );
   }
 
   // While a procedure walkthrough is active, that runner takes over the
-  // whole overlay. Closing it returns control to voice mode (back to
-  // listening so the tech can ask another question hands-free).
+  // whole overlay. Closing it returns the orb to idle so the tech can
+  // tap to ask a follow-up question.
   if (jobAidSource) {
     return (
       <VirtualJobAid
@@ -799,20 +820,8 @@ export function VoiceMode(props: Props): React.ReactElement {
         }}
         onClose={() => {
           setJobAidSource(null);
-          // Re-attach mic to the analyser so audio reactivity resumes,
-          // then drop back into the listen loop.
-          const ctx = audioCtxRef.current;
-          const stream = micStreamRef.current;
-          const an = micAnalyserRef.current;
-          if (ctx && stream && an) {
-            try {
-              const src = ctx.createMediaStreamSource(stream);
-              src.connect(an);
-            } catch {
-              // already connected — fine
-            }
-          }
-          void startListening();
+          setOrbState('idle');
+          setStatusLine('Tap to speak');
         }}
       />
     );
