@@ -625,8 +625,17 @@ export function VoiceMode(props: Props): React.ReactElement {
             conversationIdRef.current = event.conversationId;
           } else if (event.type === 'delta') {
             assistantText += event.text;
-            // Optional: stream the live transcript too (without [cite:] markers).
-            setTranscript(assistantText.replace(/\[cite:[a-f0-9-]{8,}\]/gi, ''));
+            // Strip ALL machine-directed markers so the live transcript
+            // reads as plain prose — the user shouldn't see raw
+            // [cite:…] / [procedure:…] / [section:…] / [pdfpage:…]
+            // strings on screen.
+            setTranscript(
+              assistantText
+                .replace(/\[cite:[a-f0-9-]{8,}\]/gi, '')
+                .replace(PDFPAGE_DIRECTIVE_RE, '')
+                .replace(SECTION_DIRECTIVE_RE, '')
+                .replace(PROCEDURE_DIRECTIVE_RE, ''),
+            );
           }
         },
         abort.signal,
@@ -662,6 +671,7 @@ export function VoiceMode(props: Props): React.ReactElement {
       micAnalyserRef.current?.disconnect();
       setOrbState('idle');
       setStatusLine('Walking you through the procedure');
+      setTranscript('');
       setJobAidSource({ docId: procMatch[1] });
       setTurns((t) => [
         ...t,
@@ -799,6 +809,7 @@ export function VoiceMode(props: Props): React.ReactElement {
         onClose={() => {
           setSectionSource(null);
           interruptTTS();
+          setTranscript('');
           setOrbState('idle');
           setStatusLine('Tap to speak');
         }}
@@ -820,6 +831,7 @@ export function VoiceMode(props: Props): React.ReactElement {
         }}
         onClose={() => {
           setJobAidSource(null);
+          setTranscript('');
           setOrbState('idle');
           setStatusLine('Tap to speak');
         }}
