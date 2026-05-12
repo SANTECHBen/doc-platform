@@ -1715,9 +1715,10 @@
   button:active:not(:disabled) { transform: translateY(0.5px); }
 
   /* =========================================================================
-     VOICE MODE — immersive overlay. Always renders on a flat near-black
-     surface (regardless of the user's app theme) so the orb glow does the
-     visual work. Three rows: top bar, centered stage, bottom action bar.
+     VOICE MODE — immersive overlay that follows the user's theme. Dark
+     theme reads as a scope on a black panel; light theme reads as a
+     scope on a pale industrial plate. State hues are saturated mid-tones
+     so they contrast on either surface.
      ========================================================================= */
 
   .voice-mode-root {
@@ -1726,8 +1727,8 @@
     z-index: 100;
     display: grid;
     grid-template-rows: auto 1fr auto;
-    background: rgb(8 10 13);
-    color: rgb(232 236 241);
+    background: rgb(var(--surface-base));
+    color: rgb(var(--ink-primary));
     animation: voiceModeIn 280ms cubic-bezier(0.2, 0.6, 0.2, 1);
   }
   @keyframes voiceModeIn {
@@ -1756,18 +1757,18 @@
     white-space: nowrap;
     text-overflow: ellipsis;
     font-size: 13px;
-    color: rgb(155 166 179);
+    color: rgb(var(--ink-secondary));
   }
   .voice-mode-asset-name {
-    color: rgb(232 236 241);
+    color: rgb(var(--ink-primary));
     font-weight: 500;
     letter-spacing: 0.005em;
   }
-  .voice-mode-asset-sep { color: rgb(92 102 116); }
+  .voice-mode-asset-sep { color: rgb(var(--ink-tertiary)); }
   .voice-mode-asset-serial {
     font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
     font-size: 12px;
-    color: rgb(92 102 116);
+    color: rgb(var(--ink-tertiary));
   }
 
   .voice-mode-close {
@@ -1775,18 +1776,18 @@
     width: 36px;
     height: 36px;
     border-radius: 999px;
-    border: 1px solid rgb(255 255 255 / 0.08);
-    background: rgb(255 255 255 / 0.04);
-    color: rgb(155 166 179);
+    border: 1px solid rgb(var(--line));
+    background: rgb(var(--surface-elevated));
+    color: rgb(var(--ink-secondary));
     display: inline-flex;
     align-items: center;
     justify-content: center;
     transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
   }
   .voice-mode-close:hover {
-    color: rgb(232 236 241);
-    background: rgb(255 255 255 / 0.08);
-    border-color: rgb(255 255 255 / 0.14);
+    color: rgb(var(--ink-primary));
+    background: rgb(var(--surface-raised));
+    border-color: rgb(var(--line-strong, var(--line)));
   }
 
   .voice-mode-stage {
@@ -1817,21 +1818,22 @@
     font-size: 22px;
     font-weight: 500;
     letter-spacing: -0.01em;
-    color: rgb(232 236 241);
+    color: rgb(var(--ink-primary));
     min-height: 28px;
     transition: color 200ms ease;
   }
+  /* State hues — chosen to read on both light and dark surfaces. */
   .voice-mode-state[data-state='thinking'] {
-    color: rgb(180 160 240);
+    color: rgb(110 70 220);
   }
   .voice-mode-state[data-state='listening'] {
-    color: rgb(140 200 255);
+    color: rgb(30 130 220);
   }
   .voice-mode-state[data-state='speaking'] {
-    color: rgb(255 220 180);
+    color: rgb(var(--brand));
   }
   .voice-mode-state[data-muted='true'] {
-    color: rgb(255 160 160);
+    color: rgb(200 60 60);
   }
 
   .voice-mode-transcript {
@@ -1839,7 +1841,7 @@
     max-height: 30vh;
     overflow-y: auto;
     text-align: center;
-    color: rgb(232 236 241 / 0.86);
+    color: rgb(var(--ink-primary) / 0.86);
     font-size: 17px;
     line-height: 1.5;
     margin: 0;
@@ -1875,9 +1877,9 @@
     gap: 4px;
     padding: 8px 12px;
     border-radius: 16px;
-    border: 1px solid rgb(255 255 255 / 0.08);
-    background: rgb(255 255 255 / 0.03);
-    color: rgb(155 166 179);
+    border: 1px solid rgb(var(--line));
+    background: rgb(var(--surface-elevated));
+    color: rgb(var(--ink-secondary));
     font-size: 12px;
     font-weight: 500;
     letter-spacing: 0.01em;
@@ -1888,9 +1890,9 @@
       transform 120ms ease;
   }
   .voice-mode-action:hover:not(:disabled) {
-    color: rgb(232 236 241);
-    background: rgb(255 255 255 / 0.06);
-    border-color: rgb(255 255 255 / 0.14);
+    color: rgb(var(--ink-primary));
+    background: rgb(var(--surface-raised));
+    border-color: rgb(var(--line-strong, var(--line)));
   }
   .voice-mode-action:active:not(:disabled) { transform: translateY(0.5px); }
   .voice-mode-action:disabled {
@@ -1898,22 +1900,22 @@
     cursor: not-allowed;
   }
   .voice-mode-action[data-active='true'] {
-    color: rgb(255 180 180);
+    color: rgb(200 60 60);
     background: rgb(220 90 90 / 0.12);
     border-color: rgb(220 90 90 / 0.35);
   }
   .voice-mode-action-end {
-    color: rgb(255 160 160);
+    color: rgb(200 60 60);
   }
   .voice-mode-action-end:hover:not(:disabled) {
-    color: rgb(255 200 200);
+    color: rgb(180 40 40);
     background: rgb(220 90 90 / 0.14);
     border-color: rgb(220 90 90 / 0.4);
   }
 
   /* =========================================================================
-     MODE CHOOSER — first-touch picker between Hands-Free and Browse. Same
-     near-black surface as voice mode for visual continuity.
+     MODE CHOOSER — first-touch picker. Follows the user's theme, same as
+     voice mode, so the two surfaces feel like one immersive experience.
      ========================================================================= */
 
   .mode-chooser-root {
@@ -1929,8 +1931,8 @@
       max(20px, env(safe-area-inset-right))
       max(32px, calc(env(safe-area-inset-bottom) + 24px))
       max(20px, env(safe-area-inset-left));
-    background: rgb(8 10 13);
-    color: rgb(232 236 241);
+    background: rgb(var(--surface-base));
+    color: rgb(var(--ink-primary));
     animation: voiceModeIn 280ms cubic-bezier(0.2, 0.6, 0.2, 1);
   }
 
@@ -1943,12 +1945,12 @@
     font-size: 18px;
     font-weight: 500;
     letter-spacing: -0.01em;
-    color: rgb(232 236 241);
+    color: rgb(var(--ink-primary));
   }
   .mode-chooser-asset-serial {
     font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
     font-size: 12px;
-    color: rgb(92 102 116);
+    color: rgb(var(--ink-tertiary));
   }
 
   .mode-chooser-title {
@@ -1956,7 +1958,7 @@
     font-weight: 500;
     letter-spacing: -0.015em;
     line-height: 1.2;
-    color: rgb(232 236 241);
+    color: rgb(var(--ink-primary));
     margin: 0;
   }
 
@@ -1976,9 +1978,9 @@
     min-height: 96px;
     padding: 18px 20px;
     border-radius: 18px;
-    border: 1px solid rgb(255 255 255 / 0.08);
-    background: rgb(255 255 255 / 0.03);
-    color: rgb(232 236 241);
+    border: 1px solid rgb(var(--line));
+    background: rgb(var(--surface-elevated));
+    color: rgb(var(--ink-primary));
     text-align: left;
     transition:
       background 140ms ease,
@@ -1986,8 +1988,8 @@
       transform 120ms ease;
   }
   .mode-chooser-card:hover {
-    background: rgb(255 255 255 / 0.06);
-    border-color: rgb(255 255 255 / 0.16);
+    background: rgb(var(--surface-raised));
+    border-color: rgb(var(--line-strong, var(--line)));
   }
   .mode-chooser-card:active { transform: translateY(0.5px); }
 
@@ -1999,8 +2001,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: rgb(255 255 255 / 0.05);
-    color: rgb(155 166 179);
+    background: rgb(var(--surface-raised));
+    color: rgb(var(--ink-secondary));
   }
   .mode-chooser-card-icon[data-tone='brand'] {
     background: rgb(var(--brand) / 0.16);
@@ -2018,11 +2020,11 @@
     font-size: 17px;
     font-weight: 500;
     letter-spacing: -0.005em;
-    color: rgb(232 236 241);
+    color: rgb(var(--ink-primary));
   }
   .mode-chooser-card-sub {
     font-size: 13px;
-    color: rgb(155 166 179);
+    color: rgb(var(--ink-secondary));
   }
 
   /* =========================================================================
