@@ -1570,7 +1570,7 @@
   .composer input::placeholder { color: rgb(var(--ink-tertiary)); }
   .composer .send-btn {
     width: 36px; height: 36px;
-    border-radius: 10px;
+    border-radius: 6px;
     background: rgb(var(--brand));
     color: rgb(var(--brand-ink));
     border: none;

@@ -17,7 +17,6 @@ import { PartsTab } from './parts-tab';
 import { IssuesPanel } from './issues-panel';
 import { VoiceMode, type PrefetchedGreeting } from '@/components/voice-mode';
 import { ModeChooser, type ChosenMode } from '@/components/mode-chooser';
-import { TalkFab } from '@/components/talk-fab';
 import { fetchPreflight, speak } from '@/lib/api';
 
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
@@ -162,18 +161,6 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
       </div>
 
       <TabBar hub={hub} active={active} setActive={changeTab} position="bottom" />
-
-      {/* Floating Talk pill — re-entry into voice mode after dismissal.
-          Visible only on the Assistant tab so it doesn't crowd the
-          Overview / Docs / Training / Parts surfaces. */}
-      {mode === 'browse' && active === 'chat' && !voiceOpen && DEV_USER_ID && DEV_ORG_ID && (
-        <TalkFab
-          onClick={() => {
-            setMode('voice');
-            setVoiceOpen(true);
-          }}
-        />
-      )}
 
       {mode === 'choosing' && DEV_USER_ID && DEV_ORG_ID && (
         <ModeChooser
