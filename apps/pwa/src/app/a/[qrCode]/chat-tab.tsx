@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ArrowUp, AudioLines, BookPlus, Camera, ChevronDown, FileText, ListChecks, Play, Square, Trash2, X } from 'lucide-react';
+import { AudioLines, BookPlus, Camera, ChevronDown, FileText, ListChecks, Play, Send, Square, Trash2, X } from 'lucide-react';
 import type { AssetHubPayload } from '@/lib/shared-schema';
 import {
   fetchMe,
@@ -584,7 +584,7 @@ export function ChatTab({
             aria-label="Ask"
             className="send-btn"
           >
-            <ArrowUp size={16} strokeWidth={2.5} />
+            <Send size={15} strokeWidth={2.25} />
           </button>
         )}
       </form>

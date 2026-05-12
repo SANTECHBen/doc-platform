@@ -112,6 +112,11 @@ function buildEntries(docs: DocumentListItem[]): DocEntry[] {
       });
     });
   });
+  // Alphabetical by title. localeCompare with 'base' sensitivity keeps
+  // the order intuitive across mixed case and accented characters.
+  out.sort((a, b) =>
+    a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }),
+  );
   return out;
 }
 
