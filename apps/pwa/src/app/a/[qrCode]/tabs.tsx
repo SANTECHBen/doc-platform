@@ -5,7 +5,9 @@ import {
   FileText,
   GraduationCap,
   LayoutGrid,
+  ListChecks,
   MessageSquare,
+  Play,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
@@ -16,8 +18,14 @@ import { TrainingTab } from './training-tab';
 import { PartsTab } from './parts-tab';
 import { IssuesPanel } from './issues-panel';
 import { VoiceMode, type PrefetchedGreeting } from '@/components/voice-mode';
+import { VirtualJobAid } from '@/components/virtual-job-aid';
 import { ModeChooser, type ChosenMode } from '@/components/mode-chooser';
-import { fetchPreflight, speak } from '@/lib/api';
+import {
+  fetchPreflight,
+  listDocuments,
+  speak,
+  type DocumentListItem,
+} from '@/lib/api';
 
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
 const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
@@ -55,6 +63,9 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
     DEV_USER_ID && DEV_ORG_ID ? 'choosing' : 'browse',
   );
   const [voiceOpen, setVoiceOpen] = useState(false);
+  // VirtualJobAid mount for procedures launched from the Overview quick
+  // actions card (not from voice mode — voice mode owns its own handoff).
+  const [overviewJobAidDocId, setOverviewJobAidDocId] = useState<string | null>(null);
 
   // Prefetch the greeting (preflight + TTS blob) the moment the chooser
   // is up, so tapping Hands-Free starts speaking ~immediately rather than
@@ -134,14 +145,18 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
       <div key={active} className="tab-pane flex flex-col gap-4">
         {active === 'overview' ? (
           <div className="flex flex-col gap-4">
-            <div className="spec-panel">
-              <OverviewSpecs hub={hub} openIssueCount={openIssueCount} />
-            </div>
+            <ProceduresQuickActions
+              versionId={hub.pinnedContentPackVersion?.id ?? null}
+              onLaunch={setOverviewJobAidDocId}
+            />
             <div className="spec-panel">
               <IssuesPanel
                 assetInstanceId={hub.assetInstance.id}
                 onCountChange={setOpenIssueCount}
               />
+            </div>
+            <div className="spec-panel">
+              <OverviewSpecs hub={hub} openIssueCount={openIssueCount} />
             </div>
           </div>
         ) : (
@@ -223,7 +238,97 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
           }}
         />
       )}
+
+      {/* VirtualJobAid mount for procedures launched from the Overview
+          quick-actions card. Voice mode uses its own VirtualJobAid mount
+          for [procedure:UUID] handoffs — these don't overlap because
+          voiceOpen and overviewJobAidDocId are independent state. */}
+      {overviewJobAidDocId && DEV_USER_ID && DEV_ORG_ID && (
+        <VirtualJobAid
+          source={{
+            kind: 'doc',
+            docId: overviewJobAidDocId,
+            devUserId: DEV_USER_ID,
+            devOrgId: DEV_ORG_ID,
+          }}
+          onClose={() => setOverviewJobAidDocId(null)}
+        />
+      )}
     </>
+  );
+}
+
+// Overview quick-actions card. Lists the asset's authored procedures as
+// tappable rows so a tech who just scanned the QR has a one-tap entry
+// into "how do I work on this thing right now?" without browsing Docs.
+// Empty / loading state is rendered as null so the Overview tab stays
+// clean for assets with no procedures yet.
+function ProceduresQuickActions({
+  versionId,
+  onLaunch,
+}: {
+  versionId: string | null;
+  onLaunch: (docId: string) => void;
+}): React.ReactElement | null {
+  const [procs, setProcs] = useState<DocumentListItem[] | null>(null);
+
+  useEffect(() => {
+    if (!versionId) {
+      setProcs([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const docs = await listDocuments(versionId);
+        if (cancelled) return;
+        const authored = docs
+          .filter((d) => d.kind === 'structured_procedure')
+          .sort((a, b) =>
+            a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }),
+          )
+          .slice(0, 5);
+        setProcs(authored);
+      } catch {
+        if (!cancelled) setProcs([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [versionId]);
+
+  if (!procs || procs.length === 0) return null;
+
+  return (
+    <div className="spec-panel">
+      <div className="caption mb-2 text-ink-tertiary">What you can do here</div>
+      <ul className="flex flex-col gap-1">
+        {procs.map((p) => (
+          <li key={p.id}>
+            <button
+              type="button"
+              onClick={() => onLaunch(p.id)}
+              className="group flex w-full items-center gap-3 rounded border border-line bg-surface-elevated px-3 py-2.5 text-left transition hover:border-brand/40 hover:bg-surface-raised"
+            >
+              <ListChecks
+                size={16}
+                strokeWidth={2}
+                className="shrink-0 text-ink-brand"
+              />
+              <span className="flex-1 truncate text-sm font-medium text-ink-primary">
+                {p.title}
+              </span>
+              <Play
+                size={14}
+                strokeWidth={2.25}
+                className="shrink-0 text-ink-tertiary group-hover:text-brand"
+              />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

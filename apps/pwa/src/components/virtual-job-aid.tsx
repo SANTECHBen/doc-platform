@@ -468,9 +468,16 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
                 {step.media.map((m, i) => (
                   <li key={`${m.storageKey}-${i}`}>
                     {m.kind === 'image' ? (
-                      <img src={m.url ?? ''} alt={m.caption ?? ''} />
+                      <FallbackImage
+                        src={m.url ?? ''}
+                        alt={m.caption ?? step.title}
+                        label={m.caption ?? 'Image unavailable'}
+                      />
                     ) : (
-                      <video src={m.url ?? ''} controls preload="metadata" />
+                      <FallbackVideo
+                        src={m.url ?? ''}
+                        label={m.caption ?? 'Video unavailable'}
+                      />
                     )}
                     {m.caption && <p className="vja-step-caption">{m.caption}</p>}
                   </li>
@@ -625,16 +632,78 @@ function BlockRenderer({
     case 'photo_inline': {
       const m = media.find((mm) => mm.storageKey === block.storageKey);
       if (!m || m.kind !== 'image' || !m.url) return null;
+      const caption = block.caption ?? m.caption ?? null;
       return (
         <figure className="vja-block-photo">
-          <img src={m.url} alt={block.caption ?? ''} />
-          {(block.caption ?? m.caption) && (
-            <figcaption>{block.caption ?? m.caption}</figcaption>
-          )}
+          <FallbackImage
+            src={m.url}
+            alt={caption ?? 'Step photo'}
+            label={caption ?? 'Photo unavailable'}
+          />
+          {caption && <figcaption>{caption}</figcaption>}
         </figure>
       );
     }
   }
+}
+
+// Image with a graceful fallback when load fails (404, CDN hiccup,
+// permissions, etc.). Replaces the broken image icon with a labeled
+// placeholder so a flaky network doesn't strand a tech mid-procedure.
+function FallbackImage({
+  src,
+  alt,
+  label,
+}: {
+  src: string;
+  alt: string;
+  label: string;
+}): React.ReactElement {
+  const [failed, setFailed] = useState(false);
+  if (failed || !src) {
+    return (
+      <div className="vja-media-fallback" role="img" aria-label={alt}>
+        <span aria-hidden>📷</span>
+        <span>{label}</span>
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+// Video sibling of FallbackImage. <video onError> fires for codec /
+// network / 404 failures; we swap to the same placeholder pattern.
+function FallbackVideo({
+  src,
+  label,
+}: {
+  src: string;
+  label: string;
+}): React.ReactElement {
+  const [failed, setFailed] = useState(false);
+  if (failed || !src) {
+    return (
+      <div className="vja-media-fallback" role="img" aria-label={label}>
+        <span aria-hidden>🎞️</span>
+        <span>{label}</span>
+      </div>
+    );
+  }
+  return (
+    <video
+      src={src}
+      controls
+      preload="metadata"
+      onError={() => setFailed(true)}
+    />
+  );
 }
 
 // Lightweight linkify — detects http(s):// URLs in text and wraps them

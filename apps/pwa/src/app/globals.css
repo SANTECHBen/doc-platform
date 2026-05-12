@@ -2383,6 +2383,20 @@
     width: 100%;
     height: auto;
   }
+  /* Shown in place of an image/video that failed to load. Keeps the
+     step layout from collapsing when the CDN hiccups or a media file
+     is missing. */
+  .vja-media-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 100px;
+    padding: 16px;
+    background: rgb(var(--surface-elevated));
+    color: rgb(var(--ink-tertiary));
+    font-size: 13px;
+  }
   .vja-step-caption {
     padding: 8px 12px;
     font-size: 12px;
