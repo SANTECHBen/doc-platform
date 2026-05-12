@@ -198,20 +198,26 @@ export function VoiceOrb({ state, analyser, size = 280, className }: Props) {
       ctx.clearRect(0, 0, size, size);
 
       // --- Soft glow halo (subtle backdrop, sets the hue) -------------
+      // Outer radius is kept inside the canvas bounds so the radial
+      // gradient never clips against the canvas square — otherwise the
+      // alpha-non-zero region forms a visible "rounded box" outline
+      // because the corners (beyond the gradient) read as fully
+      // transparent while the edges (just inside the gradient) don't.
+      const haloOuter = scopeR * 1.18;
       const halo = ctx.createRadialGradient(
         center,
         center,
         scopeR * 0.5,
         center,
         center,
-        scopeR * 1.6,
+        haloOuter,
       );
-      halo.addColorStop(0, `rgba(${hue} / 0.16)`);
-      halo.addColorStop(0.6, `rgba(${hue} / 0.05)`);
+      halo.addColorStop(0, `rgba(${hue} / 0.18)`);
+      halo.addColorStop(0.55, `rgba(${hue} / 0.06)`);
       halo.addColorStop(1, `rgba(${hue} / 0)`);
       ctx.fillStyle = halo;
       ctx.beginPath();
-      ctx.arc(center, center, scopeR * 1.6, 0, Math.PI * 2);
+      ctx.arc(center, center, haloOuter, 0, Math.PI * 2);
       ctx.fill();
 
       // --- Scope bezel rings ------------------------------------------
