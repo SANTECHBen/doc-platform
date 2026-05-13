@@ -2559,9 +2559,13 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
       });
       if (!doc) return reply.notFound();
       requireOrgInScope(scope, doc.packVersion.pack.ownerOrganizationId);
-      if (doc.packVersion.status !== 'draft') {
-        return reply.badRequest('Cannot edit documents on a published version.');
-      }
+      // Document-level edits (rename, swap the underlying file,
+      // thumbnail, safety flag) are allowed on published versions too —
+      // mirroring the policy for sections and procedure steps. Techs
+      // scanning a pinned version may see a typo fix or a corrected PDF
+      // appear without a new version cut; that's intentional for early-
+      // product velocity. Deletes still require a draft (see DELETE
+      // below) since they shrink the manifest of docs in the version.
       const patch: Record<string, unknown> = {};
       const b = request.body;
       if (b.title !== undefined) patch.title = b.title;
