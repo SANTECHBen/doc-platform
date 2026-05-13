@@ -377,6 +377,10 @@ function StepBlock({
 }
 
 function KindBadge({ kind }: { kind: ProcedureStepKind }) {
+  // 'instruction' is the default kind. Rendering an INSTR chip on every
+  // step just adds visual noise — only show the chip for kinds that
+  // actually change what the tech has to do (evidence required, safety).
+  if (kind === 'instruction') return null;
   const Icon =
     kind === 'photo_required'
       ? Camera
@@ -388,9 +392,7 @@ function KindBadge({ kind }: { kind: ProcedureStepKind }) {
       ? 'PHOTO'
       : kind === 'measurement_required'
         ? 'MEASURE'
-        : kind === 'safety_check'
-          ? 'SAFETY'
-          : 'INSTR';
+        : 'SAFETY';
   return (
     <span className="inline-flex items-center gap-1 rounded-sm border border-line-subtle bg-surface-inset px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-ink-tertiary">
       <Icon size={10} strokeWidth={1.75} />

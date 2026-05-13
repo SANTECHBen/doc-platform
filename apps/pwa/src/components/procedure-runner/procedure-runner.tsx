@@ -778,22 +778,22 @@ export function ProcedureRunner({
 // ---------------------------------------------------------------------------
 
 function KindBadge({ kind }: { kind: ProcedureStepDto['kind'] }) {
+  // Hide the badge for plain 'instruction' steps — that's the default
+  // kind and the chip just adds clutter. Other kinds carry real meaning
+  // for the tech (evidence required, safety) so we keep those.
+  if (kind === 'instruction') return null;
   const Icon =
     kind === 'photo_required'
       ? Camera
       : kind === 'measurement_required'
         ? Ruler
-        : kind === 'safety_check'
-          ? ShieldAlert
-          : ClipboardCheck;
+        : ShieldAlert;
   const label =
     kind === 'photo_required'
       ? 'PHOTO REQUIRED'
       : kind === 'measurement_required'
         ? 'MEASUREMENT'
-        : kind === 'safety_check'
-          ? 'SAFETY CHECK'
-          : 'INSTRUCTION';
+        : 'SAFETY CHECK';
   return (
     <span className="inline-flex items-center gap-1.5 caption">
       <Icon size={12} strokeWidth={1.75} />
