@@ -1471,8 +1471,14 @@ export interface AdminDocumentDetail {
   createdAt: string;
 }
 
+export interface RequiredTools {
+  common: string[];
+  special: string[];
+  consumables: string[];
+}
+
 export interface AdminProcedureDocMetadata {
-  toolsRequired: string[];
+  toolsRequired: RequiredTools;
   safety: { enabled: boolean; notes: string | null };
   verification: { enabled: boolean; notes: string | null };
   /** Author-controlled overview fields. Rendered on the PWA intro

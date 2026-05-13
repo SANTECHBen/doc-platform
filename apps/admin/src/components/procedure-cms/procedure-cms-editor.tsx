@@ -516,7 +516,7 @@ function HeroVideoSection({
     heroPatch: AdminProcedureDocMetadata['heroVideo'] | null,
   ): AdminProcedureDocMetadata {
     const base = doc.procedureMetadata ?? {
-      toolsRequired: [],
+      toolsRequired: { common: [], special: [], consumables: [] },
       safety: { enabled: false, notes: null },
       verification: { enabled: false, notes: null },
     };
@@ -805,12 +805,31 @@ function OverviewSection({
 }) {
   const toast = useToast();
   const meta = doc.procedureMetadata;
+  // Read-time tolerant: accept either the canonical RequiredTools shape
+  // or a legacy flat array (procedures persisted before the split).
+  function readTools(
+    raw: AdminProcedureDocMetadata['toolsRequired'] | string[] | undefined,
+  ): { common: string[]; special: string[]; consumables: string[] } {
+    if (Array.isArray(raw)) {
+      return { common: raw, special: [], consumables: [] };
+    }
+    return {
+      common: raw?.common ?? [],
+      special: raw?.special ?? [],
+      consumables: raw?.consumables ?? [],
+    };
+  }
+  const initialTools = readTools(meta?.toolsRequired);
   const [summary, setSummary] = useState(meta?.summary ?? '');
   const [minutesStr, setMinutesStr] = useState(
     meta?.estimatedMinutes != null ? String(meta.estimatedMinutes) : '',
   );
-  const [tools, setTools] = useState<string[]>(meta?.toolsRequired ?? []);
-  const [toolDraft, setToolDraft] = useState('');
+  const [commonTools, setCommonTools] = useState<string[]>(initialTools.common);
+  const [specialTools, setSpecialTools] = useState<string[]>(initialTools.special);
+  const [consumables, setConsumables] = useState<string[]>(initialTools.consumables);
+  const [commonDraft, setCommonDraft] = useState('');
+  const [specialDraft, setSpecialDraft] = useState('');
+  const [consumableDraft, setConsumableDraft] = useState('');
   const [skillLevel, setSkillLevel] = useState<
     'basic' | 'intermediate' | 'advanced' | ''
   >(meta?.skillLevel ?? '');
@@ -827,7 +846,10 @@ function OverviewSection({
     setMinutesStr(
       meta?.estimatedMinutes != null ? String(meta.estimatedMinutes) : '',
     );
-    setTools(meta?.toolsRequired ?? []);
+    const t = readTools(meta?.toolsRequired);
+    setCommonTools(t.common);
+    setSpecialTools(t.special);
+    setConsumables(t.consumables);
     setSkillLevel(meta?.skillLevel ?? '');
   }, [doc.id]);
 
@@ -837,11 +859,16 @@ function OverviewSection({
     patch: Partial<AdminProcedureDocMetadata>,
   ): AdminProcedureDocMetadata {
     const base = doc.procedureMetadata ?? {
-      toolsRequired: [],
+      toolsRequired: { common: [], special: [], consumables: [] },
       safety: { enabled: false, notes: null },
       verification: { enabled: false, notes: null },
     };
-    return { ...base, ...patch };
+    // Coerce legacy flat-array toolsRequired on the way out — the API
+    // accepts both shapes but the server-normalized one is canonical.
+    const baseTools = Array.isArray(base.toolsRequired)
+      ? { common: base.toolsRequired, special: [], consumables: [] }
+      : base.toolsRequired;
+    return { ...base, toolsRequired: baseTools, ...patch };
   }
 
   async function save(patch: Partial<AdminProcedureDocMetadata>) {
@@ -880,22 +907,36 @@ function OverviewSection({
     }, 600);
   }
 
-  function addTool() {
-    const v = toolDraft.trim();
-    if (!v || tools.includes(v)) {
-      setToolDraft('');
+  type ToolBucket = 'common' | 'special' | 'consumables';
+  function currentTools(): { common: string[]; special: string[]; consumables: string[] } {
+    return { common: commonTools, special: specialTools, consumables };
+  }
+  function setBucket(bucket: ToolBucket, next: string[]) {
+    if (bucket === 'common') setCommonTools(next);
+    else if (bucket === 'special') setSpecialTools(next);
+    else setConsumables(next);
+  }
+  function addToolTo(bucket: ToolBucket, draft: string, clearDraft: () => void) {
+    const v = draft.trim();
+    if (!v) {
+      clearDraft();
       return;
     }
-    const next = [...tools, v];
-    setTools(next);
-    setToolDraft('');
-    void save({ toolsRequired: next });
+    const all = currentTools();
+    if (all[bucket].includes(v)) {
+      clearDraft();
+      return;
+    }
+    const nextBucket = [...all[bucket], v];
+    setBucket(bucket, nextBucket);
+    clearDraft();
+    void save({ toolsRequired: { ...all, [bucket]: nextBucket } });
   }
-
-  function removeTool(item: string) {
-    const next = tools.filter((x) => x !== item);
-    setTools(next);
-    void save({ toolsRequired: next });
+  function removeToolFrom(bucket: ToolBucket, item: string) {
+    const all = currentTools();
+    const nextBucket = all[bucket].filter((x) => x !== item);
+    setBucket(bucket, nextBucket);
+    void save({ toolsRequired: { ...all, [bucket]: nextBucket } });
   }
 
   function onSkillLevelChange(next: string) {
@@ -959,55 +1000,111 @@ function OverviewSection({
           </label>
         </div>
 
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           <span className="flex items-center gap-1 text-xs font-medium text-ink-secondary">
             <Wrench className="size-3.5" /> Required tools
           </span>
-          {tools.length > 0 && (
-            <ul className="flex flex-wrap gap-1.5">
-              {tools.map((item) => (
-                <li
-                  key={item}
-                  className="inline-flex items-center gap-1 rounded-full border border-line bg-surface px-2.5 py-1 text-xs text-ink-primary"
-                >
-                  <span>{item}</span>
-                  <button
-                    type="button"
-                    onClick={() => removeTool(item)}
-                    aria-label={`Remove ${item}`}
-                    className="rounded-full text-ink-tertiary hover:text-signal-fault"
-                  >
-                    <XIcon className="size-3" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={toolDraft}
-              onChange={(e) => setToolDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  addTool();
-                }
-              }}
-              placeholder="e.g. Torque wrench (10-30 N·m), 5mm hex key"
-              maxLength={200}
-              className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink-primary placeholder:text-ink-tertiary focus:border-accent focus:outline-none"
-            />
-            <button
-              type="button"
-              onClick={addTool}
-              disabled={!toolDraft.trim()}
-              className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-primary transition hover:border-accent/40 hover:bg-accent/5 disabled:opacity-50"
-            >
-              Add
-            </button>
-          </div>
+          <ToolBucketEditor
+            label="Common tools"
+            placeholder="e.g. Adjustable wrench, multimeter"
+            items={commonTools}
+            draft={commonDraft}
+            setDraft={setCommonDraft}
+            onAdd={() => addToolTo('common', commonDraft, () => setCommonDraft(''))}
+            onRemove={(item) => removeToolFrom('common', item)}
+          />
+          <ToolBucketEditor
+            label="Special tools"
+            placeholder="e.g. Torque wrench (10–30 N·m), bearing puller"
+            items={specialTools}
+            draft={specialDraft}
+            setDraft={setSpecialDraft}
+            onAdd={() => addToolTo('special', specialDraft, () => setSpecialDraft(''))}
+            onRemove={(item) => removeToolFrom('special', item)}
+          />
+          <ToolBucketEditor
+            label="Consumables"
+            placeholder="e.g. Loctite 243, replacement O-rings"
+            items={consumables}
+            draft={consumableDraft}
+            setDraft={setConsumableDraft}
+            onAdd={() => addToolTo('consumables', consumableDraft, () => setConsumableDraft(''))}
+            onRemove={(item) => removeToolFrom('consumables', item)}
+          />
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Small reusable chip-list editor used for each Required Tools bucket.
+// Behavior: Enter adds, X removes, duplicates dedupe silently. Keeps
+// OverviewSection's render tree readable.
+function ToolBucketEditor({
+  label,
+  placeholder,
+  items,
+  draft,
+  setDraft,
+  onAdd,
+  onRemove,
+}: {
+  label: string;
+  placeholder: string;
+  items: string[];
+  draft: string;
+  setDraft: (next: string) => void;
+  onAdd: () => void;
+  onRemove: (item: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5 rounded-md border border-line-subtle bg-surface px-3 py-2.5">
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-tertiary">
+        {label}
+      </span>
+      {items.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5">
+          {items.map((item) => (
+            <li
+              key={item}
+              className="inline-flex items-center gap-1 rounded-full border border-line bg-surface-raised px-2.5 py-1 text-xs text-ink-primary"
+            >
+              <span>{item}</span>
+              <button
+                type="button"
+                onClick={() => onRemove(item)}
+                aria-label={`Remove ${item}`}
+                className="rounded-full text-ink-tertiary hover:text-signal-fault"
+              >
+                <XIcon className="size-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              onAdd();
+            }
+          }}
+          placeholder={placeholder}
+          maxLength={200}
+          className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink-primary placeholder:text-ink-tertiary focus:border-accent focus:outline-none"
+        />
+        <button
+          type="button"
+          onClick={onAdd}
+          disabled={!draft.trim()}
+          className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-primary transition hover:border-accent/40 hover:bg-accent/5 disabled:opacity-50"
+        >
+          Add
+        </button>
       </div>
     </div>
   );

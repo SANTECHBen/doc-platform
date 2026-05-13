@@ -4,3 +4,5 @@ export * as schema from './schema';
 // without piercing the schema namespace. Add new ones sparingly — most code
 // should reach for the schema namespace itself.
 export type { VoiceQuotaConfig, VoiceUsage, NewVoiceUsage } from './schema/voice-usage';
+export type { RequiredTools, ProcedureDocMetadata } from './schema/content';
+export { normalizeRequiredTools } from './schema/content';

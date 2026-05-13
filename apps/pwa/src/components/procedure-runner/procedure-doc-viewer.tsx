@@ -245,19 +245,45 @@ export function ProcedureDocViewer({
             </div>
           </header>
 
-          {/* GENERAL INFORMATION — single card with bordered subsections
-              for summary, tools, and safety. Matches the Job Aid intro
-              pattern: bold sub-heads with brand-colored icons, faint
-              dividers between blocks. */}
-          {m &&
-            (m.summary ||
-              m.toolsRequired.length > 0 ||
-              m.safety.enabled) && (
-              <section className="flex flex-col rounded-md border border-line bg-surface-raised">
+          {/* GENERAL INFORMATION — single transparent card with
+              bordered subsections. Order matches the Job Aid intro:
+              Required Tools → Description → Safety. */}
+          {(() => {
+            if (!m) return null;
+            // Accept legacy flat array OR new { common, special,
+            // consumables } shape. API serves canonical now; legacy
+            // fallback covers stale clients.
+            const raw = m.toolsRequired as unknown;
+            const tools = Array.isArray(raw)
+              ? { common: raw as string[], special: [], consumables: [] }
+              : {
+                  common: (raw as { common?: string[] })?.common ?? [],
+                  special: (raw as { special?: string[] })?.special ?? [],
+                  consumables:
+                    (raw as { consumables?: string[] })?.consumables ?? [],
+                };
+            const anyTools =
+              tools.common.length > 0 ||
+              tools.special.length > 0 ||
+              tools.consumables.length > 0;
+            if (!m.summary && !anyTools && !m.safety.enabled) return null;
+            return (
+              <section className="flex flex-col rounded-md border border-line">
                 <h2 className="border-b border-line px-5 py-3 font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-ink-tertiary">
                   General Information
                 </h2>
                 <div className="flex flex-col divide-y divide-line/60 px-5 py-4">
+                  {anyTools && (
+                    <div className="flex flex-col gap-3 py-3 first:pt-0 last:pb-0">
+                      <h3 className="flex items-center gap-2 text-sm font-semibold text-ink-primary">
+                        <Wrench size={14} strokeWidth={2.25} className="text-brand" />
+                        Required Tools
+                      </h3>
+                      <ToolBucket label="Common Tools" items={tools.common} />
+                      <ToolBucket label="Special Tools" items={tools.special} />
+                      <ToolBucket label="Consumables" items={tools.consumables} />
+                    </div>
+                  )}
                   {m.summary && (
                     <div className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
                       <h3 className="flex items-center gap-2 text-sm font-semibold text-ink-primary">
@@ -267,26 +293,6 @@ export function ProcedureDocViewer({
                       <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-secondary">
                         {m.summary}
                       </p>
-                    </div>
-                  )}
-                  {m.toolsRequired.length > 0 && (
-                    <div className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
-                      <h3 className="flex items-center gap-2 text-sm font-semibold text-ink-primary">
-                        <Wrench size={14} strokeWidth={2.25} className="text-brand" />
-                        Required Tools
-                      </h3>
-                      <ul className="flex flex-col gap-1">
-                        {m.toolsRequired.map((t, i) => (
-                          <li key={i} className="flex items-center gap-2 text-sm">
-                            <Check
-                              size={14}
-                              strokeWidth={2}
-                              className="shrink-0 text-ink-tertiary"
-                            />
-                            <span className="text-ink-primary">{t}</span>
-                          </li>
-                        ))}
-                      </ul>
                     </div>
                   )}
                   {m.safety.enabled && (
@@ -312,7 +318,8 @@ export function ProcedureDocViewer({
                   )}
                 </div>
               </section>
-            )}
+            );
+          })()}
 
           {/* STEPS */}
           <section className="flex flex-col gap-3">
@@ -486,5 +493,31 @@ function KindBadge({ kind }: { kind: ProcedureStepKind }) {
       <Icon size={10} strokeWidth={1.75} />
       {label}
     </span>
+  );
+}
+
+// Labeled tool bucket used three times in the General Information
+// section (Common / Special / Consumables). Renders nothing when the
+// list is empty so callers don't need to guard.
+function ToolBucket({ label, items }: { label: string; items: string[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs font-semibold text-ink-secondary">
+        {label}:
+      </span>
+      <ul className="flex flex-col gap-1 pl-1">
+        {items.map((t, i) => (
+          <li key={i} className="flex items-center gap-2 text-sm">
+            <Check
+              size={14}
+              strokeWidth={2}
+              className="shrink-0 text-ink-tertiary"
+            />
+            <span className="text-ink-primary">{t}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

@@ -2596,7 +2596,24 @@
     padding: 14px 16px;
     border-radius: 12px;
     border: 1px solid rgb(var(--line));
-    background: rgb(var(--surface-elevated));
+    background: transparent;
+  }
+  /* Required Tools subsection lays out three labeled buckets stacked
+     vertically. Each bucket shows only when its list is non-empty. */
+  .vja-hero-intro-tool-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .vja-hero-intro-tool-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .vja-hero-intro-tool-group-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: rgb(var(--ink-secondary));
   }
   .vja-hero-intro-card-header {
     font-family: var(--font-mono);

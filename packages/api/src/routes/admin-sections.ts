@@ -17,7 +17,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { and, eq, inArray, asc } from 'drizzle-orm';
-import { schema, type Database } from '@platform/db';
+import { schema, type Database, normalizeRequiredTools } from '@platform/db';
 import { z } from 'zod';
 import { UuidSchema } from '@platform/shared';
 import {
@@ -255,10 +255,13 @@ export async function registerAdminSections(app: FastifyInstance) {
       // Resolve heroVideo to a previewable URL. Uploaded files go
       // through storage.publicUrl; pasted external URLs pass through
       // as-is. The admin UI uses `url` for previewing either way.
+      // toolsRequired is also normalized so legacy flat-array data is
+      // served in the canonical { common, special, consumables } shape.
       const meta = d.procedureMetadata ?? null;
       const metaWithUrl = meta
         ? {
             ...meta,
+            toolsRequired: normalizeRequiredTools(meta.toolsRequired),
             ...(meta.heroVideo
               ? {
                   heroVideo: {

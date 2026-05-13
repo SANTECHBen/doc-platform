@@ -29,9 +29,43 @@ import {
 // render time. Title + Tools + Steps are always shown. Safety and
 // Verification are author-controlled toggles per-doc — when disabled,
 // the section is omitted entirely from the rendered template.
+/** Structured "Required Tools" — split into three lists so the PWA can
+ *  render labeled sub-groups (Common / Special / Consumables) on the
+ *  procedure intro screen. Legacy data persisted as a flat `string[]`
+ *  is coerced to `{ common: [...], special: [], consumables: [] }` at
+ *  read time and normalized by the API zod preprocess. */
+export type RequiredTools = {
+  common: string[];
+  special: string[];
+  consumables: string[];
+};
+
+/** Coerce a raw jsonb value (or legacy flat array, or undefined) into
+ *  the canonical RequiredTools shape. Read paths in admin-sections and
+ *  field-procedures use this so clients always see the new shape. */
+export function normalizeRequiredTools(raw: unknown): RequiredTools {
+  if (Array.isArray(raw)) {
+    return {
+      common: raw.filter((s): s is string => typeof s === 'string'),
+      special: [],
+      consumables: [],
+    };
+  }
+  if (raw && typeof raw === 'object') {
+    const o = raw as Partial<RequiredTools>;
+    return {
+      common: Array.isArray(o.common) ? o.common : [],
+      special: Array.isArray(o.special) ? o.special : [],
+      consumables: Array.isArray(o.consumables) ? o.consumables : [],
+    };
+  }
+  return { common: [], special: [], consumables: [] };
+}
+
 export type ProcedureDocMetadata = {
-  /** Free-text tool list ("Torque wrench (10-30 N·m)", "5mm hex key"). */
-  toolsRequired: string[];
+  /** Free-text tool buckets. See RequiredTools above for shape +
+   *  migration notes. */
+  toolsRequired: RequiredTools;
   safety: { enabled: boolean; notes: string | null };
   verification: { enabled: boolean; notes: string | null };
   /** Author-controlled overview fields rendered on the procedure intro

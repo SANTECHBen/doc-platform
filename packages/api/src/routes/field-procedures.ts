@@ -19,7 +19,7 @@
 import type { FastifyInstance } from 'fastify';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { schema, type Database } from '@platform/db';
+import { schema, type Database, normalizeRequiredTools } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth';
 import { getScope, requireOrgInScope } from '../middleware/scope';
@@ -141,7 +141,15 @@ const AuthoringReorderBody = z.object({
 // Procedure-doc template metadata. Always-on Title/Tools/Steps; toggled
 // Safety + Verification per author preference.
 const ProcedureMetadataBody = z.object({
-  toolsRequired: z.array(z.string().min(1).max(200)).max(50),
+  toolsRequired: z.preprocess(
+    (v) =>
+      Array.isArray(v) ? { common: v, special: [], consumables: [] } : v,
+    z.object({
+      common: z.array(z.string().min(1).max(200)).max(50),
+      special: z.array(z.string().min(1).max(200)).max(50),
+      consumables: z.array(z.string().min(1).max(200)).max(50),
+    }),
+  ),
   safety: z.object({
     enabled: z.boolean(),
     notes: z.string().max(5000).nullable(),
@@ -1332,11 +1340,14 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
 
       // Resolve the heroVideo to a public URL the PWA can play. Uploaded
       // files go through storage.publicUrl; pasted external URLs
-      // (YouTube/Vimeo/direct mp4) pass through unchanged.
+      // (YouTube/Vimeo/direct mp4) pass through unchanged. toolsRequired
+      // is normalized so legacy flat arrays surface in the canonical
+      // { common, special, consumables } shape.
       const meta = doc.procedureMetadata ?? null;
       const metaWithUrl = meta
         ? {
             ...meta,
+            toolsRequired: normalizeRequiredTools(meta.toolsRequired),
             ...(meta.heroVideo
               ? {
                   heroVideo: {

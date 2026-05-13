@@ -322,7 +322,7 @@ export async function registerAdminPromoteRoutes(app: FastifyInstance) {
           tags: ['ai-promoted'],
           extractionStatus: 'not_applicable',
           procedureMetadata: {
-            toolsRequired: [],
+            toolsRequired: { common: [], special: [], consumables: [] },
             safety: { enabled: parsed.steps.some((s) => s.safetyCritical), notes: null },
             verification: { enabled: false, notes: null },
           },

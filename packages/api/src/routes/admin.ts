@@ -2552,7 +2552,22 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
             // sends the whole object. JSON column, no migration needed.
             procedureMetadata: z
               .object({
-                toolsRequired: z.array(z.string().min(1).max(200)).max(50),
+                // Accept either the new structured shape or a legacy
+                // flat string[] (existing procedures persisted before
+                // the Common/Special/Consumables split). Legacy arrays
+                // become the "common" bucket. The DB column is jsonb;
+                // any normalization done here is what gets persisted.
+                toolsRequired: z.preprocess(
+                  (v) =>
+                    Array.isArray(v)
+                      ? { common: v, special: [], consumables: [] }
+                      : v,
+                  z.object({
+                    common: z.array(z.string().min(1).max(200)).max(50),
+                    special: z.array(z.string().min(1).max(200)).max(50),
+                    consumables: z.array(z.string().min(1).max(200)).max(50),
+                  }),
+                ),
                 safety: z.object({
                   enabled: z.boolean(),
                   notes: z.string().max(5000).nullable(),

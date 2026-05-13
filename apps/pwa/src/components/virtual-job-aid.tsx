@@ -69,7 +69,9 @@ interface ResolvedJobAid {
     summary: string | null;
     estimatedMinutes: number | null;
     skillLevel: 'basic' | 'intermediate' | 'advanced' | null;
-    toolsRequired: string[];
+    toolsCommon: string[];
+    toolsSpecial: string[];
+    toolsConsumables: string[];
     safetyNotes: string | null;
   } | null;
   steps: Array<{
@@ -90,7 +92,21 @@ function normalizeFromDoc(doc: ProcedureDocFullDto): ResolvedJobAid {
   const hero = meta?.heroVideo ?? null;
   const safety = meta?.safety;
   const summary = meta?.summary?.trim() ?? '';
-  const tools = meta?.toolsRequired ?? [];
+  // Accept legacy flat array OR the canonical { common, special,
+  // consumables } shape. API serves canonical now; legacy fallback is
+  // a safety net for clients with stale cached payloads.
+  const rawTools = meta?.toolsRequired;
+  const tools = Array.isArray(rawTools)
+    ? { common: rawTools as string[], special: [], consumables: [] }
+    : {
+        common: rawTools?.common ?? [],
+        special: rawTools?.special ?? [],
+        consumables: rawTools?.consumables ?? [],
+      };
+  const anyTools =
+    tools.common.length > 0 ||
+    tools.special.length > 0 ||
+    tools.consumables.length > 0;
   const safetyNotes =
     safety?.enabled && safety.notes && safety.notes.trim().length > 0
       ? safety.notes
@@ -103,7 +119,7 @@ function normalizeFromDoc(doc: ProcedureDocFullDto): ResolvedJobAid {
     summary.length > 0 ||
     (meta?.estimatedMinutes != null && meta.estimatedMinutes >= 0) ||
     meta?.skillLevel != null ||
-    tools.length > 0 ||
+    anyTools ||
     safetyNotes != null;
   return {
     title: doc.document.title,
@@ -114,7 +130,9 @@ function normalizeFromDoc(doc: ProcedureDocFullDto): ResolvedJobAid {
           summary: summary.length > 0 ? summary : null,
           estimatedMinutes: meta?.estimatedMinutes ?? null,
           skillLevel: meta?.skillLevel ?? null,
-          toolsRequired: tools,
+          toolsCommon: tools.common,
+          toolsSpecial: tools.special,
+          toolsConsumables: tools.consumables,
           safetyNotes,
         }
       : null,
@@ -395,44 +413,9 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolved, stepIdx, autoSpeak, muted, showHeroIntro]);
 
-  // Intro narration — fires once when entering the hero intro panel.
-  useEffect(() => {
-    if (!resolved?.intro || !showHeroIntro || !autoSpeak || muted) return;
-    void (async () => {
-      try {
-        // Short, voice-first orientation. Doesn't auto-play the video
-        // (which would clash with this narration) — tech taps Play.
-        const text =
-          'Procedure intro. Watch the overview, then tap Start when ready.';
-        const ctx = audioCtxRef.current ?? new (
-          window.AudioContext ??
-          (window as unknown as { webkitAudioContext: typeof AudioContext })
-            .webkitAudioContext
-        )();
-        audioCtxRef.current = ctx;
-        if (ctx.state === 'suspended') await ctx.resume();
-        setSpeaking(true);
-        const resp = await speak(text);
-        const buf = await resp.arrayBuffer();
-        const decoded = await ctx.decodeAudioData(buf);
-        const source = ctx.createBufferSource();
-        source.buffer = decoded;
-        source.connect(ctx.destination);
-        sourceRef.current = source;
-        await new Promise<void>((resolve) => {
-          source.onended = () => resolve();
-          source.start();
-        });
-      } catch {
-        // Best-effort — silent on error.
-      } finally {
-        setSpeaking(false);
-        sourceRef.current = null;
-      }
-    })();
-    return () => stopPlayback();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resolved?.intro?.heroVideoUrl, showHeroIntro, autoSpeak, muted]);
+  // No auto-narration on the intro panel — author overview content (or
+  // the hero video itself) carries the orientation. Per-step TTS still
+  // fires once the tech advances past the intro.
 
   function next() {
     if (!resolved) return;
@@ -580,61 +563,63 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
                 alt={`${resolved.title} intro video`}
               />
             )}
-            {(resolved.intro.summary ||
-              resolved.intro.toolsRequired.length > 0 ||
-              resolved.intro.safetyNotes) && (
-              <section
-                className="vja-hero-intro-card"
-                aria-label="General information"
-              >
-                <h2 className="vja-hero-intro-card-header">
-                  General information
-                </h2>
-                {resolved.intro.summary && (
-                  <div className="vja-hero-intro-block">
-                    <h3 className="vja-hero-intro-subhead">
-                      <span className="vja-hero-intro-subhead-icon">
-                        <FileText size={14} strokeWidth={2.25} />
-                      </span>
-                      Description
-                    </h3>
-                    <p className="vja-hero-intro-summary">
-                      {resolved.intro.summary}
-                    </p>
-                  </div>
-                )}
-                {resolved.intro.toolsRequired.length > 0 && (
-                  <div className="vja-hero-intro-block">
-                    <h3 className="vja-hero-intro-subhead">
-                      <span className="vja-hero-intro-subhead-icon">
-                        <Wrench size={14} strokeWidth={2.25} />
-                      </span>
-                      Required tools
-                    </h3>
-                    <div className="vja-hero-intro-tools">
-                      {resolved.intro.toolsRequired.map((t) => (
-                        <span key={t} className="vja-hero-intro-tool">
-                          {t}
+            {(() => {
+              const i = resolved.intro;
+              const anyTools =
+                i.toolsCommon.length > 0 ||
+                i.toolsSpecial.length > 0 ||
+                i.toolsConsumables.length > 0;
+              if (!i.summary && !anyTools && !i.safetyNotes) return null;
+              return (
+                <section
+                  className="vja-hero-intro-card"
+                  aria-label="General information"
+                >
+                  <h2 className="vja-hero-intro-card-header">
+                    General information
+                  </h2>
+                  {anyTools && (
+                    <div className="vja-hero-intro-block">
+                      <h3 className="vja-hero-intro-subhead">
+                        <span className="vja-hero-intro-subhead-icon">
+                          <Wrench size={14} strokeWidth={2.25} />
                         </span>
-                      ))}
+                        Required tools
+                      </h3>
+                      <div className="vja-hero-intro-tool-groups">
+                        <ToolBucketList label="Common Tools" items={i.toolsCommon} />
+                        <ToolBucketList label="Special Tools" items={i.toolsSpecial} />
+                        <ToolBucketList label="Consumables" items={i.toolsConsumables} />
+                      </div>
                     </div>
-                  </div>
-                )}
-                {resolved.intro.safetyNotes && (
-                  <div className="vja-hero-intro-block">
-                    <h3 className="vja-hero-intro-subhead">
-                      <span className="vja-hero-intro-subhead-icon">
-                        <ShieldAlert size={14} strokeWidth={2.25} />
-                      </span>
-                      Safety
-                    </h3>
-                    <div className="vja-hero-intro-safety">
-                      {resolved.intro.safetyNotes}
+                  )}
+                  {i.summary && (
+                    <div className="vja-hero-intro-block">
+                      <h3 className="vja-hero-intro-subhead">
+                        <span className="vja-hero-intro-subhead-icon">
+                          <FileText size={14} strokeWidth={2.25} />
+                        </span>
+                        Description
+                      </h3>
+                      <p className="vja-hero-intro-summary">{i.summary}</p>
                     </div>
-                  </div>
-                )}
-              </section>
-            )}
+                  )}
+                  {i.safetyNotes && (
+                    <div className="vja-hero-intro-block">
+                      <h3 className="vja-hero-intro-subhead">
+                        <span className="vja-hero-intro-subhead-icon">
+                          <ShieldAlert size={14} strokeWidth={2.25} />
+                        </span>
+                        Safety
+                      </h3>
+                      <div className="vja-hero-intro-safety">
+                        {i.safetyNotes}
+                      </div>
+                    </div>
+                  )}
+                </section>
+              );
+            })()}
           </section>
         )}
         {!showHeroIntro && step && (
@@ -990,4 +975,23 @@ function linkifyText(text: string): React.ReactNode {
   }
   if (last < text.length) parts.push(text.slice(last));
   return parts.length > 0 ? parts : text;
+}
+
+// Small labeled chip list used three times in the intro's Required
+// Tools subsection (Common / Special / Consumables). Returns null when
+// empty so the parent's three lists collapse cleanly.
+function ToolBucketList({ label, items }: { label: string; items: string[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="vja-hero-intro-tool-group">
+      <span className="vja-hero-intro-tool-group-label">{label}:</span>
+      <div className="vja-hero-intro-tools">
+        {items.map((t) => (
+          <span key={t} className="vja-hero-intro-tool">
+            {t}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 }

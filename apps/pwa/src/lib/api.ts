@@ -695,8 +695,14 @@ export interface ProcedureDocHeroVideo {
   url: string;
 }
 
+export interface RequiredTools {
+  common: string[];
+  special: string[];
+  consumables: string[];
+}
+
 export interface ProcedureDocMetadata {
-  toolsRequired: string[];
+  toolsRequired: RequiredTools;
   safety: { enabled: boolean; notes: string | null };
   verification: { enabled: boolean; notes: string | null };
   /** Optional procedure-level intro video. Renders on "Step 0" of the
