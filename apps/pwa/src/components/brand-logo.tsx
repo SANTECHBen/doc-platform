@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { ImageZoom } from './image-zoom';
 
 export function BrandLogo({
   src,
@@ -25,11 +26,13 @@ export function BrandLogo({
   }
 
   return (
-    <img
-      src={src}
-      alt={alt}
-      style={{ maxHeight: 22, maxWidth: 120, objectFit: 'contain' }}
-      onError={() => setFailed(true)}
-    />
+    <ImageZoom src={src} alt={alt} triggerLabel={`Enlarge ${alt} logo`}>
+      <img
+        src={src}
+        alt={alt}
+        style={{ maxHeight: 22, maxWidth: 120, objectFit: 'contain' }}
+        onError={() => setFailed(true)}
+      />
+    </ImageZoom>
   );
 }

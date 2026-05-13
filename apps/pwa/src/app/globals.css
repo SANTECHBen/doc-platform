@@ -824,9 +824,9 @@
     overflow: hidden;
   }
   .nameplate-strip-thumb {
-    width: 22px;
-    height: 22px;
-    border-radius: 3px;
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
     object-fit: contain;
     background: rgb(var(--surface-elevated));
     border: 1px solid rgb(var(--line-subtle));

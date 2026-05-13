@@ -20,6 +20,7 @@ import { IssuesPanel } from './issues-panel';
 import { VoiceMode, type PrefetchedGreeting } from '@/components/voice-mode';
 import { VirtualJobAid } from '@/components/virtual-job-aid';
 import { ModeChooser, type ChosenMode } from '@/components/mode-chooser';
+import { ImageZoom } from '@/components/image-zoom';
 import {
   fetchPreflight,
   listDocuments,
@@ -355,11 +356,17 @@ function Nameplate({
         <span className={`led ${ledClass}`} />
         <div className="nameplate-strip-id">
           {hub.assetModel.imageUrl && (
-            <img
+            <ImageZoom
               src={hub.assetModel.imageUrl}
-              alt=""
-              className="nameplate-strip-thumb"
-            />
+              alt={hub.assetModel.displayName}
+              triggerLabel={`Enlarge ${hub.assetModel.displayName} photo`}
+            >
+              <img
+                src={hub.assetModel.imageUrl}
+                alt=""
+                className="nameplate-strip-thumb"
+              />
+            </ImageZoom>
           )}
           <span className="nameplate-strip-name">{hub.assetModel.displayName}</span>
           <span className="nameplate-strip-sep">·</span>
@@ -391,28 +398,34 @@ function Nameplate({
 
       <div className="nameplate-row">
         {hub.assetModel.imageUrl && (
-          <div
-            className="nameplate-thumb"
-            style={{
-              width: 56,
-              height: 56,
-              borderRadius: 8,
-              border: '1px solid rgb(var(--surface-plate-edge))',
-              background: 'rgb(var(--surface-elevated))',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-              overflow: 'hidden',
-              padding: 4,
-            }}
+          <ImageZoom
+            src={hub.assetModel.imageUrl}
+            alt={hub.assetModel.displayName}
+            triggerLabel={`Enlarge ${hub.assetModel.displayName} photo`}
           >
-            <img
-              src={hub.assetModel.imageUrl}
-              alt=""
-              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
-            />
-          </div>
+            <div
+              className="nameplate-thumb"
+              style={{
+                width: 96,
+                height: 96,
+                borderRadius: 8,
+                border: '1px solid rgb(var(--surface-plate-edge))',
+                background: 'rgb(var(--surface-elevated))',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                overflow: 'hidden',
+                padding: 4,
+              }}
+            >
+              <img
+                src={hub.assetModel.imageUrl}
+                alt=""
+                style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+              />
+            </div>
+          </ImageZoom>
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="nameplate-title">{hub.assetModel.displayName}</div>
