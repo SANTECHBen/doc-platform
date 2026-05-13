@@ -396,40 +396,30 @@ function Nameplate({
         </span>
       </div>
 
-      <div className="nameplate-row">
-        {hub.assetModel.imageUrl && (
+      {/* Image-prominent hero band: the asset photo fills the full
+          width of the plate, with title + meta overlaid at the bottom
+          on a dark gradient so white text reads on any frame. The
+          industrial framing (corner marks, brand rail, plate gradient)
+          stays around it for brand continuity. */}
+      <div className="nameplate-hero">
+        {hub.assetModel.imageUrl ? (
           <ImageZoom
             src={hub.assetModel.imageUrl}
             alt={hub.assetModel.displayName}
             triggerLabel={`Enlarge ${hub.assetModel.displayName} photo`}
           >
-            <div
-              className="nameplate-thumb"
-              style={{
-                width: 96,
-                height: 96,
-                borderRadius: 8,
-                border: '1px solid rgb(var(--surface-plate-edge))',
-                background: 'rgb(var(--surface-elevated))',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-                overflow: 'hidden',
-                padding: 4,
-              }}
-            >
-              <img
-                src={hub.assetModel.imageUrl}
-                alt=""
-                style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
-              />
-            </div>
+            <img
+              src={hub.assetModel.imageUrl}
+              alt=""
+              className="nameplate-hero-image"
+            />
           </ImageZoom>
+        ) : (
+          <div className="nameplate-hero-image-placeholder" />
         )}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="nameplate-title">{hub.assetModel.displayName}</div>
-          <div className="nameplate-meta">
+        <div className="nameplate-hero-overlay">
+          <h1 className="nameplate-hero-title">{hub.assetModel.displayName}</h1>
+          <div className="nameplate-hero-meta">
             <span>{hub.assetModel.modelCode}</span>
             <span className="sep">·</span>
             <span>
@@ -445,28 +435,28 @@ function Nameplate({
             )}
           </div>
         </div>
+      </div>
 
-        <div className="nameplate-metrics">
-          <div className="nameplate-metric">
-            <span className="cap">Rev</span>
-            <span className="val">
-              {hub.pinnedContentPackVersion?.versionLabel ?? '—'}
-            </span>
-          </div>
-          <div className="nameplate-metric">
-            <span className="cap">Open WO</span>
-            <span
-              className="val"
-              style={{
-                color:
-                  openIssueCount > 0
-                    ? 'rgb(var(--signal-warn))'
-                    : 'rgb(var(--signal-ok))',
-              }}
-            >
-              {openIssueCount}
-            </span>
-          </div>
+      <div className="nameplate-metrics-bar">
+        <div className="nameplate-metric-h">
+          <span className="cap">Rev</span>
+          <span className="val">
+            {hub.pinnedContentPackVersion?.versionLabel ?? '—'}
+          </span>
+        </div>
+        <div className="nameplate-metric-h">
+          <span className="cap">Open WO</span>
+          <span
+            className="val"
+            style={{
+              color:
+                openIssueCount > 0
+                  ? 'rgb(var(--signal-warn))'
+                  : 'rgb(var(--signal-ok))',
+            }}
+          >
+            {openIssueCount}
+          </span>
         </div>
       </div>
     </header>

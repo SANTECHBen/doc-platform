@@ -786,6 +786,103 @@
     letter-spacing: -0.005em;
   }
 
+  /* Image-prominent hero band — full-width photo with title + meta
+     overlaid at the bottom on a dark linear gradient. Sits between the
+     top caption strip and the metrics bar, both of which stay outside
+     the gradient for legibility on the plate background. */
+  .nameplate-hero {
+    position: relative;
+    margin: 12px 0 14px 0;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid rgb(var(--surface-plate-edge));
+    background: #000;
+    aspect-ratio: 16 / 9;
+    z-index: 1;
+  }
+  @media (min-width: 768px) {
+    .nameplate-hero { aspect-ratio: 21 / 9; }
+  }
+  .nameplate-hero-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .nameplate-hero-image-placeholder {
+    width: 100%;
+    height: 100%;
+    background:
+      radial-gradient(120% 80% at 50% 0%, rgba(var(--brand-glow), 0.18), transparent 60%),
+      linear-gradient(180deg, rgb(var(--surface-elevated)), rgb(var(--surface-base)));
+  }
+  .nameplate-hero-overlay {
+    pointer-events: none;
+    position: absolute;
+    inset: 0 0 0 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 6px;
+    padding: 14px 18px 16px 18px;
+    background: linear-gradient(
+      to top,
+      rgba(0, 0, 0, 0.82) 0%,
+      rgba(0, 0, 0, 0.45) 35%,
+      rgba(0, 0, 0, 0) 65%
+    );
+  }
+  .nameplate-hero-title {
+    margin: 0;
+    color: #fff;
+    font-size: 26px;
+    font-weight: 600;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+  }
+  .nameplate-hero-meta {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: rgba(255, 255, 255, 0.88);
+    letter-spacing: 0.01em;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
+  }
+  .nameplate-hero-meta .serial {
+    color: rgb(var(--brand-strong));
+    font-weight: 500;
+  }
+  .nameplate-hero-meta .sep {
+    color: rgba(255, 255, 255, 0.55);
+    margin: 0 8px;
+  }
+
+  /* Horizontal metrics row that sits below the hero band — same data
+     as the old .nameplate-metrics but oriented for the new layout. */
+  .nameplate-metrics-bar {
+    display: flex;
+    gap: 36px;
+    position: relative;
+    z-index: 1;
+  }
+  .nameplate-metric-h .cap {
+    display: block;
+    margin-bottom: 4px;
+  }
+  .nameplate-metric-h .val {
+    font-family: var(--font-mono);
+    font-size: 20px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: rgb(var(--ink-primary));
+    letter-spacing: -0.005em;
+  }
+  @media (max-width: 640px) {
+    .nameplate-hero-title { font-size: 22px; }
+    .nameplate-metrics-bar { gap: 24px; }
+    .nameplate-metric-h .val { font-size: 17px; }
+  }
+
   @media (max-width: 640px) {
     .nameplate { padding: 18px 20px 16px 24px; }
     .nameplate-row { flex-direction: column; gap: 16px; }
