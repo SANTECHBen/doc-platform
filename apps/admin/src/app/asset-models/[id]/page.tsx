@@ -196,8 +196,46 @@ export default function AssetModelDetail({
         ...(model.description ? { description: model.description } : {}),
         ...(model.imageStorageKey ? { imageStorageKey: model.imageStorageKey } : {}),
       });
+
+      // Copy the BOM (parts attached to the original model) onto the
+      // new one. Best-effort, parallel — if some entries fail we still
+      // land the user on the new model and toast the partial result so
+      // they can investigate which entries are missing.
+      let bomFailures = 0;
+      let bomTotal = 0;
+      try {
+        const bom = await listBom(model.id);
+        bomTotal = bom.length;
+        if (bom.length > 0) {
+          const results = await Promise.allSettled(
+            bom.map((b) =>
+              addBomEntry(created.id, {
+                partId: b.partId,
+                quantity: b.quantity,
+                ...(b.positionRef ? { positionRef: b.positionRef } : {}),
+                ...(b.notes ? { notes: b.notes } : {}),
+              }),
+            ),
+          );
+          bomFailures = results.filter((r) => r.status === 'rejected').length;
+        }
+      } catch {
+        // listBom itself failed — model is still created, just no BOM copied.
+        bomFailures = -1;
+      }
+
       setDupOpen(false);
-      toast.success('Asset model duplicated');
+      if (bomFailures > 0) {
+        toast.error(
+          `Model duplicated but ${bomFailures} of ${bomTotal} BOM entries failed to copy.`,
+        );
+      } else if (bomFailures < 0) {
+        toast.error('Model duplicated but BOM list could not be fetched.');
+      } else if (bomTotal > 0) {
+        toast.success(`Asset model duplicated with ${bomTotal} BOM entries.`);
+      } else {
+        toast.success('Asset model duplicated.');
+      }
       router.push(`/asset-models/${created.id}`);
     } catch (err) {
       setDupError(err instanceof Error ? err.message : String(err));
@@ -467,9 +505,9 @@ export default function AssetModelDetail({
           {dupError && <ErrorBanner error={dupError} />}
           <p className="text-sm text-ink-secondary">
             Creates a new asset model owned by{' '}
-            <strong>{model.owner.name}</strong>. Description and image are
-            copied as-is — you can refine them via Edit after the new model
-            is created.
+            <strong>{model.owner.name}</strong>. Description, image, and
+            BOM (linked parts) are copied as-is — you can refine them via
+            Edit after the new model is created.
           </p>
           <Field label="New model code" required>
             <TextInput
