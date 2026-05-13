@@ -34,6 +34,7 @@ import { FramedPdf } from '@/components/framed-pdf';
 import { ProcedureRunner } from '@/components/procedure-runner/procedure-runner';
 import { ProcedureDocWizard } from '@/components/procedure-runner/procedure-doc-wizard';
 import { ProcedureDocViewer } from '@/components/procedure-runner/procedure-doc-viewer';
+import { VirtualJobAid } from '@/components/virtual-job-aid';
 import { AuthPrompt } from '@/components/auth-prompt';
 import { Plus } from 'lucide-react';
 import {
@@ -151,6 +152,11 @@ export function DocsTab({
   // Run-mode (evidence capture) — launched from inside the viewer's
   // "Run with evidence" button.
   const [procedureDocId, setProcedureDocId] = useState<string | null>(null);
+  // Browse-mode Job Aid handoff. The doc viewer renders the procedure as
+  // a scrollable read-only view by default; tapping "Job Aid view" opens
+  // VirtualJobAid for the step-at-a-time format with voiceover playback.
+  // Closing the job aid returns to the doc viewer at the same docId.
+  const [jobAidDocId, setJobAidDocId] = useState<string | null>(null);
   // Authoring mode — launched from the "+ Document a procedure" CTA.
   const [authoringActive, setAuthoringActive] = useState(false);
   const [authPromptOpen, setAuthPromptOpen] = useState(false);
@@ -257,6 +263,26 @@ export function DocsTab({
     );
   }
 
+  if (jobAidDocId) {
+    return (
+      <VirtualJobAid
+        source={{
+          kind: 'doc',
+          docId: jobAidDocId,
+          devUserId: DEV_USER_ID,
+          devOrgId: DEV_ORG_ID,
+        }}
+        onClose={() => {
+          // Return to the doc viewer at the same docId — tech can switch
+          // back to the scroll view without re-opening from the docs list.
+          const id = jobAidDocId;
+          setJobAidDocId(null);
+          setViewerDocId(id);
+        }}
+      />
+    );
+  }
+
   if (viewerDocId) {
     return (
       <ProcedureDocViewer
@@ -264,6 +290,11 @@ export function DocsTab({
         devUserId={DEV_USER_ID}
         devOrgId={DEV_ORG_ID}
         onClose={() => setViewerDocId(null)}
+        onOpenJobAid={() => {
+          const id = viewerDocId;
+          setViewerDocId(null);
+          setJobAidDocId(id);
+        }}
         onRunWithEvidence={
           DEV_USER_ID
             ? () => {

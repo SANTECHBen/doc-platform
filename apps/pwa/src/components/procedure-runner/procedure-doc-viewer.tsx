@@ -14,6 +14,7 @@ import {
   Check,
   ChevronLeft,
   ClipboardCheck,
+  Headphones,
   ListChecks,
   Play,
   ShieldAlert,
@@ -31,6 +32,7 @@ export function ProcedureDocViewer({
   devOrgId,
   onClose,
   onRunWithEvidence,
+  onOpenJobAid,
 }: {
   docId: string;
   devUserId: string;
@@ -40,6 +42,9 @@ export function ProcedureDocViewer({
    *  unaware of routing. Passing null hides the button (e.g., when the
    *  user isn't authed for write paths). */
   onRunWithEvidence: (() => void) | null;
+  /** Toggle to the hands-free Job Aid view (VirtualJobAid). When
+   *  supplied, renders a button next to "Run with evidence". */
+  onOpenJobAid?: (() => void) | null;
 }) {
   const [doc, setDoc] = useState<ProcedureDocFullDto | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -153,15 +158,27 @@ export function ProcedureDocViewer({
           </span>
           <h2 className="truncate text-base font-semibold">{doc.document.title}</h2>
         </div>
-        {onRunWithEvidence && (
-          <button
-            type="button"
-            onClick={onRunWithEvidence}
-            className="btn btn-primary btn-sm"
-          >
-            <Play size={14} strokeWidth={2} /> Run with evidence
-          </button>
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {onOpenJobAid && (
+            <button
+              type="button"
+              onClick={onOpenJobAid}
+              className="btn btn-secondary btn-sm"
+              title="Step-by-step hands-free walkthrough with voiceover"
+            >
+              <Headphones size={14} strokeWidth={2} /> Job Aid view
+            </button>
+          )}
+          {onRunWithEvidence && (
+            <button
+              type="button"
+              onClick={onRunWithEvidence}
+              className="btn btn-primary btn-sm"
+            >
+              <Play size={14} strokeWidth={2} /> Run with evidence
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="doc-overlay-scroll">
