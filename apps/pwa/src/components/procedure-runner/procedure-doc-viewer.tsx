@@ -131,54 +131,65 @@ export function ProcedureDocViewer({
       aria-modal="true"
       aria-label={doc.document.title}
     >
-      <header className="doc-overlay-bar">
-        <button
-          type="button"
-          onClick={onClose}
-          className="app-topbar-btn"
-          aria-label="Close"
-        >
-          <ChevronLeft size={22} strokeWidth={2} />
-        </button>
-        <div className="doc-overlay-title">
-          <span className="inline-flex items-center gap-1.5 caption">
-            <ListChecks size={12} strokeWidth={1.75} />
-            PROCEDURE
-            {doc.document.source === 'field' && (
-              <span
-                className={`ml-1 inline-flex items-center gap-1 rounded-sm border px-1 py-0.5 text-[10px] uppercase ${
-                  doc.document.verified
-                    ? 'border-signal-ok/40 bg-signal-ok/10 text-signal-ok'
-                    : 'border-signal-warn/40 bg-signal-warn/10 text-signal-warn'
-                }`}
+      <header
+        className="doc-overlay-bar"
+        style={{
+          flexDirection: 'column',
+          alignItems: 'stretch',
+          gap: 8,
+        }}
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="app-topbar-btn"
+            aria-label="Close"
+          >
+            <ChevronLeft size={22} strokeWidth={2} />
+          </button>
+          <div className="doc-overlay-title">
+            <span className="inline-flex items-center gap-1.5 caption">
+              <ListChecks size={12} strokeWidth={1.75} />
+              PROCEDURE
+              {doc.document.source === 'field' && (
+                <span
+                  className={`ml-1 inline-flex items-center gap-1 rounded-sm border px-1 py-0.5 text-[10px] uppercase ${
+                    doc.document.verified
+                      ? 'border-signal-ok/40 bg-signal-ok/10 text-signal-ok'
+                      : 'border-signal-warn/40 bg-signal-warn/10 text-signal-warn'
+                  }`}
+                >
+                  {doc.document.verified ? '✓ verified' : '⚠ unverified'} · field
+                </span>
+              )}
+            </span>
+            <h2 className="truncate text-base font-semibold">{doc.document.title}</h2>
+          </div>
+        </div>
+        {(onOpenJobAid || onRunWithEvidence) && (
+          <div className="flex flex-wrap items-center gap-2">
+            {onOpenJobAid && (
+              <button
+                type="button"
+                onClick={onOpenJobAid}
+                className="btn btn-secondary btn-sm"
+                title="Step-by-step hands-free walkthrough with voiceover"
               >
-                {doc.document.verified ? '✓ verified' : '⚠ unverified'} · field
-              </span>
+                <Headphones size={14} strokeWidth={2} /> Job Aid view
+              </button>
             )}
-          </span>
-          <h2 className="truncate text-base font-semibold">{doc.document.title}</h2>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {onOpenJobAid && (
-            <button
-              type="button"
-              onClick={onOpenJobAid}
-              className="btn btn-secondary btn-sm"
-              title="Step-by-step hands-free walkthrough with voiceover"
-            >
-              <Headphones size={14} strokeWidth={2} /> Job Aid view
-            </button>
-          )}
-          {onRunWithEvidence && (
-            <button
-              type="button"
-              onClick={onRunWithEvidence}
-              className="btn btn-primary btn-sm"
-            >
-              <Play size={14} strokeWidth={2} /> Run with evidence
-            </button>
-          )}
-        </div>
+            {onRunWithEvidence && (
+              <button
+                type="button"
+                onClick={onRunWithEvidence}
+                className="btn btn-primary btn-sm"
+              >
+                <Play size={14} strokeWidth={2} /> Run with evidence
+              </button>
+            )}
+          </div>
+        )}
       </header>
 
       <div className="doc-overlay-scroll">
