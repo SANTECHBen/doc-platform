@@ -230,6 +230,30 @@ export async function updateAssetModelImage(
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }
 
+export interface AssetModelPatch {
+  modelCode?: string;
+  displayName?: string;
+  category?: string;
+  description?: string | null;
+}
+
+/** Edit the core fields of an asset model. Owner org cannot be changed. */
+export async function updateAssetModel(
+  id: string,
+  patch: AssetModelPatch,
+): Promise<AdminAssetModel> {
+  const res = await fetch(
+    `${API_BASE}/admin/asset-models/${encodeURIComponent(id)}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(patch),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminAssetModel;
+}
+
 export async function listAdminAssetModels(): Promise<AdminAssetModel[]> {
   const res = await fetch(`${API_BASE}/admin/asset-models`, {
     cache: 'no-store',

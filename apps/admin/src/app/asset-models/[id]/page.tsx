@@ -28,6 +28,7 @@ import {
   pinLatestVersion,
   removeBomEntry,
   unpinInstance,
+  updateAssetModel,
   listAllSites,
   listAdminAssetModels,
   listInstancesForModel,
@@ -38,6 +39,33 @@ import {
   type BomEntry,
   type ModelInstance,
 } from '@/lib/api';
+
+// Keep in sync with apps/admin/src/app/asset-models/page.tsx — same
+// suggested list for both the create and edit forms. Free-text field;
+// the datalist is just autocomplete.
+const COMMON_EQUIPMENT_TYPES = [
+  'Bulk Bag',
+  'Cargo Scale',
+  'Control Panel',
+  'Curve Conveyor',
+  'Diverter',
+  'Exception Conveyor',
+  'Field Device',
+  'Inline Scale',
+  'Metering Conveyor',
+  'No Read',
+  'Non-Con',
+  'Other',
+  'Recirculation',
+  'Relabel Slide',
+  'Runout Feeders',
+  'Scanner',
+  'Singulator',
+  'Sorter',
+  'Splitter',
+  'Transport Conveyor',
+  'Volume Measurement',
+];
 
 export default function AssetModelDetail({
   params,
@@ -54,6 +82,15 @@ export default function AssetModelDetail({
   const [error, setError] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  // Edit drawer state. Pre-populated from the loaded model when opened
+  // so the form starts on the current values; rolled back on cancel.
+  const [editOpen, setEditOpen] = useState(false);
+  const [editModelCode, setEditModelCode] = useState('');
+  const [editDisplayName, setEditDisplayName] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   // Pin-to-version picker. Holds the instance being targeted + the
   // model's available pack versions (lazy-loaded on open). Lets authors
   // pin to a draft or to a non-latest published version — useful right
@@ -85,6 +122,41 @@ export default function AssetModelDetail({
       setPinPickerForInstance(null);
     }
   }
+  function openEditDrawer() {
+    if (!model) return;
+    setEditModelCode(model.modelCode);
+    setEditDisplayName(model.displayName);
+    setEditCategory(model.category);
+    setEditDescription(model.description ?? '');
+    setEditError(null);
+    setEditOpen(true);
+  }
+
+  async function submitEdit() {
+    if (!model) return;
+    if (!editModelCode.trim() || !editDisplayName.trim() || !editCategory.trim()) {
+      setEditError('Model code, display name, and equipment type are required.');
+      return;
+    }
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      await updateAssetModel(model.id, {
+        modelCode: editModelCode.trim(),
+        displayName: editDisplayName.trim(),
+        category: editCategory.trim(),
+        description: editDescription.trim() || null,
+      });
+      setEditOpen(false);
+      await refresh();
+      toast.success('Asset model updated');
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
   async function pickVersion(instanceId: string, versionId: string) {
     setPinBusy(true);
     try {
@@ -142,6 +214,7 @@ export default function AssetModelDetail({
         description={`${model.modelCode} · ${model.category} · ${model.owner.name}`}
         actions={
           <>
+            <SecondaryButton onClick={openEditDrawer}>Edit</SecondaryButton>
             <SecondaryButton
               onClick={() => setBulkOpen(true)}
               disabled={sites.length === 0}
@@ -281,6 +354,59 @@ export default function AssetModelDetail({
       )}
 
       <BomPanel assetModelId={id} />
+
+      <Drawer title="Edit asset model" open={editOpen} onClose={() => setEditOpen(false)}>
+        <div className="flex flex-col gap-3">
+          {editError && <ErrorBanner error={editError} />}
+          <Field label="Model code" required>
+            <TextInput
+              value={editModelCode}
+              onChange={(e) => setEditModelCode(e.target.value)}
+              required
+            />
+          </Field>
+          <Field label="Display name" required>
+            <TextInput
+              value={editDisplayName}
+              onChange={(e) => setEditDisplayName(e.target.value)}
+              required
+            />
+          </Field>
+          <Field
+            label="Equipment Type"
+            required
+            hint="Pick from the list or type a new one."
+          >
+            <input
+              list="edit-cat-options"
+              value={editCategory}
+              onChange={(e) => setEditCategory(e.target.value)}
+              className="rounded border border-line bg-surface-raised px-2 py-1.5"
+              required
+            />
+            <datalist id="edit-cat-options">
+              {COMMON_EQUIPMENT_TYPES.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
+          </Field>
+          <Field label="Description">
+            <Textarea
+              value={editDescription}
+              onChange={(e) => setEditDescription(e.target.value)}
+              rows={3}
+            />
+          </Field>
+          <div className="flex justify-end gap-2 pt-2">
+            <SecondaryButton onClick={() => setEditOpen(false)} disabled={editSaving}>
+              Cancel
+            </SecondaryButton>
+            <PrimaryButton onClick={submitEdit} disabled={editSaving}>
+              {editSaving ? 'Saving…' : 'Save changes'}
+            </PrimaryButton>
+          </div>
+        </div>
+      </Drawer>
 
       <Drawer title="Add instance" open={newOpen} onClose={() => setNewOpen(false)}>
         <NewInstanceForm

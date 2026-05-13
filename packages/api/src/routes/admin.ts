@@ -605,6 +605,59 @@ export async function registerAdminMutations(app: FastifyInstance) {
     },
   );
 
+  // PATCH asset model — edit core fields. Owner org cannot be changed
+  // here (moving a model between OEMs would orphan content packs); use
+  // a separate flow if that's ever needed. Every field is optional so
+  // the admin UI can send partial updates.
+  app.patch<{
+    Params: { id: string };
+    Body: {
+      modelCode?: string;
+      displayName?: string;
+      category?: string;
+      description?: string | null;
+    };
+  }>(
+    '/admin/asset-models/:id',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema }),
+        body: z.object({
+          modelCode: z.string().min(1).max(200).optional(),
+          displayName: z.string().min(1).max(200).optional(),
+          category: z.string().min(1).max(80).optional(),
+          description: z.string().max(4000).nullable().optional(),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const scope = await getScope(request, db);
+      const model = await db.query.assetModels.findFirst({
+        where: eq(schema.assetModels.id, request.params.id),
+      });
+      if (!model) return reply.notFound();
+      requireOrgInScope(scope, model.ownerOrganizationId);
+
+      const patch: Partial<typeof schema.assetModels.$inferInsert> = {};
+      if (request.body.modelCode !== undefined) patch.modelCode = request.body.modelCode;
+      if (request.body.displayName !== undefined) patch.displayName = request.body.displayName;
+      if (request.body.category !== undefined) patch.category = request.body.category;
+      if (request.body.description !== undefined) patch.description = request.body.description;
+      // Bump updatedAt so admins can see when a model was last touched.
+      patch.updatedAt = new Date();
+
+      const [updated] = await db
+        .update(schema.assetModels)
+        .set(patch)
+        .where(eq(schema.assetModels.id, request.params.id))
+        .returning();
+      if (!updated) return reply.notFound();
+      return updated;
+    },
+  );
+
   // PATCH asset model image.
   app.patch<{ Params: { id: string }; Body: { imageStorageKey: string | null } }>(
     '/admin/asset-models/:id/image',
