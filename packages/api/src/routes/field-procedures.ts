@@ -1128,21 +1128,21 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
         return reply.badRequest('Only video/* uploads are accepted.');
       }
 
-      const buffer = await file.toBuffer();
-      // 200 MB ceiling — generous for a 5–10 minute training intro at
-      // typical mobile-friendly bitrates.
-      const MAX_HERO_BYTES = 200 * 1024 * 1024;
-      if (buffer.length > MAX_HERO_BYTES) {
-        return reply.badRequest(
-          `Hero video exceeds ${Math.floor(MAX_HERO_BYTES / (1024 * 1024))} MB limit.`,
-        );
-      }
-
-      const result = await storage.putBuffer({
-        buffer,
+      // Stream into storage so the 512 MB Fly VM doesn't have to hold
+      // the whole video in RAM. The multipart parser enforces a 2 GB
+      // cap upstream (see app.ts); this post-hoc check exists to surface
+      // a clean 413 if that ever changes.
+      const MAX_HERO_BYTES = 2 * 1024 * 1024 * 1024;
+      const result = await storage.putStream({
+        body: file.file,
         filename: file.filename ?? 'hero.mp4',
         contentType: mime,
       });
+      if (result.size > MAX_HERO_BYTES) {
+        return reply.payloadTooLarge(
+          `Hero video exceeds ${Math.floor(MAX_HERO_BYTES / (1024 * 1024 * 1024))} GB limit.`,
+        );
+      }
 
       return {
         storageKey: result.storageKey,

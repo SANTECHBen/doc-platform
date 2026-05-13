@@ -1,14 +1,27 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
-import { createReadStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
 import path from 'node:path';
+import { pipeline } from 'node:stream/promises';
+import { Transform } from 'node:stream';
 
 // Filesystem-backed storage for dev. Same interface will back MinIO / S3 later;
-// swap the adapter without touching callers. Keys include a content hash so
-// immutable content-addressed delivery is possible later (CDN caching, etc.).
+// swap the adapter without touching callers. `putBuffer` keys files by content
+// hash (immutable, dedup-friendly); `putStream` uses a UUID key because the
+// hash isn't known until the stream ends — used for large uploads where
+// buffering the whole file in RAM is not viable.
 export interface Storage {
   putBuffer(input: {
     buffer: Buffer;
+    filename: string;
+    contentType: string;
+  }): Promise<{ storageKey: string; size: number; sha256: string }>;
+
+  /** Stream-friendly variant for large uploads. The body is piped straight
+   *  into the storage backend (multipart S3 upload for R2/MinIO/AWS) so the
+   *  whole file never sits in memory. Returns sha256 computed in-flight. */
+  putStream(input: {
+    body: NodeJS.ReadableStream;
     filename: string;
     contentType: string;
   }): Promise<{ storageKey: string; size: number; sha256: string }>;
@@ -45,6 +58,31 @@ export function createFsStorage(params: { rootDir: string; publicBaseUrl: string
       await fs.writeFile(fullPath, buffer);
       const storageKey = [prefix, sha, safeName].join('/');
       return { storageKey, size: buffer.length, sha256: sha };
+    },
+
+    async putStream({ body, filename, contentType: _ct }) {
+      await ensureRoot();
+      const id = randomUUID();
+      const prefix = id.slice(0, 2);
+      const dir = path.join(rootDir, prefix, id);
+      await fs.mkdir(dir, { recursive: true });
+      const safeName = sanitizeFilename(filename);
+      const fullPath = path.join(dir, safeName);
+      const hash = createHash('sha256');
+      let size = 0;
+      const tap = new Transform({
+        transform(chunk, _enc, cb) {
+          hash.update(chunk);
+          size += chunk.length;
+          cb(null, chunk);
+        },
+      });
+      await pipeline(body, tap, createWriteStream(fullPath));
+      return {
+        storageKey: [prefix, id, safeName].join('/'),
+        size,
+        sha256: hash.digest('hex'),
+      };
     },
 
     async stream(storageKey) {

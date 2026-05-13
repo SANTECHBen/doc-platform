@@ -2142,9 +2142,11 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
     const file = await request.file();
     if (!file) return reply.badRequest('No file provided.');
 
-    const buffer = await file.toBuffer();
-    const result = await storage.putBuffer({
-      buffer,
+    // Stream straight into storage — the Fly VM is 512 MB and the
+    // multipart parser allows up to 2 GB per file, so buffering the
+    // whole body would OOM on any large video.
+    const result = await storage.putStream({
+      body: file.file,
       filename: file.filename ?? 'file',
       contentType: file.mimetype ?? 'application/octet-stream',
     });

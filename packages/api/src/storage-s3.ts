@@ -1,10 +1,12 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { Transform } from 'node:stream';
 import {
   GetObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
 import type { Storage } from './storage';
 
 export interface S3StorageConfig {
@@ -47,6 +49,42 @@ export function createS3Storage(cfg: S3StorageConfig): Storage {
         }),
       );
       return { storageKey, size: buffer.length, sha256: sha };
+    },
+
+    async putStream({ body, filename, contentType }) {
+      // Multipart upload — sha256 isn't known until the body finishes,
+      // so the key is UUID-based (no content-addressing). Hash is still
+      // computed in-flight through a pass-through tap.
+      const id = randomUUID();
+      const prefix = id.slice(0, 2);
+      const safeName = sanitizeFilename(filename);
+      const storageKey = `${prefix}/${id}/${safeName}`;
+      const hash = createHash('sha256');
+      let size = 0;
+      const tap = new Transform({
+        transform(chunk, _enc, cb) {
+          hash.update(chunk);
+          size += chunk.length;
+          cb(null, chunk);
+        },
+      });
+      body.pipe(tap);
+      const upload = new Upload({
+        client,
+        params: {
+          Bucket: cfg.bucket,
+          Key: storageKey,
+          Body: tap,
+          ContentType: contentType,
+          CacheControl: 'public, max-age=31536000, immutable',
+        },
+        // 8 MB parts — comfortable for video uploads, keeps memory
+        // bounded even at 2 GB total.
+        partSize: 8 * 1024 * 1024,
+        queueSize: 4,
+      });
+      await upload.done();
+      return { storageKey, size, sha256: hash.digest('hex') };
     },
 
     async stream(storageKey) {
