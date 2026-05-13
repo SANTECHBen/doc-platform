@@ -2410,6 +2410,32 @@
     border: 1px solid rgb(var(--brand) / 0.35);
     box-shadow: 0 4px 18px rgb(0 0 0 / 0.18);
   }
+  /* Full-bleed image-dominant hero block. The procedure intro renders
+     this when a heroVideo is set so the video spans edge to edge under
+     a dark gradient + white title overlay (UI-1 pattern). Strips the
+     inner step-video-frame's brand border / shadow / radius so the
+     video looks like a backdrop rather than an inset player. */
+  .hero-prominent {
+    position: relative;
+    width: 100%;
+    overflow: hidden;
+    background: rgb(0 0 0);
+    border-radius: 0;
+  }
+  .hero-prominent .step-video-frame,
+  .hero-prominent .step-video-frame video {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .hero-prominent .step-video-frame {
+    aspect-ratio: 16 / 9;
+  }
+  @media (min-width: 768px) {
+    .hero-prominent .step-video-frame {
+      aspect-ratio: 21 / 9;
+    }
+  }
   .step-video-frame video {
     width: 100%;
     height: 100%;
@@ -2576,14 +2602,32 @@
     color: rgb(var(--brand));
     display: inline-flex;
   }
-  /* Image-prominent hero block: the video fills the frame, the title +
-     meta chips overlay it on a dark gradient so white text stays legible
-     regardless of the frame content underneath. pointer-events:none on
-     the gradient so the play / fullscreen buttons stay clickable. */
+  /* Image-prominent hero block: full-bleed across .vja-root so the
+     image dominates the top of the screen, with title + meta chips
+     overlaid on a dark gradient. Rendered as a sibling of .vja-main so
+     it escapes .vja-main's padding entirely. */
   .vja-hero-overlay-block {
     position: relative;
-    border-radius: 12px;
+    width: 100%;
     overflow: hidden;
+    background: #000;
+    border-radius: 0;
+  }
+  /* Strip the inset-player chrome on step-video-frame when nested in
+     the prominent hero so the video reads as a backdrop, not a card. */
+  .vja-hero-overlay-block .step-video-frame,
+  .vja-hero-overlay-block .step-video-frame video {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .vja-hero-overlay-block .step-video-frame {
+    aspect-ratio: 16 / 9;
+  }
+  @media (min-width: 768px) {
+    .vja-hero-overlay-block .step-video-frame {
+      aspect-ratio: 21 / 9;
+    }
   }
   .vja-hero-overlay-gradient {
     pointer-events: none;

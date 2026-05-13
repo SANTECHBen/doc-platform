@@ -529,43 +529,49 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
         </div>
       )}
 
+      {/* IMAGE-PROMINENT HERO — rendered OUTSIDE .vja-main so it spans
+          the full width of .vja-root, edge to edge. Only shows on the
+          intro panel when the procedure has a hero video; the title +
+          chips overlay the bottom on a dark gradient. */}
+      {showHeroIntro && resolved.intro?.heroVideoUrl && (
+        <div className="vja-hero-overlay-block">
+          <HeroVideoEmbed
+            url={resolved.intro.heroVideoUrl}
+            caption={resolved.intro.heroVideoCaption ?? null}
+            muted={false}
+            playId="hero"
+            alt={`${resolved.title} intro video`}
+          />
+          <div className="vja-hero-overlay-gradient">
+            <h1 className="vja-hero-overlay-title">{resolved.title}</h1>
+            {(resolved.intro.estimatedMinutes != null ||
+              resolved.intro.skillLevel != null) && (
+              <div className="vja-hero-overlay-chips">
+                {resolved.intro.estimatedMinutes != null && (
+                  <span className="vja-hero-overlay-chip">
+                    <Clock size={13} strokeWidth={2.25} />
+                    {formatDuration(resolved.intro.estimatedMinutes)}
+                  </span>
+                )}
+                {resolved.intro.skillLevel != null && (
+                  <span className="vja-hero-overlay-chip">
+                    <GraduationCap size={13} strokeWidth={2.25} />
+                    {capitalize(resolved.intro.skillLevel)}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <main className="vja-main">
         {showHeroIntro && resolved.intro && (
           <section className="vja-hero-intro" aria-label="Procedure intro">
-            {resolved.intro.heroVideoUrl ? (
-              // Image-prominent hero: video fills the block; title +
-              // meta chips overlay the bottom on a dark gradient so the
-              // white text reads regardless of frame content.
-              <div className="vja-hero-overlay-block">
-                <HeroVideoEmbed
-                  url={resolved.intro.heroVideoUrl}
-                  caption={resolved.intro.heroVideoCaption ?? null}
-                  muted={false}
-                  playId="hero"
-                  alt={`${resolved.title} intro video`}
-                />
-                <div className="vja-hero-overlay-gradient">
-                  <h1 className="vja-hero-overlay-title">{resolved.title}</h1>
-                  {(resolved.intro.estimatedMinutes != null ||
-                    resolved.intro.skillLevel != null) && (
-                    <div className="vja-hero-overlay-chips">
-                      {resolved.intro.estimatedMinutes != null && (
-                        <span className="vja-hero-overlay-chip">
-                          <Clock size={13} strokeWidth={2.25} />
-                          {formatDuration(resolved.intro.estimatedMinutes)}
-                        </span>
-                      )}
-                      {resolved.intro.skillLevel != null && (
-                        <span className="vja-hero-overlay-chip">
-                          <GraduationCap size={13} strokeWidth={2.25} />
-                          {capitalize(resolved.intro.skillLevel)}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
+            {/* When there's no hero video, render the title + chips
+                stacked here. With a video, those live in the full-bleed
+                overlay above this section. */}
+            {!resolved.intro.heroVideoUrl && (
               <>
                 <h1 className="vja-hero-intro-title">{resolved.title}</h1>
                 {(resolved.intro.estimatedMinutes != null ||
