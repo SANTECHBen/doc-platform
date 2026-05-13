@@ -2583,6 +2583,56 @@
     font-size: 14.5px;
     line-height: 1.6;
     white-space: pre-wrap;
+    margin: 0;
+  }
+  /* Single "Overview" card holding summary + tools + safety in one
+     bordered container with bold subsection headers. Mirrors the
+     "General Information" card pattern in the reference UI — light
+     border, no heavy shadow, divider lines between blocks. */
+  .vja-hero-intro-card {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    border: 1px solid rgb(var(--line));
+    background: rgb(var(--surface-elevated));
+  }
+  .vja-hero-intro-card-header {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-tertiary));
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgb(var(--line));
+    margin: 0;
+  }
+  /* Each subsection inside the overview card: bold sentence-case label
+     above its content. Subsections are separated by a faint divider so
+     the rhythm reads like a structured info panel. */
+  .vja-hero-intro-block {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .vja-hero-intro-block + .vja-hero-intro-block {
+    padding-top: 14px;
+    border-top: 1px solid rgb(var(--line) / 0.6);
+  }
+  .vja-hero-intro-subhead {
+    font-size: 13px;
+    font-weight: 600;
+    color: rgb(var(--ink-primary));
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .vja-hero-intro-subhead-icon {
+    color: rgb(var(--brand));
+    display: inline-flex;
   }
   .vja-hero-intro-actions {
     display: flex;

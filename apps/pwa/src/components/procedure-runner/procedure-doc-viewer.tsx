@@ -15,9 +15,9 @@ import {
   ChevronLeft,
   ClipboardCheck,
   Clock,
+  FileText,
   GraduationCap,
   Headphones,
-  Info,
   ListChecks,
   Play,
   ShieldAlert,
@@ -245,61 +245,74 @@ export function ProcedureDocViewer({
             </div>
           </header>
 
-          {/* OVERVIEW — author-written summary. Renders only when set so
-              legacy procedures (no summary) stay clean. */}
-          {m?.summary && (
-            <section className="flex flex-col gap-2">
-              <SectionHeader icon={Info} label="Overview" />
-              <div className="rounded-md border border-line bg-surface-raised p-4">
-                <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-secondary">
-                  {m.summary}
-                </p>
-              </div>
-            </section>
-          )}
-
-          {/* REQUIRED TOOLS — always shown if any are listed */}
-          {m && m.toolsRequired.length > 0 && (
-            <section className="flex flex-col gap-2">
-              <SectionHeader icon={Wrench} label="Required Tools" />
-              <ul className="flex flex-col gap-1 rounded-md border border-line bg-surface-raised p-4">
-                {m.toolsRequired.map((t, i) => (
-                  <li key={i} className="flex items-center gap-2 text-sm">
-                    <Check
-                      size={14}
-                      strokeWidth={2}
-                      className="shrink-0 text-ink-tertiary"
-                    />
-                    <span className="text-ink-primary">{t}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
-          {/* SAFETY — when enabled */}
-          {m?.safety.enabled && (
-            <section className="flex flex-col gap-2">
-              <SectionHeader
-                icon={ShieldAlert}
-                label="Safety"
-                color="text-signal-safety"
-              />
-              <div className="rounded-md border border-signal-safety/40 bg-signal-safety/5 p-4">
-                {m.safety.notes ? (
-                  <div className="markdown-body text-sm">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {m.safety.notes}
-                    </ReactMarkdown>
-                  </div>
-                ) : (
-                  <p className="text-sm italic text-ink-tertiary">
-                    Safety section enabled with no notes.
-                  </p>
-                )}
-              </div>
-            </section>
-          )}
+          {/* GENERAL INFORMATION — single card with bordered subsections
+              for summary, tools, and safety. Matches the Job Aid intro
+              pattern: bold sub-heads with brand-colored icons, faint
+              dividers between blocks. */}
+          {m &&
+            (m.summary ||
+              m.toolsRequired.length > 0 ||
+              m.safety.enabled) && (
+              <section className="flex flex-col rounded-md border border-line bg-surface-raised">
+                <h2 className="border-b border-line px-5 py-3 font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-ink-tertiary">
+                  General Information
+                </h2>
+                <div className="flex flex-col divide-y divide-line/60 px-5 py-4">
+                  {m.summary && (
+                    <div className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
+                      <h3 className="flex items-center gap-2 text-sm font-semibold text-ink-primary">
+                        <FileText size={14} strokeWidth={2.25} className="text-brand" />
+                        Description
+                      </h3>
+                      <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-secondary">
+                        {m.summary}
+                      </p>
+                    </div>
+                  )}
+                  {m.toolsRequired.length > 0 && (
+                    <div className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
+                      <h3 className="flex items-center gap-2 text-sm font-semibold text-ink-primary">
+                        <Wrench size={14} strokeWidth={2.25} className="text-brand" />
+                        Required Tools
+                      </h3>
+                      <ul className="flex flex-col gap-1">
+                        {m.toolsRequired.map((t, i) => (
+                          <li key={i} className="flex items-center gap-2 text-sm">
+                            <Check
+                              size={14}
+                              strokeWidth={2}
+                              className="shrink-0 text-ink-tertiary"
+                            />
+                            <span className="text-ink-primary">{t}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {m.safety.enabled && (
+                    <div className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
+                      <h3 className="flex items-center gap-2 text-sm font-semibold text-signal-safety">
+                        <ShieldAlert size={14} strokeWidth={2.25} />
+                        Safety
+                      </h3>
+                      <div className="rounded-md border border-signal-safety/40 bg-signal-safety/5 p-3">
+                        {m.safety.notes ? (
+                          <div className="markdown-body text-sm">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {m.safety.notes}
+                            </ReactMarkdown>
+                          </div>
+                        ) : (
+                          <p className="text-sm italic text-ink-tertiary">
+                            Safety section enabled with no notes.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
 
           {/* STEPS */}
           <section className="flex flex-col gap-3">

@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  FileText,
   GraduationCap,
   Info,
   Lightbulb,
@@ -16,6 +17,7 @@ import {
   ShieldAlert,
   Volume2,
   VolumeX,
+  Wrench,
   X,
 } from 'lucide-react';
 import {
@@ -578,28 +580,60 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
                 alt={`${resolved.title} intro video`}
               />
             )}
-            {resolved.intro.summary && (
-              <p className="vja-hero-intro-summary">{resolved.intro.summary}</p>
-            )}
-            {resolved.intro.toolsRequired.length > 0 && (
-              <div className="vja-hero-intro-meta">
-                <span className="vja-hero-intro-cap">Required tools</span>
-                <div className="vja-hero-intro-tools">
-                  {resolved.intro.toolsRequired.map((t) => (
-                    <span key={t} className="vja-hero-intro-tool">
-                      {t}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {resolved.intro.safetyNotes && (
-              <div className="vja-hero-intro-meta">
-                <span className="vja-hero-intro-cap">Safety</span>
-                <div className="vja-hero-intro-safety">
-                  {resolved.intro.safetyNotes}
-                </div>
-              </div>
+            {(resolved.intro.summary ||
+              resolved.intro.toolsRequired.length > 0 ||
+              resolved.intro.safetyNotes) && (
+              <section
+                className="vja-hero-intro-card"
+                aria-label="General information"
+              >
+                <h2 className="vja-hero-intro-card-header">
+                  General information
+                </h2>
+                {resolved.intro.summary && (
+                  <div className="vja-hero-intro-block">
+                    <h3 className="vja-hero-intro-subhead">
+                      <span className="vja-hero-intro-subhead-icon">
+                        <FileText size={14} strokeWidth={2.25} />
+                      </span>
+                      Description
+                    </h3>
+                    <p className="vja-hero-intro-summary">
+                      {resolved.intro.summary}
+                    </p>
+                  </div>
+                )}
+                {resolved.intro.toolsRequired.length > 0 && (
+                  <div className="vja-hero-intro-block">
+                    <h3 className="vja-hero-intro-subhead">
+                      <span className="vja-hero-intro-subhead-icon">
+                        <Wrench size={14} strokeWidth={2.25} />
+                      </span>
+                      Required tools
+                    </h3>
+                    <div className="vja-hero-intro-tools">
+                      {resolved.intro.toolsRequired.map((t) => (
+                        <span key={t} className="vja-hero-intro-tool">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {resolved.intro.safetyNotes && (
+                  <div className="vja-hero-intro-block">
+                    <h3 className="vja-hero-intro-subhead">
+                      <span className="vja-hero-intro-subhead-icon">
+                        <ShieldAlert size={14} strokeWidth={2.25} />
+                      </span>
+                      Safety
+                    </h3>
+                    <div className="vja-hero-intro-safety">
+                      {resolved.intro.safetyNotes}
+                    </div>
+                  </div>
+                )}
+              </section>
             )}
           </section>
         )}
