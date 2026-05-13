@@ -44,6 +44,8 @@ import NoParts from '@/components/illustrations/no-parts';
 import NoDocuments from '@/components/illustrations/no-documents';
 import NoSearchResults from '@/components/illustrations/no-search-results';
 import { ProcedureRunner } from '@/components/procedure-runner/procedure-runner';
+import { ProcedureDocViewer } from '@/components/procedure-runner/procedure-doc-viewer';
+import { VirtualJobAid } from '@/components/virtual-job-aid';
 import { AuthPrompt } from '@/components/auth-prompt';
 
 // Identity for procedure runs. Same env vars as docs-tab. See AuthPrompt
@@ -365,6 +367,14 @@ function PartDetailOverlay({
     body: DocumentBody;
     sections: PwaDocumentSection[] | null;
   } | null>(null);
+  // Procedure browse → run flow. Mirrors docs-tab so both nav paths
+  // (Documents tab, Parts → resources) land on the same intro screen.
+  // viewerDocId    = ProcedureDocViewer (read-only intro + scroll view)
+  // jobAidDocId    = step-at-a-time Job Aid overlay
+  // procedureDocId = ProcedureRunner (evidence capture / "Run") — only
+  //                  entered when the user taps "Run with evidence".
+  const [viewerDocId, setViewerDocId] = useState<string | null>(null);
+  const [jobAidDocId, setJobAidDocId] = useState<string | null>(null);
   const [procedureDocId, setProcedureDocId] = useState<string | null>(null);
   const [authPromptOpen, setAuthPromptOpen] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -463,15 +473,13 @@ function PartDetailOverlay({
     try {
       const body = await getDocument(docId);
       if (!body) return;
-      // Procedure docs launch the runner instead of the static viewer.
-      // Auth gate: only on procedure runs (writes); reading other doc
-      // kinds via this overlay stays scan-only.
+      // Procedure docs go through the read-only intro + scroll viewer
+      // first (same as the Documents tab). The viewer's "Run with
+      // evidence" CTA is what actually launches the runner — auth gate
+      // happens at that step, not here, so techs can browse procedures
+      // without signing in.
       if (body.kind === 'structured_procedure') {
-        if (!PWA_DEV_USER_ID) {
-          setAuthPromptOpen(true);
-          return;
-        }
-        setProcedureDocId(body.id);
+        setViewerDocId(body.id);
         return;
       }
       setOpenDoc({ body, sections });
@@ -604,6 +612,45 @@ function PartDetailOverlay({
           doc={openDoc.body}
           sections={openDoc.sections}
           onBack={() => setOpenDoc(null)}
+        />
+      )}
+      {jobAidDocId && (
+        <VirtualJobAid
+          source={{
+            kind: 'doc',
+            docId: jobAidDocId,
+            devUserId: PWA_DEV_USER_ID,
+            devOrgId: PWA_DEV_ORG_ID,
+          }}
+          onClose={() => {
+            // Return to the doc viewer at the same docId so the tech can
+            // switch back to the scroll view without re-navigating.
+            const id = jobAidDocId;
+            setJobAidDocId(null);
+            setViewerDocId(id);
+          }}
+        />
+      )}
+      {viewerDocId && (
+        <ProcedureDocViewer
+          docId={viewerDocId}
+          devUserId={PWA_DEV_USER_ID}
+          devOrgId={PWA_DEV_ORG_ID}
+          onClose={() => setViewerDocId(null)}
+          onOpenJobAid={() => {
+            const id = viewerDocId;
+            setViewerDocId(null);
+            setJobAidDocId(id);
+          }}
+          onRunWithEvidence={
+            PWA_DEV_USER_ID
+              ? () => {
+                  const id = viewerDocId;
+                  setViewerDocId(null);
+                  setProcedureDocId(id);
+                }
+              : null
+          }
         />
       )}
       {procedureDocId && (
