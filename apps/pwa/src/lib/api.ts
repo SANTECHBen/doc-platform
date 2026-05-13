@@ -682,10 +682,22 @@ export interface ProcedureSubstepDto {
   orderingHint?: number;
 }
 
+export interface ProcedureDocHeroVideo {
+  storageKey: string;
+  mime: string;
+  sizeBytes?: number;
+  caption?: string | null;
+  /** Server-resolved public URL for direct playback. */
+  url: string;
+}
+
 export interface ProcedureDocMetadata {
   toolsRequired: string[];
   safety: { enabled: boolean; notes: string | null };
   verification: { enabled: boolean; notes: string | null };
+  /** Optional procedure-level intro video. Renders on "Step 0" of the
+   *  Job Aid view and at the top of the scroll view. */
+  heroVideo?: ProcedureDocHeroVideo | null;
 }
 
 // Discriminated union for typed step content blocks rendered by the

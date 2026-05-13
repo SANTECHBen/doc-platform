@@ -34,6 +34,15 @@ export type ProcedureDocMetadata = {
   toolsRequired: string[];
   safety: { enabled: boolean; notes: string | null };
   verification: { enabled: boolean; notes: string | null };
+  /** Optional procedure-level intro video — plays on a "Step 0" landing
+   *  panel in the PWA's Job Aid view and at the top of the scroll view.
+   *  Distinct from per-step videos in `procedure_steps.media`. */
+  heroVideo?: {
+    storageKey: string;
+    mime: string;
+    sizeBytes?: number;
+    caption?: string | null;
+  } | null;
 };
 
 // ContentPack = named bundle of docs + training + parts authored against an AssetModel.

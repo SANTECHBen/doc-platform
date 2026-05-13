@@ -150,6 +150,17 @@ const ProcedureMetadataBody = z.object({
     enabled: z.boolean(),
     notes: z.string().max(5000).nullable(),
   }),
+  // Optional procedure-level intro video. Uploaded separately via the
+  // hero-video upload route; this PATCH just persists the reference.
+  heroVideo: z
+    .object({
+      storageKey: z.string().min(1).max(400),
+      mime: z.string().min(1).max(80),
+      sizeBytes: z.number().int().nonnegative().optional(),
+      caption: z.string().max(400).nullable().optional(),
+    })
+    .nullable()
+    .optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -1087,6 +1098,55 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
   );
 
   // -------------------------------------------------------------------------
+  // POST /procedure-runs/:id/hero-video — multipart upload for the
+  // procedure-level intro video (renders on the PWA's "Step 0" intro
+  // panel and at the top of the scroll view). Stores in S3 and returns
+  // the reference; the client follows up with the metadata PATCH to
+  // persist heroVideo onto procedureMetadata.
+  // -------------------------------------------------------------------------
+  app.post<{ Params: { id: string } }>(
+    '/procedure-runs/:id/hero-video',
+    { schema: { params: z.object({ id: UuidSchema }) } },
+    async (request, reply) => {
+      const { db, storage } = app.ctx;
+      const auth = requireAuth(request);
+      const ctx = await loadAuthoringRun(db, request.params.id, auth);
+      if (!ctx) return reply.notFound();
+
+      const file = await request.file();
+      if (!file) return reply.badRequest('Multipart file is required.');
+
+      const mime = file.mimetype ?? '';
+      if (!mime.startsWith('video/')) {
+        return reply.badRequest('Only video/* uploads are accepted.');
+      }
+
+      const buffer = await file.toBuffer();
+      // 200 MB ceiling — generous for a 5–10 minute training intro at
+      // typical mobile-friendly bitrates.
+      const MAX_HERO_BYTES = 200 * 1024 * 1024;
+      if (buffer.length > MAX_HERO_BYTES) {
+        return reply.badRequest(
+          `Hero video exceeds ${Math.floor(MAX_HERO_BYTES / (1024 * 1024))} MB limit.`,
+        );
+      }
+
+      const result = await storage.putBuffer({
+        buffer,
+        filename: file.filename ?? 'hero.mp4',
+        contentType: mime,
+      });
+
+      return {
+        storageKey: result.storageKey,
+        mime,
+        sizeBytes: result.size,
+        url: storage.publicUrl(result.storageKey),
+      };
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // PATCH /procedure-runs/:id/authoring-metadata — set the procedure-doc
   // template metadata (tools required, safety toggle/notes, verification
   // toggle/notes). Stored on the document row as jsonb.
@@ -1259,6 +1319,24 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
         capturedByDisplayName = u?.displayName ?? null;
       }
 
+      // Resolve the heroVideo storageKey to a public URL so the PWA
+      // doesn't need bucket-level access. Pass through other metadata
+      // unchanged.
+      const meta = doc.procedureMetadata ?? null;
+      const metaWithUrl = meta
+        ? {
+            ...meta,
+            ...(meta.heroVideo
+              ? {
+                  heroVideo: {
+                    ...meta.heroVideo,
+                    url: storage.publicUrl(meta.heroVideo.storageKey),
+                  },
+                }
+              : {}),
+          }
+        : null;
+
       return {
         document: {
           id: doc.id,
@@ -1273,7 +1351,7 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
           capturedByDisplayName,
           scopeAssetInstanceId: doc.scopeAssetInstanceId,
         },
-        metadata: doc.procedureMetadata ?? null,
+        metadata: metaWithUrl,
         steps: steps.map((s) => ({
           id: s.id,
           kind: s.kind,

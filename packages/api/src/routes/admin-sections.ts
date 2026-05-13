@@ -252,6 +252,23 @@ export async function registerAdminSections(app: FastifyInstance) {
         });
         verifiedByDisplayName = verifier?.displayName ?? null;
       }
+      // Resolve heroVideo storageKey → URL so the admin UI can preview
+      // the uploaded video without bucket-level access.
+      const meta = d.procedureMetadata ?? null;
+      const metaWithUrl = meta
+        ? {
+            ...meta,
+            ...(meta.heroVideo
+              ? {
+                  heroVideo: {
+                    ...meta.heroVideo,
+                    url: storage.publicUrl(meta.heroVideo.storageKey),
+                  },
+                }
+              : {}),
+          }
+        : null;
+
       return {
         id: d.id,
         title: d.title,
@@ -285,6 +302,9 @@ export async function registerAdminSections(app: FastifyInstance) {
         fieldVerifiedByUserId: d.fieldVerifiedByUserId,
         fieldVerifiedByDisplayName: verifiedByDisplayName,
         scopeAssetInstanceId: d.scopeAssetInstanceId,
+        // Procedure metadata (tools, safety, verification, heroVideo).
+        // null for non-procedure docs.
+        procedureMetadata: metaWithUrl,
         createdAt: d.createdAt.toISOString(),
       };
     },

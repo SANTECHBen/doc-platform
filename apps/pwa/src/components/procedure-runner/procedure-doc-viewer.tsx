@@ -25,6 +25,7 @@ import {
   type ProcedureDocFullDto,
   type ProcedureStepKind,
 } from '@/lib/api';
+import { StepVideoPlayer } from '../step-video-player';
 
 export function ProcedureDocViewer({
   docId,
@@ -194,6 +195,18 @@ export function ProcedureDocViewer({
 
       <div className="doc-overlay-scroll">
         <article className="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-8">
+          {/* HERO VIDEO — procedure-level intro plays at the top of the
+              scroll view above everything else. Defaults to unmuted in
+              scroll view; the user is reading, not in voice mode. */}
+          {m?.heroVideo && (
+            <StepVideoPlayer
+              src={m.heroVideo.url}
+              alt={`${doc.document.title} intro video`}
+              caption={m.heroVideo.caption ?? null}
+              muted={false}
+              playId="hero"
+            />
+          )}
           {/* TITLE BLOCK */}
           <header className="flex flex-col gap-2">
             <h1 className="text-3xl font-bold tracking-tight text-ink-primary">

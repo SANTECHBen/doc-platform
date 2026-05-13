@@ -8,14 +8,17 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Camera,
   ClipboardCheck,
+  Film,
   GripVertical,
   ListChecks,
   Ruler,
   ShieldAlert,
   Trash2,
+  Upload as UploadIcon,
 } from 'lucide-react';
 import {
   uploadProcedureStepMedia,
+  deleteProcedureStepMedia,
   type AdminProcedureStep,
   type AdminStepMedia,
   type ProcedureStepKind,
@@ -273,6 +276,8 @@ export function StepCard({
           onImportLegacy={onImportLegacy}
         />
 
+        <StepVideosPanel step={step} onChanged={onAudioChanged} />
+
         <VoiceoverPanel step={step} onChanged={onAudioChanged} />
       </div>
     </li>
@@ -315,3 +320,131 @@ function KindChips({
 // Re-exported for callers that want the same icon set in headers/empty
 // states without depending on the internal KIND_OPTIONS shape.
 export { ListChecks };
+
+// StepVideosPanel — uploads + manages videos attached to a single step.
+// Videos land in step.media (kind='video') but DON'T get a photo_inline
+// block — they're displayed in the PWA's trailing media gallery,
+// separate from inline photos that interleave with prose.
+function StepVideosPanel({
+  step,
+  onChanged,
+}: {
+  step: AdminProcedureStep;
+  onChanged: (next: AdminProcedureStep) => void;
+}) {
+  const [busy, setBusy] = useState<string | true | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const videos = (step.media ?? []).filter((m) => m.kind === 'video');
+
+  async function onPick(file: File) {
+    setBusy(true);
+    setError(null);
+    try {
+      if (!file.type.startsWith('video/')) {
+        throw new Error('Please choose a video file.');
+      }
+      const item = await uploadProcedureStepMedia(step.id, file);
+      onChanged({
+        ...step,
+        media: [...(step.media ?? []), item],
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onRemove(storageKey: string) {
+    setBusy(storageKey);
+    setError(null);
+    try {
+      await deleteProcedureStepMedia(step.id, storageKey);
+      onChanged({
+        ...step,
+        media: (step.media ?? []).filter((m) => m.storageKey !== storageKey),
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="rounded-md border border-line-subtle bg-surface p-3">
+      <div className="mb-2 flex items-center gap-2">
+        <Film className="size-3.5 text-ink-tertiary" />
+        <span className="text-xs font-semibold uppercase tracking-wide text-ink-tertiary">
+          Step videos
+        </span>
+        <span className="text-xs text-ink-tertiary">
+          {videos.length === 0
+            ? 'optional'
+            : `${videos.length} attached`}
+        </span>
+      </div>
+      {error && (
+        <p className="mb-2 text-xs text-signal-fault" role="alert">
+          {error}
+        </p>
+      )}
+      {videos.length > 0 && (
+        <ul className="mb-2 flex flex-col gap-2">
+          {videos.map((v) => (
+            <li
+              key={v.storageKey}
+              className="flex items-center gap-3 rounded border border-line-subtle bg-surface-raised px-2.5 py-2"
+            >
+              {v.url ? (
+                <video
+                  src={v.url}
+                  preload="metadata"
+                  className="aspect-video h-12 rounded bg-black"
+                  muted
+                />
+              ) : (
+                <div className="grid aspect-video h-12 place-items-center rounded bg-surface-elevated text-ink-tertiary">
+                  <Film className="size-3.5" />
+                </div>
+              )}
+              <div className="flex-1 truncate text-xs text-ink-secondary">
+                {v.caption || v.mime}
+              </div>
+              <button
+                type="button"
+                onClick={() => onRemove(v.storageKey)}
+                disabled={busy === v.storageKey}
+                className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-ink-tertiary hover:bg-signal-fault/10 hover:text-signal-fault disabled:opacity-50"
+                aria-label="Remove video"
+                title="Remove video"
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <label
+        className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs font-medium text-ink-primary transition hover:border-accent/40 hover:bg-accent/5 ${
+          busy === true ? 'pointer-events-none opacity-50' : ''
+        }`}
+      >
+        <UploadIcon className="size-3.5" />
+        {busy === true ? 'Uploading…' : 'Add video'}
+        <input
+          type="file"
+          accept="video/mp4,video/quicktime,video/webm"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void onPick(f);
+            e.target.value = '';
+          }}
+          className="hidden"
+          disabled={busy === true}
+        />
+      </label>
+    </div>
+  );
+}

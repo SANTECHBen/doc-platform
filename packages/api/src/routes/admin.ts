@@ -14,7 +14,7 @@ export function deriveRole(hasChildren: boolean, hasParent: boolean): PartRole {
 }
 import { z } from 'zod';
 import { randomBytes } from 'node:crypto';
-import { schema } from '@platform/db';
+import { schema, type ProcedureDocMetadata } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { isExtractable } from '@platform/ai';
 import { triggerExtraction } from '../lib/extraction';
@@ -2516,8 +2516,10 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
     });
   });
 
-  // Update a document (rename, swap file, etc.). Only allowed while the
-  // parent version is still a draft — published versions are immutable.
+  // Update a document — rename, swap file, edit procedure metadata, etc.
+  // Allowed on published versions (we deliberately permit fine-grained
+  // edits like typo fixes and procedure-metadata tweaks without forcing
+  // a new draft; deletes still require a draft).
   app.patch<{
     Params: { id: string };
     Body: {
@@ -2528,6 +2530,7 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
       contentType?: string;
       sizeBytes?: number;
       safetyCritical?: boolean;
+      procedureMetadata?: ProcedureDocMetadata | null;
     };
   }>(
     '/admin/documents/:id',
@@ -2543,6 +2546,31 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
             contentType: z.string().max(200).optional(),
             sizeBytes: z.number().int().nonnegative().optional(),
             safetyCritical: z.boolean().optional(),
+            // Procedure-level metadata. Full read-modify-write — admin
+            // sends the whole object. JSON column, no migration needed.
+            procedureMetadata: z
+              .object({
+                toolsRequired: z.array(z.string().min(1).max(200)).max(50),
+                safety: z.object({
+                  enabled: z.boolean(),
+                  notes: z.string().max(5000).nullable(),
+                }),
+                verification: z.object({
+                  enabled: z.boolean(),
+                  notes: z.string().max(5000).nullable(),
+                }),
+                heroVideo: z
+                  .object({
+                    storageKey: z.string().min(1).max(400),
+                    mime: z.string().min(1).max(80),
+                    sizeBytes: z.number().int().nonnegative().optional(),
+                    caption: z.string().max(400).nullable().optional(),
+                  })
+                  .nullable()
+                  .optional(),
+              })
+              .nullable()
+              .optional(),
           })
           .refine((v) => Object.keys(v).length > 0, {
             message: 'At least one field is required.',
@@ -2576,6 +2604,7 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
       if (b.contentType !== undefined) patch.contentType = b.contentType;
       if (b.sizeBytes !== undefined) patch.sizeBytes = b.sizeBytes;
       if (b.safetyCritical !== undefined) patch.safetyCritical = b.safetyCritical;
+      if (b.procedureMetadata !== undefined) patch.procedureMetadata = b.procedureMetadata;
       const [updated] = await db
         .update(schema.documents)
         .set(patch)

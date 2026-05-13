@@ -36,11 +36,15 @@ import {
   generateProcedureStepAudio,
   reorderProcedureSteps,
   updateProcedureStep,
+  updateAdminDocument,
+  uploadAdminFile,
   type AdminDocumentDetail,
+  type AdminProcedureDocMetadata,
   type AdminProcedureStep,
   type CreateProcedureStepInput,
   type UpdateProcedureStepInput,
 } from '@/lib/api';
+import { Film, Trash2, Upload as UploadIcon } from 'lucide-react';
 import { useToast } from '@/components/toast';
 import { ErrorBanner } from '@/components/form';
 import { StepCard } from './step-card';
@@ -355,6 +359,13 @@ export function ProcedureCmsEditor({ doc, steps, onChanged }: Props) {
         </div>
       </div>
 
+      {/* Intro video — procedure-level. Renders on the PWA's Step 0
+          landing page in Job Aid view and at the top of the scroll
+          view. Optional; only matters for training-style procedures. */}
+      {doc.kind === 'structured_procedure' && (
+        <HeroVideoSection doc={doc} onChanged={onChanged} />
+      )}
+
       {empty ? (
         <EmptyState onAdd={addStep} />
       ) : (
@@ -458,6 +469,175 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
         <Plus className="size-4" />
         Add first step
       </button>
+    </div>
+  );
+}
+
+// HeroVideoSection — procedure-level intro-video authoring card. Sits
+// above the step list. Optional feature; most procedures won't use it,
+// but training-style procedures (LOTO, safety briefings) benefit from
+// a single overview video at the top of the walkthrough.
+function HeroVideoSection({
+  doc,
+  onChanged,
+}: {
+  doc: AdminDocumentDetail;
+  onChanged: () => Promise<void> | void;
+}) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const hero = doc.procedureMetadata?.heroVideo ?? null;
+
+  // Build the metadata object to PATCH. Always send the full shape so
+  // we don't accidentally drop tools/safety/verification when patching
+  // just the hero.
+  function buildMetadata(
+    heroPatch: AdminProcedureDocMetadata['heroVideo'] | null,
+  ): AdminProcedureDocMetadata {
+    const base = doc.procedureMetadata ?? {
+      toolsRequired: [],
+      safety: { enabled: false, notes: null },
+      verification: { enabled: false, notes: null },
+    };
+    return {
+      ...base,
+      heroVideo: heroPatch,
+    };
+  }
+
+  async function onPick(file: File) {
+    setBusy(true);
+    setError(null);
+    try {
+      if (!file.type.startsWith('video/')) {
+        throw new Error('Please choose a video file.');
+      }
+      const uploaded = await uploadAdminFile(file);
+      const meta = buildMetadata({
+        storageKey: uploaded.storageKey,
+        mime: uploaded.contentType,
+        sizeBytes: uploaded.size,
+        caption: hero?.caption ?? null,
+      });
+      await updateAdminDocument(doc.id, { procedureMetadata: meta });
+      await onChanged();
+      toast.success('Intro video uploaded.');
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setError(message);
+      toast.error(`Upload failed: ${message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onRemove() {
+    if (!hero) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const meta = buildMetadata(null);
+      await updateAdminDocument(doc.id, { procedureMetadata: meta });
+      await onChanged();
+      toast.success('Intro video removed.');
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setError(message);
+      toast.error(`Update failed: ${message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-line-subtle bg-surface-raised p-4">
+      <div className="mb-2 flex items-center gap-2">
+        <Film className="size-4 text-accent" />
+        <h3 className="text-sm font-semibold text-ink-primary">Intro video</h3>
+        <span className="text-xs text-ink-tertiary">
+          Optional — shows on Step 0 of the Job Aid view
+        </span>
+      </div>
+      {error && (
+        <p className="mb-2 text-xs text-signal-fault" role="alert">
+          {error}
+        </p>
+      )}
+      {hero ? (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          {hero.url && (
+            <video
+              src={hero.url}
+              controls
+              preload="metadata"
+              className="aspect-video w-full max-w-sm rounded border border-line bg-black"
+            />
+          )}
+          <div className="flex flex-1 flex-col gap-2 text-xs text-ink-secondary">
+            <div>
+              <span className="text-ink-tertiary">Type:</span> {hero.mime}
+            </div>
+            {hero.sizeBytes !== undefined && (
+              <div>
+                <span className="text-ink-tertiary">Size:</span>{' '}
+                {(hero.sizeBytes / (1024 * 1024)).toFixed(2)} MB
+              </div>
+            )}
+            <div className="flex gap-2 pt-2">
+              <label
+                className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-primary transition hover:border-accent/40 hover:bg-accent/5 ${
+                  busy ? 'pointer-events-none opacity-50' : ''
+                }`}
+              >
+                <UploadIcon className="size-3.5" />
+                Replace
+                <input
+                  type="file"
+                  accept="video/mp4,video/quicktime,video/webm"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void onPick(f);
+                    e.target.value = '';
+                  }}
+                  className="hidden"
+                  disabled={busy}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={onRemove}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-signal-fault transition hover:border-signal-fault/40 hover:bg-signal-fault/5 disabled:opacity-50"
+              >
+                <Trash2 className="size-3.5" />
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <label
+          className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-primary transition hover:border-accent/40 hover:bg-accent/5 ${
+            busy ? 'pointer-events-none opacity-50' : ''
+          }`}
+        >
+          <UploadIcon className="size-3.5" />
+          {busy ? 'Uploading…' : 'Upload intro video'}
+          <input
+            type="file"
+            accept="video/mp4,video/quicktime,video/webm"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void onPick(f);
+              e.target.value = '';
+            }}
+            className="hidden"
+            disabled={busy}
+          />
+        </label>
+      )}
     </div>
   );
 }

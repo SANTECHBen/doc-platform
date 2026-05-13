@@ -22,6 +22,7 @@ import {
   type ProcedureDocFullDto,
   type StepBlock,
 } from '@/lib/api';
+import { StepVideoPlayer } from './step-video-player';
 
 // VirtualJobAid — hands-free, step-at-a-time procedure walkthrough that
 // the AI launches by emitting a [procedure:UUID] directive. Each step
@@ -54,6 +55,14 @@ interface Props {
 // Internal normalized shape — what the renderer actually consumes.
 interface ResolvedJobAid {
   title: string;
+  /** When set, render a "Step 0" intro panel before the step list with
+   *  the procedure's hero video, tools summary, and safety summary. */
+  intro: {
+    heroVideoUrl: string;
+    heroVideoCaption: string | null;
+    toolsRequired: string[];
+    safetyNotes: string | null;
+  } | null;
   steps: Array<{
     title: string;
     bodyMarkdown: string | null;
@@ -68,8 +77,21 @@ interface ResolvedJobAid {
 }
 
 function normalizeFromDoc(doc: ProcedureDocFullDto): ResolvedJobAid {
+  const hero = doc.metadata?.heroVideo ?? null;
+  const safety = doc.metadata?.safety;
   return {
     title: doc.document.title,
+    intro: hero
+      ? {
+          heroVideoUrl: hero.url,
+          heroVideoCaption: hero.caption ?? null,
+          toolsRequired: doc.metadata?.toolsRequired ?? [],
+          safetyNotes:
+            safety?.enabled && safety.notes && safety.notes.trim().length > 0
+              ? safety.notes
+              : null,
+        }
+      : null,
     steps: doc.steps.map((s) => {
       const augmented = s as ProcedureDocFullDto['steps'][number] & {
         audioUrl?: string | null;
@@ -93,6 +115,8 @@ function normalizeFromInline(
 ): ResolvedJobAid {
   return {
     title: inline.title,
+    // Inline source (AI-emitted steps) never carries a hero video.
+    intro: null,
     steps: inline.steps.map((s) => ({
       title: s.title,
       bodyMarkdown: s.bodyMarkdown ?? null,
@@ -113,6 +137,15 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
   const [stepIdx, setStepIdx] = useState(0);
   const [speaking, setSpeaking] = useState(false);
   const [muted, setMuted] = useState(false);
+  // When the procedure has a hero video, we show a "Step 0" intro panel
+  // before the first real step. true = on the intro, false = stepIdx
+  // governs. We initialize true unconditionally and let an effect drop
+  // it once we know the resolved doc has no hero (so inline-source
+  // walks skip straight to step 0).
+  const [showHeroIntro, setShowHeroIntro] = useState(true);
+  useEffect(() => {
+    if (resolved && !resolved.intro) setShowHeroIntro(false);
+  }, [resolved]);
   // Imperative refs for audio so React state changes don't restart playback.
   // Two playback paths coexist:
   //   - audio element  → plays an authored mp3 from a URL (preferred when
@@ -319,18 +352,70 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
     }
   }, [resolved, stepIdx, muted]);
 
-  // Auto-speak when the step changes.
+  // Auto-speak when the step changes — unless we're on the hero intro
+  // panel, which has its own narration (a short "watch the overview"
+  // line that speaks once on entry; the hero video itself stays paused
+  // and muted to avoid colliding).
   useEffect(() => {
     if (!resolved || !autoSpeak || muted) return;
+    if (showHeroIntro) {
+      // Skip the per-step TTS path; intro narration is handled below.
+      return;
+    }
     void speakCurrent();
     return () => stopPlayback();
     // intentional: speakCurrent is stable enough; we want this to fire on
     // step change, not on every re-render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resolved, stepIdx, autoSpeak, muted]);
+  }, [resolved, stepIdx, autoSpeak, muted, showHeroIntro]);
+
+  // Intro narration — fires once when entering the hero intro panel.
+  useEffect(() => {
+    if (!resolved?.intro || !showHeroIntro || !autoSpeak || muted) return;
+    void (async () => {
+      try {
+        // Short, voice-first orientation. Doesn't auto-play the video
+        // (which would clash with this narration) — tech taps Play.
+        const text =
+          'Procedure intro. Watch the overview, then tap Start when ready.';
+        const ctx = audioCtxRef.current ?? new (
+          window.AudioContext ??
+          (window as unknown as { webkitAudioContext: typeof AudioContext })
+            .webkitAudioContext
+        )();
+        audioCtxRef.current = ctx;
+        if (ctx.state === 'suspended') await ctx.resume();
+        setSpeaking(true);
+        const resp = await speak(text);
+        const buf = await resp.arrayBuffer();
+        const decoded = await ctx.decodeAudioData(buf);
+        const source = ctx.createBufferSource();
+        source.buffer = decoded;
+        source.connect(ctx.destination);
+        sourceRef.current = source;
+        await new Promise<void>((resolve) => {
+          source.onended = () => resolve();
+          source.start();
+        });
+      } catch {
+        // Best-effort — silent on error.
+      } finally {
+        setSpeaking(false);
+        sourceRef.current = null;
+      }
+    })();
+    return () => stopPlayback();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolved?.intro?.heroVideoUrl, showHeroIntro, autoSpeak, muted]);
 
   function next() {
     if (!resolved) return;
+    // Hero intro → first real step.
+    if (showHeroIntro) {
+      stopPlayback();
+      setShowHeroIntro(false);
+      return;
+    }
     if (stepIdx >= resolved.steps.length - 1) {
       stopPlayback();
       onClose({ completed: true });
@@ -347,7 +432,14 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
     }
   }
   function prev() {
-    if (stepIdx === 0) return;
+    // First real step → hero intro (if present).
+    if (stepIdx === 0) {
+      if (resolved?.intro && !showHeroIntro) {
+        stopPlayback();
+        setShowHeroIntro(true);
+      }
+      return;
+    }
     stopPlayback();
     setStepIdx((i) => i - 1);
   }
@@ -414,19 +506,54 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
         </button>
       </header>
 
-      {/* Progress strip — one segment per step, current pulses. */}
-      <div className="vja-progress" aria-hidden>
-        {resolved.steps.map((_, i) => (
-          <span
-            key={i}
-            className="vja-progress-seg"
-            data-state={i < stepIdx ? 'done' : i === stepIdx ? 'active' : 'pending'}
-          />
-        ))}
-      </div>
+      {/* Progress strip — one segment per step, current pulses. Hidden
+          on the hero intro panel since no step is "active" yet. */}
+      {!showHeroIntro && (
+        <div className="vja-progress" aria-hidden>
+          {resolved.steps.map((_, i) => (
+            <span
+              key={i}
+              className="vja-progress-seg"
+              data-state={i < stepIdx ? 'done' : i === stepIdx ? 'active' : 'pending'}
+            />
+          ))}
+        </div>
+      )}
 
       <main className="vja-main">
-        {step && (
+        {showHeroIntro && resolved.intro && (
+          <section className="vja-hero-intro" aria-label="Procedure intro">
+            <h1 className="vja-hero-intro-title">{resolved.title}</h1>
+            <StepVideoPlayer
+              src={resolved.intro.heroVideoUrl}
+              caption={resolved.intro.heroVideoCaption ?? null}
+              muted={false}
+              playId="hero"
+              alt={`${resolved.title} intro video`}
+            />
+            {resolved.intro.toolsRequired.length > 0 && (
+              <div className="vja-hero-intro-meta">
+                <span className="vja-hero-intro-cap">Tools required</span>
+                <div className="vja-hero-intro-tools">
+                  {resolved.intro.toolsRequired.map((t) => (
+                    <span key={t} className="vja-hero-intro-tool">
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {resolved.intro.safetyNotes && (
+              <div className="vja-hero-intro-meta">
+                <span className="vja-hero-intro-cap">Safety</span>
+                <div className="vja-hero-intro-safety">
+                  {resolved.intro.safetyNotes}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+        {!showHeroIntro && step && (
           <article
             key={stepIdx}
             className={`vja-step ${step.safetyCritical ? 'vja-step-safety' : ''}`}
@@ -491,12 +618,23 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
                           label={m.caption ?? 'Image unavailable'}
                         />
                       ) : (
-                        <FallbackVideo
+                        // Job Aid view: muted by default so step videos
+                        // don't fight TTS narration. playId keyed on the
+                        // step index so navigating Next/Prev auto-pauses.
+                        <StepVideoPlayer
                           src={m.url ?? ''}
-                          label={m.caption ?? 'Video unavailable'}
+                          alt={m.caption ?? step.title}
+                          caption={m.caption ?? null}
+                          muted
+                          playId={`step-${stepIdx}-${m.storageKey}`}
                         />
                       )}
-                      {m.caption && <p className="vja-step-caption">{m.caption}</p>}
+                      {/* caption is rendered overlaid by StepVideoPlayer
+                          for video; keep the existing under-image caption
+                          for images only. */}
+                      {m.kind === 'image' && m.caption && (
+                        <p className="vja-step-caption">{m.caption}</p>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -526,40 +664,65 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
       </main>
 
       <footer className="vja-controls">
-        <button
-          type="button"
-          className="vja-btn vja-btn-ghost"
-          onClick={prev}
-          disabled={stepIdx === 0}
-          aria-label="Previous step"
-        >
-          <ChevronLeft size={18} strokeWidth={2.25} />
-          <span>Back</span>
-        </button>
-        <button
-          type="button"
-          className="vja-btn vja-btn-secondary"
-          onClick={replay}
-          disabled={muted}
-          aria-label="Replay step"
-          title="Replay this step"
-        >
-          <RefreshCw
-            size={18}
-            strokeWidth={2.25}
-            className={speaking ? 'vja-spin' : ''}
-          />
-          <span>Replay</span>
-        </button>
-        <button
-          type="button"
-          className="vja-btn vja-btn-primary"
-          onClick={next}
-          aria-label={isLast ? 'Finish' : 'Next step'}
-        >
-          <span>{isLast ? 'Finish' : 'Next'}</span>
-          <ChevronRight size={18} strokeWidth={2.25} />
-        </button>
+        {showHeroIntro ? (
+          <>
+            <button
+              type="button"
+              className="vja-btn vja-btn-ghost"
+              onClick={close}
+              aria-label="Skip intro and close"
+            >
+              <span>Skip</span>
+            </button>
+            <span aria-hidden />
+            <button
+              type="button"
+              className="vja-btn vja-btn-primary"
+              onClick={next}
+              aria-label="Start procedure"
+            >
+              <span>Start</span>
+              <ChevronRight size={18} strokeWidth={2.25} />
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="vja-btn vja-btn-ghost"
+              onClick={prev}
+              disabled={stepIdx === 0 && !resolved.intro}
+              aria-label="Previous step"
+            >
+              <ChevronLeft size={18} strokeWidth={2.25} />
+              <span>Back</span>
+            </button>
+            <button
+              type="button"
+              className="vja-btn vja-btn-secondary"
+              onClick={replay}
+              disabled={muted}
+              aria-label="Replay step"
+              title="Replay this step"
+            >
+              <RefreshCw
+                size={18}
+                strokeWidth={2.25}
+                className={speaking ? 'vja-spin' : ''}
+              />
+              <span>Replay</span>
+            </button>
+            <button
+              type="button"
+              className="vja-btn vja-btn-primary"
+              onClick={next}
+              aria-label={isLast ? 'Finish' : 'Next step'}
+            >
+              <span>{isLast ? 'Finish' : 'Next'}</span>
+              <ChevronRight size={18} strokeWidth={2.25} />
+            </button>
+          </>
+        )}
       </footer>
     </div>
   );

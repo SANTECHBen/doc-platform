@@ -1464,7 +1464,74 @@ export interface AdminDocumentDetail {
   /** Set when the doc is scoped to one specific asset instance (rather than
    *  the whole asset model). Null = model-wide. */
   scopeAssetInstanceId: string | null;
+  /** Tools / safety / verification / heroVideo metadata for procedure
+   *  documents. null for non-procedure docs. The heroVideo sub-object,
+   *  when present, includes a server-resolved `url` for preview. */
+  procedureMetadata: AdminProcedureDocMetadata | null;
   createdAt: string;
+}
+
+export interface AdminProcedureDocMetadata {
+  toolsRequired: string[];
+  safety: { enabled: boolean; notes: string | null };
+  verification: { enabled: boolean; notes: string | null };
+  heroVideo?: {
+    storageKey: string;
+    mime: string;
+    sizeBytes?: number;
+    caption?: string | null;
+    url?: string;
+  } | null;
+}
+
+export interface AdminUploadResult {
+  storageKey: string;
+  sha256?: string;
+  size: number;
+  contentType: string;
+  originalFilename: string;
+  url: string;
+}
+
+/** Generic upload helper — POST /admin/uploads. Used by the procedure
+ *  hero-video flow and any other admin upload that doesn't have a
+ *  dedicated route. Returns the storageKey + URL for downstream PATCH. */
+export async function uploadAdminFile(file: File): Promise<AdminUploadResult> {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${API_BASE}/admin/uploads`, {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: form,
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminUploadResult;
+}
+
+/** PATCH /admin/documents/:id — updates a document's editable fields.
+ *  Pass only the fields that change. */
+export async function updateAdminDocument(
+  id: string,
+  patch: {
+    title?: string;
+    storageKey?: string;
+    thumbnailStorageKey?: string | null;
+    originalFilename?: string;
+    contentType?: string;
+    sizeBytes?: number;
+    safetyCritical?: boolean;
+    procedureMetadata?: AdminProcedureDocMetadata | null;
+  },
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/documents/${encodeURIComponent(id)}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(patch),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }
 
 export async function verifyFieldDocument(documentId: string): Promise<{
