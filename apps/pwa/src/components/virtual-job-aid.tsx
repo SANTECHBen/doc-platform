@@ -532,36 +532,64 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
       <main className="vja-main">
         {showHeroIntro && resolved.intro && (
           <section className="vja-hero-intro" aria-label="Procedure intro">
-            <h1 className="vja-hero-intro-title">{resolved.title}</h1>
-            {(resolved.intro.estimatedMinutes != null ||
-              resolved.intro.skillLevel != null) && (
-              <div className="vja-hero-intro-chips">
-                {resolved.intro.estimatedMinutes != null && (
-                  <span className="vja-hero-intro-chip">
-                    <span className="vja-hero-intro-chip-icon">
-                      <Clock size={13} strokeWidth={2.25} />
-                    </span>
-                    {formatDuration(resolved.intro.estimatedMinutes)}
-                  </span>
-                )}
-                {resolved.intro.skillLevel != null && (
-                  <span className="vja-hero-intro-chip">
-                    <span className="vja-hero-intro-chip-icon">
-                      <GraduationCap size={13} strokeWidth={2.25} />
-                    </span>
-                    {capitalize(resolved.intro.skillLevel)}
-                  </span>
-                )}
+            {resolved.intro.heroVideoUrl ? (
+              // Image-prominent hero: video fills the block; title +
+              // meta chips overlay the bottom on a dark gradient so the
+              // white text reads regardless of frame content.
+              <div className="vja-hero-overlay-block">
+                <HeroVideoEmbed
+                  url={resolved.intro.heroVideoUrl}
+                  caption={resolved.intro.heroVideoCaption ?? null}
+                  muted={false}
+                  playId="hero"
+                  alt={`${resolved.title} intro video`}
+                />
+                <div className="vja-hero-overlay-gradient">
+                  <h1 className="vja-hero-overlay-title">{resolved.title}</h1>
+                  {(resolved.intro.estimatedMinutes != null ||
+                    resolved.intro.skillLevel != null) && (
+                    <div className="vja-hero-overlay-chips">
+                      {resolved.intro.estimatedMinutes != null && (
+                        <span className="vja-hero-overlay-chip">
+                          <Clock size={13} strokeWidth={2.25} />
+                          {formatDuration(resolved.intro.estimatedMinutes)}
+                        </span>
+                      )}
+                      {resolved.intro.skillLevel != null && (
+                        <span className="vja-hero-overlay-chip">
+                          <GraduationCap size={13} strokeWidth={2.25} />
+                          {capitalize(resolved.intro.skillLevel)}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
-            )}
-            {resolved.intro.heroVideoUrl && (
-              <HeroVideoEmbed
-                url={resolved.intro.heroVideoUrl}
-                caption={resolved.intro.heroVideoCaption ?? null}
-                muted={false}
-                playId="hero"
-                alt={`${resolved.title} intro video`}
-              />
+            ) : (
+              <>
+                <h1 className="vja-hero-intro-title">{resolved.title}</h1>
+                {(resolved.intro.estimatedMinutes != null ||
+                  resolved.intro.skillLevel != null) && (
+                  <div className="vja-hero-intro-chips">
+                    {resolved.intro.estimatedMinutes != null && (
+                      <span className="vja-hero-intro-chip">
+                        <span className="vja-hero-intro-chip-icon">
+                          <Clock size={13} strokeWidth={2.25} />
+                        </span>
+                        {formatDuration(resolved.intro.estimatedMinutes)}
+                      </span>
+                    )}
+                    {resolved.intro.skillLevel != null && (
+                      <span className="vja-hero-intro-chip">
+                        <span className="vja-hero-intro-chip-icon">
+                          <GraduationCap size={13} strokeWidth={2.25} />
+                        </span>
+                        {capitalize(resolved.intro.skillLevel)}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </>
             )}
             {(() => {
               const i = resolved.intro;

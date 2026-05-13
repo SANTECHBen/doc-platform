@@ -36,6 +36,7 @@ import { ProcedureDocWizard } from '@/components/procedure-runner/procedure-doc-
 import { ProcedureDocViewer } from '@/components/procedure-runner/procedure-doc-viewer';
 import { VirtualJobAid } from '@/components/virtual-job-aid';
 import { AuthPrompt } from '@/components/auth-prompt';
+import { FEATURE_PROCEDURE_RUN_ENABLED } from '@/lib/feature-flags';
 import { Plus } from 'lucide-react';
 import {
   listDocuments,
@@ -296,7 +297,7 @@ export function DocsTab({
           setJobAidDocId(id);
         }}
         onRunWithEvidence={
-          DEV_USER_ID
+          FEATURE_PROCEDURE_RUN_ENABLED && DEV_USER_ID
             ? () => {
                 const id = viewerDocId;
                 setViewerDocId(null);
@@ -339,10 +340,8 @@ export function DocsTab({
 
   function onOpenEntry(e: DocEntry) {
     if (e.kind === 'structured_procedure') {
-      if (!DEV_USER_ID) {
-        setAuthPromptOpen(true);
-        return;
-      }
+      // Browse-mode viewer is open to anyone — the auth gate moved to
+      // the Run-with-evidence button (which is itself feature-flagged).
       setViewerDocId(e.docId);
       return;
     }

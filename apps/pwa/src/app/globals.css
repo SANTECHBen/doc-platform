@@ -2576,6 +2576,58 @@
     color: rgb(var(--brand));
     display: inline-flex;
   }
+  /* Image-prominent hero block: the video fills the frame, the title +
+     meta chips overlay it on a dark gradient so white text stays legible
+     regardless of the frame content underneath. pointer-events:none on
+     the gradient so the play / fullscreen buttons stay clickable. */
+  .vja-hero-overlay-block {
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .vja-hero-overlay-gradient {
+    pointer-events: none;
+    position: absolute;
+    inset: 0 0 0 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 16px 18px 16px 18px;
+    background: linear-gradient(
+      to top,
+      rgba(0, 0, 0, 0.78) 0%,
+      rgba(0, 0, 0, 0.45) 35%,
+      rgba(0, 0, 0, 0) 65%
+    );
+  }
+  .vja-hero-overlay-title {
+    margin: 0;
+    color: #fff;
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+  }
+  .vja-hero-overlay-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .vja-hero-overlay-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.18);
+    color: #fff;
+    font-size: 12.5px;
+    font-weight: 500;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
   /* Author-written summary paragraph — wider line-height for legibility
      on the small Job Aid surface; capped width matches the intro. */
   .vja-hero-intro-summary {

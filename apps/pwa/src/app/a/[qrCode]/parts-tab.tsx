@@ -47,6 +47,7 @@ import { ProcedureRunner } from '@/components/procedure-runner/procedure-runner'
 import { ProcedureDocViewer } from '@/components/procedure-runner/procedure-doc-viewer';
 import { VirtualJobAid } from '@/components/virtual-job-aid';
 import { AuthPrompt } from '@/components/auth-prompt';
+import { FEATURE_PROCEDURE_RUN_ENABLED } from '@/lib/feature-flags';
 
 // Identity for procedure runs. Same env vars as docs-tab. See AuthPrompt
 // for the v1 fallback when these aren't set.
@@ -643,7 +644,7 @@ function PartDetailOverlay({
             setJobAidDocId(id);
           }}
           onRunWithEvidence={
-            PWA_DEV_USER_ID
+            FEATURE_PROCEDURE_RUN_ENABLED && PWA_DEV_USER_ID
               ? () => {
                   const id = viewerDocId;
                   setViewerDocId(null);
