@@ -683,11 +683,15 @@ export interface ProcedureSubstepDto {
 }
 
 export interface ProcedureDocHeroVideo {
-  storageKey: string;
+  /** Set when uploaded via the hero-video upload route. */
+  storageKey?: string;
+  /** Set when authored as an external link (YouTube/Vimeo/direct). */
+  sourceUrl?: string;
   mime: string;
   sizeBytes?: number;
   caption?: string | null;
-  /** Server-resolved public URL for direct playback. */
+  /** Server-resolved public URL for playback — uploaded files resolve
+   *  through storage; external URLs pass through. */
   url: string;
 }
 

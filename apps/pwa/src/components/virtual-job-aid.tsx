@@ -23,6 +23,7 @@ import {
   type StepBlock,
 } from '@/lib/api';
 import { StepVideoPlayer } from './step-video-player';
+import { HeroVideoEmbed } from './hero-video-embed';
 
 // VirtualJobAid — hands-free, step-at-a-time procedure walkthrough that
 // the AI launches by emitting a [procedure:UUID] directive. Each step
@@ -524,8 +525,8 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
         {showHeroIntro && resolved.intro && (
           <section className="vja-hero-intro" aria-label="Procedure intro">
             <h1 className="vja-hero-intro-title">{resolved.title}</h1>
-            <StepVideoPlayer
-              src={resolved.intro.heroVideoUrl}
+            <HeroVideoEmbed
+              url={resolved.intro.heroVideoUrl}
               caption={resolved.intro.heroVideoCaption ?? null}
               muted={false}
               playId="hero"

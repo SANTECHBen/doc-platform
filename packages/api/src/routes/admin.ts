@@ -2561,11 +2561,23 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
                 }),
                 heroVideo: z
                   .object({
-                    storageKey: z.string().min(1).max(400),
+                    // Exactly one of storageKey/sourceUrl must be set.
+                    // storageKey = uploaded file; sourceUrl = pasted
+                    // external link (YouTube, Vimeo, direct mp4/webm).
+                    storageKey: z.string().min(1).max(400).optional(),
+                    sourceUrl: z.string().url().max(2000).optional(),
                     mime: z.string().min(1).max(80),
                     sizeBytes: z.number().int().nonnegative().optional(),
                     caption: z.string().max(400).nullable().optional(),
                   })
+                  .refine(
+                    (v) =>
+                      (v.storageKey == null) !== (v.sourceUrl == null),
+                    {
+                      message:
+                        'heroVideo must set exactly one of storageKey or sourceUrl.',
+                    },
+                  )
                   .nullable()
                   .optional(),
               })

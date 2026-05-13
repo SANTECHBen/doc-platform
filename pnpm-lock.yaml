@@ -23,6 +23,9 @@ importers:
 
   apps/admin:
     dependencies:
+      '@platform/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@platform/viewer':
         specifier: workspace:*
         version: link:../../packages/viewer
@@ -108,6 +111,9 @@ importers:
 
   apps/pwa:
     dependencies:
+      '@platform/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@platform/viewer':
         specifier: workspace:*
         version: link:../../packages/viewer

@@ -252,8 +252,9 @@ export async function registerAdminSections(app: FastifyInstance) {
         });
         verifiedByDisplayName = verifier?.displayName ?? null;
       }
-      // Resolve heroVideo storageKey → URL so the admin UI can preview
-      // the uploaded video without bucket-level access.
+      // Resolve heroVideo to a previewable URL. Uploaded files go
+      // through storage.publicUrl; pasted external URLs pass through
+      // as-is. The admin UI uses `url` for previewing either way.
       const meta = d.procedureMetadata ?? null;
       const metaWithUrl = meta
         ? {
@@ -262,7 +263,11 @@ export async function registerAdminSections(app: FastifyInstance) {
               ? {
                   heroVideo: {
                     ...meta.heroVideo,
-                    url: storage.publicUrl(meta.heroVideo.storageKey),
+                    url:
+                      meta.heroVideo.sourceUrl ??
+                      (meta.heroVideo.storageKey
+                        ? storage.publicUrl(meta.heroVideo.storageKey)
+                        : ''),
                   },
                 }
               : {}),

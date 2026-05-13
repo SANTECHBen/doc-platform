@@ -36,9 +36,12 @@ export type ProcedureDocMetadata = {
   verification: { enabled: boolean; notes: string | null };
   /** Optional procedure-level intro video — plays on a "Step 0" landing
    *  panel in the PWA's Job Aid view and at the top of the scroll view.
-   *  Distinct from per-step videos in `procedure_steps.media`. */
+   *  Distinct from per-step videos in `procedure_steps.media`.
+   *  Exactly one of `storageKey` (uploaded file) or `sourceUrl` (external
+   *  link — YouTube, Vimeo, or a direct mp4/webm URL) must be set. */
   heroVideo?: {
-    storageKey: string;
+    storageKey?: string;
+    sourceUrl?: string;
     mime: string;
     sizeBytes?: number;
     caption?: string | null;

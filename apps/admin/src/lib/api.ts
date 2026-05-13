@@ -1476,10 +1476,14 @@ export interface AdminProcedureDocMetadata {
   safety: { enabled: boolean; notes: string | null };
   verification: { enabled: boolean; notes: string | null };
   heroVideo?: {
-    storageKey: string;
+    /** Set when uploaded via the hero-video upload route. */
+    storageKey?: string;
+    /** Set when authored as an external link (YouTube/Vimeo/direct). */
+    sourceUrl?: string;
     mime: string;
     sizeBytes?: number;
     caption?: string | null;
+    /** Server-resolved URL — populated regardless of source kind. */
     url?: string;
   } | null;
 }

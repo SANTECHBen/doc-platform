@@ -26,6 +26,7 @@ import {
   type ProcedureStepKind,
 } from '@/lib/api';
 import { StepVideoPlayer } from '../step-video-player';
+import { HeroVideoEmbed } from '../hero-video-embed';
 
 export function ProcedureDocViewer({
   docId,
@@ -199,8 +200,8 @@ export function ProcedureDocViewer({
               scroll view above everything else. Defaults to unmuted in
               scroll view; the user is reading, not in voice mode. */}
           {m?.heroVideo && (
-            <StepVideoPlayer
-              src={m.heroVideo.url}
+            <HeroVideoEmbed
+              url={m.heroVideo.url}
               alt={`${doc.document.title} intro video`}
               caption={m.heroVideo.caption ?? null}
               muted={false}

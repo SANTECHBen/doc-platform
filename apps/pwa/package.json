@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@platform/shared": "workspace:*",
     "@platform/viewer": "workspace:*",
     "@sentry/nextjs": "^10.52.0",
     "@serwist/next": "^9.5.11",

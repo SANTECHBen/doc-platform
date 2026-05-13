@@ -151,13 +151,20 @@ const ProcedureMetadataBody = z.object({
     notes: z.string().max(5000).nullable(),
   }),
   // Optional procedure-level intro video. Uploaded separately via the
-  // hero-video upload route; this PATCH just persists the reference.
+  // hero-video upload route, or set by URL (YouTube/Vimeo/direct video);
+  // this PATCH just persists the reference. Exactly one of
+  // storageKey/sourceUrl must be set.
   heroVideo: z
     .object({
-      storageKey: z.string().min(1).max(400),
+      storageKey: z.string().min(1).max(400).optional(),
+      sourceUrl: z.string().url().max(2000).optional(),
       mime: z.string().min(1).max(80),
       sizeBytes: z.number().int().nonnegative().optional(),
       caption: z.string().max(400).nullable().optional(),
+    })
+    .refine((v) => (v.storageKey == null) !== (v.sourceUrl == null), {
+      message:
+        'heroVideo must set exactly one of storageKey or sourceUrl.',
     })
     .nullable()
     .optional(),
@@ -1319,9 +1326,9 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
         capturedByDisplayName = u?.displayName ?? null;
       }
 
-      // Resolve the heroVideo storageKey to a public URL so the PWA
-      // doesn't need bucket-level access. Pass through other metadata
-      // unchanged.
+      // Resolve the heroVideo to a public URL the PWA can play. Uploaded
+      // files go through storage.publicUrl; pasted external URLs
+      // (YouTube/Vimeo/direct mp4) pass through unchanged.
       const meta = doc.procedureMetadata ?? null;
       const metaWithUrl = meta
         ? {
@@ -1330,7 +1337,11 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
               ? {
                   heroVideo: {
                     ...meta.heroVideo,
-                    url: storage.publicUrl(meta.heroVideo.storageKey),
+                    url:
+                      meta.heroVideo.sourceUrl ??
+                      (meta.heroVideo.storageKey
+                        ? storage.publicUrl(meta.heroVideo.storageKey)
+                        : ''),
                   },
                 }
               : {}),

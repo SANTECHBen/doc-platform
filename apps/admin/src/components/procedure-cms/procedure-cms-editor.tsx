@@ -44,7 +44,8 @@ import {
   type CreateProcedureStepInput,
   type UpdateProcedureStepInput,
 } from '@/lib/api';
-import { Film, Trash2, Upload as UploadIcon } from 'lucide-react';
+import { Film, Link2, Trash2, Upload as UploadIcon } from 'lucide-react';
+import { parseVideoEmbed } from '@platform/shared';
 import { useToast } from '@/components/toast';
 import { ErrorBanner } from '@/components/form';
 import { StepCard } from './step-card';
@@ -487,8 +488,10 @@ function HeroVideoSection({
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [urlDraft, setUrlDraft] = useState('');
 
   const hero = doc.procedureMetadata?.heroVideo ?? null;
+  const heroEmbed = hero?.url ? parseVideoEmbed(hero.url) : null;
 
   // Build the metadata object to PATCH. Always send the full shape so
   // we don't accidentally drop tools/safety/verification when patching
@@ -551,6 +554,43 @@ function HeroVideoSection({
     }
   }
 
+  async function onSetUrl() {
+    const trimmed = urlDraft.trim();
+    if (!trimmed) return;
+    const embed = parseVideoEmbed(trimmed);
+    if (!embed) {
+      setError('Enter a valid http(s) URL.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      // mime is required by the schema but loses meaning for external
+      // links — store a provider tag for display purposes.
+      const mime =
+        embed.kind === 'youtube'
+          ? 'video/youtube'
+          : embed.kind === 'vimeo'
+            ? 'video/vimeo'
+            : 'video/external';
+      const meta = buildMetadata({
+        sourceUrl: trimmed,
+        mime,
+        caption: hero?.caption ?? null,
+      });
+      await updateAdminDocument(doc.id, { procedureMetadata: meta });
+      await onChanged();
+      setUrlDraft('');
+      toast.success('Intro video URL saved.');
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setError(message);
+      toast.error(`Update failed: ${message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="rounded-lg border border-line-subtle bg-surface-raised p-4">
       <div className="mb-2 flex items-center gap-2">
@@ -566,16 +606,40 @@ function HeroVideoSection({
         </p>
       )}
       {hero ? (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          {hero.url && (
-            <video
-              src={hero.url}
-              controls
-              preload="metadata"
-              className="aspect-video w-full max-w-sm rounded border border-line bg-black"
-            />
-          )}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+          {hero.url &&
+            (heroEmbed?.kind === 'youtube' || heroEmbed?.kind === 'vimeo' ? (
+              <iframe
+                src={heroEmbed.embedUrl}
+                title="Intro video preview"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                className="aspect-video w-full max-w-sm rounded border border-line bg-black"
+              />
+            ) : (
+              <video
+                src={hero.url}
+                controls
+                preload="metadata"
+                className="aspect-video w-full max-w-sm rounded border border-line bg-black"
+              />
+            ))}
           <div className="flex flex-1 flex-col gap-2 text-xs text-ink-secondary">
+            <div>
+              <span className="text-ink-tertiary">Source:</span>{' '}
+              {hero.sourceUrl ? (
+                <a
+                  href={hero.sourceUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="break-all text-accent underline"
+                >
+                  {hero.sourceUrl}
+                </a>
+              ) : (
+                'Uploaded file'
+              )}
+            </div>
             <div>
               <span className="text-ink-tertiary">Type:</span> {hero.mime}
             </div>
@@ -585,14 +649,14 @@ function HeroVideoSection({
                 {(hero.sizeBytes / (1024 * 1024)).toFixed(2)} MB
               </div>
             )}
-            <div className="flex gap-2 pt-2">
+            <div className="flex flex-wrap gap-2 pt-2">
               <label
                 className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-primary transition hover:border-accent/40 hover:bg-accent/5 ${
                   busy ? 'pointer-events-none opacity-50' : ''
                 }`}
               >
                 <UploadIcon className="size-3.5" />
-                Replace
+                Replace with upload
                 <input
                   type="file"
                   accept="video/mp4,video/quicktime,video/webm"
@@ -615,28 +679,69 @@ function HeroVideoSection({
                 Remove
               </button>
             </div>
+            <div className="flex flex-wrap items-center gap-2 pt-2">
+              <input
+                type="url"
+                placeholder="Replace with URL — YouTube, Vimeo, or .mp4"
+                value={urlDraft}
+                onChange={(e) => setUrlDraft(e.target.value)}
+                disabled={busy}
+                className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1.5 text-xs text-ink-primary placeholder:text-ink-tertiary focus:border-accent focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => void onSetUrl()}
+                disabled={busy || !urlDraft.trim()}
+                className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-primary transition hover:border-accent/40 hover:bg-accent/5 disabled:opacity-50"
+              >
+                <Link2 className="size-3.5" />
+                Set URL
+              </button>
+            </div>
           </div>
         </div>
       ) : (
-        <label
-          className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-primary transition hover:border-accent/40 hover:bg-accent/5 ${
-            busy ? 'pointer-events-none opacity-50' : ''
-          }`}
-        >
-          <UploadIcon className="size-3.5" />
-          {busy ? 'Uploading…' : 'Upload intro video'}
-          <input
-            type="file"
-            accept="video/mp4,video/quicktime,video/webm"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) void onPick(f);
-              e.target.value = '';
-            }}
-            className="hidden"
-            disabled={busy}
-          />
-        </label>
+        <div className="flex flex-col gap-2">
+          <label
+            className={`inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-primary transition hover:border-accent/40 hover:bg-accent/5 ${
+              busy ? 'pointer-events-none opacity-50' : ''
+            }`}
+          >
+            <UploadIcon className="size-3.5" />
+            {busy ? 'Working…' : 'Upload intro video'}
+            <input
+              type="file"
+              accept="video/mp4,video/quicktime,video/webm"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void onPick(f);
+                e.target.value = '';
+              }}
+              className="hidden"
+              disabled={busy}
+            />
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-ink-tertiary">or paste URL:</span>
+            <input
+              type="url"
+              placeholder="YouTube, Vimeo, or .mp4 link"
+              value={urlDraft}
+              onChange={(e) => setUrlDraft(e.target.value)}
+              disabled={busy}
+              className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1.5 text-xs text-ink-primary placeholder:text-ink-tertiary focus:border-accent focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={() => void onSetUrl()}
+              disabled={busy || !urlDraft.trim()}
+              className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-primary transition hover:border-accent/40 hover:bg-accent/5 disabled:opacity-50"
+            >
+              <Link2 className="size-3.5" />
+              Set URL
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
