@@ -489,6 +489,10 @@ function HeroVideoSection({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [urlDraft, setUrlDraft] = useState('');
+  // Upload progress 0–100, or null when not actively uploading. The
+  // PATCH that follows is fast, so we only show the bar during the
+  // multipart POST itself.
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
 
   const hero = doc.procedureMetadata?.heroVideo ?? null;
   const heroEmbed = hero?.url ? parseVideoEmbed(hero.url) : null;
@@ -513,11 +517,16 @@ function HeroVideoSection({
   async function onPick(file: File) {
     setBusy(true);
     setError(null);
+    setUploadPct(0);
     try {
       if (!file.type.startsWith('video/')) {
         throw new Error('Please choose a video file.');
       }
-      const uploaded = await uploadAdminFile(file);
+      const uploaded = await uploadAdminFile(file, {
+        onProgress: (pct) => setUploadPct(Math.round(pct)),
+      });
+      // Upload finished; server is now writing metadata. Clear the bar.
+      setUploadPct(null);
       const meta = buildMetadata({
         storageKey: uploaded.storageKey,
         mime: uploaded.contentType,
@@ -533,6 +542,7 @@ function HeroVideoSection({
       toast.error(`Upload failed: ${message}`);
     } finally {
       setBusy(false);
+      setUploadPct(null);
     }
   }
 
@@ -590,6 +600,21 @@ function HeroVideoSection({
       setBusy(false);
     }
   }
+
+  const progressBar =
+    uploadPct !== null ? (
+      <div className="flex items-center gap-2">
+        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-line-subtle">
+          <div
+            className="h-full bg-accent transition-[width] duration-150 ease-linear"
+            style={{ width: `${uploadPct}%` }}
+          />
+        </div>
+        <span className="tabular-nums text-xs text-ink-tertiary">
+          {uploadPct}%
+        </span>
+      </div>
+    ) : null;
 
   return (
     <div className="rounded-lg border border-line-subtle bg-surface-raised p-4">
@@ -656,7 +681,9 @@ function HeroVideoSection({
                 }`}
               >
                 <UploadIcon className="size-3.5" />
-                Replace with upload
+                {uploadPct !== null
+                  ? `Uploading… ${uploadPct}%`
+                  : 'Replace with upload'}
                 <input
                   type="file"
                   accept="video/mp4,video/quicktime,video/webm"
@@ -679,6 +706,7 @@ function HeroVideoSection({
                 Remove
               </button>
             </div>
+            {progressBar}
             <div className="flex flex-wrap items-center gap-2 pt-2">
               <input
                 type="url"
@@ -708,7 +736,11 @@ function HeroVideoSection({
             }`}
           >
             <UploadIcon className="size-3.5" />
-            {busy ? 'Working…' : 'Upload intro video'}
+            {uploadPct !== null
+              ? `Uploading… ${uploadPct}%`
+              : busy
+                ? 'Working…'
+                : 'Upload intro video'}
             <input
               type="file"
               accept="video/mp4,video/quicktime,video/webm"
@@ -721,6 +753,7 @@ function HeroVideoSection({
               disabled={busy}
             />
           </label>
+          {progressBar}
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs text-ink-tertiary">or paste URL:</span>
             <input

@@ -1499,17 +1499,49 @@ export interface AdminUploadResult {
 
 /** Generic upload helper — POST /admin/uploads. Used by the procedure
  *  hero-video flow and any other admin upload that doesn't have a
- *  dedicated route. Returns the storageKey + URL for downstream PATCH. */
-export async function uploadAdminFile(file: File): Promise<AdminUploadResult> {
+ *  dedicated route. Returns the storageKey + URL for downstream PATCH.
+ *
+ *  Uses XMLHttpRequest (not fetch) so `xhr.upload.onprogress` can drive
+ *  a progress bar for multi-minute video uploads. */
+export async function uploadAdminFile(
+  file: File,
+  options?: { onProgress?: (pct: number) => void; signal?: AbortSignal },
+): Promise<AdminUploadResult> {
   const form = new FormData();
   form.append('file', file);
-  const res = await fetch(`${API_BASE}/admin/uploads`, {
-    method: 'POST',
-    headers: await authHeaders(),
-    body: form,
+  const headers = await authHeaders();
+  return new Promise<AdminUploadResult>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE}/admin/uploads`);
+    for (const [k, v] of Object.entries(headers)) {
+      xhr.setRequestHeader(k, v);
+    }
+    xhr.responseType = 'json';
+    if (options?.onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          options.onProgress!((e.loaded / e.total) * 100);
+        }
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(xhr.response as AdminUploadResult);
+      } else {
+        const body =
+          typeof xhr.response === 'string'
+            ? xhr.response
+            : JSON.stringify(xhr.response ?? {});
+        reject(new Error(`API ${xhr.status}: ${body}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Network error during upload.'));
+    xhr.onabort = () => reject(new Error('Upload aborted.'));
+    if (options?.signal) {
+      options.signal.addEventListener('abort', () => xhr.abort());
+    }
+    xhr.send(form);
   });
-  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
-  return (await res.json()) as AdminUploadResult;
 }
 
 /** PATCH /admin/documents/:id — updates a document's editable fields.
