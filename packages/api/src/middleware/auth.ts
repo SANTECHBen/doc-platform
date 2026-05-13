@@ -30,6 +30,12 @@ export async function registerAuth(app: FastifyInstance) {
   const tenantAllowed = (tid: string) =>
     allowedTenants.length === 0 || allowedTenants.includes(tid);
 
+  // Kick off JWKS prewarm for known tenants so the first user request
+  // after boot doesn't race a cold MS connection. Async, fire-and-forget.
+  if (allowedTenants.length > 0) {
+    prewarmTenantJwks(allowedTenants, app.log);
+  }
+
   app.addHook('preHandler', async (request) => {
     // 1. Microsoft Entra ID bearer token path (preferred in production).
     const header = request.headers.authorization;
@@ -115,10 +121,52 @@ function getJwks(issuer: string): ReturnType<typeof createRemoteJWKSet> {
     // — the issuer URL ends in /v2.0, but the discovery path drops it. Strip
     // the trailing /v2.0 segment before appending /discovery/v2.0/keys.
     const base = issuer.replace(/\/v2\.0\/?$/, '');
-    jwks = createRemoteJWKSet(new URL(`${base}/discovery/v2.0/keys`));
+    jwks = createRemoteJWKSet(new URL(`${base}/discovery/v2.0/keys`), {
+      // Fail the JWKS fetch fast instead of letting Node's default TCP
+      // retry/keepalive timeouts stretch a 401 to 17+ seconds. We retry
+      // at a higher level (verifyMsIdToken) so the user-facing request
+      // can still succeed when the first attempt hits a TLS reset.
+      timeoutDuration: 3000,
+      cooldownDuration: 5000,
+    });
     jwksByIssuer.set(issuer, jwks);
   }
   return jwks;
+}
+
+/** Pre-fetch JWKS for the listed Microsoft tenants so the first real
+ *  request doesn't pay a cold-cache penalty (the failure mode we hit on
+ *  Fly redeploys, where an in-flight upload + cold JWKS racing each
+ *  other produced a 17s ECONNRESET 401). Fire-and-forget — a temporary
+ *  MS outage at boot must not block API startup.
+ *
+ *  We hit the discovery URL with a plain fetch. That's enough to warm
+ *  DNS, TLS session tickets, and Undici's keepalive pool, so jose's
+ *  first internal fetch on a real request lands on an already-open
+ *  connection. We don't populate jose's key cache directly — jose will
+ *  do that on the first verification, but by then the network path is
+ *  warm and the fetch returns in single-digit ms instead of hanging. */
+export function prewarmTenantJwks(
+  tenantIds: string[],
+  log?: { warn: (o: unknown, m?: string) => void; info?: (o: unknown, m?: string) => void },
+): void {
+  for (const tid of tenantIds) {
+    const url = `https://login.microsoftonline.com/${tid}/discovery/v2.0/keys`;
+    fetch(url, { signal: AbortSignal.timeout(3000) })
+      .then((r) => log?.info?.({ tid, status: r.status }, 'auth: jwks prewarm ok'))
+      .catch((err) => log?.warn({ err, tid }, 'auth: jwks prewarm failed (non-fatal)'));
+  }
+}
+
+function isTransientNetworkError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { code?: string; name?: string; cause?: unknown };
+  // Node net errors, AbortError from a hit timeout, and Undici fetch
+  // errors that wrap a deeper cause.
+  if (e.code === 'ECONNRESET' || e.code === 'ETIMEDOUT' || e.code === 'UND_ERR_SOCKET') return true;
+  if (e.name === 'AbortError' || e.name === 'TimeoutError') return true;
+  if (e.cause) return isTransientNetworkError(e.cause);
+  return false;
 }
 
 async function verifyMsIdToken(token: string, audience: string): Promise<MsClaims> {
@@ -133,11 +181,25 @@ async function verifyMsIdToken(token: string, audience: string): Promise<MsClaim
     throw new Error('token issuer is not Microsoft');
   }
   const jwks = getJwks(issuer);
-  const { payload } = await jwtVerify(token, jwks, {
-    audience,
-    issuer,
-  });
-  return payload as MsClaims;
+  // Retry the verification when the JWKS fetch hits a transient network
+  // error (ECONNRESET, timeout, etc.). Permanent failures — bad
+  // signature, wrong audience, expired token — are NOT retried; they
+  // surface immediately so genuine 401s stay fast.
+  const maxAttempts = 3;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const { payload } = await jwtVerify(token, jwks, { audience, issuer });
+      return payload as MsClaims;
+    } catch (err) {
+      lastErr = err;
+      if (!isTransientNetworkError(err) || attempt === maxAttempts) throw err;
+      // 100ms, 300ms backoff. Total worst case ~400ms + 2× 3s timeouts
+      // = ~6.4s ceiling instead of jose's open-ended default.
+      await new Promise((r) => setTimeout(r, attempt === 1 ? 100 : 300));
+    }
+  }
+  throw lastErr;
 }
 
 // ---- User provisioning on first sign-in ------------------------------------
