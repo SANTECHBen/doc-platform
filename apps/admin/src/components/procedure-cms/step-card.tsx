@@ -80,12 +80,25 @@ export function StepCard({
   // server while the user is mid-sentence.
   const titleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const blocksTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Tracks the most recent value we shipped upstream. When step.title
+  // changes back to us via the parent re-fetch, we compare it to this:
+  // if it matches what we sent, the update is our own echo — leave
+  // local state alone (the user may have typed more characters during
+  // the round-trip). Without this, the useEffect below clobbers in-
+  // flight typing on every save, which felt like "deleted characters".
+  const lastSentTitleRef = useRef(step.title);
 
   // If the parent reloads the step (e.g. after audio update), keep the
   // local mirrors aligned UNLESS the user has unsaved edits. The parent
   // typically reloads only on shape-changing mutations.
   useEffect(() => {
-    setTitle(step.title);
+    if (step.title !== lastSentTitleRef.current) {
+      // Server / another editor changed the title to something we didn't
+      // send — accept it. Most common path: switching to a different
+      // step (step.id changes) which legitimately needs the new title.
+      setTitle(step.title);
+      lastSentTitleRef.current = step.title;
+    }
     setBlocks(step.blocks ?? []);
     setKind(step.kind);
     setSafetyCritical(step.safetyCritical);
@@ -96,7 +109,10 @@ export function StepCard({
     if (titleTimer.current) clearTimeout(titleTimer.current);
     titleTimer.current = setTimeout(() => {
       const v = next.trim();
-      if (v && v !== step.title) void onPatch({ title: v });
+      if (v && v !== step.title) {
+        lastSentTitleRef.current = v;
+        void onPatch({ title: v });
+      }
     }, 600);
   }
   function onBlocksChange(next: StepBlock[]) {
@@ -149,7 +165,10 @@ export function StepCard({
       if (titleTimer.current) {
         clearTimeout(titleTimer.current);
         const v = title.trim();
-        if (v && v !== step.title) void onPatch({ title: v });
+        if (v && v !== step.title) {
+          lastSentTitleRef.current = v;
+          void onPatch({ title: v });
+        }
       }
       if (blocksTimer.current) {
         clearTimeout(blocksTimer.current);
