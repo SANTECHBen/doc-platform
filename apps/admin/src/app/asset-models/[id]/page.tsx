@@ -20,6 +20,7 @@ import {
   addBomEntry,
   bulkCreateAssetInstances,
   createAssetInstance,
+  createAssetModel,
   getContentPack,
   listAdminParts,
   listBom,
@@ -91,6 +92,16 @@ export default function AssetModelDetail({
   const [editDescription, setEditDescription] = useState('');
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  // Duplicate drawer state. Pre-populated from the current model so the
+  // admin only has to tweak the new model code + display name; the rest
+  // of the fields (description, image, owner, category) are silently
+  // copied. They can refine via the Edit drawer afterward.
+  const [dupOpen, setDupOpen] = useState(false);
+  const [dupModelCode, setDupModelCode] = useState('');
+  const [dupDisplayName, setDupDisplayName] = useState('');
+  const [dupCategory, setDupCategory] = useState('');
+  const [dupSaving, setDupSaving] = useState(false);
+  const [dupError, setDupError] = useState<string | null>(null);
   // Pin-to-version picker. Holds the instance being targeted + the
   // model's available pack versions (lazy-loaded on open). Lets authors
   // pin to a draft or to a non-latest published version — useful right
@@ -157,6 +168,44 @@ export default function AssetModelDetail({
     }
   }
 
+  function openDuplicateDrawer() {
+    if (!model) return;
+    // Reasonable defaults that pass the unique (owner, model_code)
+    // constraint on first try. Admin can override before submitting.
+    setDupModelCode(`${model.modelCode}-copy`);
+    setDupDisplayName(`${model.displayName} (Copy)`);
+    setDupCategory(model.category);
+    setDupError(null);
+    setDupOpen(true);
+  }
+
+  async function submitDuplicate() {
+    if (!model) return;
+    if (!dupModelCode.trim() || !dupDisplayName.trim() || !dupCategory.trim()) {
+      setDupError('Model code, display name, and equipment type are required.');
+      return;
+    }
+    setDupSaving(true);
+    setDupError(null);
+    try {
+      const created = await createAssetModel({
+        ownerOrganizationId: model.owner.id,
+        modelCode: dupModelCode.trim(),
+        displayName: dupDisplayName.trim(),
+        category: dupCategory.trim(),
+        ...(model.description ? { description: model.description } : {}),
+        ...(model.imageStorageKey ? { imageStorageKey: model.imageStorageKey } : {}),
+      });
+      setDupOpen(false);
+      toast.success('Asset model duplicated');
+      router.push(`/asset-models/${created.id}`);
+    } catch (err) {
+      setDupError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDupSaving(false);
+    }
+  }
+
   async function pickVersion(instanceId: string, versionId: string) {
     setPinBusy(true);
     try {
@@ -215,6 +264,7 @@ export default function AssetModelDetail({
         actions={
           <>
             <SecondaryButton onClick={openEditDrawer}>Edit</SecondaryButton>
+            <SecondaryButton onClick={openDuplicateDrawer}>Duplicate</SecondaryButton>
             <SecondaryButton
               onClick={() => setBulkOpen(true)}
               disabled={sites.length === 0}
@@ -403,6 +453,63 @@ export default function AssetModelDetail({
             </SecondaryButton>
             <PrimaryButton onClick={submitEdit} disabled={editSaving}>
               {editSaving ? 'Saving…' : 'Save changes'}
+            </PrimaryButton>
+          </div>
+        </div>
+      </Drawer>
+
+      <Drawer
+        title="Duplicate asset model"
+        open={dupOpen}
+        onClose={() => setDupOpen(false)}
+      >
+        <div className="flex flex-col gap-3">
+          {dupError && <ErrorBanner error={dupError} />}
+          <p className="text-sm text-ink-secondary">
+            Creates a new asset model owned by{' '}
+            <strong>{model.owner.name}</strong>. Description and image are
+            copied as-is — you can refine them via Edit after the new model
+            is created.
+          </p>
+          <Field label="New model code" required>
+            <TextInput
+              value={dupModelCode}
+              onChange={(e) => setDupModelCode(e.target.value)}
+              required
+              autoFocus
+            />
+          </Field>
+          <Field label="New display name" required>
+            <TextInput
+              value={dupDisplayName}
+              onChange={(e) => setDupDisplayName(e.target.value)}
+              required
+            />
+          </Field>
+          <Field
+            label="Equipment Type"
+            required
+            hint="Pick from the list or type a new one."
+          >
+            <input
+              list="dup-cat-options"
+              value={dupCategory}
+              onChange={(e) => setDupCategory(e.target.value)}
+              className="rounded border border-line bg-surface-raised px-2 py-1.5"
+              required
+            />
+            <datalist id="dup-cat-options">
+              {COMMON_EQUIPMENT_TYPES.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
+          </Field>
+          <div className="flex justify-end gap-2 pt-2">
+            <SecondaryButton onClick={() => setDupOpen(false)} disabled={dupSaving}>
+              Cancel
+            </SecondaryButton>
+            <PrimaryButton onClick={submitDuplicate} disabled={dupSaving}>
+              {dupSaving ? 'Duplicating…' : 'Create duplicate'}
             </PrimaryButton>
           </div>
         </div>
