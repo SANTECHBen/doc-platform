@@ -705,7 +705,6 @@ export interface ProcedureDocMetadata {
   /** Author-controlled overview fields rendered on the intro screen. */
   summary?: string | null;
   estimatedMinutes?: number | null;
-  ppeRequired?: string[];
   skillLevel?: 'basic' | 'intermediate' | 'advanced' | null;
 }
 

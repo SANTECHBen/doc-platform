@@ -9,7 +9,6 @@ import {
   ChevronRight,
   Clock,
   GraduationCap,
-  HardHat,
   Info,
   Lightbulb,
   ListChecks,
@@ -69,7 +68,6 @@ interface ResolvedJobAid {
     estimatedMinutes: number | null;
     skillLevel: 'basic' | 'intermediate' | 'advanced' | null;
     toolsRequired: string[];
-    ppeRequired: string[];
     safetyNotes: string | null;
   } | null;
   steps: Array<{
@@ -91,7 +89,6 @@ function normalizeFromDoc(doc: ProcedureDocFullDto): ResolvedJobAid {
   const safety = meta?.safety;
   const summary = meta?.summary?.trim() ?? '';
   const tools = meta?.toolsRequired ?? [];
-  const ppe = meta?.ppeRequired ?? [];
   const safetyNotes =
     safety?.enabled && safety.notes && safety.notes.trim().length > 0
       ? safety.notes
@@ -105,7 +102,6 @@ function normalizeFromDoc(doc: ProcedureDocFullDto): ResolvedJobAid {
     (meta?.estimatedMinutes != null && meta.estimatedMinutes >= 0) ||
     meta?.skillLevel != null ||
     tools.length > 0 ||
-    ppe.length > 0 ||
     safetyNotes != null;
   return {
     title: doc.document.title,
@@ -117,7 +113,6 @@ function normalizeFromDoc(doc: ProcedureDocFullDto): ResolvedJobAid {
           estimatedMinutes: meta?.estimatedMinutes ?? null,
           skillLevel: meta?.skillLevel ?? null,
           toolsRequired: tools,
-          ppeRequired: ppe,
           safetyNotes,
         }
       : null,
@@ -588,30 +583,11 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
             )}
             {resolved.intro.toolsRequired.length > 0 && (
               <div className="vja-hero-intro-meta">
-                <span className="vja-hero-intro-cap">Tools required</span>
+                <span className="vja-hero-intro-cap">Required tools</span>
                 <div className="vja-hero-intro-tools">
                   {resolved.intro.toolsRequired.map((t) => (
                     <span key={t} className="vja-hero-intro-tool">
                       {t}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {resolved.intro.ppeRequired.length > 0 && (
-              <div className="vja-hero-intro-meta">
-                <span className="vja-hero-intro-cap">
-                  <HardHat
-                    size={11}
-                    strokeWidth={2.25}
-                    style={{ display: 'inline', marginRight: 4, verticalAlign: '-1px' }}
-                  />
-                  PPE required
-                </span>
-                <div className="vja-hero-intro-tools">
-                  {resolved.intro.ppeRequired.map((p) => (
-                    <span key={p} className="vja-hero-intro-tool">
-                      {p}
                     </span>
                   ))}
                 </div>

@@ -47,11 +47,11 @@ import {
 import {
   Clock,
   Film,
-  HardHat,
   Info,
   Link2,
   Trash2,
   Upload as UploadIcon,
+  Wrench,
   X as XIcon,
 } from 'lucide-react';
 import { parseVideoEmbed } from '@platform/shared';
@@ -809,8 +809,8 @@ function OverviewSection({
   const [minutesStr, setMinutesStr] = useState(
     meta?.estimatedMinutes != null ? String(meta.estimatedMinutes) : '',
   );
-  const [ppe, setPpe] = useState<string[]>(meta?.ppeRequired ?? []);
-  const [ppeDraft, setPpeDraft] = useState('');
+  const [tools, setTools] = useState<string[]>(meta?.toolsRequired ?? []);
+  const [toolDraft, setToolDraft] = useState('');
   const [skillLevel, setSkillLevel] = useState<
     'basic' | 'intermediate' | 'advanced' | ''
   >(meta?.skillLevel ?? '');
@@ -827,7 +827,7 @@ function OverviewSection({
     setMinutesStr(
       meta?.estimatedMinutes != null ? String(meta.estimatedMinutes) : '',
     );
-    setPpe(meta?.ppeRequired ?? []);
+    setTools(meta?.toolsRequired ?? []);
     setSkillLevel(meta?.skillLevel ?? '');
   }, [doc.id]);
 
@@ -880,22 +880,22 @@ function OverviewSection({
     }, 600);
   }
 
-  function addPpe() {
-    const v = ppeDraft.trim();
-    if (!v || ppe.includes(v)) {
-      setPpeDraft('');
+  function addTool() {
+    const v = toolDraft.trim();
+    if (!v || tools.includes(v)) {
+      setToolDraft('');
       return;
     }
-    const next = [...ppe, v];
-    setPpe(next);
-    setPpeDraft('');
-    void save({ ppeRequired: next });
+    const next = [...tools, v];
+    setTools(next);
+    setToolDraft('');
+    void save({ toolsRequired: next });
   }
 
-  function removePpe(item: string) {
-    const next = ppe.filter((x) => x !== item);
-    setPpe(next);
-    void save({ ppeRequired: next });
+  function removeTool(item: string) {
+    const next = tools.filter((x) => x !== item);
+    setTools(next);
+    void save({ toolsRequired: next });
   }
 
   function onSkillLevelChange(next: string) {
@@ -961,11 +961,11 @@ function OverviewSection({
 
         <div className="flex flex-col gap-2">
           <span className="flex items-center gap-1 text-xs font-medium text-ink-secondary">
-            <HardHat className="size-3.5" /> PPE required
+            <Wrench className="size-3.5" /> Required tools
           </span>
-          {ppe.length > 0 && (
+          {tools.length > 0 && (
             <ul className="flex flex-wrap gap-1.5">
-              {ppe.map((item) => (
+              {tools.map((item) => (
                 <li
                   key={item}
                   className="inline-flex items-center gap-1 rounded-full border border-line bg-surface px-2.5 py-1 text-xs text-ink-primary"
@@ -973,7 +973,7 @@ function OverviewSection({
                   <span>{item}</span>
                   <button
                     type="button"
-                    onClick={() => removePpe(item)}
+                    onClick={() => removeTool(item)}
                     aria-label={`Remove ${item}`}
                     className="rounded-full text-ink-tertiary hover:text-signal-fault"
                   >
@@ -986,22 +986,22 @@ function OverviewSection({
           <div className="flex gap-2">
             <input
               type="text"
-              value={ppeDraft}
-              onChange={(e) => setPpeDraft(e.target.value)}
+              value={toolDraft}
+              onChange={(e) => setToolDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
-                  addPpe();
+                  addTool();
                 }
               }}
-              placeholder="e.g. Insulated gloves, safety glasses"
-              maxLength={120}
+              placeholder="e.g. Torque wrench (10-30 N·m), 5mm hex key"
+              maxLength={200}
               className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink-primary placeholder:text-ink-tertiary focus:border-accent focus:outline-none"
             />
             <button
               type="button"
-              onClick={addPpe}
-              disabled={!ppeDraft.trim()}
+              onClick={addTool}
+              disabled={!toolDraft.trim()}
               className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-primary transition hover:border-accent/40 hover:bg-accent/5 disabled:opacity-50"
             >
               Add

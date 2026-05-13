@@ -2592,10 +2592,6 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
                   .max(60 * 24)
                   .nullable()
                   .optional(),
-                ppeRequired: z
-                  .array(z.string().min(1).max(120))
-                  .max(30)
-                  .optional(),
                 skillLevel: z
                   .enum(['basic', 'intermediate', 'advanced'])
                   .nullable()

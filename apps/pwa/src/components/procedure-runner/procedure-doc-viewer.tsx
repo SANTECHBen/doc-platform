@@ -16,7 +16,6 @@ import {
   ClipboardCheck,
   Clock,
   GraduationCap,
-  HardHat,
   Headphones,
   Info,
   ListChecks,
@@ -259,29 +258,10 @@ export function ProcedureDocViewer({
             </section>
           )}
 
-          {/* PPE REQUIRED — distinct chip group from tools */}
-          {m && m.ppeRequired && m.ppeRequired.length > 0 && (
-            <section className="flex flex-col gap-2">
-              <SectionHeader icon={HardHat} label="PPE Required" />
-              <ul className="flex flex-col gap-1 rounded-md border border-line bg-surface-raised p-4">
-                {m.ppeRequired.map((p, i) => (
-                  <li key={i} className="flex items-center gap-2 text-sm">
-                    <Check
-                      size={14}
-                      strokeWidth={2}
-                      className="shrink-0 text-ink-tertiary"
-                    />
-                    <span className="text-ink-primary">{p}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
-          {/* TOOLS REQUIRED — always shown if any are listed */}
+          {/* REQUIRED TOOLS — always shown if any are listed */}
           {m && m.toolsRequired.length > 0 && (
             <section className="flex flex-col gap-2">
-              <SectionHeader icon={Wrench} label="Tools Required" />
+              <SectionHeader icon={Wrench} label="Required Tools" />
               <ul className="flex flex-col gap-1 rounded-md border border-line bg-surface-raised p-4">
                 {m.toolsRequired.map((t, i) => (
                   <li key={i} className="flex items-center gap-2 text-sm">

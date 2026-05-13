@@ -41,9 +41,6 @@ export type ProcedureDocMetadata = {
   summary?: string | null;
   /** Estimated wall-clock time in minutes a tech should budget. */
   estimatedMinutes?: number | null;
-  /** Required PPE list (gloves, safety glasses, hearing protection).
-   *  Distinct from toolsRequired; rendered as a separate chip group. */
-  ppeRequired?: string[];
   /** Skill-level hint so techs can self-select before starting. */
   skillLevel?: 'basic' | 'intermediate' | 'advanced' | null;
   /** Optional procedure-level intro video — plays on a "Step 0" landing

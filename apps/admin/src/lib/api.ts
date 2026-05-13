@@ -1479,7 +1479,6 @@ export interface AdminProcedureDocMetadata {
    *  screen — all optional, legacy procedures show only hero/tools. */
   summary?: string | null;
   estimatedMinutes?: number | null;
-  ppeRequired?: string[];
   skillLevel?: 'basic' | 'intermediate' | 'advanced' | null;
   heroVideo?: {
     /** Set when uploaded via the hero-video upload route. */
