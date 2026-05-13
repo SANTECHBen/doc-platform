@@ -463,27 +463,45 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{step.bodyMarkdown}</ReactMarkdown>
               </div>
             ) : null}
-            {step.media.length > 0 && (
-              <ul className="vja-step-media">
-                {step.media.map((m, i) => (
-                  <li key={`${m.storageKey}-${i}`}>
-                    {m.kind === 'image' ? (
-                      <FallbackImage
-                        src={m.url ?? ''}
-                        alt={m.caption ?? step.title}
-                        label={m.caption ?? 'Image unavailable'}
-                      />
-                    ) : (
-                      <FallbackVideo
-                        src={m.url ?? ''}
-                        label={m.caption ?? 'Video unavailable'}
-                      />
-                    )}
-                    {m.caption && <p className="vja-step-caption">{m.caption}</p>}
-                  </li>
-                ))}
-              </ul>
-            )}
+            {/* Trailing media gallery — only media NOT already rendered
+                inline by a photo_inline block. Without the filter every
+                photo_inline appears twice: once in the block list, once
+                in this gallery. */}
+            {(() => {
+              const inlineKeys = new Set(
+                step.blocks
+                  .filter(
+                    (b): b is Extract<StepBlock, { kind: 'photo_inline' }> =>
+                      b.kind === 'photo_inline',
+                  )
+                  .map((b) => b.storageKey),
+              );
+              const galleryMedia = step.media.filter(
+                (m) => !inlineKeys.has(m.storageKey),
+              );
+              if (galleryMedia.length === 0) return null;
+              return (
+                <ul className="vja-step-media">
+                  {galleryMedia.map((m, i) => (
+                    <li key={`${m.storageKey}-${i}`}>
+                      {m.kind === 'image' ? (
+                        <FallbackImage
+                          src={m.url ?? ''}
+                          alt={m.caption ?? step.title}
+                          label={m.caption ?? 'Image unavailable'}
+                        />
+                      ) : (
+                        <FallbackVideo
+                          src={m.url ?? ''}
+                          label={m.caption ?? 'Video unavailable'}
+                        />
+                      )}
+                      {m.caption && <p className="vja-step-caption">{m.caption}</p>}
+                    </li>
+                  ))}
+                </ul>
+              );
+            })()}
             {step.substeps.length > 0 && (
               <ol className="vja-substeps">
                 {step.substeps.map((ss, i) => (
