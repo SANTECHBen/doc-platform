@@ -2553,6 +2553,37 @@
     font-size: 13.5px;
     line-height: 1.55;
   }
+  /* Inline stat chips (estimated time + skill level) shown above the
+     hero video — keeps the procedure's key attributes scannable. */
+  .vja-hero-intro-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: -6px;
+  }
+  .vja-hero-intro-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgb(var(--brand) / 0.12);
+    color: rgb(var(--ink-primary));
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+  .vja-hero-intro-chip-icon {
+    color: rgb(var(--brand));
+    display: inline-flex;
+  }
+  /* Author-written summary paragraph — wider line-height for legibility
+     on the small Job Aid surface; capped width matches the intro. */
+  .vja-hero-intro-summary {
+    color: rgb(var(--ink-secondary));
+    font-size: 14.5px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+  }
   .vja-hero-intro-actions {
     display: flex;
     justify-content: space-between;

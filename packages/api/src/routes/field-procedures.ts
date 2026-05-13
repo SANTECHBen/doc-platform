@@ -168,6 +168,11 @@ const ProcedureMetadataBody = z.object({
     })
     .nullable()
     .optional(),
+  // Overview fields rendered on the PWA intro screen.
+  summary: z.string().max(5000).nullable().optional(),
+  estimatedMinutes: z.number().int().min(0).max(60 * 24).nullable().optional(),
+  ppeRequired: z.array(z.string().min(1).max(120)).max(30).optional(),
+  skillLevel: z.enum(['basic', 'intermediate', 'advanced']).nullable().optional(),
 });
 
 // ---------------------------------------------------------------------------

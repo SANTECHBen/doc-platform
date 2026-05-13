@@ -702,6 +702,11 @@ export interface ProcedureDocMetadata {
   /** Optional procedure-level intro video. Renders on "Step 0" of the
    *  Job Aid view and at the top of the scroll view. */
   heroVideo?: ProcedureDocHeroVideo | null;
+  /** Author-controlled overview fields rendered on the intro screen. */
+  summary?: string | null;
+  estimatedMinutes?: number | null;
+  ppeRequired?: string[];
+  skillLevel?: 'basic' | 'intermediate' | 'advanced' | null;
 }
 
 // Discriminated union for typed step content blocks rendered by the

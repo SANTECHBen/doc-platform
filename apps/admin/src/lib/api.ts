@@ -1475,6 +1475,12 @@ export interface AdminProcedureDocMetadata {
   toolsRequired: string[];
   safety: { enabled: boolean; notes: string | null };
   verification: { enabled: boolean; notes: string | null };
+  /** Author-controlled overview fields. Rendered on the PWA intro
+   *  screen — all optional, legacy procedures show only hero/tools. */
+  summary?: string | null;
+  estimatedMinutes?: number | null;
+  ppeRequired?: string[];
+  skillLevel?: 'basic' | 'intermediate' | 'advanced' | null;
   heroVideo?: {
     /** Set when uploaded via the hero-video upload route. */
     storageKey?: string;

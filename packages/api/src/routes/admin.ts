@@ -2582,6 +2582,24 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
                   )
                   .nullable()
                   .optional(),
+                // Author-controlled overview fields. All optional and
+                // independently nullable so legacy docs keep working.
+                summary: z.string().max(5000).nullable().optional(),
+                estimatedMinutes: z
+                  .number()
+                  .int()
+                  .min(0)
+                  .max(60 * 24)
+                  .nullable()
+                  .optional(),
+                ppeRequired: z
+                  .array(z.string().min(1).max(120))
+                  .max(30)
+                  .optional(),
+                skillLevel: z
+                  .enum(['basic', 'intermediate', 'advanced'])
+                  .nullable()
+                  .optional(),
               })
               .nullable()
               .optional(),

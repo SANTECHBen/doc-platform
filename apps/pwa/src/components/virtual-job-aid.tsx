@@ -7,6 +7,9 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  Clock,
+  GraduationCap,
+  HardHat,
   Info,
   Lightbulb,
   ListChecks,
@@ -24,6 +27,7 @@ import {
 } from '@/lib/api';
 import { StepVideoPlayer } from './step-video-player';
 import { HeroVideoEmbed } from './hero-video-embed';
+import { capitalize, formatDuration } from '@/lib/format';
 
 // VirtualJobAid — hands-free, step-at-a-time procedure walkthrough that
 // the AI launches by emitting a [procedure:UUID] directive. Each step
@@ -57,11 +61,15 @@ interface Props {
 interface ResolvedJobAid {
   title: string;
   /** When set, render a "Step 0" intro panel before the step list with
-   *  the procedure's hero video, tools summary, and safety summary. */
+   *  the procedure's hero video plus the author's overview metadata. */
   intro: {
-    heroVideoUrl: string;
+    heroVideoUrl: string | null;
     heroVideoCaption: string | null;
+    summary: string | null;
+    estimatedMinutes: number | null;
+    skillLevel: 'basic' | 'intermediate' | 'advanced' | null;
     toolsRequired: string[];
+    ppeRequired: string[];
     safetyNotes: string | null;
   } | null;
   steps: Array<{
@@ -78,19 +86,39 @@ interface ResolvedJobAid {
 }
 
 function normalizeFromDoc(doc: ProcedureDocFullDto): ResolvedJobAid {
-  const hero = doc.metadata?.heroVideo ?? null;
-  const safety = doc.metadata?.safety;
+  const meta = doc.metadata;
+  const hero = meta?.heroVideo ?? null;
+  const safety = meta?.safety;
+  const summary = meta?.summary?.trim() ?? '';
+  const tools = meta?.toolsRequired ?? [];
+  const ppe = meta?.ppeRequired ?? [];
+  const safetyNotes =
+    safety?.enabled && safety.notes && safety.notes.trim().length > 0
+      ? safety.notes
+      : null;
+  // The intro panel renders when there's *anything* meaningful to show —
+  // hero video, overview text, or any chip list. Otherwise techs go
+  // straight to Step 1.
+  const hasIntroContent =
+    hero != null ||
+    summary.length > 0 ||
+    (meta?.estimatedMinutes != null && meta.estimatedMinutes >= 0) ||
+    meta?.skillLevel != null ||
+    tools.length > 0 ||
+    ppe.length > 0 ||
+    safetyNotes != null;
   return {
     title: doc.document.title,
-    intro: hero
+    intro: hasIntroContent
       ? {
-          heroVideoUrl: hero.url,
-          heroVideoCaption: hero.caption ?? null,
-          toolsRequired: doc.metadata?.toolsRequired ?? [],
-          safetyNotes:
-            safety?.enabled && safety.notes && safety.notes.trim().length > 0
-              ? safety.notes
-              : null,
+          heroVideoUrl: hero?.url ?? null,
+          heroVideoCaption: hero?.caption ?? null,
+          summary: summary.length > 0 ? summary : null,
+          estimatedMinutes: meta?.estimatedMinutes ?? null,
+          skillLevel: meta?.skillLevel ?? null,
+          toolsRequired: tools,
+          ppeRequired: ppe,
+          safetyNotes,
         }
       : null,
     steps: doc.steps.map((s) => {
@@ -525,13 +553,39 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
         {showHeroIntro && resolved.intro && (
           <section className="vja-hero-intro" aria-label="Procedure intro">
             <h1 className="vja-hero-intro-title">{resolved.title}</h1>
-            <HeroVideoEmbed
-              url={resolved.intro.heroVideoUrl}
-              caption={resolved.intro.heroVideoCaption ?? null}
-              muted={false}
-              playId="hero"
-              alt={`${resolved.title} intro video`}
-            />
+            {(resolved.intro.estimatedMinutes != null ||
+              resolved.intro.skillLevel != null) && (
+              <div className="vja-hero-intro-chips">
+                {resolved.intro.estimatedMinutes != null && (
+                  <span className="vja-hero-intro-chip">
+                    <span className="vja-hero-intro-chip-icon">
+                      <Clock size={13} strokeWidth={2.25} />
+                    </span>
+                    {formatDuration(resolved.intro.estimatedMinutes)}
+                  </span>
+                )}
+                {resolved.intro.skillLevel != null && (
+                  <span className="vja-hero-intro-chip">
+                    <span className="vja-hero-intro-chip-icon">
+                      <GraduationCap size={13} strokeWidth={2.25} />
+                    </span>
+                    {capitalize(resolved.intro.skillLevel)}
+                  </span>
+                )}
+              </div>
+            )}
+            {resolved.intro.heroVideoUrl && (
+              <HeroVideoEmbed
+                url={resolved.intro.heroVideoUrl}
+                caption={resolved.intro.heroVideoCaption ?? null}
+                muted={false}
+                playId="hero"
+                alt={`${resolved.title} intro video`}
+              />
+            )}
+            {resolved.intro.summary && (
+              <p className="vja-hero-intro-summary">{resolved.intro.summary}</p>
+            )}
             {resolved.intro.toolsRequired.length > 0 && (
               <div className="vja-hero-intro-meta">
                 <span className="vja-hero-intro-cap">Tools required</span>
@@ -539,6 +593,25 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
                   {resolved.intro.toolsRequired.map((t) => (
                     <span key={t} className="vja-hero-intro-tool">
                       {t}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {resolved.intro.ppeRequired.length > 0 && (
+              <div className="vja-hero-intro-meta">
+                <span className="vja-hero-intro-cap">
+                  <HardHat
+                    size={11}
+                    strokeWidth={2.25}
+                    style={{ display: 'inline', marginRight: 4, verticalAlign: '-1px' }}
+                  />
+                  PPE required
+                </span>
+                <div className="vja-hero-intro-tools">
+                  {resolved.intro.ppeRequired.map((p) => (
+                    <span key={p} className="vja-hero-intro-tool">
+                      {p}
                     </span>
                   ))}
                 </div>

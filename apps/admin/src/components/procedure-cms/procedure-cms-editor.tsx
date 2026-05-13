@@ -44,7 +44,16 @@ import {
   type CreateProcedureStepInput,
   type UpdateProcedureStepInput,
 } from '@/lib/api';
-import { Film, Link2, Trash2, Upload as UploadIcon } from 'lucide-react';
+import {
+  Clock,
+  Film,
+  HardHat,
+  Info,
+  Link2,
+  Trash2,
+  Upload as UploadIcon,
+  X as XIcon,
+} from 'lucide-react';
 import { parseVideoEmbed } from '@platform/shared';
 import { useToast } from '@/components/toast';
 import { ErrorBanner } from '@/components/form';
@@ -364,7 +373,10 @@ export function ProcedureCmsEditor({ doc, steps, onChanged }: Props) {
           landing page in Job Aid view and at the top of the scroll
           view. Optional; only matters for training-style procedures. */}
       {doc.kind === 'structured_procedure' && (
-        <HeroVideoSection doc={doc} onChanged={onChanged} />
+        <>
+          <HeroVideoSection doc={doc} onChanged={onChanged} />
+          <OverviewSection doc={doc} onChanged={onChanged} />
+        </>
       )}
 
       {empty ? (
@@ -776,6 +788,227 @@ function HeroVideoSection({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// OverviewSection — author-controlled fields rendered on the PWA's
+// procedure intro screen (Job Aid "Step 0" + scroll-view top). Summary
+// and minutes are debounced (the user types continuously); PPE chip
+// adds/removes and skill-level changes save immediately.
+function OverviewSection({
+  doc,
+  onChanged,
+}: {
+  doc: AdminDocumentDetail;
+  onChanged: () => Promise<void> | void;
+}) {
+  const toast = useToast();
+  const meta = doc.procedureMetadata;
+  const [summary, setSummary] = useState(meta?.summary ?? '');
+  const [minutesStr, setMinutesStr] = useState(
+    meta?.estimatedMinutes != null ? String(meta.estimatedMinutes) : '',
+  );
+  const [ppe, setPpe] = useState<string[]>(meta?.ppeRequired ?? []);
+  const [ppeDraft, setPpeDraft] = useState('');
+  const [skillLevel, setSkillLevel] = useState<
+    'basic' | 'intermediate' | 'advanced' | ''
+  >(meta?.skillLevel ?? '');
+
+  const summaryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const minutesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Re-sync local state when the parent reloads the doc (e.g. after a
+  // separate save). The doc id is the cheapest "this might be a fresh
+  // doc" signal — for same-doc reloads we trust local state to be ahead.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setSummary(meta?.summary ?? '');
+    setMinutesStr(
+      meta?.estimatedMinutes != null ? String(meta.estimatedMinutes) : '',
+    );
+    setPpe(meta?.ppeRequired ?? []);
+    setSkillLevel(meta?.skillLevel ?? '');
+  }, [doc.id]);
+
+  // Always send the full metadata shape so a single-field PATCH doesn't
+  // clobber tools/safety/verification/heroVideo. Mirrors HeroVideoSection.
+  function buildMetadata(
+    patch: Partial<AdminProcedureDocMetadata>,
+  ): AdminProcedureDocMetadata {
+    const base = doc.procedureMetadata ?? {
+      toolsRequired: [],
+      safety: { enabled: false, notes: null },
+      verification: { enabled: false, notes: null },
+    };
+    return { ...base, ...patch };
+  }
+
+  async function save(patch: Partial<AdminProcedureDocMetadata>) {
+    try {
+      await updateAdminDocument(doc.id, {
+        procedureMetadata: buildMetadata(patch),
+      });
+      await onChanged();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      toast.error(`Save failed: ${message}`);
+    }
+  }
+
+  function onSummaryChange(next: string) {
+    setSummary(next);
+    if (summaryTimer.current) clearTimeout(summaryTimer.current);
+    summaryTimer.current = setTimeout(() => {
+      const trimmed = next.trim();
+      void save({ summary: trimmed.length > 0 ? trimmed : null });
+    }, 600);
+  }
+
+  function onMinutesChange(next: string) {
+    // Allow empty (clears the field) and any non-negative integer.
+    setMinutesStr(next);
+    if (minutesTimer.current) clearTimeout(minutesTimer.current);
+    minutesTimer.current = setTimeout(() => {
+      if (next.trim() === '') {
+        void save({ estimatedMinutes: null });
+        return;
+      }
+      const n = Number(next);
+      if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) return;
+      void save({ estimatedMinutes: n });
+    }, 600);
+  }
+
+  function addPpe() {
+    const v = ppeDraft.trim();
+    if (!v || ppe.includes(v)) {
+      setPpeDraft('');
+      return;
+    }
+    const next = [...ppe, v];
+    setPpe(next);
+    setPpeDraft('');
+    void save({ ppeRequired: next });
+  }
+
+  function removePpe(item: string) {
+    const next = ppe.filter((x) => x !== item);
+    setPpe(next);
+    void save({ ppeRequired: next });
+  }
+
+  function onSkillLevelChange(next: string) {
+    const v = next === '' ? '' : (next as 'basic' | 'intermediate' | 'advanced');
+    setSkillLevel(v);
+    void save({ skillLevel: v === '' ? null : v });
+  }
+
+  return (
+    <div className="rounded-lg border border-line-subtle bg-surface-raised p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <Info className="size-4 text-accent" />
+        <h3 className="text-sm font-semibold text-ink-primary">Overview</h3>
+        <span className="text-xs text-ink-tertiary">
+          Shown on the tech&apos;s intro screen before they start
+        </span>
+      </div>
+
+      <div className="flex flex-col gap-4">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-ink-secondary">Summary</span>
+          <textarea
+            value={summary}
+            onChange={(e) => onSummaryChange(e.target.value)}
+            placeholder="What is this procedure and when should a tech run it?"
+            rows={3}
+            maxLength={5000}
+            className="min-h-[72px] rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink-primary placeholder:text-ink-tertiary focus:border-accent focus:outline-none"
+          />
+        </label>
+
+        <div className="flex flex-wrap gap-4">
+          <label className="flex flex-col gap-1">
+            <span className="flex items-center gap-1 text-xs font-medium text-ink-secondary">
+              <Clock className="size-3.5" /> Estimated time (minutes)
+            </span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={60 * 24}
+              value={minutesStr}
+              onChange={(e) => onMinutesChange(e.target.value)}
+              placeholder="—"
+              className="w-32 rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink-primary placeholder:text-ink-tertiary focus:border-accent focus:outline-none"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-ink-secondary">Skill level</span>
+            <select
+              value={skillLevel}
+              onChange={(e) => onSkillLevelChange(e.target.value)}
+              className="w-44 rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink-primary focus:border-accent focus:outline-none"
+            >
+              <option value="">— Not set —</option>
+              <option value="basic">Basic</option>
+              <option value="intermediate">Intermediate</option>
+              <option value="advanced">Advanced</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <span className="flex items-center gap-1 text-xs font-medium text-ink-secondary">
+            <HardHat className="size-3.5" /> PPE required
+          </span>
+          {ppe.length > 0 && (
+            <ul className="flex flex-wrap gap-1.5">
+              {ppe.map((item) => (
+                <li
+                  key={item}
+                  className="inline-flex items-center gap-1 rounded-full border border-line bg-surface px-2.5 py-1 text-xs text-ink-primary"
+                >
+                  <span>{item}</span>
+                  <button
+                    type="button"
+                    onClick={() => removePpe(item)}
+                    aria-label={`Remove ${item}`}
+                    className="rounded-full text-ink-tertiary hover:text-signal-fault"
+                  >
+                    <XIcon className="size-3" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={ppeDraft}
+              onChange={(e) => setPpeDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addPpe();
+                }
+              }}
+              placeholder="e.g. Insulated gloves, safety glasses"
+              maxLength={120}
+              className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink-primary placeholder:text-ink-tertiary focus:border-accent focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={addPpe}
+              disabled={!ppeDraft.trim()}
+              className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-primary transition hover:border-accent/40 hover:bg-accent/5 disabled:opacity-50"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

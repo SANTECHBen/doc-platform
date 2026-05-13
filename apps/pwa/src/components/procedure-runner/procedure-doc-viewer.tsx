@@ -14,7 +14,11 @@ import {
   Check,
   ChevronLeft,
   ClipboardCheck,
+  Clock,
+  GraduationCap,
+  HardHat,
   Headphones,
+  Info,
   ListChecks,
   Play,
   ShieldAlert,
@@ -27,6 +31,7 @@ import {
 } from '@/lib/api';
 import { StepVideoPlayer } from '../step-video-player';
 import { HeroVideoEmbed } from '../hero-video-embed';
+import { capitalize, formatDuration } from '@/lib/format';
 
 export function ProcedureDocViewer({
   docId,
@@ -218,12 +223,60 @@ export function ProcedureDocViewer({
                 Captured by {doc.document.capturedByDisplayName}
               </p>
             )}
-            <div className="flex items-center gap-2 text-xs">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="font-mono tabular-nums text-ink-tertiary">
                 {stepCount} step{stepCount === 1 ? '' : 's'}
               </span>
+              {m?.estimatedMinutes != null && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-brand/15 px-2.5 py-1 text-xs font-medium text-ink-primary">
+                  <Clock size={12} strokeWidth={2.25} className="text-brand" />
+                  {formatDuration(m.estimatedMinutes)}
+                </span>
+              )}
+              {m?.skillLevel && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-brand/15 px-2.5 py-1 text-xs font-medium text-ink-primary">
+                  <GraduationCap
+                    size={12}
+                    strokeWidth={2.25}
+                    className="text-brand"
+                  />
+                  {capitalize(m.skillLevel)}
+                </span>
+              )}
             </div>
           </header>
+
+          {/* OVERVIEW — author-written summary. Renders only when set so
+              legacy procedures (no summary) stay clean. */}
+          {m?.summary && (
+            <section className="flex flex-col gap-2">
+              <SectionHeader icon={Info} label="Overview" />
+              <div className="rounded-md border border-line bg-surface-raised p-4">
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-secondary">
+                  {m.summary}
+                </p>
+              </div>
+            </section>
+          )}
+
+          {/* PPE REQUIRED — distinct chip group from tools */}
+          {m && m.ppeRequired && m.ppeRequired.length > 0 && (
+            <section className="flex flex-col gap-2">
+              <SectionHeader icon={HardHat} label="PPE Required" />
+              <ul className="flex flex-col gap-1 rounded-md border border-line bg-surface-raised p-4">
+                {m.ppeRequired.map((p, i) => (
+                  <li key={i} className="flex items-center gap-2 text-sm">
+                    <Check
+                      size={14}
+                      strokeWidth={2}
+                      className="shrink-0 text-ink-tertiary"
+                    />
+                    <span className="text-ink-primary">{p}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           {/* TOOLS REQUIRED — always shown if any are listed */}
           {m && m.toolsRequired.length > 0 && (
