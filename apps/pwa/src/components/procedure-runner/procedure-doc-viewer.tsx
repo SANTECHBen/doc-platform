@@ -200,11 +200,10 @@ export function ProcedureDocViewer({
 
       <div className="doc-overlay-scroll">
         {/* HERO BLOCK — full-bleed when the procedure has a hero video,
-            so the image dominates the top of the screen. Title + meta
-            chips overlay the bottom on a dark gradient. Rendered OUTSIDE
-            the article's max-width container so it spans edge-to-edge;
-            the rest of the content (General Information, steps, etc.)
-            stays within the comfortable reading width below. */}
+            rendered OUTSIDE the article's max-width container so it
+            spans edge-to-edge. No text overlay — the title and meta
+            chips live in the header below so the video frame stays
+            uncovered. */}
         {m?.heroVideo ? (
           <div className="hero-prominent">
             <HeroVideoEmbed
@@ -214,69 +213,40 @@ export function ProcedureDocViewer({
               muted={false}
               playId="hero"
             />
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-2 bg-gradient-to-t from-black/85 via-black/55 to-transparent px-5 pb-5 pt-20 sm:px-8 sm:pb-7">
-              <h1 className="text-2xl font-bold leading-tight tracking-tight text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.55)] sm:text-3xl md:text-4xl">
-                {doc.document.title}
-              </h1>
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="font-mono tabular-nums text-white/80">
-                  {stepCount} step{stepCount === 1 ? '' : 's'}
-                </span>
-                {m.estimatedMinutes != null && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm">
-                    <Clock size={12} strokeWidth={2.25} />
-                    {formatDuration(m.estimatedMinutes)}
-                  </span>
-                )}
-                {m.skillLevel && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm">
-                    <GraduationCap size={12} strokeWidth={2.25} />
-                    {capitalize(m.skillLevel)}
-                  </span>
-                )}
-              </div>
-              {doc.document.capturedByDisplayName && (
-                <p className="text-xs text-white/75">
-                  Captured by {doc.document.capturedByDisplayName}
-                </p>
-              )}
-            </div>
           </div>
         ) : null}
         <article className="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-8">
-          {!m?.heroVideo && (
-            <header className="flex flex-col gap-2">
-              <h1 className="text-3xl font-bold tracking-tight text-ink-primary">
-                {doc.document.title}
-              </h1>
-              {doc.document.capturedByDisplayName && (
-                <p className="text-sm text-ink-tertiary">
-                  Captured by {doc.document.capturedByDisplayName}
-                </p>
-              )}
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="font-mono tabular-nums text-ink-tertiary">
-                  {stepCount} step{stepCount === 1 ? '' : 's'}
+          <header className="flex flex-col gap-2">
+            <h1 className="text-3xl font-bold tracking-tight text-ink-primary">
+              {doc.document.title}
+            </h1>
+            {doc.document.capturedByDisplayName && (
+              <p className="text-sm text-ink-tertiary">
+                Captured by {doc.document.capturedByDisplayName}
+              </p>
+            )}
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-mono tabular-nums text-ink-tertiary">
+                {stepCount} step{stepCount === 1 ? '' : 's'}
+              </span>
+              {m?.estimatedMinutes != null && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-brand/15 px-2.5 py-1 text-xs font-medium text-ink-primary">
+                  <Clock size={12} strokeWidth={2.25} className="text-brand" />
+                  {formatDuration(m.estimatedMinutes)}
                 </span>
-                {m?.estimatedMinutes != null && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-brand/15 px-2.5 py-1 text-xs font-medium text-ink-primary">
-                    <Clock size={12} strokeWidth={2.25} className="text-brand" />
-                    {formatDuration(m.estimatedMinutes)}
-                  </span>
-                )}
-                {m?.skillLevel && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-brand/15 px-2.5 py-1 text-xs font-medium text-ink-primary">
-                    <GraduationCap
-                      size={12}
-                      strokeWidth={2.25}
-                      className="text-brand"
-                    />
-                    {capitalize(m.skillLevel)}
-                  </span>
-                )}
-              </div>
-            </header>
-          )}
+              )}
+              {m?.skillLevel && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-brand/15 px-2.5 py-1 text-xs font-medium text-ink-primary">
+                  <GraduationCap
+                    size={12}
+                    strokeWidth={2.25}
+                    className="text-brand"
+                  />
+                  {capitalize(m.skillLevel)}
+                </span>
+              )}
+            </div>
+          </header>
 
           {/* GENERAL INFORMATION — single transparent card with
               bordered subsections. Order matches the Job Aid intro:
