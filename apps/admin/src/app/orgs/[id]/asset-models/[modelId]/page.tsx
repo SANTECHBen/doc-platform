@@ -7,7 +7,7 @@
 // the admin "open the model, see everything in one place" without
 // rebuilding the editor or losing any feature.
 
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Boxes, FileStack, QrCode, Tag, Wrench } from 'lucide-react';
 import LegacyAssetModelDetail from '@/app/asset-models/[id]/page';
@@ -44,7 +44,14 @@ export default function OrgAssetModelDetail({
   params: Promise<{ id: string; modelId: string }>;
 }) {
   const p = use(params);
-  const remapped = Promise.resolve({ id: p.modelId });
+  // Stabilize the params promise we hand to the legacy page. Creating
+  // `Promise.resolve(...)` inline on every render would give the
+  // legacy `use(params)` a fresh promise reference each time, causing
+  // it to suspend/resume/re-render in a loop (React #300).
+  const remapped = useMemo(
+    () => Promise.resolve({ id: p.modelId }),
+    [p.modelId],
+  );
   const [activeTab, setActiveTab] = useState<TabId>('overview');
 
   // When admin clicks a tab, scroll to its section. Overview = top.
@@ -77,7 +84,6 @@ export default function OrgAssetModelDetail({
       const el = document.getElementById(id);
       if (el) observer.observe(el);
     }
-    // Top of page → overview tab
     const onScroll = () => {
       if (window.scrollY < 200) setActiveTab('overview');
     };
@@ -90,8 +96,6 @@ export default function OrgAssetModelDetail({
 
   return (
     <>
-      {/* Tab strip — sticky below the global TopBar so it stays accessible
-          as the admin scrolls through the (long) editor. */}
       <div
         className="sticky z-20 border-b border-line bg-surface-base/95 backdrop-blur-sm"
         style={{ top: 56 }}
@@ -121,10 +125,6 @@ export default function OrgAssetModelDetail({
             {TABS.find((t) => t.id === activeTab)?.description}
           </span>
 
-          {/* Workspace shortcuts — content packs and QR codes live as
-              top-level workspace tabs but are always relevant when
-              viewing a specific model. Surface them here for quick
-              cross-navigation. */}
           <div className="ml-auto flex items-center gap-1">
             <Link
               href={`/orgs/${p.id}/content-packs`}
