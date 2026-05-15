@@ -348,7 +348,10 @@ export default function AssetModelDetail({
         </div>
       )}
 
-      <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-tertiary">
+      <h2
+        id="instances-section"
+        className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-tertiary scroll-mt-24"
+      >
         Deployed instances ({instances?.length ?? 0})
       </h2>
 
@@ -931,7 +934,7 @@ function BomPanel({ assetModelId }: { assetModelId: string }) {
   }
 
   return (
-    <section className="mt-8">
+    <section id="bom-section" className="mt-8 scroll-mt-24">
       <div className="mb-2 flex items-center justify-between">
         <div>
           <h2 className="text-xs font-medium uppercase tracking-wide text-ink-tertiary">

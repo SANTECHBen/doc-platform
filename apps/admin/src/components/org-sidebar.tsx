@@ -6,12 +6,15 @@ import {
   Bot,
   Boxes,
   Building2,
+  ChevronLeft,
   FileStack,
   GraduationCap,
   Info,
   LayoutDashboard,
+  MapPin,
   QrCode,
   ScrollText,
+  Settings,
   Wrench,
   Users,
   type LucideIcon,
@@ -35,66 +38,152 @@ interface NavGroup {
   items: Nav[];
 }
 
-const GROUPS: NavGroup[] = [
-  {
-    id: 'overview',
-    label: null,
-    items: [
-      { href: '/', label: 'Dashboard', icon: LayoutDashboard, match: /^\/$/ },
-    ],
-  },
-  {
-    id: 'setup',
-    label: 'Setup',
-    info: 'Start here when onboarding a new customer. Create their organization, invite the people who will use the system, and (optionally) let the AI agent ingest their existing equipment list to seed everything in bulk.',
-    items: [
-      { href: '/orgs', label: 'Organizations', icon: Building2, match: /^\/(orgs|tenants)/ },
-      { href: '/users', label: 'Users', icon: Users, match: /^\/users/ },
-      { href: '/agent', label: 'Onboarding agent', icon: Bot, match: /^\/agent/ },
-    ],
-  },
-  {
-    id: 'catalog',
-    label: 'Catalog',
-    info: 'Build the library of what the customer owns and how to maintain it. Define each piece of equipment (asset model), list its replacement parts, attach manuals and procedures (content packs), and create training courses for technicians.',
-    items: [
-      { href: '/asset-models', label: 'Asset models', icon: Boxes, match: /^\/asset-models/ },
-      { href: '/parts', label: 'Parts', icon: Wrench, match: /^\/parts/ },
-      { href: '/content-packs', label: 'Content packs', icon: FileStack, match: /^\/content-packs/ },
-      { href: '/training', label: 'Training', icon: GraduationCap, match: /^\/training/ },
-    ],
-  },
-  {
-    id: 'operations',
-    label: 'Operations',
-    info: 'Day-to-day work after setup is done. Track repair tickets (work orders) and print QR code labels that field techs scan on equipment to pull up the right manuals, parts, and procedures.',
-    items: [
-      { href: '/work-orders', label: 'Work orders', icon: AlertTriangle, match: /^\/work-orders/ },
-      { href: '/qr-codes', label: 'QR codes', icon: QrCode, match: /^\/qr-codes/ },
-    ],
-  },
-  {
-    id: 'insights',
-    label: 'Insights',
-    info: 'See what is happening across the platform. Analytics shows how the content is being used in the field, and the audit log records every change for compliance and troubleshooting.',
-    items: [
-      { href: '/analytics', label: 'Analytics', icon: Activity, match: /^\/analytics/ },
-      { href: '/audit', label: 'Audit log', icon: ScrollText, match: /^\/audit/ },
-    ],
-  },
-];
+function buildGroups(orgId: string): NavGroup[] {
+  const base = `/orgs/${orgId}`;
+  return [
+    {
+      id: 'overview',
+      label: null,
+      items: [
+        {
+          href: base,
+          label: 'Overview',
+          icon: LayoutDashboard,
+          match: new RegExp(`^/orgs/${orgId}/?$`),
+        },
+      ],
+    },
+    {
+      id: 'setup',
+      label: 'Setup',
+      info:
+        'Where new customers get bootstrapped. Add the physical sites that will host equipment, invite the people who will use the system, and (optionally) let the AI agent ingest an existing equipment list to seed everything in bulk.',
+      items: [
+        {
+          href: `${base}/sites`,
+          label: 'Sites',
+          icon: MapPin,
+          match: new RegExp(`^/orgs/${orgId}/sites`),
+        },
+        {
+          href: `${base}/users`,
+          label: 'Users',
+          icon: Users,
+          match: new RegExp(`^/orgs/${orgId}/users`),
+        },
+        {
+          href: `${base}/agent`,
+          label: 'Onboarding agent',
+          icon: Bot,
+          match: new RegExp(`^/orgs/${orgId}/agent`),
+        },
+      ],
+    },
+    {
+      id: 'catalog',
+      label: 'Catalog',
+      info:
+        "Build the library of what this customer owns and how to maintain it. Define each piece of equipment (asset model), list its replacement parts, attach manuals and procedures (content packs), and create training courses for technicians.",
+      items: [
+        {
+          href: `${base}/asset-models`,
+          label: 'Asset models',
+          icon: Boxes,
+          match: new RegExp(`^/orgs/${orgId}/asset-models`),
+        },
+        {
+          href: `${base}/parts`,
+          label: 'Parts',
+          icon: Wrench,
+          match: new RegExp(`^/orgs/${orgId}/parts`),
+        },
+        {
+          href: `${base}/content-packs`,
+          label: 'Content packs',
+          icon: FileStack,
+          match: new RegExp(`^/orgs/${orgId}/content-packs`),
+        },
+        {
+          href: `${base}/training`,
+          label: 'Training',
+          icon: GraduationCap,
+          match: new RegExp(`^/orgs/${orgId}/training`),
+        },
+      ],
+    },
+    {
+      id: 'operations',
+      label: 'Operations',
+      info:
+        'Day-to-day work after setup is done. Track repair tickets (work orders) and print QR code labels that field technicians scan on equipment to pull up the right manuals, parts, and procedures.',
+      items: [
+        {
+          href: `${base}/work-orders`,
+          label: 'Work orders',
+          icon: AlertTriangle,
+          match: new RegExp(`^/orgs/${orgId}/work-orders`),
+        },
+        {
+          href: `${base}/qr-codes`,
+          label: 'QR codes',
+          icon: QrCode,
+          match: new RegExp(`^/orgs/${orgId}/qr-codes`),
+        },
+      ],
+    },
+    {
+      id: 'insights',
+      label: 'Insights',
+      info:
+        'See what is happening across this customer. Analytics shows how the content is being used in the field, and the audit log records every change for compliance and troubleshooting.',
+      items: [
+        {
+          href: `${base}/analytics`,
+          label: 'Analytics',
+          icon: Activity,
+          match: new RegExp(`^/orgs/${orgId}/analytics`),
+        },
+        {
+          href: `${base}/audit`,
+          label: 'Audit log',
+          icon: ScrollText,
+          match: new RegExp(`^/orgs/${orgId}/audit`),
+        },
+      ],
+    },
+    {
+      id: 'admin',
+      label: 'Settings',
+      info:
+        'Customer-level configuration. Update branding shown on the PWA when techs scan equipment, manage privacy / scan-access policies, and edit the organization profile.',
+      items: [
+        {
+          href: `${base}/settings`,
+          label: 'Settings',
+          icon: Settings,
+          match: new RegExp(`^/orgs/${orgId}/settings`),
+        },
+      ],
+    },
+  ];
+}
 
-export function Sidebar({ userMenu }: { userMenu?: ReactNode }) {
+interface OrgSummaryHeader {
+  id: string;
+  name: string;
+  type: 'oem' | 'dealer' | 'integrator' | 'end_customer';
+}
+
+export function OrgSidebar({
+  org,
+  userMenu,
+}: {
+  org: OrgSummaryHeader;
+  userMenu?: ReactNode;
+}) {
   const pathname = usePathname();
   const [openInfo, setOpenInfo] = useState<string | null>(null);
   const navRef = useRef<HTMLElement | null>(null);
-
-  // Inside an org workspace (/orgs/<id>/...), the org-scoped layout owns
-  // the sidebar via <OrgSidebar>. Render nothing here so the workspace
-  // sidebar can sit at the left edge of the screen.
-  if (pathname && /^\/orgs\/[^/]+(\/.*)?$/.test(pathname) && pathname !== '/orgs') {
-    return null;
-  }
 
   useEffect(() => {
     if (!openInfo) return;
@@ -112,6 +201,9 @@ export function Sidebar({ userMenu }: { userMenu?: ReactNode }) {
     };
   }, [openInfo]);
 
+  const groups = buildGroups(org.id);
+  const typeLabel = formatType(org.type);
+
   return (
     <aside
       className="sticky top-0 flex h-screen w-60 shrink-0 flex-col"
@@ -122,26 +214,52 @@ export function Sidebar({ userMenu }: { userMenu?: ReactNode }) {
       }}
     >
       <header
-        className="flex items-center gap-3 px-5 py-5"
+        className="flex flex-col gap-2.5 px-4 pb-3 pt-4"
         style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
       >
-        <div className="brand-mark-square">EH</div>
-        <div className="flex flex-col leading-tight">
-          <span className="text-sm font-semibold" style={{ color: '#fff' }}>
-            Equipment Hub
-          </span>
-          <span
-            className="font-mono text-[10.5px] font-medium uppercase tracking-[0.08em]"
-            style={{ color: 'rgba(255,255,255,0.45)' }}
+        <Link
+          href="/orgs"
+          className="inline-flex w-fit items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-medium uppercase tracking-[0.08em] transition"
+          style={{ color: 'rgba(255,255,255,0.5)' }}
+        >
+          <ChevronLeft size={11} strokeWidth={2.25} />
+          <span>All organizations</span>
+        </Link>
+        <Link
+          href={`/orgs/${org.id}`}
+          className="flex items-start gap-2.5 rounded px-1 py-0.5"
+        >
+          <div
+            className="grid h-8 w-8 shrink-0 place-items-center rounded font-mono text-xs font-bold"
+            style={{
+              background: 'rgb(var(--brand) / 0.18)',
+              color: 'rgb(var(--brand))',
+            }}
+            aria-hidden
           >
-            Admin · v0.0
-          </span>
-        </div>
+            {initials(org.name)}
+          </div>
+          <div className="flex min-w-0 flex-col leading-tight">
+            <span
+              className="truncate text-sm font-semibold"
+              style={{ color: '#fff' }}
+              title={org.name}
+            >
+              {org.name}
+            </span>
+            <span
+              className="font-mono text-[10px] font-medium uppercase tracking-[0.08em]"
+              style={{ color: 'rgba(255,255,255,0.45)' }}
+            >
+              {typeLabel}
+            </span>
+          </div>
+        </Link>
       </header>
 
       <nav ref={navRef} className="flex-1 overflow-y-auto px-2 py-3">
         <ul className="flex flex-col gap-3">
-          {GROUPS.map((group) => (
+          {groups.map((group) => (
             <li key={group.id}>
               {group.label && (
                 <div className="relative flex items-center justify-between px-3 pb-1 pt-1">
@@ -263,4 +381,26 @@ export function Sidebar({ userMenu }: { userMenu?: ReactNode }) {
       </footer>
     </aside>
   );
+}
+
+function initials(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? '')
+    .join('') || '·';
+}
+
+function formatType(type: OrgSummaryHeader['type']): string {
+  switch (type) {
+    case 'oem':
+      return 'OEM';
+    case 'dealer':
+      return 'Dealer';
+    case 'integrator':
+      return 'Integrator';
+    case 'end_customer':
+      return 'End customer';
+  }
 }

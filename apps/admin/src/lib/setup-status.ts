@@ -113,7 +113,17 @@ const VISIBLE_BY_TYPE: Record<
   end_customer: new Set(['organization', 'site', 'asset_instance', 'qr_code']),
 };
 
-export function computeSetupStatus(summary: OrganizationSummary): SetupStatus {
+export interface ComputeSetupStatusOptions {
+  /** Which route family to use for "Continue setup" links.
+   *  - 'legacy' (default) → /asset-models?continue=… style (top-level routes)
+   *  - 'org-scoped'        → /orgs/:id/asset-models style (new workspace) */
+  routePrefix?: 'legacy' | 'org-scoped';
+}
+
+export function computeSetupStatus(
+  summary: OrganizationSummary,
+  options: ComputeSetupStatusOptions = {},
+): SetupStatus {
   const type = summary.organization.type;
   const requiredFor = REQUIRED_BY_TYPE[type];
   const visibleFor = VISIBLE_BY_TYPE[type];
@@ -229,7 +239,35 @@ export function computeSetupStatus(summary: OrganizationSummary): SetupStatus {
     }
   };
 
+  // Route prefix lets callers ask for either the legacy top-level routes
+  // (e.g. /asset-models?continue=:orgId) or the new org-scoped routes
+  // (/orgs/:orgId/asset-models). Defaults to legacy so existing callers
+  // are unaffected.
+  const prefix = options.routePrefix ?? 'legacy';
   const continueHrefFor = (id: SetupStepId): string | null => {
+    if (prefix === 'org-scoped') {
+      const base = `/orgs/${orgId}`;
+      switch (id) {
+        case 'organization':
+        case 'site':
+          return null; // satisfied inline on the org overview page
+        case 'asset_model':
+          return `${base}/asset-models`;
+        case 'parts_bom':
+          return `${base}/parts`;
+        case 'content_published':
+          return `${base}/content-packs`;
+        case 'asset_instance': {
+          const firstModel = summary.assetModelSample[0];
+          if (firstModel) {
+            return `${base}/asset-models/${firstModel.id}`;
+          }
+          return `${base}/asset-models`;
+        }
+        case 'qr_code':
+          return `${base}/qr-codes`;
+      }
+    }
     switch (id) {
       case 'organization':
       case 'site':
