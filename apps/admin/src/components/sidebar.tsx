@@ -89,13 +89,11 @@ export function Sidebar({ userMenu }: { userMenu?: ReactNode }) {
   const [openInfo, setOpenInfo] = useState<string | null>(null);
   const navRef = useRef<HTMLElement | null>(null);
 
-  // Inside an org workspace (/orgs/<id>/...), the org-scoped layout owns
-  // the sidebar via <OrgSidebar>. Render nothing here so the workspace
-  // sidebar can sit at the left edge of the screen.
-  if (pathname && /^\/orgs\/[^/]+(\/.*)?$/.test(pathname) && pathname !== '/orgs') {
-    return null;
-  }
-
+  // All hooks above MUST run before any early return — moving the
+  // conditional return between useState and useEffect causes React to
+  // see different hook counts when navigating between `/orgs` (all
+  // hooks ran) and `/orgs/abc` (useEffect skipped), which crashes
+  // production with React #300.
   useEffect(() => {
     if (!openInfo) return;
     function onDown(e: MouseEvent) {
@@ -111,6 +109,13 @@ export function Sidebar({ userMenu }: { userMenu?: ReactNode }) {
       document.removeEventListener('keydown', onKey);
     };
   }, [openInfo]);
+
+  // Inside an org workspace (/orgs/<id>/...), the org-scoped layout owns
+  // the sidebar via <OrgSidebar>. Render nothing here so the workspace
+  // sidebar can sit at the left edge of the screen.
+  if (pathname && /^\/orgs\/[^/]+(\/.*)?$/.test(pathname) && pathname !== '/orgs') {
+    return null;
+  }
 
   return (
     <aside
