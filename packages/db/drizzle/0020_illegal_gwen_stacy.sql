@@ -37,13 +37,13 @@ CREATE TABLE IF NOT EXISTS "pm_service_records" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "organizations" ADD COLUMN "voice_quota" jsonb;--> statement-breakpoint
-ALTER TABLE "procedure_steps" ADD COLUMN "blocks" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
-ALTER TABLE "procedure_steps" ADD COLUMN "audio_storage_key" text;--> statement-breakpoint
-ALTER TABLE "procedure_steps" ADD COLUMN "audio_content_type" text;--> statement-breakpoint
-ALTER TABLE "procedure_steps" ADD COLUMN "audio_size_bytes" integer;--> statement-breakpoint
-ALTER TABLE "procedure_steps" ADD COLUMN "audio_duration_ms" integer;--> statement-breakpoint
-ALTER TABLE "procedure_steps" ADD COLUMN "audio_source" text;--> statement-breakpoint
+ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "voice_quota" jsonb;--> statement-breakpoint
+ALTER TABLE "procedure_steps" ADD COLUMN IF NOT EXISTS "blocks" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "procedure_steps" ADD COLUMN IF NOT EXISTS "audio_storage_key" text;--> statement-breakpoint
+ALTER TABLE "procedure_steps" ADD COLUMN IF NOT EXISTS "audio_content_type" text;--> statement-breakpoint
+ALTER TABLE "procedure_steps" ADD COLUMN IF NOT EXISTS "audio_size_bytes" integer;--> statement-breakpoint
+ALTER TABLE "procedure_steps" ADD COLUMN IF NOT EXISTS "audio_duration_ms" integer;--> statement-breakpoint
+ALTER TABLE "procedure_steps" ADD COLUMN IF NOT EXISTS "audio_source" text;--> statement-breakpoint
 DO $$ BEGIN
  ALTER TABLE "voice_usage" ADD CONSTRAINT "voice_usage_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION
