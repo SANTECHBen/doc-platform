@@ -151,13 +151,13 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
               onLaunch={setOverviewJobAidDocId}
             />
             <div className="spec-panel">
+              <OverviewSpecs hub={hub} openIssueCount={openIssueCount} />
+            </div>
+            <div className="spec-panel">
               <IssuesPanel
                 assetInstanceId={hub.assetInstance.id}
                 onCountChange={setOpenIssueCount}
               />
-            </div>
-            <div className="spec-panel">
-              <OverviewSpecs hub={hub} openIssueCount={openIssueCount} />
             </div>
           </div>
         ) : (
@@ -439,12 +439,6 @@ function Nameplate({
 
       <div className="nameplate-metrics-bar">
         <div className="nameplate-metric-h">
-          <span className="cap">Rev</span>
-          <span className="val">
-            {hub.pinnedContentPackVersion?.versionLabel ?? '—'}
-          </span>
-        </div>
-        <div className="nameplate-metric-h">
           <span className="cap">Open WO</span>
           <span
             className="val"
@@ -524,15 +518,9 @@ function OverviewSpecs({
   return (
     <div className="spec-grid">
       <SpecField label="Model code" value={hub.assetModel.modelCode} mono />
-      <SpecField label="Category" value={hub.assetModel.category.toUpperCase()} />
       <SpecField label="Serial" value={hub.assetInstance.serialNumber} mono brand />
       <SpecField label="Site" value={hub.site.name} />
       <SpecField label="Customer" value={hub.organization.name} />
-      <SpecField
-        label="Content rev"
-        value={hub.pinnedContentPackVersion?.versionLabel ?? '—'}
-        mono
-      />
       <SpecField
         label="Open issues"
         value={String(openIssueCount)}
