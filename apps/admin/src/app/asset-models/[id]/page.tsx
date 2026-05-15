@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { use, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Loader2, Package, Pin, Plus, Trash2, Upload } from 'lucide-react';
 import { PageHeader, PageShell } from '@/components/page-shell';
+import { PMSchedulesSection } from '@/components/pm-schedules-section';
 import { useToast } from '@/components/toast';
 import {
   Drawer,
@@ -445,6 +446,8 @@ export default function AssetModelDetail({
       )}
 
       <BomPanel assetModelId={id} />
+
+      <PMSchedulesSection assetModelId={id} />
 
       <Drawer title="Edit asset model" open={editOpen} onClose={() => setEditOpen(false)}>
         <div className="flex flex-col gap-3">

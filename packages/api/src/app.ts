@@ -37,6 +37,8 @@ import { registerAdminProcedureAudioRoutes } from './routes/admin-procedure-audi
 import { registerAdminPromoteRoutes } from './routes/admin-promote';
 import { registerAdminDocumentMoveRoutes } from './routes/admin-document-move';
 import { registerMeRoutes } from './routes/me';
+import { registerAdminPm } from './routes/admin-pm';
+import { registerPmRoutes } from './routes/pm';
 
 export async function buildApp(ctx: AppContext) {
   const app = Fastify({
@@ -99,6 +101,8 @@ export async function buildApp(ctx: AppContext) {
   await registerAdminPromoteRoutes(app);
   await registerAdminDocumentMoveRoutes(app);
   await registerMeRoutes(app);
+  await registerAdminPm(app);
+  await registerPmRoutes(app);
 
   return app;
 }

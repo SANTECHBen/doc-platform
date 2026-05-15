@@ -441,6 +441,93 @@ export async function uploadFile(
   return (await res.json()) as UploadResult;
 }
 
+// ---------------------------------------------------------------------
+// Preventive Maintenance — field-tech reads + service record writes
+// ---------------------------------------------------------------------
+
+export type PmStatus = 'overdue' | 'due' | 'soon' | 'upcoming';
+
+export interface PmScheduleStatusItem {
+  schedule: {
+    id: string;
+    name: string;
+    description: string | null;
+    cadenceKind: 'days';
+    cadenceValue: number;
+    graceDays: number;
+    document: { id: string; title: string; kind: string } | null;
+  };
+  lastPerformedAt: string | null;
+  lastPerformedById: string | null;
+  nextDueAt: string;
+  daysUntilDue: number;
+  status: PmStatus;
+  needsAction: boolean;
+}
+
+export interface PmServiceRecordItem {
+  id: string;
+  pmSchedule: { id: string; name: string } | null;
+  document: { id: string; title: string } | null;
+  performedBy: { id: string; displayName: string };
+  performedAt: string;
+  notes: string | null;
+}
+
+export interface PmStatusPayload {
+  schedules: PmScheduleStatusItem[];
+  history: PmServiceRecordItem[];
+  summary: {
+    overdue: number;
+    due: number;
+    soon: number;
+    upcoming: number;
+    needsActionCount: number;
+  };
+}
+
+export async function fetchPmStatus(
+  assetInstanceId: string,
+): Promise<PmStatusPayload> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/assets/${encodeURIComponent(assetInstanceId)}/pm-status`,
+    { cache: 'no-store' },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as PmStatusPayload;
+}
+
+export async function createPmServiceRecord(params: {
+  assetInstanceId: string;
+  pmScheduleId?: string | null;
+  documentId?: string | null;
+  procedureRunId?: string | null;
+  performedAt?: string;
+  notes?: string | null;
+  devUserId: string;
+  devOrgId: string;
+}): Promise<{ id: string; performedAt: string }> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/assets/${encodeURIComponent(params.assetInstanceId)}/pm-service-records`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-dev-user': `${params.devUserId}:${params.devOrgId}`,
+      },
+      body: JSON.stringify({
+        pmScheduleId: params.pmScheduleId ?? null,
+        documentId: params.documentId ?? null,
+        procedureRunId: params.procedureRunId ?? null,
+        performedAt: params.performedAt,
+        notes: params.notes ?? null,
+      }),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { id: string; performedAt: string };
+}
+
 export async function listWorkOrders(
   assetInstanceId: string,
   status: 'open' | 'all' = 'open',

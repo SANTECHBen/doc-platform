@@ -141,6 +141,13 @@
       "when": 1778871600000,
       "tag": "0019_step_blocks",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1778881962276,
+      "tag": "0020_illegal_gwen_stacy",
+      "breakpoints": true
     }
   ]
 }

@@ -2101,6 +2101,117 @@ export async function moveDocumentToVersion(params: {
   };
 }
 
+// ---------------------------------------------------------------------
+// Preventive Maintenance — admin authoring
+// ---------------------------------------------------------------------
+
+export interface AdminPmSchedule {
+  id: string;
+  assetModelId: string;
+  documentId: string | null;
+  name: string;
+  description: string | null;
+  cadenceKind: 'days';
+  cadenceValue: number;
+  graceDays: number;
+  disabled: boolean;
+  createdByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  document?: { id: string; title: string; kind: string } | null;
+}
+
+export interface AdminPmProcedureDoc {
+  id: string;
+  title: string;
+  kind: string;
+  contentPackVersionId: string;
+  contentPack: { id: string; name: string } | null;
+  contentPackVersion: {
+    id: string;
+    versionNumber: number;
+    versionLabel: string | null;
+  } | null;
+}
+
+export async function listPmSchedules(modelId: string): Promise<AdminPmSchedule[]> {
+  const res = await fetch(
+    `${API_BASE}/admin/asset-models/${encodeURIComponent(modelId)}/pm-schedules`,
+    { cache: 'no-store', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function listPmProcedureDocs(
+  modelId: string,
+): Promise<AdminPmProcedureDoc[]> {
+  const res = await fetch(
+    `${API_BASE}/admin/asset-models/${encodeURIComponent(modelId)}/procedure-documents`,
+    { cache: 'no-store', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function createPmSchedule(
+  modelId: string,
+  body: {
+    documentId?: string | null;
+    name: string;
+    description?: string | null;
+    cadenceKind?: 'days';
+    cadenceValue: number;
+    graceDays?: number;
+    disabled?: boolean;
+  },
+): Promise<AdminPmSchedule> {
+  const res = await fetch(
+    `${API_BASE}/admin/asset-models/${encodeURIComponent(modelId)}/pm-schedules`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function updatePmSchedule(
+  scheduleId: string,
+  patch: Partial<{
+    documentId: string | null;
+    name: string;
+    description: string | null;
+    cadenceKind: 'days';
+    cadenceValue: number;
+    graceDays: number;
+    disabled: boolean;
+  }>,
+): Promise<AdminPmSchedule> {
+  const res = await fetch(
+    `${API_BASE}/admin/pm-schedules/${encodeURIComponent(scheduleId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(patch),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function deletePmSchedule(scheduleId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/pm-schedules/${encodeURIComponent(scheduleId)}`,
+    { method: 'DELETE', headers: await authHeaders() },
+  );
+  if (!res.ok && res.status !== 204) {
+    throw new Error(`API ${res.status}: ${await res.text()}`);
+  }
+}
+
 export async function patchProcedureStepAudioDuration(
   stepId: string,
   audioDurationMs: number,

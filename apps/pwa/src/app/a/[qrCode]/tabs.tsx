@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
+  CalendarClock,
   FileText,
   GraduationCap,
   LayoutGrid,
@@ -17,6 +18,7 @@ import { ChatTab } from './chat-tab';
 import { TrainingTab } from './training-tab';
 import { PartsTab } from './parts-tab';
 import { IssuesPanel } from './issues-panel';
+import { MaintenanceTab } from './maintenance-tab';
 import { VoiceMode, type PrefetchedGreeting } from '@/components/voice-mode';
 import { VirtualJobAid } from '@/components/virtual-job-aid';
 import { ModeChooser, type ChosenMode } from '@/components/mode-chooser';
@@ -31,13 +33,20 @@ import {
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
 const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
 
-type TabKey = 'overview' | 'docs' | 'training' | 'parts' | 'chat';
+type TabKey =
+  | 'overview'
+  | 'docs'
+  | 'training'
+  | 'parts'
+  | 'maintenance'
+  | 'chat';
 
 const TABS: Array<{ key: TabKey; label: string; icon: LucideIcon }> = [
   { key: 'overview', label: 'Overview', icon: LayoutGrid },
   { key: 'docs', label: 'Documents', icon: FileText },
   { key: 'training', label: 'Training', icon: GraduationCap },
   { key: 'parts', label: 'Parts', icon: Wrench },
+  { key: 'maintenance', label: 'Maintenance', icon: CalendarClock },
   { key: 'chat', label: 'Assistant', icon: MessageSquare },
 ];
 
@@ -171,6 +180,12 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
             )}
             {active === 'training' && <TrainingTab hub={hub} />}
             {active === 'parts' && <PartsTab hub={hub} qrCode={qrCode} />}
+            {active === 'maintenance' && (
+              <MaintenanceTab
+                assetInstanceId={hub.assetInstance.id}
+                onLaunchProcedure={(docId) => setOverviewJobAidDocId(docId)}
+              />
+            )}
             {active === 'chat' && <ChatTab hub={hub} qrCode={qrCode} />}
           </section>
         )}
@@ -450,6 +465,22 @@ function Nameplate({
             }}
           >
             {openIssueCount}
+          </span>
+        </div>
+        <div className="nameplate-metric-h">
+          <span className="cap">PM Due</span>
+          <span
+            className="val"
+            style={{
+              color:
+                hub.tabs.pm.needsAction > 0
+                  ? hub.tabs.pm.overdue > 0
+                    ? 'rgb(var(--signal-fault))'
+                    : 'rgb(var(--signal-warn))'
+                  : 'rgb(var(--signal-ok))',
+            }}
+          >
+            {hub.tabs.pm.needsAction}
           </span>
         </div>
       </div>

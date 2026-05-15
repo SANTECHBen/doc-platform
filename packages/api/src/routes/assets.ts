@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, desc, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@platform/db';
 import { AssetHubPayloadSchema, QrCodeStringSchema } from '@platform/shared';
+import { computeScheduleStatus } from '../lib/pm-status';
 
 // Two-letter initials from a display name — shown when no logo uploaded.
 // "Flow Turn" → "FT", "Dematic" → "DE", "Acme Logistics" → "AL".
@@ -51,7 +52,7 @@ export async function registerAssetRoutes(app: FastifyInstance) {
       });
       if (!instance) return reply.notFound('Asset instance not found.');
 
-      const [docCount, trainingCount, partsCount, openWoCount, fieldCapturesVersionId] =
+      const [docCount, trainingCount, partsCount, openWoCount, fieldCapturesVersionId, pmSummary] =
         await Promise.all([
           instance.pinnedContentPackVersionId
             ? countRows(
@@ -91,6 +92,54 @@ export async function registerAssetRoutes(app: FastifyInstance) {
                   LIMIT 1`,
             )
             .then((rows) => (rows[0]?.version_id ?? null) as string | null),
+          // PM summary: count overdue/due/soon for the nameplate badge.
+          // Slimmer than the full /pm-status endpoint — no history fetch,
+          // no document expansion, just the counters the hub needs.
+          (async () => {
+            const schedules = await db.query.pmSchedules.findMany({
+              where: and(
+                eq(schema.pmSchedules.assetModelId, instance.assetModelId),
+                eq(schema.pmSchedules.disabled, false),
+              ),
+            });
+            if (schedules.length === 0) {
+              return { overdue: 0, due: 0, soon: 0, needsAction: 0 };
+            }
+            const records = await db.query.pmServiceRecords.findMany({
+              where: and(
+                eq(schema.pmServiceRecords.assetInstanceId, instance.id),
+                inArray(
+                  schema.pmServiceRecords.pmScheduleId,
+                  schedules.map((s) => s.id),
+                ),
+              ),
+              orderBy: [desc(schema.pmServiceRecords.performedAt)],
+            });
+            const lastByScheduleId = new Map<string, Date>();
+            for (const r of records) {
+              if (r.pmScheduleId && !lastByScheduleId.has(r.pmScheduleId)) {
+                lastByScheduleId.set(r.pmScheduleId, r.performedAt);
+              }
+            }
+            const now = new Date();
+            const counts = { overdue: 0, due: 0, soon: 0, needsAction: 0 };
+            for (const s of schedules) {
+              const r = computeScheduleStatus({
+                cadenceKind: s.cadenceKind,
+                cadenceValue: s.cadenceValue,
+                graceDays: s.graceDays,
+                scheduleCreatedAt: s.createdAt,
+                instanceInstalledAt: instance.installedAt,
+                lastPerformedAt: lastByScheduleId.get(s.id) ?? null,
+                now,
+              });
+              if (r.status === 'overdue') counts.overdue += 1;
+              else if (r.status === 'due') counts.due += 1;
+              else if (r.status === 'soon') counts.soon += 1;
+              if (r.needsAction) counts.needsAction += 1;
+            }
+            return counts;
+          })(),
         ]);
 
       const oem = instance.model.owner;
@@ -139,6 +188,7 @@ export async function registerAssetRoutes(app: FastifyInstance) {
           training: { count: trainingCount },
           parts: { count: partsCount },
           openWorkOrders: { count: openWoCount },
+          pm: pmSummary,
         },
         brand: {
           displayName: brandDisplayName,

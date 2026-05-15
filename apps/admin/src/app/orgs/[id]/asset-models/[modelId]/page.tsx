@@ -9,7 +9,7 @@
 
 import { use, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Boxes, FileStack, QrCode, Tag, Wrench } from 'lucide-react';
+import { Boxes, CalendarClock, FileStack, QrCode, Tag, Wrench } from 'lucide-react';
 import LegacyAssetModelDetail from '@/app/asset-models/[id]/page';
 
 const TABS = [
@@ -33,6 +33,13 @@ const TABS = [
     icon: Wrench,
     anchor: 'bom-section',
     description: 'Part list attached to this model',
+  },
+  {
+    id: 'pm',
+    label: 'PM schedules',
+    icon: CalendarClock,
+    anchor: 'pm-section',
+    description: 'Preventive maintenance plans applied to every instance',
   },
 ] as const;
 

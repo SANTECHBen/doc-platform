@@ -49,6 +49,15 @@ export const AssetHubPayloadSchema = z.object({
     training: z.object({ count: z.number().int() }),
     parts: z.object({ count: z.number().int() }),
     openWorkOrders: z.object({ count: z.number().int() }),
+    // Preventive Maintenance summary computed against the instance's
+    // (model schedules, instance service records). overdue+due both
+    // count as "needs action now"; soon = due in next 7 days.
+    pm: z.object({
+      overdue: z.number().int(),
+      due: z.number().int(),
+      soon: z.number().int(),
+      needsAction: z.number().int(),
+    }),
   }),
   // Branding resolved from the asset model's owning OEM. Technicians see the
   // OEM's identity, not ours.
