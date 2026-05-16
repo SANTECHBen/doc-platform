@@ -43,6 +43,7 @@ import {
   deleteContentPackVersion,
   deleteDocument,
   getContentPack,
+  getMe,
   listAdminParts,
   listPartsForDocument,
   listPartsForTrainingModule,
@@ -77,8 +78,25 @@ export default function ContentPackDetail({
   const [busy, setBusy] = useState(false);
   const [addOpen, setAddOpen] = useState<string | null>(null);
   const [moduleOpen, setModuleOpen] = useState<string | null>(null);
+  // Super-admin bypass: when the signed-in user is a PLATFORM_ADMIN_EMAILS
+  // member, the API allows edits/deletes on published versions. The UI mirrors
+  // that by exposing the same action buttons on published rows and surfacing
+  // a clear "SUPERADMIN UNLOCK" badge so the user knows they're operating
+  // outside the normal draft lifecycle.
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const toast = useToast();
   const router = useRouter();
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const me = await getMe();
+        setIsSuperAdmin(me.authenticated && me.platformAdmin);
+      } catch {
+        // Non-fatal — falls back to non-admin UI (no buttons on published).
+      }
+    })();
+  }, []);
 
   async function refresh() {
     try {
@@ -138,7 +156,10 @@ export default function ContentPackDetail({
   }
 
   async function onDeleteDoc(docId: string) {
-    if (!confirm('Remove this document from the draft?')) return;
+    const msg = isSuperAdmin
+      ? 'Remove this document?\n\nIf the containing version is published, this will edit live content that asset instances are pinned to.'
+      : 'Remove this document from the draft?';
+    if (!confirm(msg)) return;
     setBusy(true);
     setError(null);
     try {
@@ -152,7 +173,12 @@ export default function ContentPackDetail({
   }
 
   async function onDeleteVersion(versionId: string, label: string) {
-    if (!confirm(`Delete draft version ${label}? This cannot be undone.`)) return;
+    const version = pack?.versions.find((v) => v.id === versionId);
+    const published = version?.status === 'published';
+    const msg = published
+      ? `Delete PUBLISHED version ${label}?\n\nAsset instances pinned to this version will have their pin cleared. This cannot be undone.`
+      : `Delete draft version ${label}? This cannot be undone.`;
+    if (!confirm(msg)) return;
     setBusy(true);
     try {
       await deleteContentPackVersion(versionId);
@@ -215,7 +241,14 @@ export default function ContentPackDetail({
       <ErrorBanner error={error} />
 
       <div className="flex flex-col gap-4">
-        {pack.versions.map((v) => (
+        {pack.versions.map((v) => {
+          // Authoring is normally only allowed on draft versions, but a
+          // PLATFORM_ADMIN_EMAILS super-admin can edit published versions too.
+          // Surface the same action buttons in that case, and badge the row
+          // so it's obvious you're outside the draft lifecycle.
+          const editable = v.status === 'draft' || isSuperAdmin;
+          const isPublishedUnlock = v.status === 'published' && isSuperAdmin;
+          return (
           <section key={v.id} className="rounded-md border border-line-subtle bg-surface-raised p-4">
             <header className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -225,13 +258,18 @@ export default function ContentPackDetail({
                 <Pill tone={STATUS_TONE[v.status as keyof typeof STATUS_TONE] ?? 'default'}>
                   {v.status}
                 </Pill>
+                {isPublishedUnlock && (
+                  <Pill tone="warning">
+                    SUPERADMIN UNLOCK
+                  </Pill>
+                )}
                 {v.publishedAt && (
                   <span className="text-xs text-ink-tertiary">
                     Published {new Date(v.publishedAt).toLocaleDateString()}
                   </span>
                 )}
               </div>
-              {v.status === 'draft' && (
+              {editable && (
                 <div className="flex items-center gap-2">
                   <SecondaryButton onClick={() => setModuleOpen(v.id)} disabled={busy}>
                     <GraduationCap size={14} strokeWidth={2} /> Add module
@@ -253,14 +291,16 @@ export default function ContentPackDetail({
                     }
                     disabled={busy}
                   >
-                    <Trash2 size={14} strokeWidth={2} /> Delete draft
+                    <Trash2 size={14} strokeWidth={2} /> {v.status === 'draft' ? 'Delete draft' : 'Delete version'}
                   </button>
-                  <PrimaryButton
-                    onClick={() => onPublish(v.id)}
-                    disabled={busy || v.documents.length === 0}
-                  >
-                    <Send size={14} strokeWidth={2} /> Publish
-                  </PrimaryButton>
+                  {v.status === 'draft' && (
+                    <PrimaryButton
+                      onClick={() => onPublish(v.id)}
+                      disabled={busy || v.documents.length === 0}
+                    >
+                      <Send size={14} strokeWidth={2} /> Publish
+                    </PrimaryButton>
+                  )}
                 </div>
               )}
             </header>
@@ -283,7 +323,7 @@ export default function ContentPackDetail({
                       <DocumentRow
                         key={d.id}
                         doc={d}
-                        editable={v.status === 'draft'}
+                        editable={editable}
                         onDelete={() => onDeleteDoc(d.id)}
                         onChanged={refresh}
                       />
@@ -307,7 +347,8 @@ export default function ContentPackDetail({
               </div>
             </div>
           </section>
-        ))}
+          );
+        })}
 
         {pack.fieldCaptures.length > 0 && (
           <section className="rounded-md border border-line-subtle bg-surface-raised p-4">

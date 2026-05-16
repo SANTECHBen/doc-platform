@@ -30,6 +30,32 @@ async function authHeaders(): Promise<Record<string, string>> {
 export const PUBLIC_PWA_ORIGIN =
   process.env.NEXT_PUBLIC_PWA_ORIGIN ?? 'http://localhost:3000';
 
+// Current-user identity. Drives super-admin UI affordances (e.g. editing
+// already-published content packs). Server still enforces auth — the
+// `platformAdmin` flag here is purely cosmetic; bypassing it client-side
+// just means the user sees buttons whose API calls 403.
+export type Me =
+  | { authenticated: true; userId: string; organizationId: string; platformAdmin: boolean }
+  | { authenticated: false };
+
+export async function getMe(): Promise<Me> {
+  const res = await fetch(`${API_BASE}/me`, {
+    cache: 'no-store',
+    headers: await authHeaders(),
+  });
+  if (!res.ok) return { authenticated: false };
+  const body = (await res.json()) as
+    | { unauthenticated: true }
+    | { userId: string; organizationId: string; platformAdmin: boolean };
+  if ('unauthenticated' in body) return { authenticated: false };
+  return {
+    authenticated: true,
+    userId: body.userId,
+    organizationId: body.organizationId,
+    platformAdmin: body.platformAdmin === true,
+  };
+}
+
 export interface AdminAssetInstance {
   id: string;
   serialNumber: string;

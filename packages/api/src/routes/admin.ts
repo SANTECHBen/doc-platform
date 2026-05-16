@@ -1042,7 +1042,7 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
       });
       if (!version) return reply.notFound();
       requireOrgInScope(scope, version.pack.ownerOrganizationId);
-      if (version.status !== 'draft') {
+      if (version.status !== 'draft' && !request.auth?.platformAdmin) {
         return reply.badRequest('Can only author modules in a draft version.');
       }
       const [created] = await db
@@ -1087,7 +1087,7 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
       });
       if (!module) return reply.notFound();
       requireOrgInScope(scope, module.packVersion.pack.ownerOrganizationId);
-      if (module.packVersion.status !== 'draft') {
+      if (module.packVersion.status !== 'draft' && !request.auth?.platformAdmin) {
         return reply.badRequest('Can only author lessons in a draft version.');
       }
       const [created] = await db
@@ -1150,7 +1150,7 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
       });
       if (!module) return reply.notFound();
       requireOrgInScope(scope, module.packVersion.pack.ownerOrganizationId);
-      if (module.packVersion.status !== 'draft') {
+      if (module.packVersion.status !== 'draft' && !request.auth?.platformAdmin) {
         return reply.badRequest('Can only author activities in a draft version.');
       }
       const [created] = await db
@@ -1255,7 +1255,7 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
       });
       if (!module) return reply.notFound();
       requireOrgInScope(scope, module.packVersion.pack.ownerOrganizationId);
-      if (module.packVersion.status !== 'draft') {
+      if (module.packVersion.status !== 'draft' && !request.auth?.platformAdmin) {
         return reply.badRequest('Can only edit modules in a draft version.');
       }
       const patch: Record<string, unknown> = {};
@@ -1291,7 +1291,7 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
       });
       if (!module) return reply.notFound();
       requireOrgInScope(scope, module.packVersion.pack.ownerOrganizationId);
-      if (module.packVersion.status !== 'draft') {
+      if (module.packVersion.status !== 'draft' && !request.auth?.platformAdmin) {
         return reply.badRequest('Can only delete modules in a draft version.');
       }
       await db
@@ -1327,7 +1327,7 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
       });
       if (!lesson) return reply.notFound();
       requireOrgInScope(scope, lesson.module.packVersion.pack.ownerOrganizationId);
-      if (lesson.module.packVersion.status !== 'draft') {
+      if (lesson.module.packVersion.status !== 'draft' && !request.auth?.platformAdmin) {
         return reply.badRequest('Can only edit lessons in a draft version.');
       }
       const patch: Record<string, unknown> = {};
@@ -1358,7 +1358,7 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
       });
       if (!lesson) return reply.notFound();
       requireOrgInScope(scope, lesson.module.packVersion.pack.ownerOrganizationId);
-      if (lesson.module.packVersion.status !== 'draft') {
+      if (lesson.module.packVersion.status !== 'draft' && !request.auth?.platformAdmin) {
         return reply.badRequest('Can only delete lessons in a draft version.');
       }
       await db.delete(schema.lessons).where(eq(schema.lessons.id, lesson.id));
@@ -1413,7 +1413,7 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
       });
       if (!activity) return reply.notFound();
       requireOrgInScope(scope, activity.module.packVersion.pack.ownerOrganizationId);
-      if (activity.module.packVersion.status !== 'draft') {
+      if (activity.module.packVersion.status !== 'draft' && !request.auth?.platformAdmin) {
         return reply.badRequest('Can only edit activities in a draft version.');
       }
       const patch: Record<string, unknown> = {};
@@ -1446,7 +1446,7 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
       });
       if (!activity) return reply.notFound();
       requireOrgInScope(scope, activity.module.packVersion.pack.ownerOrganizationId);
-      if (activity.module.packVersion.status !== 'draft') {
+      if (activity.module.packVersion.status !== 'draft' && !request.auth?.platformAdmin) {
         return reply.badRequest('Can only delete activities in a draft version.');
       }
       await db.delete(schema.activities).where(eq(schema.activities.id, activity.id));
@@ -2671,7 +2671,7 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
       });
       if (!doc) return reply.notFound();
       requireOrgInScope(scope, doc.packVersion.pack.ownerOrganizationId);
-      if (doc.packVersion.status !== 'draft') {
+      if (doc.packVersion.status !== 'draft' && !request.auth?.platformAdmin) {
         return reply.badRequest('Cannot remove documents from a published version.');
       }
       await db.delete(schema.documents).where(eq(schema.documents.id, doc.id));
@@ -2698,7 +2698,7 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
       const pinned = await db.query.assetInstances.findFirst({
         where: eq(schema.assetInstances.pinnedContentPackVersionId, version.id),
       });
-      if (pinned) {
+      if (pinned && !request.auth?.platformAdmin) {
         return reply.badRequest(
           'An asset instance pins this version. Unpin it first.',
         );
@@ -2750,7 +2750,7 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
             versions.map((v) => v.id),
           ),
         });
-        if (pinned) {
+        if (pinned && !request.auth?.platformAdmin) {
           return reply.badRequest(
             'An asset instance pins a version of this pack. Unpin it first.',
           );
