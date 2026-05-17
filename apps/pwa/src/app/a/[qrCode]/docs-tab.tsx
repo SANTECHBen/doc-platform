@@ -274,11 +274,11 @@ export function DocsTab({
           devOrgId: DEV_ORG_ID,
         }}
         onClose={() => {
-          // Return to the doc viewer at the same docId — tech can switch
-          // back to the scroll view without re-opening from the docs list.
-          const id = jobAidDocId;
+          // Close returns to the docs list. The old bounce-to-scroll-viewer
+          // behavior made sense when the viewer was the entry surface, but
+          // procedures now open straight into Job Aid — users who close
+          // expect to be done, not to land on a viewer they never asked for.
           setJobAidDocId(null);
-          setViewerDocId(id);
         }}
       />
     );
@@ -340,9 +340,13 @@ export function DocsTab({
 
   function onOpenEntry(e: DocEntry) {
     if (e.kind === 'structured_procedure') {
-      // Browse-mode viewer is open to anyone — the auth gate moved to
-      // the Run-with-evidence button (which is itself feature-flagged).
-      setViewerDocId(e.docId);
+      // Browse-mode default for procedures: open Job Aid (one step at a
+      // time, with voiceover playback) rather than the long scroll view.
+      // The scroll viewer is still reachable via the "View all steps"
+      // affordance inside Job Aid for the rare "I want to see everything
+      // at once" case. Auth gate stays on the runner's "Run with
+      // evidence" button, not here.
+      setJobAidDocId(e.docId);
       return;
     }
     void getDocument(e.docId).then((full) => {

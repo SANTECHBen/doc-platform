@@ -475,12 +475,13 @@ function PartDetailOverlay({
       const body = await getDocument(docId);
       if (!body) return;
       // Procedure docs go through the read-only intro + scroll viewer
-      // first (same as the Documents tab). The viewer's "Run with
-      // evidence" CTA is what actually launches the runner — auth gate
-      // happens at that step, not here, so techs can browse procedures
-      // without signing in.
+      // Browse-mode default for procedures: open Job Aid (step-at-a-time
+      // with voiceover) rather than the read-only scroll viewer. The
+      // viewer is still reachable from inside Job Aid for the rare "see
+      // it all at once" case. Auth gate stays on the runner's "Run with
+      // evidence" button, not here, so techs can browse without signing in.
       if (body.kind === 'structured_procedure') {
-        setViewerDocId(body.id);
+        setJobAidDocId(body.id);
         return;
       }
       setOpenDoc({ body, sections });
@@ -624,11 +625,11 @@ function PartDetailOverlay({
             devOrgId: PWA_DEV_ORG_ID,
           }}
           onClose={() => {
-            // Return to the doc viewer at the same docId so the tech can
-            // switch back to the scroll view without re-navigating.
-            const id = jobAidDocId;
+            // Close returns to the parts hub. The previous bounce-to-scroll-
+            // viewer behavior made sense when the viewer was the entry
+            // surface, but procedures now open straight into Job Aid —
+            // closing means done.
             setJobAidDocId(null);
-            setViewerDocId(id);
           }}
         />
       )}
