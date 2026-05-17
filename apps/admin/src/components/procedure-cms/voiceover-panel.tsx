@@ -18,6 +18,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Loader2,
   Mic,
+  MoreVertical,
   Pause,
   Play,
   Sparkles,
@@ -230,61 +231,46 @@ export function VoiceoverPanel({ step, onChanged }: Props) {
   const busy =
     phase === 'uploading' || phase === 'generating' || phase === 'deleting';
 
-  return (
-    <div className="rounded-md border border-line-subtle bg-surface p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-ink-secondary">
-          Voiceover
-        </h4>
-        {hasAudio && step.audioSource && (
-          <span
-            className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${
-              step.audioSource === 'generated'
-                ? 'bg-accent/10 text-accent'
-                : 'bg-signal-ok/10 text-signal-ok'
-            }`}
-          >
-            {step.audioSource === 'generated' ? 'AI · regenerable' : 'Custom upload'}
-          </span>
-        )}
-      </div>
-
-      {/* Existing audio preview */}
-      {hasAudio && (
-        <div className="mb-3 flex items-center gap-3 rounded-md border border-line bg-surface-raised px-3 py-2">
+  // When audio already exists, collapse the whole panel into a single
+  // preview row — the 3 action buttons hide behind a kebab. This is the
+  // dominant case after first authoring; the giant 3-button grid below an
+  // existing recording was the loudest source of visual clutter on the
+  // step card.
+  if (hasAudio && !recording) {
+    return (
+      <>
+        <div className="flex items-center gap-3 rounded-md border border-line-subtle bg-surface px-3 py-2">
           <button
             type="button"
             onClick={togglePlay}
-            className="inline-flex size-9 items-center justify-center rounded-full bg-accent text-white transition hover:brightness-110"
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-accent text-white transition hover:brightness-110"
             aria-label={playing ? 'Pause' : 'Play preview'}
           >
-            {playing ? <Pause className="size-4" /> : <Play className="size-4" />}
+            {playing ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
           </button>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-ink-primary">
-              {step.audioSource === 'generated' ? 'AI voice' : 'Custom voiceover'}
+              🎧 {step.audioSource === 'generated' ? 'AI voice' : 'Custom voiceover'}
               {step.audioDurationMs ? (
-                <span className="ml-2 text-xs text-ink-tertiary">
+                <span className="ml-2 text-xs font-normal text-ink-tertiary">
                   {formatDuration(step.audioDurationMs)}
                 </span>
               ) : null}
+              {step.audioSizeBytes != null ? (
+                <span className="ml-1.5 text-xs font-normal text-ink-tertiary">
+                  · {(step.audioSizeBytes / 1024).toFixed(0)} KB
+                </span>
+              ) : null}
             </p>
-            {step.audioSizeBytes != null && (
-              <p className="text-xs text-ink-tertiary">
-                {(step.audioSizeBytes / 1024).toFixed(0)} KB
-              </p>
-            )}
           </div>
-          <button
-            type="button"
-            onClick={onDelete}
+          <VoiceoverActionMenu
             disabled={busy}
-            className="rounded p-1.5 text-ink-tertiary transition hover:bg-signal-fault/10 hover:text-signal-fault disabled:opacity-40"
-            aria-label="Delete voiceover"
-            title="Delete voiceover"
-          >
-            <Trash2 className="size-4" />
-          </button>
+            onGenerate={onGenerate}
+            onUpload={onPickFile}
+            onRecord={startRecording}
+            onDelete={onDelete}
+            isGenerated={step.audioSource === 'generated'}
+          />
           <audio
             ref={audioRef}
             src={step.audioUrl ?? undefined}
@@ -295,10 +281,26 @@ export function VoiceoverPanel({ step, onChanged }: Props) {
             crossOrigin="anonymous"
           />
         </div>
-      )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="audio/mpeg,audio/mp3,audio/mp4,audio/m4a,audio/x-m4a,audio/aac,audio/ogg,audio/webm,audio/wav,audio/x-wav"
+          onChange={onFileChosen}
+          className="hidden"
+        />
+        {error && (
+          <p className="mt-2 rounded-md border border-signal-fault/40 bg-signal-fault/10 px-3 py-2 text-xs text-signal-fault">
+            {error}
+          </p>
+        )}
+      </>
+    );
+  }
 
-      {/* Action row — 3 buttons. Recording overrides everything when active. */}
-      {recording ? (
+  // Recording — single full-width Stop button.
+  if (recording) {
+    return (
+      <div className="rounded-md border border-line-subtle bg-surface p-3">
         <button
           type="button"
           onClick={stopRecording}
@@ -308,43 +310,61 @@ export function VoiceoverPanel({ step, onChanged }: Props) {
           Stop recording
           <RecordingPulse />
         </button>
-      ) : (
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          <ActionTile
-            onClick={onGenerate}
-            disabled={busy}
-            icon={
-              phase === 'generating' ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Sparkles className="size-4" />
-              )
-            }
-            label={hasAudio ? 'Re-generate with AI' : 'Generate with AI'}
-            sub="Uses your TTS voice"
-          />
-          <ActionTile
-            onClick={onPickFile}
-            disabled={busy}
-            icon={
-              phase === 'uploading' ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Upload className="size-4" />
-              )
-            }
-            label="Upload file"
-            sub="MP3 · M4A · WAV"
-          />
-          <ActionTile
-            onClick={startRecording}
-            disabled={busy}
-            icon={<Mic className="size-4" />}
-            label="Record now"
-            sub="Use your mic"
-          />
-        </div>
-      )}
+        {error && (
+          <p className="mt-2 rounded-md border border-signal-fault/40 bg-signal-fault/10 px-3 py-2 text-xs text-signal-fault">
+            {error}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // No audio yet — full 3-action panel. This is where the buttons earn
+  // their footprint: the panel's only purpose at this point is to start
+  // a recording.
+  return (
+    <div className="rounded-md border border-line-subtle bg-surface p-3">
+      <div className="mb-2 flex items-center gap-2">
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-ink-secondary">
+          Voiceover
+        </h4>
+        <span className="text-xs text-ink-tertiary">optional</span>
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <ActionTile
+          onClick={onGenerate}
+          disabled={busy}
+          icon={
+            phase === 'generating' ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Sparkles className="size-4" />
+            )
+          }
+          label="Generate with AI"
+          sub="Uses your TTS voice"
+        />
+        <ActionTile
+          onClick={onPickFile}
+          disabled={busy}
+          icon={
+            phase === 'uploading' ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Upload className="size-4" />
+            )
+          }
+          label="Upload file"
+          sub="MP3 · M4A · WAV"
+        />
+        <ActionTile
+          onClick={startRecording}
+          disabled={busy}
+          icon={<Mic className="size-4" />}
+          label="Record now"
+          sub="Use your mic"
+        />
+      </div>
 
       <input
         ref={fileInputRef}
@@ -358,6 +378,111 @@ export function VoiceoverPanel({ step, onChanged }: Props) {
         <p className="mt-3 rounded-md border border-signal-fault/40 bg-signal-fault/10 px-3 py-2 text-xs text-signal-fault">
           {error}
         </p>
+      )}
+    </div>
+  );
+}
+
+// Kebab dropdown shown next to an existing voiceover. Surfaces the three
+// authoring paths (re-gen / replace / record) plus delete behind a single
+// trigger so the always-visible row stays a single line.
+function VoiceoverActionMenu({
+  disabled,
+  onGenerate,
+  onUpload,
+  onRecord,
+  onDelete,
+  isGenerated,
+}: {
+  disabled: boolean;
+  onGenerate: () => void | Promise<void>;
+  onUpload: () => void;
+  onRecord: () => void | Promise<void>;
+  onDelete: () => void | Promise<void>;
+  isGenerated: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        disabled={disabled}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Voiceover actions"
+        className="rounded p-1.5 text-ink-tertiary transition hover:bg-surface-elevated hover:text-ink-primary disabled:opacity-40"
+      >
+        <MoreVertical className="size-4" />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 z-30 mt-1 w-52 overflow-hidden rounded-md border border-line bg-surface-raised shadow-lg"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              void onGenerate();
+            }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-ink-primary transition hover:bg-surface-elevated"
+          >
+            <Sparkles className="size-3.5" />
+            {isGenerated ? 'Re-generate with AI' : 'Generate with AI'}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onUpload();
+            }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-ink-primary transition hover:bg-surface-elevated"
+          >
+            <Upload className="size-3.5" /> Replace with file
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              void onRecord();
+            }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-ink-primary transition hover:bg-surface-elevated"
+          >
+            <Mic className="size-3.5" /> Record over
+          </button>
+          <hr className="my-1 border-line-subtle" />
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              void onDelete();
+            }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-signal-fault transition hover:bg-signal-fault/10"
+          >
+            <Trash2 className="size-3.5" /> Delete voiceover
+          </button>
+        </div>
       )}
     </div>
   );

@@ -117,6 +117,14 @@ export function Sidebar({ userMenu }: { userMenu?: ReactNode }) {
     return null;
   }
 
+  // Hide the global sidebar on the full-page procedure editor — that surface
+  // is a focus mode where every horizontal pixel helps (long step titles,
+  // side-by-side media, the section + step header). The user can navigate
+  // out via the breadcrumb / close button in the editor's own header.
+  if (pathname && /^\/procedures\/[^/]+\/edit$/.test(pathname)) {
+    return null;
+  }
+
   return (
     <aside
       className="sticky top-0 flex h-screen w-60 shrink-0 flex-col"

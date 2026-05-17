@@ -7,10 +7,13 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Camera,
+  ChevronDown,
+  ChevronUp,
   ClipboardCheck,
   Film,
   GripVertical,
   ListChecks,
+  MoreVertical,
   Ruler,
   ShieldAlert,
   Trash2,
@@ -19,6 +22,7 @@ import {
 import {
   uploadProcedureStepMedia,
   deleteProcedureStepMedia,
+  type AdminProcedureSection,
   type AdminProcedureStep,
   type AdminStepMedia,
   type ProcedureStepKind,
@@ -47,10 +51,15 @@ interface Props {
   onDragEnd: () => void;
   isDragging: boolean;
   isDropTarget: boolean;
-  /** Optional caller-rendered slot below the card body. Used by the
-   *  sectioned editor to attach a "Move to section" dropdown without
-   *  baking section-awareness into the card itself. */
-  footer?: React.ReactNode;
+  /** Available sections for the kebab menu's "Move to section" picker.
+   *  When omitted/empty the picker isn't shown. */
+  sections?: AdminProcedureSection[];
+  /** Move this step into a different section (or null for ungrouped). */
+  onMoveToSection?: (sectionId: string | null) => void | Promise<void>;
+  /** Default-expand the card on first mount. Pass true for newly-added
+   *  steps so the author can type immediately; everything else stays
+   *  collapsed so a long procedure stays scannable. */
+  defaultExpanded?: boolean;
 }
 
 const KIND_OPTIONS: Array<{ value: ProcedureStepKind; label: string; icon: typeof ClipboardCheck }> = [
@@ -74,8 +83,14 @@ export function StepCard({
   onDragEnd,
   isDragging,
   isDropTarget,
-  footer,
+  sections,
+  onMoveToSection,
+  defaultExpanded = false,
 }: Props) {
+  // Collapsed by default — see Props.defaultExpanded. Authors scan dozens
+  // of steps; only one is being actively edited at any moment, so the
+  // collapsed row keeps the editing surface tight without losing context.
+  const [expanded, setExpanded] = useState<boolean>(defaultExpanded);
   // Local-state mirrors of editable fields. Auto-save debounce flushes
   // them upstream; we never block typing on the network.
   const [title, setTitle] = useState(step.title);
@@ -188,7 +203,13 @@ export function StepCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const KindIcon = KIND_OPTIONS.find((k) => k.value === kind)?.icon ?? ClipboardCheck;
+  const KindMeta =
+    KIND_OPTIONS.find((k) => k.value === kind) ?? KIND_OPTIONS[0]!;
+  const KindIcon = KindMeta.icon;
+  const photoCount = (step.media ?? []).filter((m) => m.kind === 'image').length;
+  const videoCount = (step.media ?? []).filter((m) => m.kind === 'video').length;
+  const hasVoiceover = !!step.audioUrl;
+  const titlePreview = title.trim() || 'Untitled step';
 
   return (
     <li
@@ -206,88 +227,330 @@ export function StepCard({
           : 'border-line-subtle',
         isDragging ? 'opacity-50' : '',
         isDropTarget ? 'ring-2 ring-accent/60 ring-offset-2 ring-offset-surface' : '',
+        expanded ? 'shadow-sm' : 'hover:border-line',
       ]
         .filter(Boolean)
         .join(' ')}
     >
-      {/* Header strip: drag handle, step number, kind chip, safety, delete */}
-      <header className="flex items-center gap-3 border-b border-line-subtle px-4 py-3">
-        <button
-          type="button"
-          aria-label="Drag to reorder"
-          className="cursor-grab text-ink-tertiary transition hover:text-ink-primary active:cursor-grabbing"
-          // The drag handle is the only place draggable=true. The list
-          // below intercepts the actual events; we just provide the grab
-          // affordance here.
-          tabIndex={-1}
-        >
-          <GripVertical className="size-5" />
-        </button>
-        <span className="flex items-center gap-1.5 font-mono text-sm font-semibold tabular-nums text-ink-tertiary">
-          {String(index + 1).padStart(2, '0')}
-          <span className="text-ink-tertiary/60">/ {String(totalSteps).padStart(2, '0')}</span>
-        </span>
-        <KindChips value={kind} onChange={onKindChange} />
-        <label className="ml-auto flex items-center gap-1.5 text-xs text-ink-secondary">
-          <input
-            type="checkbox"
-            checked={safetyCritical}
-            onChange={(e) => onSafetyToggle(e.target.checked)}
-            className="size-3.5"
-          />
-          <ShieldAlert className="size-3.5 text-signal-warn" />
-          <span>Safety-critical</span>
-        </label>
-        <button
-          type="button"
-          onClick={() => void onDelete()}
-          aria-label="Delete step"
-          title="Delete step"
-          className="rounded p-1.5 text-ink-tertiary transition hover:bg-signal-fault/10 hover:text-signal-fault"
-        >
-          <Trash2 className="size-4" />
-        </button>
-      </header>
-
-      {/* Body — title, structured block list, voiceover panel. Inline
-          forms only; no drawers, no modals, no markdown syntax — the
-          template renders block kinds with consistent visual style so
-          procedures look identical across the library. */}
-      <div className="flex flex-col gap-4 p-4">
-        <div className="flex items-start gap-3">
-          <KindIcon className="mt-2 size-5 shrink-0 text-ink-tertiary" />
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => onTitleChange(e.target.value)}
-            placeholder="Short imperative — e.g., Apply LOTO and verify zero energy"
-            className="w-full bg-transparent text-lg font-semibold text-ink-primary outline-none placeholder:text-ink-tertiary/60 focus:placeholder:text-ink-tertiary/40"
-          />
-        </div>
-
-        <BlockListEditor
-          blocks={blocks}
-          onChange={onBlocksChange}
-          stepMedia={step.media ?? []}
-          onUploadStepMedia={async (file) => {
-            const item = await uploadProcedureStepMedia(step.id, file);
-            // Optimistically merge into the step so the picker shows it
-            // before the parent's next refresh.
-            const nextMedia: AdminStepMedia[] = [...(step.media ?? []), item];
-            onAudioChanged({ ...step, media: nextMedia });
-            return item;
+      {/* COLLAPSED VIEW — the default. One quiet row per step so a 50-step
+          procedure scrolls without overwhelming. Click anywhere on the row
+          (outside the drag handle / kebab) to expand. */}
+      {!expanded && (
+        <div
+          className="flex items-center gap-3 px-3 py-2.5 cursor-pointer"
+          onClick={() => setExpanded(true)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setExpanded(true);
+            }
           }}
-          legacyBodyMarkdown={step.bodyMarkdown}
-          onImportLegacy={onImportLegacy}
-        />
+        >
+          <span
+            className="cursor-grab text-ink-tertiary/60 hover:text-ink-primary active:cursor-grabbing shrink-0"
+            onClick={(e) => e.stopPropagation()}
+            title="Drag to reorder"
+          >
+            <GripVertical className="size-4" />
+          </span>
+          <span className="font-mono text-xs font-semibold tabular-nums text-ink-tertiary shrink-0 w-7 text-right">
+            {String(index + 1).padStart(2, '0')}
+          </span>
+          <KindIcon className="size-3.5 text-ink-tertiary shrink-0" />
+          <span
+            className={[
+              'flex-1 truncate text-sm',
+              title.trim()
+                ? 'text-ink-primary'
+                : 'italic text-ink-tertiary/70',
+            ].join(' ')}
+          >
+            {titlePreview}
+          </span>
+          {/* Quiet status pills — only render when set. Keeps the row
+              uncluttered for plain instruction steps. */}
+          {safetyCritical && (
+            <ShieldAlert
+              className="size-3.5 text-signal-warn shrink-0"
+              aria-label="Safety-critical"
+            />
+          )}
+          {photoCount > 0 && (
+            <span
+              className="inline-flex items-center gap-0.5 text-[10px] text-ink-tertiary shrink-0"
+              title={`${photoCount} photo${photoCount === 1 ? '' : 's'}`}
+            >
+              <Camera className="size-3" /> {photoCount}
+            </span>
+          )}
+          {videoCount > 0 && (
+            <span
+              className="inline-flex items-center gap-0.5 text-[10px] text-ink-tertiary shrink-0"
+              title={`${videoCount} video${videoCount === 1 ? '' : 's'}`}
+            >
+              <Film className="size-3" /> {videoCount}
+            </span>
+          )}
+          {hasVoiceover && (
+            <span
+              className="text-[10px] text-ink-tertiary shrink-0"
+              title="Voiceover attached"
+            >
+              🎧
+            </span>
+          )}
+          <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+            <StepKebabMenu
+              sections={sections ?? []}
+              currentSectionId={step.sectionId}
+              onMoveToSection={onMoveToSection}
+              onDelete={() => void onDelete()}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setExpanded(true);
+            }}
+            className="shrink-0 rounded p-1 text-ink-tertiary hover:bg-surface-elevated hover:text-ink-primary"
+            aria-label="Expand step"
+            title="Expand"
+          >
+            <ChevronDown className="size-4" />
+          </button>
+        </div>
+      )}
 
-        <StepVideosPanel step={step} onChanged={onAudioChanged} />
+      {/* EXPANDED VIEW */}
+      {expanded && (
+        <>
+          {/* Tightened header — single kind dropdown, icon-only safety
+              toggle, kebab menu, collapse caret. */}
+          <header className="flex items-center gap-2 border-b border-line-subtle px-3 py-2">
+            <span
+              className="cursor-grab text-ink-tertiary/60 hover:text-ink-primary active:cursor-grabbing"
+              title="Drag to reorder"
+            >
+              <GripVertical className="size-4" />
+            </span>
+            <span className="font-mono text-xs font-semibold tabular-nums text-ink-tertiary w-7 text-right">
+              {String(index + 1).padStart(2, '0')}
+              <span className="text-ink-tertiary/50">
+                /{String(totalSteps).padStart(2, '0')}
+              </span>
+            </span>
+            <select
+              value={kind}
+              onChange={(e) => onKindChange(e.target.value as ProcedureStepKind)}
+              className="rounded-md border border-line bg-surface px-2 py-1 text-xs font-medium text-ink-primary"
+              title="Step kind"
+            >
+              {KIND_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <div className="ml-auto flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => onSafetyToggle(!safetyCritical)}
+                aria-label={
+                  safetyCritical
+                    ? 'Unmark safety-critical'
+                    : 'Mark safety-critical'
+                }
+                title={
+                  safetyCritical ? 'Safety-critical' : 'Mark as safety-critical'
+                }
+                className={[
+                  'rounded p-1.5 transition',
+                  safetyCritical
+                    ? 'bg-signal-warn/15 text-signal-warn'
+                    : 'text-ink-tertiary hover:bg-surface-elevated hover:text-ink-primary',
+                ].join(' ')}
+              >
+                <ShieldAlert className="size-4" />
+              </button>
+              <StepKebabMenu
+                sections={sections ?? []}
+                currentSectionId={step.sectionId}
+                onMoveToSection={onMoveToSection}
+                onDelete={() => void onDelete()}
+              />
+              <button
+                type="button"
+                onClick={() => setExpanded(false)}
+                className="rounded p-1.5 text-ink-tertiary hover:bg-surface-elevated hover:text-ink-primary"
+                aria-label="Collapse step"
+                title="Collapse"
+              >
+                <ChevronUp className="size-4" />
+              </button>
+            </div>
+          </header>
 
-        <VoiceoverPanel step={step} onChanged={onAudioChanged} />
+          {/* Body — title, structured block list, media, voiceover. Inline
+              forms only; no drawers, no modals. The voiceover and step-
+              videos panels each manage their own empty/non-empty states
+              to keep this card terse when there's no media attached. */}
+          <div className="flex flex-col gap-3 p-3">
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => onTitleChange(e.target.value)}
+              placeholder="Short imperative — e.g., Apply LOTO and verify zero energy"
+              className="w-full bg-transparent text-lg font-semibold text-ink-primary outline-none placeholder:text-ink-tertiary/60 focus:placeholder:text-ink-tertiary/40"
+              autoFocus={defaultExpanded}
+            />
 
-        {footer}
-      </div>
+            <BlockListEditor
+              blocks={blocks}
+              onChange={onBlocksChange}
+              stepMedia={step.media ?? []}
+              onUploadStepMedia={async (file) => {
+                const item = await uploadProcedureStepMedia(step.id, file);
+                // Optimistically merge into the step so the picker shows it
+                // before the parent's next refresh.
+                const nextMedia: AdminStepMedia[] = [
+                  ...(step.media ?? []),
+                  item,
+                ];
+                onAudioChanged({ ...step, media: nextMedia });
+                return item;
+              }}
+              legacyBodyMarkdown={step.bodyMarkdown}
+              onImportLegacy={onImportLegacy}
+            />
+
+            <StepVideosPanel step={step} onChanged={onAudioChanged} />
+
+            <VoiceoverPanel step={step} onChanged={onAudioChanged} />
+          </div>
+        </>
+      )}
     </li>
+  );
+}
+
+// Lightweight popover-style menu attached to a kebab (⋮) trigger. Used in
+// both the collapsed and expanded step views — keeps infrequent actions
+// (Move to section, Delete) out of the always-visible header. Closes on
+// outside click and on Escape.
+function StepKebabMenu({
+  sections,
+  currentSectionId,
+  onMoveToSection,
+  onDelete,
+}: {
+  sections: AdminProcedureSection[];
+  currentSectionId: string | null;
+  onMoveToSection?: (sectionId: string | null) => void | Promise<void>;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const sortedSections = [...sections].sort(
+    (a, b) => a.orderingHint - b.orderingHint,
+  );
+  const showMove = !!onMoveToSection && sortedSections.length > 0;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Step actions"
+        className="rounded p-1.5 text-ink-tertiary hover:bg-surface-elevated hover:text-ink-primary"
+        title="More actions"
+      >
+        <MoreVertical className="size-4" />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 z-30 mt-1 w-56 overflow-hidden rounded-md border border-line bg-surface-raised shadow-lg"
+        >
+          {showMove && (
+            <>
+              <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary">
+                Move to section
+              </p>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
+                  void onMoveToSection?.(null);
+                }}
+                className={[
+                  'block w-full px-3 py-1.5 text-left text-sm transition hover:bg-surface-elevated',
+                  currentSectionId === null
+                    ? 'font-semibold text-accent'
+                    : 'text-ink-primary',
+                ].join(' ')}
+              >
+                — Ungrouped (top) —
+              </button>
+              {sortedSections.map((sec) => (
+                <button
+                  key={sec.id}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setOpen(false);
+                    void onMoveToSection?.(sec.id);
+                  }}
+                  className={[
+                    'block w-full truncate px-3 py-1.5 text-left text-sm transition hover:bg-surface-elevated',
+                    currentSectionId === sec.id
+                      ? 'font-semibold text-accent'
+                      : 'text-ink-primary',
+                  ].join(' ')}
+                >
+                  {sec.title}
+                </button>
+              ))}
+              <hr className="my-1 border-line-subtle" />
+            </>
+          )}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onDelete();
+            }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-signal-fault transition hover:bg-signal-fault/10"
+          >
+            <Trash2 className="size-3.5" /> Delete step
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

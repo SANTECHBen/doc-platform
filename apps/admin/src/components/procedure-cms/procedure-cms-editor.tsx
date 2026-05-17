@@ -96,6 +96,11 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
   // moves use the per-step "Move to section" dropdown instead.
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  // The most recently-added step ID. Step cards consult this on mount to
+  // decide whether to default-expand: a fresh card should be open so the
+  // author can type immediately, while existing cards stay collapsed so
+  // the procedure list stays scannable.
+  const [freshStepId, setFreshStepId] = useState<string | null>(null);
 
   const toast = useToast();
 
@@ -204,6 +209,10 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
       const created = await createProcedureStep(doc.id, input);
       // Optimistic insert at the end — match server's append-with-stride.
       setLocalSteps((prev) => [...prev, created]);
+      // Tell the card to default-expand on its first render. defaultExpanded
+      // only consults the initial state, so a single render with this ID
+      // matching is enough — no need to clear it back out.
+      setFreshStepId(created.id);
       endSave(true);
       // Smooth-scroll to the new card so the focus is obvious.
       setTimeout(() => {
@@ -506,7 +515,7 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
               When a procedure has no sections at all (most new authoring),
               this is the whole list and the section UI stays out of the way. */}
           {groups.orphans.length > 0 && (
-            <ol className="flex flex-col gap-3" onDragEnd={onDragEnd}>
+            <ol className="flex flex-col gap-2" onDragEnd={onDragEnd}>
               {groups.orphans.map((s, i) => (
                 <div key={s.id} id={`cms-step-${s.id}`}>
                   <StepCard
@@ -527,6 +536,11 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
                     onDragEnd={onDragEnd}
                     isDragging={dragId === s.id}
                     isDropTarget={dropTargetId === s.id && dragId !== s.id}
+                    sections={localSections}
+                    onMoveToSection={(target) =>
+                      moveStepToSection(s.id, target)
+                    }
+                    defaultExpanded={freshStepId === s.id}
                   />
                 </div>
               ))}
@@ -560,6 +574,7 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
               onDragOver={onDragOver}
               onDrop={onDrop}
               onDragEnd={onDragEnd}
+              freshStepId={freshStepId}
             />
           ))}
         </div>
@@ -610,6 +625,7 @@ function SectionGroup({
   onDragOver,
   onDrop,
   onDragEnd,
+  freshStepId,
 }: {
   section: AdminProcedureSection;
   steps: AdminProcedureStep[];
@@ -631,6 +647,9 @@ function SectionGroup({
   onDragOver: (id: string) => (e: React.DragEvent) => void;
   onDrop: (id: string) => (e: React.DragEvent) => Promise<void>;
   onDragEnd: () => void;
+  /** ID of the most recently-added step. The matching card mounts expanded
+   *  so the author can type immediately. */
+  freshStepId: string | null;
 }) {
   // Local title mirror with debounced PATCH — same pattern as step titles.
   const [title, setTitle] = useState(section.title);
@@ -650,7 +669,13 @@ function SectionGroup({
 
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface-raised p-3">
-      <header className="flex items-center gap-2">
+      {/* Sticky section header — as the author scrolls into a long section,
+          its title pins to the top of the scroll container so the answer
+          to "where am I?" is always one glance away. backdrop-blur + a
+          subtle bg keeps the underlying step rows legible behind it. */}
+      <header
+        className="sticky top-0 z-10 -mx-3 -mt-3 flex items-center gap-2 rounded-t-lg border-b border-line-subtle bg-surface-raised/95 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-surface-raised/80"
+      >
         <span className="select-none text-xs font-semibold uppercase tracking-wider text-ink-tertiary">
           Section
         </span>
@@ -678,7 +703,7 @@ function SectionGroup({
           Empty section. Click "Add step in this section" below to author the first one.
         </p>
       ) : (
-        <ol className="flex flex-col gap-3" onDragEnd={onDragEnd}>
+        <ol className="flex flex-col gap-2" onDragEnd={onDragEnd}>
           {steps.map((s, i) => (
             <div key={s.id} id={`cms-step-${s.id}`}>
               <StepCard
@@ -695,15 +720,9 @@ function SectionGroup({
                 onDragEnd={onDragEnd}
                 isDragging={dragId === s.id}
                 isDropTarget={dropTargetId === s.id && dragId !== s.id}
-                /* Section-aware controls live below the card so the existing
-                   StepCard contract stays untouched. */
-                footer={
-                  <MoveStepDropdown
-                    currentSectionId={s.sectionId}
-                    sections={allSections}
-                    onMove={(targetId) => onMoveStep(s.id, targetId)}
-                  />
-                }
+                sections={allSections}
+                onMoveToSection={(target) => onMoveStep(s.id, target)}
+                defaultExpanded={freshStepId === s.id}
               />
             </div>
           ))}
@@ -719,43 +738,6 @@ function SectionGroup({
         Add step in this section
       </button>
     </section>
-  );
-}
-
-// Lightweight per-step dropdown to re-parent a step into a different section
-// (or out to "ungrouped"). Renders inline; the editor wraps it under each
-// step card via StepCard.footer.
-function MoveStepDropdown({
-  currentSectionId,
-  sections,
-  onMove,
-}: {
-  currentSectionId: string | null;
-  sections: AdminProcedureSection[];
-  onMove: (targetSectionId: string | null) => void | Promise<void>;
-}) {
-  return (
-    <div className="mt-1 flex items-center gap-2 text-xs text-ink-tertiary">
-      <span>Move to:</span>
-      <select
-        value={currentSectionId ?? ''}
-        onChange={(e) => {
-          const v = e.target.value;
-          onMove(v === '' ? null : v);
-        }}
-        className="rounded border border-line bg-surface px-2 py-1 text-xs text-ink-primary"
-      >
-        <option value="">— Ungrouped (top) —</option>
-        {sections
-          .slice()
-          .sort((a, b) => a.orderingHint - b.orderingHint)
-          .map((sec) => (
-            <option key={sec.id} value={sec.id}>
-              {sec.title}
-            </option>
-          ))}
-      </select>
-    </div>
   );
 }
 
