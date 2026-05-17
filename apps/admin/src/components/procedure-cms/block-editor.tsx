@@ -268,18 +268,67 @@ export function BlockListEditor({
             isDragging={dragIndex === i}
             isDropTarget={dropIndex === i && dragIndex !== i}
           />
-          <InlineAddButton
-            onClick={() => setPickerAt(i + 1)}
-            active={pickerAt === i + 1}
-          />
-          {pickerAt === i + 1 && (
-            <BlockPicker
-              onPick={(k) => insertBlock(i + 1, k)}
-              onDismiss={() => setPickerAt(null)}
-            />
+          {/* Mid-list inline insertion stays hover-only — power-user
+              affordance for inserting between existing blocks without
+              cluttering every gap. The persistent button below the list
+              handles the discoverable "add another" case. */}
+          {i < blocks.length - 1 && (
+            <>
+              <InlineAddButton
+                onClick={() => setPickerAt(i + 1)}
+                active={pickerAt === i + 1}
+              />
+              {pickerAt === i + 1 && (
+                <BlockPicker
+                  onPick={(k) => insertBlock(i + 1, k)}
+                  onDismiss={() => setPickerAt(null)}
+                />
+              )}
+            </>
           )}
         </div>
       ))}
+
+      {/* Always-visible "Add block" at the end of the list. The hover-
+          revealed mid-list "+" was undiscoverable for first-time authors
+          ("I added a photo and now I can't add a callout"). Mirrors the
+          empty-state picker shape so the affordance feels consistent. */}
+      {blocks.length > 0 && (
+        <>
+          {pickerAt === blocks.length ? (
+            <BlockPicker
+              onPick={(k) => insertBlock(blocks.length, k)}
+              onDismiss={() => setPickerAt(null)}
+            />
+          ) : (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary">
+                Add block
+              </span>
+              {BLOCK_PICKER.slice(0, 4).map((b) => (
+                <button
+                  key={b.kind}
+                  type="button"
+                  onClick={() => insertBlock(blocks.length, b.kind)}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-line bg-surface px-2 py-1 text-xs font-medium text-ink-secondary transition hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
+                  title={`Add ${b.label}`}
+                >
+                  <b.icon className="size-3" />
+                  {b.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setPickerAt(blocks.length)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-line bg-surface px-2 py-1 text-xs font-medium text-ink-secondary transition hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
+              >
+                <Plus className="size-3" />
+                More
+              </button>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
