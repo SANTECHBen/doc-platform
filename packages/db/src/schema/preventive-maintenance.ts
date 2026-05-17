@@ -173,3 +173,195 @@ export type PmSchedule = typeof pmSchedules.$inferSelect;
 export type NewPmSchedule = typeof pmSchedules.$inferInsert;
 export type PmServiceRecord = typeof pmServiceRecords.$inferSelect;
 export type NewPmServiceRecord = typeof pmServiceRecords.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// PM Plans — checklist-style maintenance plans with per-row frequency.
+// ---------------------------------------------------------------------------
+//
+// Distinct from pm_schedules (flat "every N days run procedure X") which
+// stays as-is. A PM Plan models an OEM-style table like:
+//
+//   Component        Check                       Remarks               Freq
+//   Floor frame      Check for plastic dust      Indicates misalignment  D
+//   Entire splitter  Check for general damage    Observe in operation    W
+//   Roller belt      Check for proper engagement Adjust per 2.2          M
+//
+// Each row (pm_plan_item) has its own frequency. The PWA presents one
+// card per (plan, frequency) — "Daily checks (3 items)" — that expands
+// to the per-row checklist. Tech taps "Mark performed" once for the whole
+// frequency-bucket; we insert one pm_plan_service_record and the next-due
+// recomputes from MAX(performed_at) per (plan, freq, instance).
+
+export const pmPlanFrequencyEnum = pgEnum('pm_plan_frequency', [
+  'D', // daily
+  'W', // weekly
+  'M', // monthly
+  'Q', // quarterly
+  'S', // semi-annually
+  'Y', // yearly
+]);
+
+export const pmPlans = pgTable(
+  'pm_plans',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    assetModelId: uuid('asset_model_id')
+      .notNull()
+      .references(() => assetModels.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    description: text('description'),
+    orderingHint: integer('ordering_hint').notNull().default(0),
+    disabled: boolean('disabled').notNull().default(false),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    modelIdx: index('pm_plans_asset_model_idx').on(t.assetModelId),
+  }),
+);
+
+export const pmPlanItems = pgTable(
+  'pm_plan_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    planId: uuid('plan_id')
+      .notNull()
+      .references(() => pmPlans.id, { onDelete: 'cascade' }),
+    component: text('component').notNull(),
+    checkText: text('check_text').notNull(),
+    remarks: text('remarks'),
+    frequency: pmPlanFrequencyEnum('frequency').notNull(),
+    // Optional Job Aid for this row. Tech tapping a row with document_id
+    // launches the procedure; rows without one are reminder-only and just
+    // get acknowledged when the frequency-bucket is marked performed.
+    documentId: uuid('document_id').references(() => documents.id, {
+      onDelete: 'set null',
+    }),
+    orderingHint: integer('ordering_hint').notNull().default(0),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    planIdx: index('pm_plan_items_plan_idx').on(t.planId),
+    planOrderIdx: index('pm_plan_items_plan_order_idx').on(
+      t.planId,
+      t.orderingHint,
+    ),
+    planFreqIdx: index('pm_plan_items_plan_frequency_idx').on(
+      t.planId,
+      t.frequency,
+    ),
+  }),
+);
+
+export const pmPlanServiceRecords = pgTable(
+  'pm_plan_service_records',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    assetInstanceId: uuid('asset_instance_id')
+      .notNull()
+      .references(() => assetInstances.id, { onDelete: 'cascade' }),
+    planId: uuid('plan_id').references(() => pmPlans.id, {
+      onDelete: 'set null',
+    }),
+    frequency: pmPlanFrequencyEnum('frequency').notNull(),
+    performedByUserId: uuid('performed_by_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    performedAt: timestamp('performed_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    instancePlanFreqIdx: index('pm_plan_service_records_instance_plan_freq_idx')
+      .on(t.assetInstanceId, t.planId, t.frequency, t.performedAt),
+    instancePerformedIdx: index('pm_plan_service_records_instance_performed_idx')
+      .on(t.assetInstanceId, t.performedAt),
+  }),
+);
+
+export const pmPlansRelations = relations(pmPlans, ({ one, many }) => ({
+  assetModel: one(assetModels, {
+    fields: [pmPlans.assetModelId],
+    references: [assetModels.id],
+  }),
+  items: many(pmPlanItems),
+  serviceRecords: many(pmPlanServiceRecords),
+}));
+
+export const pmPlanItemsRelations = relations(pmPlanItems, ({ one }) => ({
+  plan: one(pmPlans, {
+    fields: [pmPlanItems.planId],
+    references: [pmPlans.id],
+  }),
+  document: one(documents, {
+    fields: [pmPlanItems.documentId],
+    references: [documents.id],
+  }),
+}));
+
+export const pmPlanServiceRecordsRelations = relations(
+  pmPlanServiceRecords,
+  ({ one }) => ({
+    assetInstance: one(assetInstances, {
+      fields: [pmPlanServiceRecords.assetInstanceId],
+      references: [assetInstances.id],
+    }),
+    plan: one(pmPlans, {
+      fields: [pmPlanServiceRecords.planId],
+      references: [pmPlans.id],
+    }),
+    performedBy: one(users, {
+      fields: [pmPlanServiceRecords.performedByUserId],
+      references: [users.id],
+    }),
+  }),
+);
+
+export type PmPlanFrequency = (typeof pmPlanFrequencyEnum.enumValues)[number];
+export type PmPlan = typeof pmPlans.$inferSelect;
+export type NewPmPlan = typeof pmPlans.$inferInsert;
+export type PmPlanItem = typeof pmPlanItems.$inferSelect;
+export type NewPmPlanItem = typeof pmPlanItems.$inferInsert;
+export type PmPlanServiceRecord = typeof pmPlanServiceRecords.$inferSelect;
+export type NewPmPlanServiceRecord = typeof pmPlanServiceRecords.$inferInsert;
+
+/** Cadence days for a frequency code — used by both the API status
+ *  calculator and the PWA's "next due" math. Edit here once. */
+export const PM_PLAN_FREQUENCY_DAYS: Record<PmPlanFrequency, number> = {
+  D: 1,
+  W: 7,
+  M: 30,
+  Q: 90,
+  S: 180,
+  Y: 365,
+};
+
+/** Human-friendly label for a frequency code, used wherever we'd render
+ *  the raw enum to a user. */
+export const PM_PLAN_FREQUENCY_LABEL: Record<PmPlanFrequency, string> = {
+  D: 'Daily',
+  W: 'Weekly',
+  M: 'Monthly',
+  Q: 'Quarterly',
+  S: 'Semi-annually',
+  Y: 'Yearly',
+};

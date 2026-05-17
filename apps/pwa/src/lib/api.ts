@@ -497,6 +497,78 @@ export async function fetchPmStatus(
   return (await res.json()) as PmStatusPayload;
 }
 
+// --- PM Plans (checklist style, per-row frequency) -----------------------
+
+export type PmPlanFrequency = 'D' | 'W' | 'M' | 'Q' | 'S' | 'Y';
+
+export interface PmPlanBucketItem {
+  id: string;
+  component: string;
+  checkText: string;
+  remarks: string | null;
+  document: { id: string; title: string; kind: string } | null;
+}
+
+export interface PmPlanBucket {
+  frequency: PmPlanFrequency;
+  frequencyLabel: string;
+  itemCount: number;
+  items: PmPlanBucketItem[];
+  lastPerformedAt: string | null;
+  lastPerformedById: string | null;
+  nextDueAt: string;
+  daysUntilDue: number;
+  status: 'overdue' | 'due' | 'soon' | 'upcoming';
+  needsAction: boolean;
+}
+
+export interface PmPlanStatusPayload {
+  plans: Array<{
+    plan: { id: string; name: string; description: string | null };
+    buckets: PmPlanBucket[];
+  }>;
+}
+
+export async function fetchPmPlanStatus(
+  assetInstanceId: string,
+): Promise<PmPlanStatusPayload> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/assets/${encodeURIComponent(assetInstanceId)}/pm-plan-status`,
+    { cache: 'no-store' },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as PmPlanStatusPayload;
+}
+
+export async function createPmPlanServiceRecord(params: {
+  assetInstanceId: string;
+  planId: string;
+  frequency: PmPlanFrequency;
+  performedAt?: string;
+  notes?: string | null;
+  devUserId: string;
+  devOrgId: string;
+}): Promise<{ id: string; performedAt: string }> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/assets/${encodeURIComponent(params.assetInstanceId)}/pm-plan-service-records`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-dev-user': `${params.devUserId}:${params.devOrgId}`,
+      },
+      body: JSON.stringify({
+        planId: params.planId,
+        frequency: params.frequency,
+        performedAt: params.performedAt,
+        notes: params.notes ?? null,
+      }),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { id: string; performedAt: string };
+}
+
 export async function createPmServiceRecord(params: {
   assetInstanceId: string;
   pmScheduleId?: string | null;

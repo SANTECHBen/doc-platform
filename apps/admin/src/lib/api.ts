@@ -2353,6 +2353,137 @@ export async function deletePmSchedule(scheduleId: string): Promise<void> {
   }
 }
 
+// --- PM Plans (checklist-style with per-row frequency) -------------------
+
+export type PmPlanFrequency = 'D' | 'W' | 'M' | 'Q' | 'S' | 'Y';
+
+export interface AdminPmPlanItem {
+  id: string;
+  planId: string;
+  component: string;
+  checkText: string;
+  remarks: string | null;
+  frequency: PmPlanFrequency;
+  documentId: string | null;
+  document: { id: string; title: string; kind: string } | null;
+  orderingHint: number;
+}
+
+export interface AdminPmPlan {
+  id: string;
+  assetModelId: string;
+  name: string;
+  description: string | null;
+  orderingHint: number;
+  disabled: boolean;
+  items: AdminPmPlanItem[];
+}
+
+export async function listPmPlans(modelId: string): Promise<AdminPmPlan[]> {
+  const res = await fetch(
+    `${API_BASE}/admin/asset-models/${encodeURIComponent(modelId)}/pm-plans`,
+    { cache: 'no-store', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function createPmPlan(
+  modelId: string,
+  body: { name: string; description?: string | null },
+): Promise<AdminPmPlan> {
+  const res = await fetch(
+    `${API_BASE}/admin/asset-models/${encodeURIComponent(modelId)}/pm-plans`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function updatePmPlan(
+  planId: string,
+  patch: { name?: string; description?: string | null; disabled?: boolean },
+): Promise<AdminPmPlan> {
+  const res = await fetch(
+    `${API_BASE}/admin/pm-plans/${encodeURIComponent(planId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(patch),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function deletePmPlan(planId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/pm-plans/${encodeURIComponent(planId)}`,
+    { method: 'DELETE', headers: await authHeaders() },
+  );
+  if (!res.ok && res.status !== 204) {
+    throw new Error(`API ${res.status}: ${await res.text()}`);
+  }
+}
+
+export async function createPmPlanItem(
+  planId: string,
+  body: {
+    component: string;
+    checkText: string;
+    remarks?: string | null;
+    frequency: PmPlanFrequency;
+    documentId?: string | null;
+  },
+): Promise<AdminPmPlanItem> {
+  const res = await fetch(
+    `${API_BASE}/admin/pm-plans/${encodeURIComponent(planId)}/items`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function updatePmPlanItem(
+  itemId: string,
+  patch: {
+    component?: string;
+    checkText?: string;
+    remarks?: string | null;
+    frequency?: PmPlanFrequency;
+    documentId?: string | null;
+  },
+): Promise<AdminPmPlanItem> {
+  const res = await fetch(
+    `${API_BASE}/admin/pm-plan-items/${encodeURIComponent(itemId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(patch),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function deletePmPlanItem(itemId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/pm-plan-items/${encodeURIComponent(itemId)}`,
+    { method: 'DELETE', headers: await authHeaders() },
+  );
+  if (!res.ok && res.status !== 204) {
+    throw new Error(`API ${res.status}: ${await res.text()}`);
+  }
+}
+
 export async function patchProcedureStepAudioDuration(
   stepId: string,
   audioDurationMs: number,

@@ -38,6 +38,7 @@ import { registerAdminPromoteRoutes } from './routes/admin-promote';
 import { registerAdminDocumentMoveRoutes } from './routes/admin-document-move';
 import { registerMeRoutes } from './routes/me';
 import { registerAdminPm } from './routes/admin-pm';
+import { registerAdminPmPlans } from './routes/admin-pm-plans';
 import { registerPmRoutes } from './routes/pm';
 
 export async function buildApp(ctx: AppContext) {
@@ -102,6 +103,7 @@ export async function buildApp(ctx: AppContext) {
   await registerAdminDocumentMoveRoutes(app);
   await registerMeRoutes(app);
   await registerAdminPm(app);
+  await registerAdminPmPlans(app);
   await registerPmRoutes(app);
 
   return app;

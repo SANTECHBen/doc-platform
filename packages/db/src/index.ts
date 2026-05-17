@@ -6,3 +6,8 @@ export * as schema from './schema';
 export type { VoiceQuotaConfig, VoiceUsage, NewVoiceUsage } from './schema/voice-usage';
 export type { RequiredTools, ProcedureDocMetadata } from './schema/content';
 export { normalizeRequiredTools } from './schema/content';
+export type { PmPlanFrequency } from './schema/preventive-maintenance';
+export {
+  PM_PLAN_FREQUENCY_DAYS,
+  PM_PLAN_FREQUENCY_LABEL,
+} from './schema/preventive-maintenance';

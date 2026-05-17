@@ -162,6 +162,13 @@
       "when": 1779235200000,
       "tag": "0022_document_ai_indexed",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1779321600000,
+      "tag": "0023_pm_plans",
+      "breakpoints": true
     }
   ]
 }

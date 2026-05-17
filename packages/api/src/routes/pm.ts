@@ -11,9 +11,9 @@
 // user, and scan sessions are anonymous by design.
 
 import type { FastifyInstance } from 'fastify';
-import { eq } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { schema } from '@platform/db';
+import { schema, PM_PLAN_FREQUENCY_DAYS, PM_PLAN_FREQUENCY_LABEL, type PmPlanFrequency } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth';
 import {
@@ -31,6 +31,15 @@ const CreateServiceRecordBody = z.object({
     .datetime()
     .optional()
     .describe('ISO timestamp; defaults to now'),
+  notes: z.string().max(2000).nullable().optional(),
+});
+
+const FrequencyEnum = z.enum(['D', 'W', 'M', 'Q', 'S', 'Y']);
+
+const CreatePlanServiceRecordBody = z.object({
+  planId: UuidSchema,
+  frequency: FrequencyEnum,
+  performedAt: z.string().datetime().optional(),
   notes: z.string().max(2000).nullable().optional(),
 });
 
@@ -150,4 +159,260 @@ export async function registerPmRoutes(app: FastifyInstance) {
       });
     },
   );
+
+  // ------------------------------------------------------------------
+  // GET /assets/:instanceId/pm-plan-status
+  //
+  // Returns the asset's PM Plans + items + per-(plan, frequency) status
+  // for the field tech UI. One bucket per frequency-band per plan; the
+  // tech sees one card per bucket in the PWA's "Due" / "Coming up"
+  // sections alongside flat schedule cards.
+  // ------------------------------------------------------------------
+  app.get<{ Params: { instanceId: string } }>(
+    '/assets/:instanceId/pm-plan-status',
+    { schema: { params: z.object({ instanceId: UuidSchema }) } },
+    async (request, reply) => {
+      requireAuthOrScan(request);
+
+      const instance = await db.query.assetInstances.findFirst({
+        where: eq(schema.assetInstances.id, request.params.instanceId),
+        with: { site: true, model: true },
+      });
+      if (!instance) return reply.code(404).send({ error: 'not_found' });
+      const scope = await getEffectiveOrgScope(request, db);
+      if (!scope) return reply.code(401).send({ error: 'unauthorized' });
+      if (!scope.all && !scope.orgIds.includes(instance.site.organizationId)) {
+        return reply.code(404).send({ error: 'not_found' });
+      }
+
+      return computePmPlanStatusForInstance(db, instance.id, instance.assetModelId, instance.installedAt);
+    },
+  );
+
+  // ------------------------------------------------------------------
+  // POST /assets/:instanceId/pm-plan-service-records
+  //
+  // Tech marks a (plan, frequency) bucket performed — one tap covers
+  // all items in that frequency band. Service-record is the anchor for
+  // the next-due calculation.
+  // ------------------------------------------------------------------
+  app.post<{
+    Params: { instanceId: string };
+    Body: z.infer<typeof CreatePlanServiceRecordBody>;
+  }>(
+    '/assets/:instanceId/pm-plan-service-records',
+    {
+      schema: {
+        params: z.object({ instanceId: UuidSchema }),
+        body: CreatePlanServiceRecordBody,
+      },
+    },
+    async (request, reply) => {
+      requireAuth(request);
+      const instance = await db.query.assetInstances.findFirst({
+        where: eq(schema.assetInstances.id, request.params.instanceId),
+        with: { site: true },
+      });
+      if (!instance) return reply.code(404).send({ error: 'not_found' });
+      const scope = await getEffectiveOrgScope(request, db);
+      if (!scope) return reply.code(401).send({ error: 'unauthorized' });
+      if (!scope.all && !scope.orgIds.includes(instance.site.organizationId)) {
+        return reply.code(404).send({ error: 'not_found' });
+      }
+
+      // Cross-check the plan belongs to this instance's asset model.
+      const plan = await db.query.pmPlans.findFirst({
+        where: eq(schema.pmPlans.id, request.body.planId),
+      });
+      if (!plan || plan.assetModelId !== instance.assetModelId) {
+        return reply.code(400).send({
+          error: 'invalid_plan_for_instance',
+          message:
+            "planId references a plan that doesn't belong to this instance's asset model.",
+        });
+      }
+
+      const [inserted] = await db
+        .insert(schema.pmPlanServiceRecords)
+        .values({
+          assetInstanceId: instance.id,
+          planId: plan.id,
+          frequency: request.body.frequency,
+          performedByUserId: request.auth!.userId,
+          performedAt: request.body.performedAt
+            ? new Date(request.body.performedAt)
+            : new Date(),
+          notes: request.body.notes ?? null,
+        })
+        .returning();
+      if (!inserted) {
+        return reply.code(500).send({ error: 'insert_returned_no_row' });
+      }
+      return reply.code(201).send({
+        id: inserted.id,
+        assetInstanceId: inserted.assetInstanceId,
+        planId: inserted.planId,
+        frequency: inserted.frequency,
+        performedAt: inserted.performedAt.toISOString(),
+        notes: inserted.notes,
+        createdAt: inserted.createdAt.toISOString(),
+      });
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Per-frequency PM Plan status — derived at query time, no stored next-due.
+// ---------------------------------------------------------------------------
+
+type PmPlanBucketStatus = 'overdue' | 'due' | 'soon' | 'upcoming';
+
+async function computePmPlanStatusForInstance(
+  db: import('@platform/db').Database,
+  assetInstanceId: string,
+  assetModelId: string,
+  installedAt: Date | null,
+): Promise<{
+  plans: Array<{
+    plan: {
+      id: string;
+      name: string;
+      description: string | null;
+    };
+    /** One entry per frequency band that has items. Buckets with zero
+     *  items are omitted entirely so the PWA doesn't render empty cards. */
+    buckets: Array<{
+      frequency: PmPlanFrequency;
+      frequencyLabel: string;
+      itemCount: number;
+      items: Array<{
+        id: string;
+        component: string;
+        checkText: string;
+        remarks: string | null;
+        document: { id: string; title: string; kind: string } | null;
+      }>;
+      lastPerformedAt: string | null;
+      lastPerformedById: string | null;
+      nextDueAt: string;
+      daysUntilDue: number;
+      status: PmPlanBucketStatus;
+      needsAction: boolean;
+    }>;
+  }>;
+}> {
+  // 1. All non-disabled plans for this model.
+  const plans = await db.query.pmPlans.findMany({
+    where: and(
+      eq(schema.pmPlans.assetModelId, assetModelId),
+      eq(schema.pmPlans.disabled, false),
+    ),
+    orderBy: [asc(schema.pmPlans.orderingHint), asc(schema.pmPlans.createdAt)],
+  });
+  if (plans.length === 0) return { plans: [] };
+
+  // 2. All items, joined with optional document.
+  const items = await db.query.pmPlanItems.findMany({
+    where: inArray(
+      schema.pmPlanItems.planId,
+      plans.map((p) => p.id),
+    ),
+    orderBy: [
+      asc(schema.pmPlanItems.orderingHint),
+      asc(schema.pmPlanItems.createdAt),
+    ],
+    with: {
+      document: { columns: { id: true, title: true, kind: true } },
+    },
+  });
+
+  // 3. Latest service record per (plan, frequency) for this instance.
+  const records = await db.query.pmPlanServiceRecords.findMany({
+    where: and(
+      eq(schema.pmPlanServiceRecords.assetInstanceId, assetInstanceId),
+      inArray(
+        schema.pmPlanServiceRecords.planId,
+        plans.map((p) => p.id),
+      ),
+    ),
+    orderBy: [desc(schema.pmPlanServiceRecords.performedAt)],
+  });
+  const lastByKey = new Map<
+    string,
+    typeof schema.pmPlanServiceRecords.$inferSelect
+  >();
+  for (const r of records) {
+    if (!r.planId) continue;
+    const k = `${r.planId}:${r.frequency}`;
+    if (!lastByKey.has(k)) lastByKey.set(k, r);
+  }
+
+  const now = new Date();
+  const out = plans.map((p) => {
+    // Bucket items by frequency for this plan only.
+    const planItems = items.filter((it) => it.planId === p.id);
+    const byFreq = new Map<PmPlanFrequency, typeof planItems>();
+    for (const it of planItems) {
+      const f = it.frequency as PmPlanFrequency;
+      const arr = byFreq.get(f) ?? [];
+      arr.push(it);
+      byFreq.set(f, arr);
+    }
+    // Render buckets in frequency-day order (D first, Y last) — matches
+    // the natural reading order in OEM checklists.
+    const order: PmPlanFrequency[] = ['D', 'W', 'M', 'Q', 'S', 'Y'];
+    const buckets = order
+      .filter((f) => (byFreq.get(f)?.length ?? 0) > 0)
+      .map((f) => {
+        const bucketItems = byFreq.get(f) ?? [];
+        const last = lastByKey.get(`${p.id}:${f}`);
+        const cadenceDays = PM_PLAN_FREQUENCY_DAYS[f];
+        // Anchor: last performance, else instance install date, else
+        // plan creation date. Same pattern as pm-status.ts.
+        const anchor =
+          last?.performedAt ?? installedAt ?? p.createdAt;
+        const nextDueMs =
+          anchor.getTime() + cadenceDays * 24 * 60 * 60 * 1000;
+        const nextDueAt = new Date(nextDueMs);
+        const msUntilDue = nextDueMs - now.getTime();
+        const daysUntilDue = Math.floor(msUntilDue / (24 * 60 * 60 * 1000));
+        const status: PmPlanBucketStatus =
+          daysUntilDue < 0
+            ? 'overdue'
+            : daysUntilDue === 0
+              ? 'due'
+              : daysUntilDue <= 7
+                ? 'soon'
+                : 'upcoming';
+        return {
+          frequency: f,
+          frequencyLabel: PM_PLAN_FREQUENCY_LABEL[f],
+          itemCount: bucketItems.length,
+          items: bucketItems.map((it) => ({
+            id: it.id,
+            component: it.component,
+            checkText: it.checkText,
+            remarks: it.remarks,
+            document: it.document
+              ? {
+                  id: it.document.id,
+                  title: it.document.title,
+                  kind: it.document.kind,
+                }
+              : null,
+          })),
+          lastPerformedAt: last?.performedAt.toISOString() ?? null,
+          lastPerformedById: last?.performedByUserId ?? null,
+          nextDueAt: nextDueAt.toISOString(),
+          daysUntilDue,
+          status,
+          needsAction: status === 'overdue' || status === 'due',
+        };
+      });
+    return {
+      plan: { id: p.id, name: p.name, description: p.description },
+      buckets,
+    };
+  });
+  return { plans: out };
 }

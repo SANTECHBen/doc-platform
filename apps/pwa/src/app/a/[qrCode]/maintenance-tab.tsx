@@ -30,9 +30,13 @@ import {
 } from 'lucide-react';
 import {
   fetchPmStatus,
+  fetchPmPlanStatus,
   createPmServiceRecord,
+  createPmPlanServiceRecord,
   listDocuments,
   type DocumentListItem,
+  type PmPlanBucket,
+  type PmPlanStatusPayload,
   type PmScheduleStatusItem,
   type PmServiceRecordItem,
   type PmStatus,
@@ -115,6 +119,11 @@ export function MaintenanceTab({
   onChange?: () => void;
 }) {
   const [data, setData] = useState<PmStatusPayload | null>(null);
+  // PM Plans — checklist-style PMs with per-row frequency. Rendered as
+  // a dedicated section between the flat schedule sections and the
+  // procedure library so the tech sees plans grouped by (plan, frequency)
+  // instead of one row per check.
+  const [planData, setPlanData] = useState<PmPlanStatusPayload | null>(null);
   // Procedure library — every structured_procedure attached to this
   // asset model (OEM pack + field captures). Rendered as the "Procedures"
   // section below the PM cards. Fetched once on mount + when version IDs
@@ -124,10 +133,43 @@ export function MaintenanceTab({
 
   async function refresh() {
     try {
-      setData(await fetchPmStatus(assetInstanceId));
+      const [flat, plans] = await Promise.all([
+        fetchPmStatus(assetInstanceId),
+        fetchPmPlanStatus(assetInstanceId),
+      ]);
+      setData(flat);
+      setPlanData(plans);
       onChange?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  // Flatten plan buckets across plans for status-bucket sorting in the
+  // Checklists section. Each entry carries its parent plan so the card
+  // can render "Plan name — Daily checks".
+  const allBuckets = useMemo(() => {
+    if (!planData) return [];
+    return planData.plans.flatMap((p) =>
+      p.buckets.map((b) => ({ plan: p.plan, bucket: b })),
+    );
+  }, [planData]);
+
+  async function logPlanPerformed(
+    planId: string,
+    frequency: PmPlanBucket['frequency'],
+  ) {
+    try {
+      await createPmPlanServiceRecord({
+        assetInstanceId,
+        planId,
+        frequency,
+        devUserId: DEV_USER_ID,
+        devOrgId: DEV_ORG_ID,
+      });
+      await refresh();
+    } catch (e) {
+      alert(`Failed to log: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -205,8 +247,16 @@ export function MaintenanceTab({
   const upcoming = data.schedules
     .filter((s) => !s.needsAction)
     .sort((a, b) => a.daysUntilDue - b.daysUntilDue);
-  const allDone = data.schedules.length > 0 && dueNow.length === 0;
-  const nothingScheduled = data.schedules.length === 0;
+  // "Anything maintenance-y exists" combines both models — flat schedules
+  // AND plan buckets — so the empty/all-done states reflect the whole
+  // surface, not just the flat-schedule slice.
+  const anyMaintenance =
+    data.schedules.length > 0 || allBuckets.length > 0;
+  const anyNeedsAction =
+    dueNow.length > 0 ||
+    allBuckets.some((b) => b.bucket.needsAction);
+  const allDone = anyMaintenance && !anyNeedsAction;
+  const nothingScheduled = !anyMaintenance;
 
   async function logServicePerformed(s: PmScheduleStatusItem) {
     if (!DEV_USER_ID || !DEV_ORG_ID) {
@@ -313,6 +363,37 @@ export function MaintenanceTab({
         </Section>
       )}
 
+      {allBuckets.length > 0 && (
+        <Section
+          title="Checklists"
+          badgeCount={allBuckets.length}
+          icon={ClipboardList}
+        >
+          <p className="mb-2 text-xs text-ink-tertiary">
+            OEM-style PM checklists grouped by frequency. Tap a card to expand
+            the rows, then "Mark all performed" once you've completed them.
+          </p>
+          <ol className="flex flex-col gap-2">
+            {allBuckets
+              .slice()
+              .sort((a, b) => statusRank(a.bucket.status) - statusRank(b.bucket.status))
+              .map((row) => (
+                <PlanBucketCard
+                  key={`${row.plan.id}:${row.bucket.frequency}`}
+                  planName={row.plan.name}
+                  bucket={row.bucket}
+                  onRunProcedure={(docId) =>
+                    onLaunchProcedure(docId, '', () => void refresh())
+                  }
+                  onMarkPerformed={() =>
+                    void logPlanPerformed(row.plan.id, row.bucket.frequency)
+                  }
+                />
+              ))}
+          </ol>
+        </Section>
+      )}
+
       {libraryProcedures.length > 0 && (
         <Section
           title="Procedures"
@@ -347,6 +428,124 @@ export function MaintenanceTab({
         </Section>
       )}
     </div>
+  );
+}
+
+// Status sort rank — drives ordering in the Checklists section so
+// overdue buckets float to the top, "upcoming" sinks to the bottom.
+function statusRank(s: PmPlanBucket['status']): number {
+  switch (s) {
+    case 'overdue':
+      return 0;
+    case 'due':
+      return 1;
+    case 'soon':
+      return 2;
+    case 'upcoming':
+      return 3;
+  }
+}
+
+// One card per (plan, frequency) bucket. Collapsed by default; tap the
+// header to expand the per-row checklist. Each row may carry its own
+// procedure link — tapping a row with a procedure launches VirtualJobAid;
+// rows without one are reminder-style. "Mark all performed" at the bottom
+// posts a single pm_plan_service_record for the whole bucket.
+function PlanBucketCard({
+  planName,
+  bucket,
+  onRunProcedure,
+  onMarkPerformed,
+}: {
+  planName: string;
+  bucket: PmPlanBucket;
+  onRunProcedure: (docId: string) => void;
+  onMarkPerformed: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const tone = STATUS_TONE[bucket.status];
+  const dueText =
+    bucket.status === 'overdue'
+      ? `Overdue · ${formatDaysUntil(bucket.daysUntilDue)}`
+      : bucket.status === 'due'
+        ? 'Due today'
+        : `Due ${formatDaysUntil(bucket.daysUntilDue)} (${formatNextDue(bucket.nextDueAt)})`;
+
+  return (
+    <li
+      className="flex flex-col gap-2 rounded-md border bg-surface-raised p-3"
+      style={{ borderColor: 'rgb(var(--line))' }}
+    >
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        className="flex items-start gap-3 text-left"
+      >
+        <span
+          className="rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.08em]"
+          style={{ background: tone.bg, color: tone.text }}
+        >
+          {tone.label}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="font-medium text-ink-primary">
+            {planName}{' '}
+            <span className="text-ink-tertiary">
+              · {bucket.frequencyLabel} checks ({bucket.itemCount})
+            </span>
+          </div>
+          <div className="text-xs text-ink-tertiary">{dueText}</div>
+        </div>
+        <span className="text-ink-tertiary">
+          {expanded ? '▾' : '▸'}
+        </span>
+      </button>
+
+      {expanded && (
+        <>
+          <ul className="flex flex-col divide-y divide-line-subtle rounded-md border border-line-subtle bg-surface">
+            {bucket.items.map((it) => (
+              <li key={it.id} className="flex items-start gap-3 px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-ink-primary">
+                    {it.component}
+                    <span className="text-ink-tertiary"> · </span>
+                    {it.checkText}
+                  </div>
+                  {it.remarks && (
+                    <div className="mt-0.5 text-xs text-ink-secondary">
+                      {it.remarks}
+                    </div>
+                  )}
+                </div>
+                {it.document && (
+                  <button
+                    type="button"
+                    onClick={() => onRunProcedure(it.document!.id)}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-brand/40 bg-brand/5 px-2 py-1 text-[11px] font-medium text-brand hover:bg-brand/10"
+                  >
+                    <Play size={11} strokeWidth={2.5} />
+                    Run
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            onClick={onMarkPerformed}
+            className="self-start inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold"
+            style={{
+              background: 'rgb(var(--brand))',
+              color: 'rgb(var(--ink-on-brand, 255 255 255))',
+            }}
+          >
+            <CheckCircle2 size={12} strokeWidth={2.5} />
+            Mark all performed
+          </button>
+        </>
+      )}
+    </li>
   );
 }
 

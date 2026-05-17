@@ -6,6 +6,7 @@ import { use, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Loader2, Package, Pin, Plus, Trash2, Upload } from 'lucide-react';
 import { PageHeader, PageShell } from '@/components/page-shell';
 import { PMSchedulesSection } from '@/components/pm-schedules-section';
+import { PMPlansSection } from '@/components/pm-plans-section';
 import { useToast } from '@/components/toast';
 import {
   Drawer,
@@ -446,6 +447,8 @@ export default function AssetModelDetail({
       )}
 
       <BomPanel assetModelId={id} />
+
+      <PMPlansSection assetModelId={id} />
 
       <PMSchedulesSection assetModelId={id} />
 
