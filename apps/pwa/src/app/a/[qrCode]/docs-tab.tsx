@@ -146,6 +146,10 @@ export function DocsTab({
   assetInstanceId: string;
 }) {
   const [docs, setDocs] = useState<DocumentListItem[] | null>(null);
+  // True when the unfiltered fetch contained any structured_procedure docs.
+  // Drives the "Looking for procedures? They moved to Maintenance" hint so
+  // a tech doesn't think their authored procedure disappeared.
+  const [hadProcedures, setHadProcedures] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<OpenDoc | null>(null);
   // Read-mode procedure viewer (default tap target on procedure cards).
@@ -202,7 +206,18 @@ export function DocsTab({
     Promise.all([oemP, fieldP])
       .then(([oem, field]) => {
         if (cancelled) return;
-        setDocs([...oem, ...field]);
+        // Procedures live in the Maintenance tab now — keeping them out of
+        // Documents here removes a source of confusion ("which is the
+        // source of truth?") and matches the broader split: Documents =
+        // reference material, Maintenance = actionable work + procedures.
+        // We still need to know whether procedures EXISTED in the
+        // unfiltered set so we can hint at where to find them, otherwise
+        // the user assumes their authored procedure vanished.
+        const merged = [...oem, ...field];
+        setHadProcedures(
+          merged.some((d) => d.kind === 'structured_procedure'),
+        );
+        setDocs(merged.filter((d) => d.kind !== 'structured_procedure'));
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -403,6 +418,16 @@ export function DocsTab({
             placeholder="Search by title, ref code, kind, or tag"
           />
         </label>
+      )}
+      {/* Procedures moved out of Documents in favor of Maintenance. Surface
+          a small hint so a tech who scanned for "the procedure I just
+          authored" knows where to look. Only renders when the unfiltered
+          set actually contained procedures — otherwise it's noise. */}
+      {hadProcedures && (
+        <div className="rounded-md border border-line-subtle bg-surface-inset px-3 py-2 text-xs text-ink-tertiary">
+          Procedures live in the <strong>Maintenance</strong> tab now —
+          tap to run a Job Aid for any procedure attached to this asset.
+        </div>
       )}
       {entries.length === 0 ? (
         <EmptyState

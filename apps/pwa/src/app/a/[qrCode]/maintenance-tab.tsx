@@ -16,7 +16,7 @@
 // Reuses VirtualJobAid for the actual procedure run; PM specifics are
 // confined to fetching status, sorting, and posting service records.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   CalendarClock,
@@ -24,12 +24,15 @@ import {
   CheckCircle2,
   ClipboardList,
   Clock,
+  ListChecks,
   Play,
   type LucideIcon,
 } from 'lucide-react';
 import {
   fetchPmStatus,
   createPmServiceRecord,
+  listDocuments,
+  type DocumentListItem,
   type PmScheduleStatusItem,
   type PmServiceRecordItem,
   type PmStatus,
@@ -87,10 +90,19 @@ const STATUS_TONE: Record<
 
 export function MaintenanceTab({
   assetInstanceId,
+  versionId,
+  fieldCapturesVersionId,
   onLaunchProcedure,
   onChange,
 }: {
   assetInstanceId: string;
+  /** OEM-pinned content pack version for this asset instance. Used to
+   *  fetch the procedure library shown alongside PMs. Nullable for
+   *  instances that aren't pinned to any version (rare). */
+  versionId: string | null;
+  /** Optional field-captures version. Author-on-PWA procedures live here
+   *  and should appear in the library next to OEM-authored procedures. */
+  fieldCapturesVersionId: string | null;
   /** Mounts a VirtualJobAid for the picked procedure doc — same hook
    *  the Overview quick-actions uses, so the run UX is identical. */
   onLaunchProcedure: (
@@ -103,6 +115,11 @@ export function MaintenanceTab({
   onChange?: () => void;
 }) {
   const [data, setData] = useState<PmStatusPayload | null>(null);
+  // Procedure library — every structured_procedure attached to this
+  // asset model (OEM pack + field captures). Rendered as the "Procedures"
+  // section below the PM cards. Fetched once on mount + when version IDs
+  // change.
+  const [procedures, setProcedures] = useState<DocumentListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   async function refresh() {
@@ -118,6 +135,58 @@ export function MaintenanceTab({
     void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assetInstanceId]);
+
+  // Procedure library fetch. Parallel calls to OEM + field-captures
+  // versions, filter to kind === 'structured_procedure', concat. Errors
+  // here don't block the rest of the tab — we just render an empty
+  // library section.
+  useEffect(() => {
+    let cancelled = false;
+    const oemP = versionId
+      ? listDocuments(versionId, 'en', false, assetInstanceId)
+      : Promise.resolve([] as DocumentListItem[]);
+    const fieldP = fieldCapturesVersionId
+      ? listDocuments(fieldCapturesVersionId, 'en', false, assetInstanceId)
+      : Promise.resolve([] as DocumentListItem[]);
+    Promise.all([oemP, fieldP])
+      .then(([oem, field]) => {
+        if (cancelled) return;
+        setProcedures(
+          [...oem, ...field].filter(
+            (d) => d.kind === 'structured_procedure',
+          ),
+        );
+      })
+      .catch(() => {
+        // Non-fatal: PM cards above still render. Empty library is fine.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [versionId, fieldCapturesVersionId, assetInstanceId]);
+
+  // De-dupe procedures already referenced by a PM schedule above —
+  // showing the same procedure twice in one screen reads as a bug.
+  const scheduledDocIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const s of data?.schedules ?? []) {
+      if (s.schedule.document) ids.add(s.schedule.document.id);
+    }
+    return ids;
+  }, [data]);
+  const libraryProcedures = useMemo(
+    () =>
+      procedures
+        .filter((p) => !scheduledDocIds.has(p.id))
+        // Alphabetical so the same procedure doesn't bounce around the
+        // list between renders. Source order from the API is by ordering
+        // hint which the admin tuned for the Documents tab; here a
+        // tech-scannable A-Z is clearer.
+        .sort((a, b) =>
+          a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }),
+        ),
+    [procedures, scheduledDocIds],
+  );
 
   if (error) {
     return (
@@ -164,11 +233,17 @@ export function MaintenanceTab({
 
   return (
     <div className="flex flex-col gap-5">
-      {nothingScheduled ? (
+      {nothingScheduled && libraryProcedures.length === 0 ? (
         <EmptyState
           icon={CalendarClock}
           title="No PM schedules for this model"
           body="An admin can author PM schedules from the asset model detail page. Once added, every instance of this model — including this one — will see what's due here."
+        />
+      ) : nothingScheduled ? (
+        <EmptyState
+          icon={CalendarClock}
+          title="No scheduled maintenance"
+          body="No PM schedules are set up for this model yet. The procedures available for this asset are listed below — tap one to run it ad-hoc."
         />
       ) : allDone ? (
         <EmptyState
@@ -238,6 +313,30 @@ export function MaintenanceTab({
         </Section>
       )}
 
+      {libraryProcedures.length > 0 && (
+        <Section
+          title="Procedures"
+          badgeCount={libraryProcedures.length}
+          icon={ListChecks}
+        >
+          <p className="mb-2 text-xs text-ink-tertiary">
+            Tap any procedure to open it as a Job Aid. PM-scheduled
+            procedures live in the sections above.
+          </p>
+          <ol className="flex flex-col gap-1.5">
+            {libraryProcedures.map((p) => (
+              <ProcedureRow
+                key={p.id}
+                doc={p}
+                onLaunch={() =>
+                  onLaunchProcedure(p.id, '', () => void refresh())
+                }
+              />
+            ))}
+          </ol>
+        </Section>
+      )}
+
       {data.history.length > 0 && (
         <Section title="History" badgeCount={data.history.length} icon={ClipboardList}>
           <ol className="flex flex-col gap-2">
@@ -248,6 +347,54 @@ export function MaintenanceTab({
         </Section>
       )}
     </div>
+  );
+}
+
+// Procedure library row — minimal tappable card. Title + verified chip
+// when relevant. Launches VirtualJobAid via the same hook PMs use.
+function ProcedureRow({
+  doc,
+  onLaunch,
+}: {
+  doc: DocumentListItem;
+  onLaunch: () => void;
+}) {
+  const isField = doc.source === 'field';
+  const isUnverified = isField && doc.verified === false;
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onLaunch}
+        className="flex w-full items-center gap-3 rounded-md border border-line bg-surface-raised px-3 py-2.5 text-left transition hover:border-brand/40 hover:bg-brand/5"
+      >
+        <ListChecks
+          size={16}
+          strokeWidth={2}
+          className="shrink-0 text-ink-tertiary"
+        />
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink-primary">
+          {doc.title}
+        </span>
+        {isField && (
+          <span
+            className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] uppercase ${
+              isUnverified
+                ? 'border-signal-warn/40 bg-signal-warn/10 text-signal-warn'
+                : 'border-signal-ok/40 bg-signal-ok/10 text-signal-ok'
+            }`}
+            title={
+              isUnverified
+                ? 'Field-captured procedure — pending admin review'
+                : 'Field-captured procedure — verified by admin'
+            }
+          >
+            {isUnverified ? '⚠ unverified' : '✓ verified'} · field
+          </span>
+        )}
+        <Play size={14} strokeWidth={2} className="shrink-0 text-brand" />
+      </button>
+    </li>
   );
 }
 

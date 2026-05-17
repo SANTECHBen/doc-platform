@@ -183,6 +183,8 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
             {active === 'maintenance' && (
               <MaintenanceTab
                 assetInstanceId={hub.assetInstance.id}
+                versionId={hub.pinnedContentPackVersion?.id ?? null}
+                fieldCapturesVersionId={hub.fieldCapturesVersionId ?? null}
                 onLaunchProcedure={(docId) => setOverviewJobAidDocId(docId)}
               />
             )}
