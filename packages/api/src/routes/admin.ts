@@ -2300,6 +2300,7 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
       safetyCritical?: boolean;
       orderingHint?: number;
       tags?: string[];
+      aiIndexed?: boolean;
     };
   }>(
     '/admin/content-pack-versions/:versionId/documents',
@@ -2321,6 +2322,9 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
           safetyCritical: z.boolean().default(false),
           orderingHint: z.number().int().default(0),
           tags: z.array(z.string().max(80)).default([]),
+          // When omitted, the API picks a kind-aware default below
+          // (authored / structured content → true; uploaded media → false).
+          aiIndexed: z.boolean().optional(),
         }),
       },
     },
@@ -2372,6 +2376,15 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
         isExtractable(b.kind, b.contentType ?? null);
       const initialStatus = needsExtraction ? 'pending' : 'not_applicable';
 
+      // Kind-aware default for ai_indexed when the client doesn't pass one.
+      // Authored / structured content is curated, so it goes into AI knowledge
+      // by default. Uploaded media (PDFs, slides, schematics, generic files,
+      // videos) is opt-in — keeps unreviewed sources out of chat answers,
+      // matching the "off by default for uploaded docs" product decision.
+      const aiIndexedDefault =
+        b.kind === 'markdown' || b.kind === 'structured_procedure';
+      const aiIndexed = b.aiIndexed ?? aiIndexedDefault;
+
       const [doc] = await db
         .insert(schema.documents)
         .values({
@@ -2390,6 +2403,7 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
           safetyCritical: b.safetyCritical,
           orderingHint: b.orderingHint,
           tags: b.tags,
+          aiIndexed,
           extractionStatus: initialStatus,
         })
         .returning();
@@ -2532,6 +2546,7 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
       contentType?: string;
       sizeBytes?: number;
       safetyCritical?: boolean;
+      aiIndexed?: boolean;
       procedureMetadata?: ProcedureDocMetadata | null;
     };
   }>(
@@ -2548,6 +2563,11 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
             contentType: z.string().max(200).optional(),
             sizeBytes: z.number().int().nonnegative().optional(),
             safetyCritical: z.boolean().optional(),
+            // Toggle the AI chat retriever's access to this document.
+            // Flipping to false also clears the doc's chunks so the
+            // retriever stops seeing them on the very next query, not
+            // after the next ingest cycle.
+            aiIndexed: z.boolean().optional(),
             // Procedure-level metadata. Full read-modify-write — admin
             // sends the whole object. JSON column, no migration needed.
             procedureMetadata: z
@@ -2647,12 +2667,23 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
       if (b.contentType !== undefined) patch.contentType = b.contentType;
       if (b.sizeBytes !== undefined) patch.sizeBytes = b.sizeBytes;
       if (b.safetyCritical !== undefined) patch.safetyCritical = b.safetyCritical;
+      if (b.aiIndexed !== undefined) patch.aiIndexed = b.aiIndexed;
       if (b.procedureMetadata !== undefined) patch.procedureMetadata = b.procedureMetadata;
       const [updated] = await db
         .update(schema.documents)
         .set(patch)
         .where(eq(schema.documents.id, doc.id))
         .returning();
+      // When the admin toggles ai_indexed FALSE, hard-delete the doc's
+      // chunks so the retriever stops returning them immediately. (Re-
+      // enabling later requires a reprocess to rebuild the chunks.) We
+      // do this AFTER the row update so a transient delete failure
+      // doesn't leave the row stale; the next reprocess will reconcile.
+      if (b.aiIndexed === false && doc.aiIndexed !== false) {
+        await db
+          .delete(schema.documentChunks)
+          .where(eq(schema.documentChunks.documentId, doc.id));
+      }
       return updated;
     },
   );
@@ -3349,6 +3380,7 @@ export async function registerAdminListings(app: FastifyInstance) {
             title: string;
             kind: string;
             safetyCritical: boolean;
+            aiIndexed: boolean;
             language: string;
             extractionStatus: string;
             extractionError: string | null;
@@ -3364,6 +3396,7 @@ export async function registerAdminListings(app: FastifyInstance) {
           title: d.title,
           kind: d.kind,
           safetyCritical: d.safetyCritical,
+          aiIndexed: d.aiIndexed,
           language: d.language,
           extractionStatus: d.extractionStatus,
           extractionError: d.extractionError,

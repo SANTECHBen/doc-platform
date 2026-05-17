@@ -264,6 +264,12 @@ Extract in 2–3 sentences the key observable facts: any visible fault codes, al
       where: and(
         inArray(schema.documents.contentPackVersionId, versionIds),
         eq(schema.documents.kind, 'structured_procedure'),
+        // Honor the ai_indexed kill switch — a procedure explicitly opted
+        // out of AI knowledge shouldn't show up as a [procedure:UUID]
+        // directive either. Defaults are kind-aware (procedures start
+        // true), so this mostly matters when an admin has deliberately
+        // disabled a stale or draft procedure.
+        eq(schema.documents.aiIndexed, true),
       ),
       columns: { id: true, title: true, bodyMarkdown: true },
       limit: 80,

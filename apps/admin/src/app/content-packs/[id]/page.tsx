@@ -448,6 +448,22 @@ function AddDocumentForm({
   const [language, setLanguage] = useState('en');
   const [safetyCritical, setSafetyCritical] = useState(false);
   const [tagsRaw, setTagsRaw] = useState('');
+  // aiIndexed is kind-derived: authored content opt-in by default, uploaded
+  // media opt-out by default. Admin can flip before save. We mirror the
+  // server's kind-aware default so the form's initial state matches what
+  // the server would assign if the field were omitted entirely.
+  const aiIndexedDefaultForKind = (k: DocumentKind) =>
+    k === 'markdown' || k === 'structured_procedure';
+  const [aiIndexed, setAiIndexed] = useState<boolean>(aiIndexedDefaultForKind('markdown'));
+  // When the author switches kind, snap aiIndexed back to that kind's
+  // default — but only if they haven't already toggled it manually. We
+  // track "manually touched" with a separate flag so a flip-then-flip
+  // dance doesn't repeatedly clobber the user's choice.
+  const [aiTouched, setAiTouched] = useState(false);
+  useEffect(() => {
+    if (aiTouched) return;
+    setAiIndexed(aiIndexedDefaultForKind(kind));
+  }, [kind, aiTouched]);
   const [bodyMarkdown, setBodyMarkdown] = useState('');
   const [externalUrl, setExternalUrl] = useState('');
   const [streamPlaybackId, setStreamPlaybackId] = useState('');
@@ -512,6 +528,7 @@ function AddDocumentForm({
         title: title.trim(),
         language,
         safetyCritical,
+        aiIndexed,
         tags: tagsRaw
           .split(',')
           .map((t) => t.trim())
@@ -600,6 +617,34 @@ function AddDocumentForm({
           <span className="block text-xs text-amber-800">
             Forces the AI to quote this document verbatim rather than paraphrase, and
             surfaces a warning banner in the PWA viewer.
+          </span>
+        </span>
+      </label>
+
+      {/* AI knowledge toggle. Authors curating procedures want full control
+          over what the chat can quote — turning this off keeps an
+          unreviewed manual out of search results without removing it from
+          the Documents tab. Default flips with kind (markdown/procedures
+          on; PDFs/slides/files/videos off) until the author touches it. */}
+      <label className="flex items-start gap-2 rounded border border-line bg-surface p-3 text-sm">
+        <input
+          type="checkbox"
+          checked={aiIndexed}
+          onChange={(e) => {
+            setAiIndexed(e.target.checked);
+            setAiTouched(true);
+          }}
+          className="mt-0.5"
+        />
+        <span>
+          <span className="block font-medium text-ink-primary">
+            Include in AI knowledge
+          </span>
+          <span className="block text-xs text-ink-tertiary">
+            When on, the chat retriever can search and quote this document.
+            Recommended for authored procedures and curated reference text;
+            leave OFF for unreviewed PDFs / slides / schematics so the AI
+            doesn't paraphrase noisy or out-of-date content as instructions.
           </span>
         </span>
       </label>
@@ -874,6 +919,7 @@ interface DocRowData {
   title: string;
   kind: string;
   safetyCritical: boolean;
+  aiIndexed: boolean;
   language: string;
   extractionStatus:
     | 'not_applicable'
@@ -957,6 +1003,25 @@ function DocumentRow({
     }
   }
 
+  async function onToggleAiIndexed() {
+    setBusy(true);
+    try {
+      const next = !doc.aiIndexed;
+      await updateDocument(doc.id, { aiIndexed: next });
+      toast.success(
+        next ? 'Document included in AI knowledge' : 'Document hidden from AI',
+        next
+          ? "The chat retriever can search and quote this doc."
+          : 'Existing chunks were cleared. Reprocess to re-index after toggling back on.',
+      );
+      await onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <li className="flex flex-col gap-1 rounded border border-line-subtle bg-surface-inset px-2 py-1.5">
       <div className="flex items-center gap-2">
@@ -1014,6 +1079,28 @@ function DocumentRow({
         )}
       </span>
       {doc.safetyCritical && <Pill tone="warning">safety</Pill>}
+      {/* Click-to-toggle AI-knowledge inclusion. The pill doubles as a
+          status badge and a quick action — admins authoring a pack want
+          to see and flip this at a glance per document, no drawer. */}
+      <button
+        type="button"
+        onClick={() => void onToggleAiIndexed()}
+        disabled={busy || !editable}
+        title={
+          doc.aiIndexed
+            ? 'In AI knowledge — chat can quote this doc. Click to exclude.'
+            : 'Hidden from AI — chat ignores this doc. Click to include.'
+        }
+        className={[
+          'inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide transition',
+          doc.aiIndexed
+            ? 'border border-accent/40 bg-accent/10 text-accent hover:bg-accent/15'
+            : 'border border-line bg-surface text-ink-tertiary hover:bg-surface-elevated',
+          (busy || !editable) ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+        ].join(' ')}
+      >
+        AI {doc.aiIndexed ? 'on' : 'off'}
+      </button>
       <ExtractionBadge status={doc.extractionStatus} />
       {!editing && doc.kind === 'structured_procedure' && (
         <Link

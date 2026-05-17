@@ -21,6 +21,7 @@ import {
   listProcedureSteps,
   listSectionsForDocument,
   revalidateDocumentSections,
+  updateAdminDocument,
   verifyFieldDocument,
   type AdminDocumentDetail,
   type AdminDocumentSection,
@@ -159,6 +160,9 @@ export default function DocumentDetailPage({
               </Pill>
             )}
             {doc.safetyCritical && <Pill tone="warning">safety-critical</Pill>}
+            {/* AI knowledge toggle — pill doubles as status + quick action.
+                Off = chunks excluded from chat retriever; on = searchable. */}
+            <AiIndexedPill doc={doc} onChanged={refresh} />
             {doc.extractionStatus !== 'ready' && doc.extractionStatus !== 'not_applicable' && (
               <Pill tone={doc.extractionStatus === 'failed' ? 'danger' : 'info'}>
                 extraction: {doc.extractionStatus}
@@ -372,5 +376,59 @@ function OverviewTab({
         )}
       </div>
     </div>
+  );
+}
+
+// AI-knowledge pill — shown next to the safety + extraction pills in the
+// document header. Click to toggle. On = chat retriever can quote this
+// doc; off = chunks excluded (and existing chunks are cleared server-side
+// so the change takes effect immediately, not after the next ingest).
+function AiIndexedPill({
+  doc,
+  onChanged,
+}: {
+  doc: AdminDocumentDetail;
+  onChanged: () => Promise<void> | void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+  async function toggle() {
+    setBusy(true);
+    try {
+      const next = !doc.aiIndexed;
+      await updateAdminDocument(doc.id, { aiIndexed: next });
+      toast.success(
+        next ? 'Included in AI knowledge' : 'Hidden from AI',
+        next
+          ? 'The chat retriever can now search and quote this doc.'
+          : 'Existing chunks were cleared. Reprocess to re-index after toggling back on.',
+      );
+      await onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      disabled={busy}
+      title={
+        doc.aiIndexed
+          ? 'In AI knowledge — chat can quote this doc. Click to exclude.'
+          : 'Hidden from AI — chat ignores this doc. Click to include.'
+      }
+      className={[
+        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition',
+        doc.aiIndexed
+          ? 'border border-accent/40 bg-accent/10 text-accent hover:bg-accent/15'
+          : 'border border-line bg-surface text-ink-tertiary hover:bg-surface-elevated',
+        busy ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+      ].join(' ')}
+    >
+      AI {doc.aiIndexed ? 'on' : 'off'}
+    </button>
   );
 }

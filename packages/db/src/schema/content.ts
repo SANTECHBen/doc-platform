@@ -195,6 +195,15 @@ export const documents = pgTable(
     // Localizations: sibling rows with the same groupId in different languages.
     localizationGroupId: uuid('localization_group_id').notNull().defaultRandom(),
     safetyCritical: boolean('safety_critical').notNull().default(false),
+    // Per-document switch for the AI chat retriever. When false, the doc's
+    // chunks are excluded from chat answers (extraction can still run so
+    // the doc is searchable in the admin, but the AI won't quote it). Use
+    // to keep unreviewed PDFs out of conversation while leaving them
+    // available in the Documents tab. New uploads of pdf / slides /
+    // schematic / file / video kinds default false at the API; markdown
+    // and structured_procedure default true. Existing rows backfill true
+    // so live conversations don't silently lose context.
+    aiIndexed: boolean('ai_indexed').notNull().default(true),
     orderingHint: integer('ordering_hint').notNull().default(0),
     tags: jsonb('tags').$type<string[]>().notNull().default([]),
     // Lifecycle of the extraction → chunking → embedding pipeline for this doc.

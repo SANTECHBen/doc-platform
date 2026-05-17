@@ -48,53 +48,64 @@ export function createPgTextSearchRetriever(params: { db: Database }): Retriever
       const versionsLiteral = `{${contentPackVersionIds.join(',')}}`;
       const docsLiteral = documentIds ? `{${documentIds.join(',')}}` : null;
 
-      // When documentIds is set, add an AND clause restricting to that set.
-      // We compose the SQL conditionally rather than paramterizing the clause
-      // itself; both branches remain fully parameterized for safety.
+      // documents JOIN + ai_indexed gate — chunks whose parent doc is opted
+      // out of AI knowledge never reach the chat. Per-doc kill switch (see
+      // documents.ai_indexed) means an admin can hide an unreviewed PDF
+      // from the retriever without deleting it from the Documents tab.
       const rows = docsLiteral
         ? ((await db.execute(
-            sql`SELECT id, document_id, content_pack_version_id, content,
-                     char_start, char_end, page,
-                     ts_rank(to_tsvector('english', content),
+            sql`SELECT c.id, c.document_id, c.content_pack_version_id, c.content,
+                     c.char_start, c.char_end, c.page,
+                     ts_rank(to_tsvector('english', c.content),
                              websearch_to_tsquery('english', ${query})) AS score
-                FROM document_chunks
-                WHERE content_pack_version_id = ANY(${versionsLiteral}::uuid[])
-                  AND document_id = ANY(${docsLiteral}::uuid[])
-                  AND to_tsvector('english', content) @@ websearch_to_tsquery('english', ${query})
+                FROM document_chunks c
+                JOIN documents d ON d.id = c.document_id
+                WHERE c.content_pack_version_id = ANY(${versionsLiteral}::uuid[])
+                  AND c.document_id = ANY(${docsLiteral}::uuid[])
+                  AND d.ai_indexed = true
+                  AND to_tsvector('english', c.content) @@ websearch_to_tsquery('english', ${query})
                 ORDER BY score DESC
                 LIMIT ${topK}`,
           )) as unknown as RawRow[])
         : ((await db.execute(
-            sql`SELECT id, document_id, content_pack_version_id, content,
-                     char_start, char_end, page,
-                     ts_rank(to_tsvector('english', content),
+            sql`SELECT c.id, c.document_id, c.content_pack_version_id, c.content,
+                     c.char_start, c.char_end, c.page,
+                     ts_rank(to_tsvector('english', c.content),
                              websearch_to_tsquery('english', ${query})) AS score
-                FROM document_chunks
-                WHERE content_pack_version_id = ANY(${versionsLiteral}::uuid[])
-                  AND to_tsvector('english', content) @@ websearch_to_tsquery('english', ${query})
+                FROM document_chunks c
+                JOIN documents d ON d.id = c.document_id
+                WHERE c.content_pack_version_id = ANY(${versionsLiteral}::uuid[])
+                  AND d.ai_indexed = true
+                  AND to_tsvector('english', c.content) @@ websearch_to_tsquery('english', ${query})
                 ORDER BY score DESC
                 LIMIT ${topK}`,
           )) as unknown as RawRow[]);
 
       if (rows.length === 0) {
         // Stopword-only / no-match fallback: serve the first N chunks of the
-        // scoped pool so the model has something to ground on.
+        // scoped pool so the model has something to ground on. Same
+        // ai_indexed gate applies — the fallback must respect opt-outs too,
+        // otherwise a noisy PDF could leak in via the empty-query path.
         const fallback = docsLiteral
           ? ((await db.execute(
-              sql`SELECT id, document_id, content_pack_version_id, content,
-                       char_start, char_end, page, 0::float AS score
-                  FROM document_chunks
-                  WHERE content_pack_version_id = ANY(${versionsLiteral}::uuid[])
-                    AND document_id = ANY(${docsLiteral}::uuid[])
-                  ORDER BY chunk_index
+              sql`SELECT c.id, c.document_id, c.content_pack_version_id, c.content,
+                       c.char_start, c.char_end, c.page, 0::float AS score
+                  FROM document_chunks c
+                  JOIN documents d ON d.id = c.document_id
+                  WHERE c.content_pack_version_id = ANY(${versionsLiteral}::uuid[])
+                    AND c.document_id = ANY(${docsLiteral}::uuid[])
+                    AND d.ai_indexed = true
+                  ORDER BY c.chunk_index
                   LIMIT ${topK}`,
             )) as unknown as RawRow[])
           : ((await db.execute(
-              sql`SELECT id, document_id, content_pack_version_id, content,
-                       char_start, char_end, page, 0::float AS score
-                  FROM document_chunks
-                  WHERE content_pack_version_id = ANY(${versionsLiteral}::uuid[])
-                  ORDER BY chunk_index
+              sql`SELECT c.id, c.document_id, c.content_pack_version_id, c.content,
+                       c.char_start, c.char_end, c.page, 0::float AS score
+                  FROM document_chunks c
+                  JOIN documents d ON d.id = c.document_id
+                  WHERE c.content_pack_version_id = ANY(${versionsLiteral}::uuid[])
+                    AND d.ai_indexed = true
+                  ORDER BY c.chunk_index
                   LIMIT ${topK}`,
             )) as unknown as RawRow[]);
         return fallback.map(mapRow);
@@ -126,26 +137,32 @@ export function createPgVectorRetriever(params: {
       const versionsLiteral = `{${contentPackVersionIds.join(',')}}`;
       const docsLiteral = documentIds ? `{${documentIds.join(',')}}` : null;
 
+      // Same ai_indexed JOIN gate as the FTS retriever — chunks from
+      // opted-out docs stay out of vector search too.
       const rows = docsLiteral
         ? ((await db.execute(
-            sql`SELECT id, document_id, content_pack_version_id, content,
-                     char_start, char_end, page,
-                     (embedding <=> ${vectorLiteral}::vector) AS score
-                FROM document_chunks
-                WHERE content_pack_version_id = ANY(${versionsLiteral}::uuid[])
-                  AND document_id = ANY(${docsLiteral}::uuid[])
-                  AND embedding IS NOT NULL
-                ORDER BY embedding <=> ${vectorLiteral}::vector
+            sql`SELECT c.id, c.document_id, c.content_pack_version_id, c.content,
+                     c.char_start, c.char_end, c.page,
+                     (c.embedding <=> ${vectorLiteral}::vector) AS score
+                FROM document_chunks c
+                JOIN documents d ON d.id = c.document_id
+                WHERE c.content_pack_version_id = ANY(${versionsLiteral}::uuid[])
+                  AND c.document_id = ANY(${docsLiteral}::uuid[])
+                  AND d.ai_indexed = true
+                  AND c.embedding IS NOT NULL
+                ORDER BY c.embedding <=> ${vectorLiteral}::vector
                 LIMIT ${topK}`,
           )) as unknown as RawRow[])
         : ((await db.execute(
-            sql`SELECT id, document_id, content_pack_version_id, content,
-                     char_start, char_end, page,
-                     (embedding <=> ${vectorLiteral}::vector) AS score
-                FROM document_chunks
-                WHERE content_pack_version_id = ANY(${versionsLiteral}::uuid[])
-                  AND embedding IS NOT NULL
-                ORDER BY embedding <=> ${vectorLiteral}::vector
+            sql`SELECT c.id, c.document_id, c.content_pack_version_id, c.content,
+                     c.char_start, c.char_end, c.page,
+                     (c.embedding <=> ${vectorLiteral}::vector) AS score
+                FROM document_chunks c
+                JOIN documents d ON d.id = c.document_id
+                WHERE c.content_pack_version_id = ANY(${versionsLiteral}::uuid[])
+                  AND d.ai_indexed = true
+                  AND c.embedding IS NOT NULL
+                ORDER BY c.embedding <=> ${vectorLiteral}::vector
                 LIMIT ${topK}`,
           )) as unknown as RawRow[]);
 

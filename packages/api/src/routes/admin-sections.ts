@@ -290,6 +290,7 @@ export async function registerAdminSections(app: FastifyInstance) {
         extractionError: d.extractionError,
         extractedAt: d.extractedAt ? d.extractedAt.toISOString() : null,
         safetyCritical: d.safetyCritical,
+        aiIndexed: d.aiIndexed,
         language: d.language,
         orderingHint: d.orderingHint,
         storageKey: d.storageKey,

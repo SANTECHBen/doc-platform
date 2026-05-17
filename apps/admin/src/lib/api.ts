@@ -337,6 +337,7 @@ export interface AdminContentPackDetail {
       title: string;
       kind: string;
       safetyCritical: boolean;
+      aiIndexed: boolean;
       language: string;
       extractionStatus:
         | 'not_applicable'
@@ -764,6 +765,10 @@ export interface CreateDocumentInput {
   contentType?: string;
   sizeBytes?: number;
   orderingHint?: number;
+  /** Override the kind-aware AI-indexing default. Server uses true for
+   *  authored content (markdown / structured_procedure) and false for
+   *  uploaded media when this is omitted. */
+  aiIndexed?: boolean;
 }
 
 export async function createDocument(
@@ -816,6 +821,7 @@ export async function updateDocument(
     contentType?: string;
     sizeBytes?: number;
     safetyCritical?: boolean;
+    aiIndexed?: boolean;
   },
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/admin/documents/${encodeURIComponent(id)}`, {
@@ -1467,6 +1473,11 @@ export interface AdminDocumentDetail {
   extractionError: string | null;
   extractedAt: string | null;
   safetyCritical: boolean;
+  /** When false, the AI chat retriever excludes this document's chunks
+   *  from search. Defaults true for markdown / structured_procedure (curated
+   *  authored content) and false for uploaded media (pdf / slides /
+   *  schematic / file / video) until the admin reviews and opts in. */
+  aiIndexed: boolean;
   language: string | null;
   orderingHint: number;
   storageKey: string | null;
@@ -1593,6 +1604,7 @@ export async function updateAdminDocument(
     contentType?: string;
     sizeBytes?: number;
     safetyCritical?: boolean;
+    aiIndexed?: boolean;
     procedureMetadata?: AdminProcedureDocMetadata | null;
   },
 ): Promise<void> {

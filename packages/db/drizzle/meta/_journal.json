@@ -155,6 +155,13 @@
       "when": 1779062400000,
       "tag": "0021_procedure_sections",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1779235200000,
+      "tag": "0022_document_ai_indexed",
+      "breakpoints": true
     }
   ]
 }
