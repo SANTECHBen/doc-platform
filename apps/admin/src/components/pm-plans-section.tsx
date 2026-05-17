@@ -339,17 +339,46 @@ function PlanCard({
                   <th className="w-8 px-3 py-2"></th>
                 </tr>
               </thead>
-              <tbody>
-                {plan.items.map((it) => (
-                  <ItemRow
-                    key={it.id}
-                    item={it}
-                    docs={docs}
-                    onChanged={onChanged}
-                    onToast={onToast}
-                  />
-                ))}
-              </tbody>
+              {/* Render items grouped by component. Consecutive same-component
+                  rows form one group; the component cell is editable on the
+                  first row of each group and visually muted on the others, so
+                  the table reads like an OEM checklist instead of an N-row
+                  block where the component repeats verbatim N times. After
+                  each group, an inline "+ Add check" link inserts a new row
+                  pre-filled with that component name so the author only types
+                  the component name once. */}
+              {groupItemsByComponent(plan.items).map((group, gIdx) => (
+                <tbody
+                  key={`${group.component}:${group.items[0]!.id}`}
+                  className={
+                    gIdx > 0
+                      ? 'border-t-2 border-line bg-surface-raised'
+                      : 'bg-surface-raised'
+                  }
+                >
+                  {group.items.map((it, idx) => (
+                    <ItemRow
+                      key={it.id}
+                      item={it}
+                      docs={docs}
+                      onChanged={onChanged}
+                      onToast={onToast}
+                      showComponent={idx === 0}
+                    />
+                  ))}
+                  <tr>
+                    <td colSpan={6} className="px-3 py-1 bg-surface-inset/50">
+                      <AddCheckToGroupButton
+                        planId={plan.id}
+                        planItems={plan.items}
+                        component={group.component}
+                        onAdded={onChanged}
+                        onToast={onToast}
+                      />
+                    </td>
+                  </tr>
+                </tbody>
+              ))}
             </table>
           )}
           <NewItemRow planId={plan.id} docs={docs} onAdded={onChanged} onToast={onToast} />
@@ -359,16 +388,124 @@ function PlanCard({
   );
 }
 
+// Walk items in order, breaking on component change. Output preserves
+// the original ordering — no global sort by component, so adjacent
+// rows with the same component group together but the overall ordering
+// hint sequence still drives placement. Multiple groups with the same
+// component name (e.g., a user typed "Roller belt" twice in different
+// places) render as two separate groups; the inline reorder UI can
+// merge them later if needed.
+function groupItemsByComponent(items: AdminPmPlanItem[]): Array<{
+  component: string;
+  items: AdminPmPlanItem[];
+}> {
+  const groups: Array<{ component: string; items: AdminPmPlanItem[] }> = [];
+  for (const it of items) {
+    const last = groups[groups.length - 1];
+    if (last && last.component === it.component) {
+      last.items.push(it);
+    } else {
+      groups.push({ component: it.component, items: [it] });
+    }
+  }
+  return groups;
+}
+
+// "+ Add check to <component>" — inserts a new item with the same
+// component name and an ordering hint slotted right after the group's
+// last existing item. The user only has to type the component name once
+// per group; subsequent checks under it are one tap.
+function AddCheckToGroupButton({
+  planId,
+  planItems,
+  component,
+  onAdded,
+  onToast,
+}: {
+  planId: string;
+  planItems: AdminPmPlanItem[];
+  component: string;
+  onAdded: () => Promise<void>;
+  onToast: (tone: 'ok' | 'err', body: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  // Slot the new item right after the last existing row of this group.
+  // If there's another group below with a hint only 1 unit away, we'd
+  // collide — in practice we leave 100-unit gaps between rows so there's
+  // headroom for many inserts. Past that point the user can drag to
+  // reorder (future feature) or just live with it appearing at the end.
+  function computeNewOrderingHint(): number {
+    const sorted = [...planItems].sort(
+      (a, b) => a.orderingHint - b.orderingHint,
+    );
+    let lastInGroup = -Infinity;
+    let firstAfterGroup = Infinity;
+    let inGroup = false;
+    for (const it of sorted) {
+      if (it.component === component) {
+        inGroup = true;
+        lastInGroup = it.orderingHint;
+      } else if (inGroup) {
+        firstAfterGroup = it.orderingHint;
+        break;
+      }
+    }
+    if (lastInGroup === -Infinity) return 100; // group was empty (shouldn't happen)
+    if (firstAfterGroup === Infinity) return lastInGroup + 100;
+    const mid = Math.floor((lastInGroup + firstAfterGroup) / 2);
+    // Collision (no room): just append at the end. Group will re-form
+    // contiguous on next sort if items have unique hints.
+    return mid === lastInGroup ? lastInGroup + 100 : mid;
+  }
+  async function onClick() {
+    setBusy(true);
+    try {
+      await createPmPlanItem(planId, {
+        component,
+        checkText: '',
+        remarks: null,
+        frequency: 'M',
+        documentId: null,
+        orderingHint: computeNewOrderingHint(),
+      });
+      await onAdded();
+    } catch (e) {
+      onToast('err', e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy}
+      className="inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium text-ink-tertiary hover:bg-accent/10 hover:text-accent disabled:opacity-50"
+    >
+      <Plus size={12} strokeWidth={2} />
+      Add check to <span className="font-semibold">{component}</span>
+    </button>
+  );
+}
+
 function ItemRow({
   item,
   docs,
   onChanged,
   onToast,
+  showComponent,
 }: {
   item: AdminPmPlanItem;
   docs: AdminPmProcedureDoc[];
   onChanged: () => Promise<void>;
   onToast: (tone: 'ok' | 'err', body: string) => void;
+  /** When false, the component cell renders muted ("↳" indent indicator)
+   *  instead of an editable input. Editing the component on a follow-on
+   *  row would split the group visually mid-render, so we keep edits to
+   *  the head row of each group. To move a follow-on row to a different
+   *  component, change the head row's name (whole group moves) or use
+   *  reorder/drag (future). */
+  showComponent: boolean;
 }) {
   const [component, setComponent] = useState(item.component);
   const [checkText, setCheckText] = useState(item.checkText);
@@ -399,15 +536,26 @@ function ItemRow({
   return (
     <tr className="border-t border-line-subtle align-top">
       <td className="px-3 py-2">
-        <input
-          value={component}
-          onChange={(e) => setComponent(e.target.value)}
-          onBlur={() => {
-            const v = component.trim();
-            if (v && v !== item.component) void flush({ component: v });
-          }}
-          className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-line focus:border-accent focus:bg-surface"
-        />
+        {showComponent ? (
+          <input
+            value={component}
+            onChange={(e) => setComponent(e.target.value)}
+            onBlur={() => {
+              const v = component.trim();
+              if (v && v !== item.component) void flush({ component: v });
+            }}
+            className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 font-medium hover:border-line focus:border-accent focus:bg-surface"
+          />
+        ) : (
+          // Indent indicator for follow-on rows in a group. Reads as "this
+          // row belongs to the component above" without repeating the name.
+          <span
+            className="block select-none px-1 py-0.5 text-xs text-ink-tertiary"
+            title={`Part of ${component}`}
+          >
+            ↳
+          </span>
+        )}
       </td>
       <td className="px-3 py-2">
         <input
@@ -415,9 +563,15 @@ function ItemRow({
           onChange={(e) => setCheckText(e.target.value)}
           onBlur={() => {
             const v = checkText.trim();
-            if (v && v !== item.checkText) void flush({ checkText: v });
+            if (v !== item.checkText) void flush({ checkText: v });
           }}
-          className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-line focus:border-accent focus:bg-surface"
+          placeholder="Check…"
+          className={[
+            'w-full rounded border bg-transparent px-1 py-0.5 hover:border-line focus:border-accent focus:bg-surface',
+            checkText.trim()
+              ? 'border-transparent'
+              : 'border-dashed border-signal-warn/50',
+          ].join(' ')}
         />
       </td>
       <td className="px-3 py-2">

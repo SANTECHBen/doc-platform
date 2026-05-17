@@ -2438,6 +2438,11 @@ export async function createPmPlanItem(
     remarks?: string | null;
     frequency: PmPlanFrequency;
     documentId?: string | null;
+    /** Server defaults to appending at the end (max+100) when omitted.
+     *  Provide a specific hint to slot the new item between existing
+     *  rows — used by the "Add check to <component>" affordance to keep
+     *  same-component rows grouped together. */
+    orderingHint?: number;
   },
 ): Promise<AdminPmPlanItem> {
   const res = await fetch(

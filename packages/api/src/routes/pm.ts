@@ -349,8 +349,14 @@ async function computePmPlanStatusForInstance(
 
   const now = new Date();
   const out = plans.map((p) => {
-    // Bucket items by frequency for this plan only.
-    const planItems = items.filter((it) => it.planId === p.id);
+    // Bucket items by frequency for this plan only. Skip empty drafts
+    // (checkText === '') so techs never see "(empty)" rows in their
+    // checklist — admins create empty rows via the inline "Add check"
+    // affordance, then fill them in. Until they have text, they shouldn't
+    // count toward "Daily checks (N items)" or appear in the expanded list.
+    const planItems = items.filter(
+      (it) => it.planId === p.id && it.checkText.trim().length > 0,
+    );
     const byFreq = new Map<PmPlanFrequency, typeof planItems>();
     for (const it of planItems) {
       const f = it.frequency as PmPlanFrequency;

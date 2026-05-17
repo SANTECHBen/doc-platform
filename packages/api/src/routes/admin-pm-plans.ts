@@ -47,7 +47,11 @@ const UpdatePlanBody = z
 
 const CreateItemBody = z.object({
   component: z.string().min(1).max(200),
-  checkText: z.string().min(1).max(1000),
+  // Allow empty on create — the inline "Add check to <component>" affordance
+  // inserts a blank row that the author types into immediately. Empty rows
+  // render as draft ("(empty check)") in the admin and are gated out of the
+  // PWA's per-frequency status so techs never see empty checklist rows.
+  checkText: z.string().max(1000),
   remarks: z.string().max(2000).nullable().optional(),
   frequency: FrequencyEnum,
   documentId: UuidSchema.nullable().optional(),
@@ -57,7 +61,8 @@ const CreateItemBody = z.object({
 const UpdateItemBody = z
   .object({
     component: z.string().min(1).max(200).optional(),
-    checkText: z.string().min(1).max(1000).optional(),
+    // Allow blanking back to empty too — symmetric with create.
+    checkText: z.string().max(1000).optional(),
     remarks: z.string().max(2000).nullable().optional(),
     frequency: FrequencyEnum.optional(),
     documentId: UuidSchema.nullable().optional(),
