@@ -84,6 +84,17 @@ interface ResolvedJobAid {
     /** When the author attached or generated a voiceover, this URL plays
      *  instead of synthesizing TTS at run time. */
     audioUrl: string | null;
+    /** Section context for this step. null = ungrouped (orphan), otherwise
+     *  the section title to pin in the header so the tech always sees which
+     *  phase they're in (Removal vs Replacement, etc.). */
+    sectionLabel: string | null;
+    /** 1-based position within this step's section. Restarts at 1 when
+     *  crossing a section boundary. For orphan steps and ungrouped procedures
+     *  this matches the overall index. */
+    sectionStepIndex: number;
+    /** Total steps in this step's section — denominator for the "step 3 of 7
+     *  in Removal" display. */
+    sectionStepTotal: number;
   }>;
 }
 
@@ -136,22 +147,63 @@ function normalizeFromDoc(doc: ProcedureDocFullDto): ResolvedJobAid {
           safetyNotes,
         }
       : null,
-    steps: doc.steps.map((s) => {
-      const augmented = s as ProcedureDocFullDto['steps'][number] & {
-        audioUrl?: string | null;
-        blocks?: StepBlock[];
-      };
-      return {
-        title: s.title,
-        bodyMarkdown: s.bodyMarkdown ?? null,
-        blocks: augmented.blocks ?? [],
-        safetyCritical: s.safetyCritical,
-        media: s.media,
-        substeps: s.substeps,
-        audioUrl: augmented.audioUrl ?? null,
-      };
-    }),
+    steps: buildSectionedSteps(doc),
   };
+}
+
+// Resort the document's steps into (section.orderingHint, step.orderingHint)
+// order and attach per-section metadata. The API sorts steps only by
+// step.orderingHint, which interleaves Replacement steps into Removal when
+// they share a hint. This was visible to users as "steps out of order" in
+// Job Aid; here we normalize once at load.
+function buildSectionedSteps(
+  doc: ProcedureDocFullDto,
+): ResolvedJobAid['steps'] {
+  const sections = doc.sections ?? [];
+  const orderById = new Map<string, number>(
+    sections.map((sec) => [sec.id, sec.orderingHint]),
+  );
+  const titleById = new Map<string, string>(
+    sections.map((sec) => [sec.id, sec.title]),
+  );
+  const sorted = [...doc.steps].sort((a, b) => {
+    const sa =
+      a.sectionId == null ? -1 : orderById.get(a.sectionId) ?? Infinity;
+    const sb =
+      b.sectionId == null ? -1 : orderById.get(b.sectionId) ?? Infinity;
+    if (sa !== sb) return sa - sb;
+    return a.orderingHint - b.orderingHint;
+  });
+  // Pre-compute per-section totals so each step knows its own denominator.
+  const totalsBySection = new Map<string | null, number>();
+  for (const s of sorted) {
+    const k = s.sectionId ?? null;
+    totalsBySection.set(k, (totalsBySection.get(k) ?? 0) + 1);
+  }
+  // Walk the sorted list assigning per-section 1-based indices.
+  const indexBySection = new Map<string | null, number>();
+  return sorted.map((s) => {
+    const sectionKey = s.sectionId ?? null;
+    const nextIdx = (indexBySection.get(sectionKey) ?? 0) + 1;
+    indexBySection.set(sectionKey, nextIdx);
+    const augmented = s as ProcedureDocFullDto['steps'][number] & {
+      audioUrl?: string | null;
+      blocks?: StepBlock[];
+    };
+    return {
+      title: s.title,
+      bodyMarkdown: s.bodyMarkdown ?? null,
+      blocks: augmented.blocks ?? [],
+      safetyCritical: s.safetyCritical,
+      media: s.media,
+      substeps: s.substeps,
+      audioUrl: augmented.audioUrl ?? null,
+      sectionLabel:
+        s.sectionId == null ? null : titleById.get(s.sectionId) ?? null,
+      sectionStepIndex: nextIdx,
+      sectionStepTotal: totalsBySection.get(sectionKey) ?? 1,
+    };
+  });
 }
 
 function normalizeFromInline(
@@ -161,7 +213,7 @@ function normalizeFromInline(
     title: inline.title,
     // Inline source (AI-emitted steps) never carries a hero video.
     intro: null,
-    steps: inline.steps.map((s) => ({
+    steps: inline.steps.map((s, i) => ({
       title: s.title,
       bodyMarkdown: s.bodyMarkdown ?? null,
       blocks: [],
@@ -169,6 +221,12 @@ function normalizeFromInline(
       media: [],
       substeps: [],
       audioUrl: null,
+      // AI-emitted inline steps don't carry section info — render the
+      // existing "Step X / N" header by treating the whole list as one
+      // implicit section.
+      sectionLabel: null,
+      sectionStepIndex: i + 1,
+      sectionStepTotal: inline.steps.length,
     })),
   };
 }
@@ -328,7 +386,12 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
     // better than paraphrased markdown. Fall back to bodyMarkdown for
     // legacy procedures.
     const lead = step.safetyCritical ? 'Safety critical step. ' : '';
-    const numbering = `Step ${stepIdx + 1} of ${resolved!.steps.length}. `;
+    // Speak the section context so the tech hears "Removal, step 3 of 7"
+    // instead of a section-blind "step 10 of 20". Falls back to plain
+    // "Step X of Y" for ungrouped procedures.
+    const numbering = step.sectionLabel
+      ? `${step.sectionLabel}, step ${step.sectionStepIndex} of ${step.sectionStepTotal}. `
+      : `Step ${stepIdx + 1} of ${resolved!.steps.length}. `;
     let body = '';
     if (step.blocks.length > 0) {
       body = step.blocks
@@ -636,9 +699,24 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
             aria-live="polite"
           >
             <div className="vja-step-header">
+              {step.sectionLabel && (
+                <span
+                  className="vja-section-label"
+                  title={`Section: ${step.sectionLabel}`}
+                >
+                  {step.sectionLabel}
+                </span>
+              )}
               <span className="vja-step-num">
-                {String(stepIdx + 1).padStart(2, '0')}
-                <span className="vja-step-of"> / {String(totalSteps).padStart(2, '0')}</span>
+                {String(step.sectionStepIndex).padStart(2, '0')}
+                <span className="vja-step-of">
+                  {' '}/ {String(step.sectionStepTotal).padStart(2, '0')}
+                </span>
+                {step.sectionLabel && step.sectionStepTotal !== totalSteps && (
+                  <span className="vja-step-overall">
+                    {' '}· {stepIdx + 1}/{totalSteps} overall
+                  </span>
+                )}
               </span>
               {step.safetyCritical && (
                 <span className="vja-safety-pill">
