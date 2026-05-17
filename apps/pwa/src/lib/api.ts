@@ -821,9 +821,22 @@ export type StepBlock =
     }
   | { kind: 'photo_inline'; storageKey: string; caption?: string };
 
+// Optional grouping above procedure steps. Sections render as headers in
+// the viewer / runner; step numbering restarts within each section.
+export interface ProcedureSectionDto {
+  id: string;
+  documentId?: string;
+  title: string;
+  description: string | null;
+  orderingHint: number;
+}
+
 export interface ProcedureStepDto {
   id: string;
   documentId: string;
+  /** Nullable: steps with no sectionId render above the first explicit
+   *  section ("ungrouped" — used by pre-section procedures). */
+  sectionId: string | null;
   kind: ProcedureStepKind;
   title: string;
   bodyMarkdown: string | null;
@@ -886,6 +899,9 @@ export interface ProcedureBundle {
     kind: string;
     safetyCritical: boolean;
   };
+  /** Optional grouping above steps. Empty array = ungrouped procedure
+   *  (legacy / new-authoring-not-yet-sectioned). */
+  sections?: ProcedureSectionDto[];
   steps: ProcedureStepDto[];
   completions: ProcedureStepCompletionDto[];
 }
@@ -1248,6 +1264,8 @@ export interface ProcedureDocFullDto {
     scopeAssetInstanceId: string | null;
   };
   metadata: ProcedureDocMetadata | null;
+  /** Optional grouping above steps. Empty / missing = ungrouped procedure. */
+  sections?: ProcedureSectionDto[];
   steps: Array<
     ProcedureStepDto & {
       media: ProcedureStepMedia[];

@@ -29,11 +29,13 @@ import { useToast } from '@/components/toast';
 import {
   getAdminDocument,
   getContentPack,
+  listProcedureSections,
   listProcedureSteps,
   moveDocumentToVersion,
   updateDocument,
   type AdminContentPackDetail,
   type AdminDocumentDetail,
+  type AdminProcedureSection,
   type AdminProcedureStep,
 } from '@/lib/api';
 import { ProcedureCmsEditor } from '@/components/procedure-cms/procedure-cms-editor';
@@ -49,6 +51,7 @@ export default function ProcedureFullPageEditor({
 
   const [doc, setDoc] = useState<AdminDocumentDetail | null>(null);
   const [steps, setSteps] = useState<AdminProcedureStep[] | null>(null);
+  const [sections, setSections] = useState<AdminProcedureSection[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   // Title editing — local-state mirror with debounced PATCH.
@@ -73,9 +76,13 @@ export default function ProcedureFullPageEditor({
         setDoc(d);
         return;
       }
-      const s = await listProcedureSteps(docId);
+      const [s, secs] = await Promise.all([
+        listProcedureSteps(docId),
+        listProcedureSections(docId),
+      ]);
       setDoc(d);
       setSteps(s);
+      setSections(secs);
       setTitle(d.title);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -264,7 +271,12 @@ export default function ProcedureFullPageEditor({
 
       <div className="mx-auto max-w-5xl px-4 py-6">
         {steps !== null && (
-          <ProcedureCmsEditor doc={doc} steps={steps} onChanged={refresh} />
+          <ProcedureCmsEditor
+            doc={doc}
+            steps={steps}
+            sections={sections}
+            onChanged={refresh}
+          />
         )}
       </div>
 

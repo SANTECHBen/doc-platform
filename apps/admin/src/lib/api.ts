@@ -1877,9 +1877,24 @@ export interface AdminStepMedia {
   url: string | null;
 }
 
+// Section grouping above procedure steps. Optional — a procedure can have
+// zero sections (flat list) or N sections with steps grouped inside each.
+export interface AdminProcedureSection {
+  id: string;
+  documentId: string;
+  title: string;
+  description: string | null;
+  orderingHint: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AdminProcedureStep {
   id: string;
   documentId: string;
+  /** Nullable: a step with no section renders above the first explicit
+   *  section (orphan group). Set by the editor when adding inside a section. */
+  sectionId: string | null;
   kind: ProcedureStepKind;
   title: string;
   bodyMarkdown: string | null;
@@ -1915,12 +1930,90 @@ export interface ProcedureStepAudioResult {
   updatedAt?: string;
 }
 
+export interface CreateProcedureSectionInput {
+  title: string;
+  description?: string | null;
+  orderingHint?: number;
+}
+
+export type UpdateProcedureSectionInput = Partial<CreateProcedureSectionInput>;
+
+export async function listProcedureSections(
+  documentId: string,
+): Promise<AdminProcedureSection[]> {
+  const res = await fetch(
+    `${API_BASE}/admin/documents/${encodeURIComponent(documentId)}/procedure-sections`,
+    { cache: 'no-store', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminProcedureSection[];
+}
+
+export async function createProcedureSection(
+  documentId: string,
+  input: CreateProcedureSectionInput,
+): Promise<AdminProcedureSection> {
+  const res = await fetch(
+    `${API_BASE}/admin/documents/${encodeURIComponent(documentId)}/procedure-sections`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminProcedureSection;
+}
+
+export async function updateProcedureSection(
+  sectionId: string,
+  input: UpdateProcedureSectionInput,
+): Promise<AdminProcedureSection> {
+  const res = await fetch(
+    `${API_BASE}/admin/procedure-sections/${encodeURIComponent(sectionId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminProcedureSection;
+}
+
+export async function deleteProcedureSection(sectionId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/procedure-sections/${encodeURIComponent(sectionId)}`,
+    { method: 'DELETE', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+export async function reorderProcedureSections(
+  documentId: string,
+  orderedIds: string[],
+): Promise<{ ok: true; count: number }> {
+  const res = await fetch(
+    `${API_BASE}/admin/documents/${encodeURIComponent(documentId)}/procedure-sections/reorder`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ orderedIds }),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { ok: true; count: number };
+}
+
 export interface CreateProcedureStepInput {
   kind: ProcedureStepKind;
   title: string;
   bodyMarkdown?: string | null;
   safetyCritical?: boolean;
   orderingHint?: number;
+  /** Optional grouping. When null/omitted the step is an "orphan" rendered
+   *  above any explicit sections. */
+  sectionId?: string | null;
   requiresPhoto?: boolean;
   minPhotoCount?: number;
   measurementSpec?: MeasurementSpec | null;

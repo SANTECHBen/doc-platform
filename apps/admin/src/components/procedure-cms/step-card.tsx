@@ -47,6 +47,10 @@ interface Props {
   onDragEnd: () => void;
   isDragging: boolean;
   isDropTarget: boolean;
+  /** Optional caller-rendered slot below the card body. Used by the
+   *  sectioned editor to attach a "Move to section" dropdown without
+   *  baking section-awareness into the card itself. */
+  footer?: React.ReactNode;
 }
 
 const KIND_OPTIONS: Array<{ value: ProcedureStepKind; label: string; icon: typeof ClipboardCheck }> = [
@@ -70,6 +74,7 @@ export function StepCard({
   onDragEnd,
   isDragging,
   isDropTarget,
+  footer,
 }: Props) {
   // Local-state mirrors of editable fields. Auto-save debounce flushes
   // them upstream; we never block typing on the network.
@@ -279,6 +284,8 @@ export function StepCard({
         <StepVideosPanel step={step} onChanged={onAudioChanged} />
 
         <VoiceoverPanel step={step} onChanged={onAudioChanged} />
+
+        {footer}
       </div>
     </li>
   );

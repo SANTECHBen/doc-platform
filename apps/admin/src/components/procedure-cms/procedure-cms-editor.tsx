@@ -31,15 +31,19 @@ import {
   Wand2,
 } from 'lucide-react';
 import {
+  createProcedureSection,
   createProcedureStep,
+  deleteProcedureSection,
   deleteProcedureStep,
   generateProcedureStepAudio,
   reorderProcedureSteps,
+  updateProcedureSection,
   updateProcedureStep,
   updateAdminDocument,
   uploadAdminFile,
   type AdminDocumentDetail,
   type AdminProcedureDocMetadata,
+  type AdminProcedureSection,
   type AdminProcedureStep,
   type CreateProcedureStepInput,
   type UpdateProcedureStepInput,
@@ -62,6 +66,10 @@ import { StepCard } from './step-card';
 interface Props {
   doc: AdminDocumentDetail;
   steps: AdminProcedureStep[];
+  /** Optional grouping above steps. Sections render as headers; their
+   *  steps re-number from 1. Orphan steps (sectionId === null) render
+   *  flat above the first section. */
+  sections: AdminProcedureSection[];
   /** Refresh the page-level state after authoritative shape changes
    *  (delete, reorder, add). Field edits don't refetch — we trust the
    *  PATCH response. */
@@ -74,25 +82,58 @@ type SaveStatus =
   | { kind: 'saved'; at: number }
   | { kind: 'error'; message: string };
 
-export function ProcedureCmsEditor({ doc, steps, onChanged }: Props) {
+export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
   // Local mirror of the steps so drag-reorder is instant. Server reconcile
   // happens on drop completion; we re-fetch via onChanged() afterwards.
   const [localSteps, setLocalSteps] = useState<AdminProcedureStep[]>(steps);
+  const [localSections, setLocalSections] = useState<AdminProcedureSection[]>(sections);
   const [pageError, setPageError] = useState<string | null>(null);
   const [status, setStatus] = useState<SaveStatus>({ kind: 'idle' });
   const [bulkBusy, setBulkBusy] = useState(false);
 
   // Drag state — which step is being dragged, and which one would receive
-  // the drop right now.
+  // the drop right now. Drag is scoped to a single section: cross-section
+  // moves use the per-step "Move to section" dropdown instead.
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
 
   const toast = useToast();
 
-  // Sync local mirror when props change (e.g. after onChanged() refresh).
+  // Sync local mirrors when props change (e.g. after onChanged() refresh).
   useEffect(() => {
     setLocalSteps(steps);
   }, [steps]);
+  useEffect(() => {
+    setLocalSections(sections);
+  }, [sections]);
+
+  // Group steps by sectionId for display. Orphans (sectionId === null) get
+  // the synthetic group at the top. Each explicit section gets its own group
+  // in section.orderingHint order; within a group, steps are sorted by their
+  // own orderingHint. This is the order the runner / viewer use too.
+  const groups = useMemo(() => {
+    const byId = new Map<string, AdminProcedureStep[]>();
+    const orphans: AdminProcedureStep[] = [];
+    for (const s of localSteps) {
+      if (s.sectionId === null) {
+        orphans.push(s);
+        continue;
+      }
+      const arr = byId.get(s.sectionId) ?? [];
+      arr.push(s);
+      byId.set(s.sectionId, arr);
+    }
+    const sortByHint = (a: AdminProcedureStep, b: AdminProcedureStep) =>
+      a.orderingHint - b.orderingHint;
+    orphans.sort(sortByHint);
+    const sectionGroups = [...localSections]
+      .sort((a, b) => a.orderingHint - b.orderingHint)
+      .map((sec) => ({
+        section: sec,
+        steps: (byId.get(sec.id) ?? []).sort(sortByHint),
+      }));
+    return { orphans, sectionGroups };
+  }, [localSteps, localSections]);
 
   // ------------------------------------------------------------------
   // Save tracking
@@ -150,12 +191,13 @@ export function ProcedureCmsEditor({ doc, steps, onChanged }: Props) {
   // ------------------------------------------------------------------
   // Add / delete
   // ------------------------------------------------------------------
-  async function addStep() {
+  async function addStep(sectionId: string | null = null) {
     const input: CreateProcedureStepInput = {
       kind: 'instruction',
       title: '',
       bodyMarkdown: null,
       safetyCritical: false,
+      sectionId,
     };
     beginSave();
     try {
@@ -172,6 +214,83 @@ export function ProcedureCmsEditor({ doc, steps, onChanged }: Props) {
       }, 50);
     } catch (e) {
       endSave(false, e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Section CRUD. Sections are optional grouping above steps; deleting a
+  // section orphans (doesn't delete) its child steps so authors don't
+  // lose work mid-reorganization.
+  // ------------------------------------------------------------------
+  async function addSection() {
+    const title = prompt('Section name (e.g. "Removal", "Replacement"):')?.trim();
+    if (!title) return;
+    beginSave();
+    try {
+      const created = await createProcedureSection(doc.id, { title });
+      setLocalSections((prev) => [...prev, created]);
+      endSave(true);
+    } catch (e) {
+      endSave(false, e instanceof Error ? e.message : String(e));
+      toast.error(
+        'Could not add section',
+        e instanceof Error ? e.message : String(e),
+      );
+    }
+  }
+
+  async function renameSection(sectionId: string, nextTitle: string) {
+    const trimmed = nextTitle.trim();
+    if (!trimmed) return;
+    beginSave();
+    try {
+      const updated = await updateProcedureSection(sectionId, { title: trimmed });
+      setLocalSections((prev) =>
+        prev.map((s) => (s.id === sectionId ? updated : s)),
+      );
+      endSave(true);
+    } catch (e) {
+      endSave(false, e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function removeSection(sectionId: string) {
+    const sec = localSections.find((s) => s.id === sectionId);
+    if (!sec) return;
+    const stepCount = localSteps.filter((s) => s.sectionId === sectionId).length;
+    const msg =
+      stepCount === 0
+        ? `Delete section "${sec.title}"?`
+        : `Delete section "${sec.title}"? Its ${stepCount} step${
+            stepCount === 1 ? '' : 's'
+          } will be moved to the ungrouped area at the top — they aren't deleted.`;
+    if (!confirm(msg)) return;
+    beginSave();
+    try {
+      await deleteProcedureSection(sectionId);
+      setLocalSections((prev) => prev.filter((s) => s.id !== sectionId));
+      // Children locally become orphans (server already set their sectionId = null
+      // via FK ON DELETE SET NULL, but our local mirror needs the same flip).
+      setLocalSteps((prev) =>
+        prev.map((s) => (s.sectionId === sectionId ? { ...s, sectionId: null } : s)),
+      );
+      endSave(true);
+    } catch (e) {
+      endSave(false, e instanceof Error ? e.message : String(e));
+      toast.error(
+        'Could not delete section',
+        e instanceof Error ? e.message : String(e),
+      );
+    }
+  }
+
+  async function moveStepToSection(stepId: string, sectionId: string | null) {
+    // Patch the step's sectionId. Server rejects mismatched-doc section IDs.
+    const updated = await patchStep(stepId, { sectionId });
+    if (updated) {
+      setLocalSteps((prev) =>
+        prev.map((s) => (s.id === stepId ? { ...s, sectionId } : s)),
+      );
     }
   }
 
@@ -379,23 +498,196 @@ export function ProcedureCmsEditor({ doc, steps, onChanged }: Props) {
         </>
       )}
 
-      {empty ? (
-        <EmptyState onAdd={addStep} />
+      {empty && localSections.length === 0 ? (
+        <EmptyState onAdd={() => addStep(null)} />
+      ) : (
+        <div className="flex flex-col gap-6">
+          {/* Orphan steps — anything not in a section renders flat at the top.
+              When a procedure has no sections at all (most new authoring),
+              this is the whole list and the section UI stays out of the way. */}
+          {groups.orphans.length > 0 && (
+            <ol className="flex flex-col gap-3" onDragEnd={onDragEnd}>
+              {groups.orphans.map((s, i) => (
+                <div key={s.id} id={`cms-step-${s.id}`}>
+                  <StepCard
+                    step={s}
+                    index={i}
+                    totalSteps={groups.orphans.length}
+                    onPatch={(patch) => patchStep(s.id, patch)}
+                    onDelete={() => deleteStep(s.id)}
+                    onAudioChanged={(next) =>
+                      setLocalSteps((prev) =>
+                        prev.map((p) => (p.id === s.id ? next : p)),
+                      )
+                    }
+                    draggable={!bulkBusy}
+                    onDragStart={onDragStart(s.id)}
+                    onDragOver={onDragOver(s.id)}
+                    onDrop={onDrop(s.id)}
+                    onDragEnd={onDragEnd}
+                    isDragging={dragId === s.id}
+                    isDropTarget={dropTargetId === s.id && dragId !== s.id}
+                  />
+                </div>
+              ))}
+            </ol>
+          )}
+
+          {/* Each section renders its own grouped <ol>. Step numbers restart
+              from 1 within each section — that's the whole point of sectioning
+              a Removal & Replacement procedure. */}
+          {groups.sectionGroups.map((g) => (
+            <SectionGroup
+              key={g.section.id}
+              section={g.section}
+              steps={g.steps}
+              allSections={localSections}
+              bulkBusy={bulkBusy}
+              dragId={dragId}
+              dropTargetId={dropTargetId}
+              onAddStep={() => addStep(g.section.id)}
+              onRenameSection={(t) => renameSection(g.section.id, t)}
+              onDeleteSection={() => removeSection(g.section.id)}
+              onPatchStep={patchStep}
+              onDeleteStep={deleteStep}
+              onMoveStep={moveStepToSection}
+              onAudioChanged={(stepId, next) =>
+                setLocalSteps((prev) =>
+                  prev.map((p) => (p.id === stepId ? next : p)),
+                )
+              }
+              onDragStart={onDragStart}
+              onDragOver={onDragOver}
+              onDrop={onDrop}
+              onDragEnd={onDragEnd}
+            />
+          ))}
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
+        <button
+          type="button"
+          onClick={() => addStep(null)}
+          className="group flex flex-1 items-center justify-center gap-2 rounded-md border border-dashed border-line bg-surface px-4 py-4 text-sm font-medium text-ink-secondary transition hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
+        >
+          <Plus className="size-4 transition group-hover:rotate-90" />
+          Add step
+        </button>
+        <button
+          type="button"
+          onClick={addSection}
+          className="group flex flex-1 items-center justify-center gap-2 rounded-md border border-dashed border-line bg-surface px-4 py-4 text-sm font-medium text-ink-secondary transition hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
+          title='Add a named section (e.g. "Removal", "Replacement"). Step numbers restart inside each section.'
+        >
+          <Plus className="size-4 transition group-hover:rotate-90" />
+          Add section
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SectionGroup — header + step list for one named section. Self-contained so
+// the editor's render block stays scannable.
+// ---------------------------------------------------------------------------
+function SectionGroup({
+  section,
+  steps,
+  allSections,
+  bulkBusy,
+  dragId,
+  dropTargetId,
+  onAddStep,
+  onRenameSection,
+  onDeleteSection,
+  onPatchStep,
+  onDeleteStep,
+  onMoveStep,
+  onAudioChanged,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+}: {
+  section: AdminProcedureSection;
+  steps: AdminProcedureStep[];
+  allSections: AdminProcedureSection[];
+  bulkBusy: boolean;
+  dragId: string | null;
+  dropTargetId: string | null;
+  onAddStep: () => void;
+  onRenameSection: (title: string) => void;
+  onDeleteSection: () => void;
+  onPatchStep: (
+    stepId: string,
+    patch: UpdateProcedureStepInput,
+  ) => Promise<AdminProcedureStep | null>;
+  onDeleteStep: (stepId: string) => Promise<void>;
+  onMoveStep: (stepId: string, sectionId: string | null) => Promise<void>;
+  onAudioChanged: (stepId: string, next: AdminProcedureStep) => void;
+  onDragStart: (id: string) => (e: React.DragEvent) => void;
+  onDragOver: (id: string) => (e: React.DragEvent) => void;
+  onDrop: (id: string) => (e: React.DragEvent) => Promise<void>;
+  onDragEnd: () => void;
+}) {
+  // Local title mirror with debounced PATCH — same pattern as step titles.
+  const [title, setTitle] = useState(section.title);
+  const titleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    setTitle(section.title);
+  }, [section.title]);
+  function onTitleInput(next: string) {
+    setTitle(next);
+    if (titleTimer.current) clearTimeout(titleTimer.current);
+    titleTimer.current = setTimeout(() => {
+      if (next.trim() && next.trim() !== section.title) {
+        onRenameSection(next.trim());
+      }
+    }, 600);
+  }
+
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface-raised p-3">
+      <header className="flex items-center gap-2">
+        <span className="select-none text-xs font-semibold uppercase tracking-wider text-ink-tertiary">
+          Section
+        </span>
+        <input
+          value={title}
+          onChange={(e) => onTitleInput(e.target.value)}
+          className="flex-1 rounded-md border border-transparent bg-transparent px-2 py-1 text-base font-semibold text-ink-primary outline-none transition focus:border-accent focus:bg-surface"
+          placeholder="Section name"
+        />
+        <span className="select-none text-xs text-ink-tertiary">
+          {steps.length} step{steps.length === 1 ? '' : 's'} · numbering restarts at 1
+        </span>
+        <button
+          type="button"
+          onClick={onDeleteSection}
+          className="rounded-md p-1 text-ink-tertiary transition hover:bg-signal-fault/10 hover:text-signal-fault"
+          title="Delete section (steps survive as orphans)"
+        >
+          <Trash2 className="size-4" />
+        </button>
+      </header>
+
+      {steps.length === 0 ? (
+        <p className="rounded-md border border-dashed border-line bg-surface px-4 py-3 text-center text-sm text-ink-tertiary">
+          Empty section. Click "Add step in this section" below to author the first one.
+        </p>
       ) : (
         <ol className="flex flex-col gap-3" onDragEnd={onDragEnd}>
-          {localSteps.map((s, i) => (
+          {steps.map((s, i) => (
             <div key={s.id} id={`cms-step-${s.id}`}>
               <StepCard
                 step={s}
                 index={i}
-                totalSteps={localSteps.length}
-                onPatch={(patch) => patchStep(s.id, patch)}
-                onDelete={() => deleteStep(s.id)}
-                onAudioChanged={(next) =>
-                  setLocalSteps((prev) =>
-                    prev.map((p) => (p.id === s.id ? next : p)),
-                  )
-                }
+                totalSteps={steps.length}
+                onPatch={(patch) => onPatchStep(s.id, patch)}
+                onDelete={() => onDeleteStep(s.id)}
+                onAudioChanged={(next) => onAudioChanged(s.id, next)}
                 draggable={!bulkBusy}
                 onDragStart={onDragStart(s.id)}
                 onDragOver={onDragOver(s.id)}
@@ -403,6 +695,15 @@ export function ProcedureCmsEditor({ doc, steps, onChanged }: Props) {
                 onDragEnd={onDragEnd}
                 isDragging={dragId === s.id}
                 isDropTarget={dropTargetId === s.id && dragId !== s.id}
+                /* Section-aware controls live below the card so the existing
+                   StepCard contract stays untouched. */
+                footer={
+                  <MoveStepDropdown
+                    currentSectionId={s.sectionId}
+                    sections={allSections}
+                    onMove={(targetId) => onMoveStep(s.id, targetId)}
+                  />
+                }
               />
             </div>
           ))}
@@ -411,12 +712,49 @@ export function ProcedureCmsEditor({ doc, steps, onChanged }: Props) {
 
       <button
         type="button"
-        onClick={addStep}
-        className="group flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-line bg-surface px-4 py-4 text-sm font-medium text-ink-secondary transition hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
+        onClick={onAddStep}
+        className="group flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-line bg-surface px-4 py-3 text-xs font-medium text-ink-secondary transition hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
       >
-        <Plus className="size-4 transition group-hover:rotate-90" />
-        Add step
+        <Plus className="size-3.5 transition group-hover:rotate-90" />
+        Add step in this section
       </button>
+    </section>
+  );
+}
+
+// Lightweight per-step dropdown to re-parent a step into a different section
+// (or out to "ungrouped"). Renders inline; the editor wraps it under each
+// step card via StepCard.footer.
+function MoveStepDropdown({
+  currentSectionId,
+  sections,
+  onMove,
+}: {
+  currentSectionId: string | null;
+  sections: AdminProcedureSection[];
+  onMove: (targetSectionId: string | null) => void | Promise<void>;
+}) {
+  return (
+    <div className="mt-1 flex items-center gap-2 text-xs text-ink-tertiary">
+      <span>Move to:</span>
+      <select
+        value={currentSectionId ?? ''}
+        onChange={(e) => {
+          const v = e.target.value;
+          onMove(v === '' ? null : v);
+        }}
+        className="rounded border border-line bg-surface px-2 py-1 text-xs text-ink-primary"
+      >
+        <option value="">— Ungrouped (top) —</option>
+        {sections
+          .slice()
+          .sort((a, b) => a.orderingHint - b.orderingHint)
+          .map((sec) => (
+            <option key={sec.id} value={sec.id}>
+              {sec.title}
+            </option>
+          ))}
+      </select>
     </div>
   );
 }

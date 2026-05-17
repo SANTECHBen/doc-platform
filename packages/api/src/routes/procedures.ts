@@ -118,6 +118,7 @@ function stepToDTO(s: StepRow) {
   return {
     id: s.id,
     documentId: s.documentId,
+    sectionId: s.sectionId,
     kind: s.kind,
     title: s.title,
     bodyMarkdown: s.bodyMarkdown,
@@ -126,6 +127,16 @@ function stepToDTO(s: StepRow) {
     requiresPhoto: s.requiresPhoto,
     minPhotoCount: s.minPhotoCount,
     measurementSpec: s.measurementSpec,
+  };
+}
+
+function sectionToDTO(s: typeof schema.procedureSections.$inferSelect) {
+  return {
+    id: s.id,
+    documentId: s.documentId,
+    title: s.title,
+    description: s.description,
+    orderingHint: s.orderingHint,
   };
 }
 
@@ -291,13 +302,22 @@ export async function registerProcedureRoutes(app: FastifyInstance) {
         return reply.badRequest('Document is not a structured_procedure.');
       }
 
-      const steps = await db.query.procedureSteps.findMany({
-        where: eq(schema.procedureSteps.documentId, doc.id),
-        orderBy: [
-          asc(schema.procedureSteps.orderingHint),
-          asc(schema.procedureSteps.createdAt),
-        ],
-      });
+      const [steps, sections] = await Promise.all([
+        db.query.procedureSteps.findMany({
+          where: eq(schema.procedureSteps.documentId, doc.id),
+          orderBy: [
+            asc(schema.procedureSteps.orderingHint),
+            asc(schema.procedureSteps.createdAt),
+          ],
+        }),
+        db.query.procedureSections.findMany({
+          where: eq(schema.procedureSections.documentId, doc.id),
+          orderBy: [
+            asc(schema.procedureSections.orderingHint),
+            asc(schema.procedureSections.createdAt),
+          ],
+        }),
+      ]);
       if (steps.length === 0) {
         return reply.badRequest(
           'Procedure has no authored steps. Author steps in the admin first.',
@@ -364,6 +384,7 @@ export async function registerProcedureRoutes(app: FastifyInstance) {
           kind: doc.kind,
           safetyCritical: doc.safetyCritical,
         },
+        sections: sections.map(sectionToDTO),
         steps: steps.map(stepToDTO),
         completions: completions.map(completionToDTO),
       };
@@ -382,16 +403,25 @@ export async function registerProcedureRoutes(app: FastifyInstance) {
       const ctx = await loadRunForOwner(db, request.params.id, auth);
       if (!ctx) return reply.notFound();
 
-      const steps = await db.query.procedureSteps.findMany({
-        where: eq(schema.procedureSteps.documentId, ctx.document.id),
-        orderBy: [
-          asc(schema.procedureSteps.orderingHint),
-          asc(schema.procedureSteps.createdAt),
-        ],
-      });
-      const completions = await db.query.procedureStepCompletions.findMany({
-        where: eq(schema.procedureStepCompletions.runId, ctx.run.id),
-      });
+      const [steps, sections, completions] = await Promise.all([
+        db.query.procedureSteps.findMany({
+          where: eq(schema.procedureSteps.documentId, ctx.document.id),
+          orderBy: [
+            asc(schema.procedureSteps.orderingHint),
+            asc(schema.procedureSteps.createdAt),
+          ],
+        }),
+        db.query.procedureSections.findMany({
+          where: eq(schema.procedureSections.documentId, ctx.document.id),
+          orderBy: [
+            asc(schema.procedureSections.orderingHint),
+            asc(schema.procedureSections.createdAt),
+          ],
+        }),
+        db.query.procedureStepCompletions.findMany({
+          where: eq(schema.procedureStepCompletions.runId, ctx.run.id),
+        }),
+      ]);
 
       return {
         run: runToDTO(ctx.run),
@@ -401,6 +431,7 @@ export async function registerProcedureRoutes(app: FastifyInstance) {
           kind: ctx.document.kind,
           safetyCritical: ctx.document.safetyCritical,
         },
+        sections: sections.map(sectionToDTO),
         steps: steps.map(stepToDTO),
         completions: completions.map(completionToDTO),
       };

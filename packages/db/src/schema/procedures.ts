@@ -128,6 +128,41 @@ export type MeasurementSpec =
       maxLen?: number;
     };
 
+// Procedure sections — optional grouping above procedure_steps. A single
+// document can split into named phases (Removal, Replacement, Verification)
+// with step numbering restarting per section. Existing pre-migration steps
+// land in a default "Steps" section via the 0021 backfill so nothing changes
+// visually for unmigrated procedures.
+//
+// onDelete: cascade on document — deleting the doc takes its sections with it.
+// onDelete: set null on procedure_steps.section_id — deleting a section
+// orphans (doesn't delete) its steps; the UI renders orphans above the first
+// explicit section.
+export const procedureSections = pgTable(
+  'procedure_sections',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    documentId: uuid('document_id')
+      .notNull()
+      .references(() => documents.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    description: text('description'),
+    orderingHint: integer('ordering_hint').notNull().default(0),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    docIdx: index('procedure_sections_document_idx').on(t.documentId),
+    docOrderIdx: index('procedure_sections_document_order_idx').on(
+      t.documentId,
+      t.orderingHint,
+    ),
+  }),
+);
+
 export const procedureSteps = pgTable(
   'procedure_steps',
   {
@@ -135,6 +170,13 @@ export const procedureSteps = pgTable(
     documentId: uuid('document_id')
       .notNull()
       .references(() => documents.id, { onDelete: 'cascade' }),
+    // Nullable: pre-section steps live "above" sections. The 0021 backfill
+    // puts every existing step in a default "Steps" section, but new orphans
+    // are still allowed (e.g., admin deletes a section — its steps survive
+    // with section_id = null and render at the top).
+    sectionId: uuid('section_id').references((): any => procedureSections.id, {
+      onDelete: 'set null',
+    }),
 
     kind: procedureStepKindEnum('kind').notNull().default('instruction'),
 
@@ -210,6 +252,10 @@ export const procedureSteps = pgTable(
     docIdx: index('procedure_steps_document_idx').on(t.documentId),
     docOrderIdx: index('procedure_steps_document_order_idx').on(
       t.documentId,
+      t.orderingHint,
+    ),
+    sectionOrderIdx: index('procedure_steps_section_order_idx').on(
+      t.sectionId,
       t.orderingHint,
     ),
   }),
@@ -396,10 +442,26 @@ export const procedureStepCompletions = pgTable(
 // Relations
 // ---------------------------------------------------------------------------
 
+export const procedureSectionsRelations = relations(procedureSections, ({ one, many }) => ({
+  document: one(documents, {
+    fields: [procedureSections.documentId],
+    references: [documents.id],
+  }),
+  createdBy: one(users, {
+    fields: [procedureSections.createdByUserId],
+    references: [users.id],
+  }),
+  steps: many(procedureSteps),
+}));
+
 export const procedureStepsRelations = relations(procedureSteps, ({ one, many }) => ({
   document: one(documents, {
     fields: [procedureSteps.documentId],
     references: [documents.id],
+  }),
+  section: one(procedureSections, {
+    fields: [procedureSteps.sectionId],
+    references: [procedureSections.id],
   }),
   createdBy: one(users, {
     fields: [procedureSteps.createdByUserId],
@@ -480,6 +542,8 @@ export const procedureStepCompletionsRelations = relations(
 export type ProcedureStepKind = (typeof procedureStepKindEnum.enumValues)[number];
 export type ProcedureRunStatus = (typeof procedureRunStatusEnum.enumValues)[number];
 
+export type ProcedureSection = typeof procedureSections.$inferSelect;
+export type NewProcedureSection = typeof procedureSections.$inferInsert;
 export type ProcedureStep = typeof procedureSteps.$inferSelect;
 export type NewProcedureStep = typeof procedureSteps.$inferInsert;
 export type ProcedureSubstep = typeof procedureSubsteps.$inferSelect;

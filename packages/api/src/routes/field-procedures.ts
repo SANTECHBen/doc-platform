@@ -1300,13 +1300,22 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
         return reply.badRequest('Document is not a structured_procedure.');
       }
 
-      const steps = await db.query.procedureSteps.findMany({
-        where: eq(schema.procedureSteps.documentId, doc.id),
-        orderBy: [
-          asc(schema.procedureSteps.orderingHint),
-          asc(schema.procedureSteps.createdAt),
-        ],
-      });
+      const [steps, sections] = await Promise.all([
+        db.query.procedureSteps.findMany({
+          where: eq(schema.procedureSteps.documentId, doc.id),
+          orderBy: [
+            asc(schema.procedureSteps.orderingHint),
+            asc(schema.procedureSteps.createdAt),
+          ],
+        }),
+        db.query.procedureSections.findMany({
+          where: eq(schema.procedureSections.documentId, doc.id),
+          orderBy: [
+            asc(schema.procedureSections.orderingHint),
+            asc(schema.procedureSections.createdAt),
+          ],
+        }),
+      ]);
       const stepIds = steps.map((s) => s.id);
       const substeps = stepIds.length
         ? await db.query.procedureSubsteps.findMany({
@@ -1378,8 +1387,15 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
           scopeAssetInstanceId: doc.scopeAssetInstanceId,
         },
         metadata: metaWithUrl,
+        sections: sections.map((sec) => ({
+          id: sec.id,
+          title: sec.title,
+          description: sec.description,
+          orderingHint: sec.orderingHint,
+        })),
         steps: steps.map((s) => ({
           id: s.id,
+          sectionId: s.sectionId,
           kind: s.kind,
           title: s.title,
           bodyMarkdown: s.bodyMarkdown,

@@ -116,6 +116,9 @@ const StepCreateBody = z
     bodyMarkdown: z.string().max(10000).nullable().optional(),
     safetyCritical: z.boolean().optional(),
     orderingHint: z.number().int().optional(),
+    // Optional section grouping. Server validates that sectionId belongs to
+    // the same document. Null = orphan step (renders above first section).
+    sectionId: UuidSchema.nullable().optional(),
     requiresPhoto: z.boolean().optional(),
     minPhotoCount: z.number().int().min(0).max(10).optional(),
     measurementSpec: MeasurementSpecSchema.nullable().optional(),
@@ -140,6 +143,8 @@ const StepPatchBody = z
     bodyMarkdown: z.string().max(10000).nullable().optional(),
     safetyCritical: z.boolean().optional(),
     orderingHint: z.number().int().optional(),
+    // Move a step between sections (or to orphan with null).
+    sectionId: UuidSchema.nullable().optional(),
     requiresPhoto: z.boolean().optional(),
     minPhotoCount: z.number().int().min(0).max(10).optional(),
     measurementSpec: MeasurementSpecSchema.nullable().optional(),
@@ -176,6 +181,7 @@ function rowToDTO(
   return {
     id: row.id,
     documentId: row.documentId,
+    sectionId: row.sectionId,
     kind: row.kind,
     title: row.title,
     bodyMarkdown: row.bodyMarkdown,
@@ -345,12 +351,31 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         measurementSpec: body.measurementSpec ?? null,
       });
 
+      // If a sectionId is provided, verify it belongs to this same document
+      // (don't let a malformed payload move a step into another doc's section).
+      if (body.sectionId) {
+        const sec = await db.query.procedureSections.findFirst({
+          where: eq(schema.procedureSections.id, body.sectionId),
+          columns: { documentId: true },
+        });
+        if (!sec || sec.documentId !== ctx.doc.id) {
+          return reply.badRequest('sectionId does not belong to this document.');
+        }
+      }
+
       // Default orderingHint: append at the end with a 100-stride gap so
-      // future drag-reorders don't have to rewrite every row.
+      // future drag-reorders don't have to rewrite every row. Compute the
+      // max within the target section (sectionId scope) so each section
+      // numbers from 100 on the first step.
       let orderingHint = body.orderingHint;
       if (orderingHint === undefined) {
         const existing = await db.query.procedureSteps.findMany({
-          where: eq(schema.procedureSteps.documentId, ctx.doc.id),
+          where: body.sectionId
+            ? and(
+                eq(schema.procedureSteps.documentId, ctx.doc.id),
+                eq(schema.procedureSteps.sectionId, body.sectionId),
+              )
+            : eq(schema.procedureSteps.documentId, ctx.doc.id),
           columns: { orderingHint: true },
         });
         const max = existing.reduce(
@@ -364,6 +389,7 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         .insert(schema.procedureSteps)
         .values({
           documentId: ctx.doc.id,
+          sectionId: body.sectionId ?? null,
           kind: body.kind,
           title: body.title,
           bodyMarkdown: body.bodyMarkdown ?? null,
@@ -438,12 +464,25 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           b.measurementSpec !== undefined ? b.measurementSpec : ctx.step.measurementSpec,
       });
 
+      // sectionId patch: validate the target section belongs to the same doc.
+      // null = move to orphan (renders above the first section).
+      if (b.sectionId !== undefined && b.sectionId !== null) {
+        const sec = await db.query.procedureSections.findFirst({
+          where: eq(schema.procedureSections.id, b.sectionId),
+          columns: { documentId: true },
+        });
+        if (!sec || sec.documentId !== ctx.step.documentId) {
+          return reply.badRequest('sectionId does not belong to this document.');
+        }
+      }
+
       const patch: Record<string, unknown> = { updatedAt: new Date() };
       if (b.kind !== undefined) patch.kind = nextKind;
       if (b.title !== undefined) patch.title = b.title;
       if (b.bodyMarkdown !== undefined) patch.bodyMarkdown = b.bodyMarkdown;
       if (b.safetyCritical !== undefined) patch.safetyCritical = b.safetyCritical;
       if (b.orderingHint !== undefined) patch.orderingHint = b.orderingHint;
+      if (b.sectionId !== undefined) patch.sectionId = b.sectionId;
       if (b.blocks !== undefined) patch.blocks = b.blocks;
       // Always write the coerced evidence trio if any of them changed,
       // so coherence is preserved.
@@ -726,4 +765,320 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
       return { ok: true, count: request.body.orderedIds.length };
     },
   );
+
+  // ===========================================================================
+  // procedure_sections — author-time grouping above procedure_steps.
+  // ===========================================================================
+
+  // -------------------------------------------------------------------------
+  // GET /admin/documents/:documentId/procedure-sections
+  // -------------------------------------------------------------------------
+  app.get<{ Params: { documentId: string } }>(
+    '/admin/documents/:documentId/procedure-sections',
+    { schema: { params: z.object({ documentId: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadDocumentForWrite(db, request.params.documentId, scope);
+      if (!ctx) return reply.notFound();
+
+      const rows = await db.query.procedureSections.findMany({
+        where: eq(schema.procedureSections.documentId, request.params.documentId),
+        orderBy: [
+          asc(schema.procedureSections.orderingHint),
+          asc(schema.procedureSections.createdAt),
+        ],
+      });
+      return rows.map(sectionRowToDTO);
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /admin/documents/:documentId/procedure-sections — create
+  // -------------------------------------------------------------------------
+  app.post<{
+    Params: { documentId: string };
+    Body: { title: string; description?: string | null; orderingHint?: number };
+  }>(
+    '/admin/documents/:documentId/procedure-sections',
+    {
+      schema: {
+        params: z.object({ documentId: UuidSchema }),
+        body: z.object({
+          title: z.string().min(1).max(200),
+          description: z.string().max(2000).nullable().optional(),
+          orderingHint: z.number().int().optional(),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadDocumentForWrite(db, request.params.documentId, scope);
+      if (!ctx) return reply.notFound();
+      if (ctx.doc.kind !== 'structured_procedure') {
+        return reply.badRequest(
+          'Sections can only be authored on structured_procedure documents.',
+        );
+      }
+
+      let orderingHint = request.body.orderingHint;
+      if (orderingHint === undefined) {
+        const existing = await db.query.procedureSections.findMany({
+          where: eq(schema.procedureSections.documentId, ctx.doc.id),
+          columns: { orderingHint: true },
+        });
+        const max = existing.reduce(
+          (acc, r) => (r.orderingHint > acc ? r.orderingHint : acc),
+          0,
+        );
+        orderingHint = max + 100;
+      }
+
+      const [row] = await db
+        .insert(schema.procedureSections)
+        .values({
+          documentId: ctx.doc.id,
+          title: request.body.title,
+          description: request.body.description ?? null,
+          orderingHint,
+          createdByUserId: auth.userId,
+        })
+        .returning();
+      if (!row) return reply.internalServerError('Failed to create section.');
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'procedure_section.created',
+        targetType: 'procedure_section',
+        targetId: row.id,
+        payload: { documentId: row.documentId, title: row.title },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+
+      return sectionRowToDTO(row);
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // PATCH /admin/procedure-sections/:sectionId — rename / reorder
+  // -------------------------------------------------------------------------
+  app.patch<{
+    Params: { sectionId: string };
+    Body: { title?: string; description?: string | null; orderingHint?: number };
+  }>(
+    '/admin/procedure-sections/:sectionId',
+    {
+      schema: {
+        params: z.object({ sectionId: UuidSchema }),
+        body: z
+          .object({
+            title: z.string().min(1).max(200).optional(),
+            description: z.string().max(2000).nullable().optional(),
+            orderingHint: z.number().int().optional(),
+          })
+          .refine((v) => Object.keys(v).length > 0, {
+            message: 'At least one field is required.',
+          }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const section = await db.query.procedureSections.findFirst({
+        where: eq(schema.procedureSections.id, request.params.sectionId),
+      });
+      if (!section) return reply.notFound();
+      const ctx = await loadDocumentForWrite(db, section.documentId, scope);
+      if (!ctx) return reply.notFound();
+
+      const b = request.body;
+      const patch: Record<string, unknown> = { updatedAt: new Date() };
+      if (b.title !== undefined) patch.title = b.title;
+      if (b.description !== undefined) patch.description = b.description;
+      if (b.orderingHint !== undefined) patch.orderingHint = b.orderingHint;
+
+      const [updated] = await db
+        .update(schema.procedureSections)
+        .set(patch)
+        .where(eq(schema.procedureSections.id, section.id))
+        .returning();
+      if (!updated) return reply.internalServerError('Update failed.');
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'procedure_section.updated',
+        targetType: 'procedure_section',
+        targetId: updated.id,
+        payload: { fields: Object.keys(b) },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+
+      return sectionRowToDTO(updated);
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // DELETE /admin/procedure-sections/:sectionId
+  //
+  // FK is set null, so deleting a section orphans (doesn't delete) its
+  // steps. The PWA renders orphans above the first explicit section, which
+  // is a safe fallback while the author reorganizes.
+  // -------------------------------------------------------------------------
+  app.delete<{ Params: { sectionId: string } }>(
+    '/admin/procedure-sections/:sectionId',
+    { schema: { params: z.object({ sectionId: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const section = await db.query.procedureSections.findFirst({
+        where: eq(schema.procedureSections.id, request.params.sectionId),
+      });
+      if (!section) return reply.notFound();
+      const ctx = await loadDocumentForWrite(db, section.documentId, scope);
+      if (!ctx) return reply.notFound();
+
+      await db
+        .delete(schema.procedureSections)
+        .where(eq(schema.procedureSections.id, section.id));
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'procedure_section.deleted',
+        targetType: 'procedure_section',
+        targetId: section.id,
+        payload: { documentId: section.documentId, title: section.title },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+
+      return { ok: true };
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /admin/documents/:documentId/procedure-sections/reorder
+  // -------------------------------------------------------------------------
+  app.post<{
+    Params: { documentId: string };
+    Body: { orderedIds: string[] };
+  }>(
+    '/admin/documents/:documentId/procedure-sections/reorder',
+    {
+      schema: {
+        params: z.object({ documentId: UuidSchema }),
+        body: z.object({ orderedIds: z.array(UuidSchema).min(1) }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadDocumentForWrite(db, request.params.documentId, scope);
+      if (!ctx) return reply.notFound();
+
+      const sections = await db.query.procedureSections.findMany({
+        where: and(
+          eq(schema.procedureSections.documentId, ctx.doc.id),
+          inArray(schema.procedureSections.id, request.body.orderedIds),
+        ),
+        columns: { id: true },
+      });
+      if (sections.length !== request.body.orderedIds.length) {
+        return reply.badRequest(
+          'orderedIds contains IDs not on this document, or duplicates.',
+        );
+      }
+
+      let i = 0;
+      for (const id of request.body.orderedIds) {
+        i += 1;
+        await db
+          .update(schema.procedureSections)
+          .set({ orderingHint: i * 100, updatedAt: new Date() })
+          .where(eq(schema.procedureSections.id, id));
+      }
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'procedure_section.reordered',
+        targetType: 'document',
+        targetId: ctx.doc.id,
+        payload: { count: request.body.orderedIds.length },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+
+      return { ok: true, count: request.body.orderedIds.length };
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // GET /admin/documents/:documentId/procedure-outline
+  //
+  // Combined sections + steps in one round-trip so the editor can render
+  // the full outline (sections grouping steps) without a per-section fetch.
+  // -------------------------------------------------------------------------
+  app.get<{ Params: { documentId: string } }>(
+    '/admin/documents/:documentId/procedure-outline',
+    { schema: { params: z.object({ documentId: UuidSchema }) } },
+    async (request, reply) => {
+      const { db, storage } = app.ctx;
+      requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadDocumentForWrite(db, request.params.documentId, scope);
+      if (!ctx) return reply.notFound();
+
+      const [sections, steps] = await Promise.all([
+        db.query.procedureSections.findMany({
+          where: eq(schema.procedureSections.documentId, ctx.doc.id),
+          orderBy: [
+            asc(schema.procedureSections.orderingHint),
+            asc(schema.procedureSections.createdAt),
+          ],
+        }),
+        db.query.procedureSteps.findMany({
+          where: eq(schema.procedureSteps.documentId, ctx.doc.id),
+          orderBy: [
+            asc(schema.procedureSteps.orderingHint),
+            asc(schema.procedureSteps.createdAt),
+          ],
+        }),
+      ]);
+
+      return {
+        sections: sections.map(sectionRowToDTO),
+        steps: steps.map((r) =>
+          rowToDTO(r, {
+            audioPublicUrl: r.audioStorageKey
+              ? storage.publicUrl(r.audioStorageKey)
+              : null,
+            mediaPublicUrl: (k) => storage.publicUrl(k),
+          }),
+        ),
+      };
+    },
+  );
+}
+
+function sectionRowToDTO(row: typeof schema.procedureSections.$inferSelect) {
+  return {
+    id: row.id,
+    documentId: row.documentId,
+    title: row.title,
+    description: row.description,
+    orderingHint: row.orderingHint,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
 }

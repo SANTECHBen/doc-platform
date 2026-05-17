@@ -324,15 +324,60 @@ export function ProcedureDocViewer({
             );
           })()}
 
-          {/* STEPS */}
-          <section className="flex flex-col gap-3">
-            <SectionHeader icon={ListChecks} label="Steps" />
-            <ol className="flex flex-col gap-3">
-              {doc.steps.map((s, i) => (
-                <StepBlock key={s.id} step={s} index={i + 1} />
-              ))}
-            </ol>
-          </section>
+          {/* STEPS — when the procedure has named sections, render one
+              group per section with step numbering restarting at 1 inside
+              each. Orphan steps (sectionId === null) render under the
+              default "Steps" header at the top. Unsection­ed procedures
+              keep the original single-list layout. */}
+          {(() => {
+            const sections = doc.sections ?? [];
+            // Group steps by their sectionId (orphans = null).
+            const byId = new Map<string, typeof doc.steps>();
+            const orphans: typeof doc.steps = [];
+            for (const s of doc.steps) {
+              if (s.sectionId == null) {
+                orphans.push(s);
+              } else {
+                const arr = byId.get(s.sectionId) ?? [];
+                arr.push(s);
+                byId.set(s.sectionId, arr);
+              }
+            }
+            const sortedSections = [...sections].sort(
+              (a, b) => a.orderingHint - b.orderingHint,
+            );
+            return (
+              <>
+                {orphans.length > 0 && (
+                  <section className="flex flex-col gap-3">
+                    <SectionHeader icon={ListChecks} label="Steps" />
+                    <ol className="flex flex-col gap-3">
+                      {orphans.map((s, i) => (
+                        <StepBlock key={s.id} step={s} index={i + 1} />
+                      ))}
+                    </ol>
+                  </section>
+                )}
+                {sortedSections.map((sec) => {
+                  const groupSteps = byId.get(sec.id) ?? [];
+                  if (groupSteps.length === 0) return null;
+                  return (
+                    <section key={sec.id} className="flex flex-col gap-3">
+                      <SectionHeader icon={ListChecks} label={sec.title} />
+                      {sec.description && (
+                        <p className="text-sm text-ink-secondary">{sec.description}</p>
+                      )}
+                      <ol className="flex flex-col gap-3">
+                        {groupSteps.map((s, i) => (
+                          <StepBlock key={s.id} step={s} index={i + 1} />
+                        ))}
+                      </ol>
+                    </section>
+                  );
+                })}
+              </>
+            );
+          })()}
 
           {/* VERIFICATION — when enabled */}
           {m?.verification.enabled && (

@@ -100,6 +100,24 @@ function clearDraft(runId: string, stepId: string): void {
   }
 }
 
+// Re-sort a procedure bundle's steps into display order:
+// (section.orderingHint, step.orderingHint). Orphan steps (sectionId === null)
+// sort first. Ungrouped procedures (no sections) come back identical.
+function sortBundleSteps(b: ProcedureBundle): ProcedureBundle {
+  const sections = b.sections ?? [];
+  if (sections.length === 0) return b;
+  const orderById = new Map<string, number>(
+    sections.map((sec) => [sec.id, sec.orderingHint]),
+  );
+  const steps = [...b.steps].sort((a, c) => {
+    const sa = a.sectionId == null ? -1 : orderById.get(a.sectionId) ?? Infinity;
+    const sb = c.sectionId == null ? -1 : orderById.get(c.sectionId) ?? Infinity;
+    if (sa !== sb) return sa - sb;
+    return a.orderingHint - c.orderingHint;
+  });
+  return { ...b, steps };
+}
+
 export function ProcedureRunner({
   docId,
   assetInstanceId,
@@ -159,13 +177,19 @@ export function ProcedureRunner({
           devOrgId,
         });
         if (cancelled) return;
-        setBundle(b);
-        // If there are existing completions, advance to the first
-        // un-completed step (resume position).
-        const firstIncomplete = b.steps.findIndex(
-          (s) => !b.completions.some((c) => c.stepId === s.id),
+        // Sort the bundle's steps into display order — (section
+        // orderingHint, step orderingHint) — before storing so currentStepIndex
+        // navigates in section-aware order from index 0. Without this, the
+        // mount effect's firstIncomplete index would point into the raw
+        // server order, which interleaves across sections.
+        const sorted = sortBundleSteps(b);
+        setBundle(sorted);
+        const firstIncomplete = sorted.steps.findIndex(
+          (s) => !sorted.completions.some((c) => c.stepId === s.id),
         );
-        setCurrentStepIndex(firstIncomplete === -1 ? b.steps.length - 1 : firstIncomplete);
+        setCurrentStepIndex(
+          firstIncomplete === -1 ? sorted.steps.length - 1 : firstIncomplete,
+        );
         setEnteredAt(new Date());
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -267,6 +291,34 @@ export function ProcedureRunner({
   }
 
   const { run, document: doc, steps, completions } = bundle;
+  // sortBundleSteps is applied at mount, so bundle.steps is already in
+  // (section.orderingHint, step.orderingHint) display order.
+  const bundleSections = bundle.sections ?? [];
+  const sectionTitleById = new Map<string, string>(
+    bundleSections.map((sec) => [sec.id, sec.title]),
+  );
+  // Per-section index: stepId → 1-based position within its section. Used
+  // for the "Removal: step 3 of 7" header.
+  const perSectionIndex = new Map<string, { idx: number; total: number; sectionLabel: string | null }>();
+  {
+    const byLabel = new Map<string | null, ProcedureStepDto[]>();
+    for (const s of steps) {
+      const key = s.sectionId;
+      const arr = byLabel.get(key) ?? [];
+      arr.push(s);
+      byLabel.set(key, arr);
+    }
+    for (const [secId, arr] of byLabel.entries()) {
+      const label = secId == null ? null : sectionTitleById.get(secId) ?? null;
+      arr.forEach((s, i) => {
+        perSectionIndex.set(s.id, {
+          idx: i + 1,
+          total: arr.length,
+          sectionLabel: label,
+        });
+      });
+    }
+  }
   const completionByStep = new Map(completions.map((c) => [c.stepId, c]));
   const stepMaybe = steps[currentStepIndex];
   if (!stepMaybe) {
@@ -581,8 +633,28 @@ export function ProcedureRunner({
             <span className="ml-1 normal-case text-ink-tertiary">· {doc.title}</span>
           </span>
           <h2 className="truncate text-base font-semibold">
-            Step {String(currentStepIndex + 1).padStart(2, '0')} of{' '}
-            {String(steps.length).padStart(2, '0')} — {step.title}
+            {(() => {
+              const meta = perSectionIndex.get(step.id);
+              // When the procedure has sections, prefer per-section count
+              // ("Removal: step 3/7 — overall 10/20"). For ungrouped
+              // procedures the old "Step X of Y" reads cleaner.
+              if (meta && meta.sectionLabel) {
+                return (
+                  <>
+                    {meta.sectionLabel}: step {String(meta.idx).padStart(2, '0')} of{' '}
+                    {String(meta.total).padStart(2, '0')}
+                    <span className="text-ink-tertiary"> · overall {String(currentStepIndex + 1).padStart(2, '0')}/{String(steps.length).padStart(2, '0')}</span>
+                    {' '}— {step.title}
+                  </>
+                );
+              }
+              return (
+                <>
+                  Step {String(currentStepIndex + 1).padStart(2, '0')} of{' '}
+                  {String(steps.length).padStart(2, '0')} — {step.title}
+                </>
+              );
+            })()}
           </h2>
         </div>
         <button

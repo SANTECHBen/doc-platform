@@ -17,12 +17,14 @@ import { useToast } from '@/components/toast';
 import { ErrorBanner, PrimaryButton, SecondaryButton } from '@/components/form';
 import {
   getAdminDocument,
+  listProcedureSections,
   listProcedureSteps,
   listSectionsForDocument,
   revalidateDocumentSections,
   verifyFieldDocument,
   type AdminDocumentDetail,
   type AdminDocumentSection,
+  type AdminProcedureSection,
   type AdminProcedureStep,
 } from '@/lib/api';
 import { SectionsTab } from './sections-tab';
@@ -50,6 +52,9 @@ export default function DocumentDetailPage({
   const [doc, setDoc] = useState<AdminDocumentDetail | null>(null);
   const [sections, setSections] = useState<AdminDocumentSection[] | null>(null);
   const [steps, setSteps] = useState<AdminProcedureStep[] | null>(null);
+  // Procedure sections — distinct from doc sections above. Used by the
+  // sectioned procedure CMS editor on the "steps" tab.
+  const [procedureSections, setProcedureSections] = useState<AdminProcedureSection[]>([]);
   const [tab, setTab] = useState<Tab>(initialTab);
   const [error, setError] = useState<string | null>(null);
   const [revalBusy, setRevalBusy] = useState(false);
@@ -61,13 +66,15 @@ export default function DocumentDetailPage({
       // every other doc kind, the steps endpoint would 400 / be irrelevant.
       const d = await getAdminDocument(id);
       const isProcedure = d.kind === 'structured_procedure';
-      const [s, st] = await Promise.all([
+      const [s, st, psecs] = await Promise.all([
         listSectionsForDocument(id),
         isProcedure ? listProcedureSteps(id) : Promise.resolve(null),
+        isProcedure ? listProcedureSections(id) : Promise.resolve([]),
       ]);
       setDoc(d);
       setSections(s);
       setSteps(st);
+      setProcedureSections(psecs ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -239,7 +246,12 @@ export default function DocumentDetailPage({
       )}
       {tab === 'linked-parts' && <LinkedPartsTab documentId={doc.id} />}
       {tab === 'steps' && doc.kind === 'structured_procedure' && (
-        <ProcedureCmsEditor doc={doc} steps={steps ?? []} onChanged={refresh} />
+        <ProcedureCmsEditor
+          doc={doc}
+          steps={steps ?? []}
+          sections={procedureSections}
+          onChanged={refresh}
+        />
       )}
     </PageShell>
   );
