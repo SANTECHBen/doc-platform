@@ -519,58 +519,65 @@ function NewItemRow({
     }
   }
 
+  // Responsive layout: a compact 2-column grid for the inputs that wraps
+  // to 1 column on narrow viewports, with a clearly-labelled full-width
+  // "Add row" button below. The previous inline 6-column grid had an
+  // icon-only submit that got clipped on smaller widths — labelled
+  // bottom-CTA is harder to lose and matches the rest of the admin UI.
+  const canSubmit = !busy && component.trim() !== '' && checkText.trim() !== '';
   return (
     <form
       onSubmit={submit}
-      className="grid grid-cols-[11rem_1fr_1fr_8rem_12rem_2rem] items-center gap-2 border-t border-line-subtle bg-surface-inset px-3 py-2"
+      className="flex flex-col gap-2 border-t border-line-subtle bg-surface-inset px-3 py-3"
     >
-      <input
-        value={component}
-        onChange={(e) => setComponent(e.target.value)}
-        placeholder="Component"
-        className="rounded border border-line bg-surface px-2 py-1 text-sm"
-      />
-      <input
-        value={checkText}
-        onChange={(e) => setCheckText(e.target.value)}
-        placeholder="Check (e.g., Check for plastic dust)"
-        className="rounded border border-line bg-surface px-2 py-1 text-sm"
-      />
-      <input
-        value={remarks}
-        onChange={(e) => setRemarks(e.target.value)}
-        placeholder="Remarks (optional)"
-        className="rounded border border-line bg-surface px-2 py-1 text-sm"
-      />
-      <Select
-        value={frequency}
-        onChange={(e) => setFrequency(e.target.value as PmPlanFrequency)}
-      >
-        {FREQUENCY_OPTIONS.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </Select>
-      <Select
-        value={documentId}
-        onChange={(e) => setDocumentId(e.target.value)}
-      >
-        <option value="">— None —</option>
-        {docs.map((d) => (
-          <option key={d.id} value={d.id}>
-            {d.title}
-          </option>
-        ))}
-      </Select>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-[12rem_1fr_1fr_9rem_12rem]">
+        <input
+          value={component}
+          onChange={(e) => setComponent(e.target.value)}
+          placeholder="Component (e.g., Roller belt)"
+          className="rounded border border-line bg-surface px-2 py-1.5 text-sm"
+        />
+        <input
+          value={checkText}
+          onChange={(e) => setCheckText(e.target.value)}
+          placeholder="Check (e.g., Check for plastic dust)"
+          className="rounded border border-line bg-surface px-2 py-1.5 text-sm"
+        />
+        <input
+          value={remarks}
+          onChange={(e) => setRemarks(e.target.value)}
+          placeholder="Remarks (optional)"
+          className="rounded border border-line bg-surface px-2 py-1.5 text-sm"
+        />
+        <Select
+          value={frequency}
+          onChange={(e) => setFrequency(e.target.value as PmPlanFrequency)}
+        >
+          {FREQUENCY_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
+        <Select
+          value={documentId}
+          onChange={(e) => setDocumentId(e.target.value)}
+        >
+          <option value="">Procedure: — None —</option>
+          {docs.map((d) => (
+            <option key={d.id} value={d.id}>
+              Procedure: {d.title}
+            </option>
+          ))}
+        </Select>
+      </div>
       <button
         type="submit"
-        disabled={busy || !component.trim() || !checkText.trim()}
-        className="rounded bg-accent p-1 text-white disabled:opacity-40"
-        title="Add row"
-        aria-label="Add row"
+        disabled={!canSubmit}
+        className="group flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-line bg-surface px-3 py-2 text-xs font-medium text-ink-secondary transition hover:border-accent/40 hover:bg-accent/5 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <Plus size={14} />
+        <Plus size={14} strokeWidth={2} className="transition group-hover:rotate-90" />
+        {busy ? 'Adding…' : 'Add row'}
       </button>
     </form>
   );
