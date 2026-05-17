@@ -81,12 +81,7 @@ export function PMSchedulesSection({
           type="button"
           onClick={() => setDrawerMode({ kind: 'create' })}
           className="btn btn-primary btn-sm"
-          disabled={docs.length === 0}
-          title={
-            docs.length === 0
-              ? 'Add a structured procedure to a content pack first.'
-              : 'New PM schedule'
-          }
+          title="New PM schedule"
         >
           <Plus size={14} strokeWidth={2} /> New schedule
         </button>
@@ -104,15 +99,15 @@ export function PMSchedulesSection({
           <p className="text-sm text-ink-secondary">
             No PM schedules yet for this model.
           </p>
-          {docs.length === 0 ? (
+          <SecondaryButton onClick={() => setDrawerMode({ kind: 'create' })}>
+            <Plus size={14} strokeWidth={2} /> Add the first schedule
+          </SecondaryButton>
+          {docs.length === 0 && (
             <p className="text-xs text-ink-tertiary">
-              Add a structured procedure to one of this model's content packs
-              first — schedules need a procedure to point at.
+              No structured procedures on this model yet — that's fine, you
+              can still author cadence-only "reminder" PMs and attach a
+              procedure later.
             </p>
-          ) : (
-            <SecondaryButton onClick={() => setDrawerMode({ kind: 'create' })}>
-              <Plus size={14} strokeWidth={2} /> Add the first schedule
-            </SecondaryButton>
           )}
         </div>
       ) : (
@@ -144,7 +139,9 @@ export function PMSchedulesSection({
                   </td>
                   <td className="px-4 py-3 text-ink-secondary">
                     {s.document?.title ?? (
-                      <span className="text-signal-warn">no procedure attached</span>
+                      <span className="italic text-ink-tertiary">
+                        Reminder only
+                      </span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-ink-secondary">
@@ -348,15 +345,18 @@ function ScheduleForm({
       </Field>
       <Field
         label="Procedure to run"
-        required
-        hint="Pick a structured procedure attached to one of this model's content packs."
+        hint="Pick a structured procedure attached to one of this model's content packs, or leave as 'Reminder only' for a cadence-only PM with no Job Aid."
       >
         <Select
           value={documentId}
           onChange={(e) => setDocumentId(e.target.value)}
-          required
         >
-          <option value="">Select procedure…</option>
+          {/* Cadence-only PM: schedule still alerts on due/overdue but
+              has no procedure to launch. PWA shows a "Mark performed"
+              button instead of "Run procedure" — good fit for things
+              like "visual inspection every shift" where there's no
+              formal step list. */}
+          <option value="">— Reminder only (no procedure) —</option>
           {docs.map((d) => (
             <option key={d.id} value={d.id}>
               {d.title}

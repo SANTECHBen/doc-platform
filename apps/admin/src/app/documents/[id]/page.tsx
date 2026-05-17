@@ -5,6 +5,7 @@ import { use, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
+  CalendarClock,
   CheckCircle2,
   FileText,
   Link2,
@@ -163,6 +164,12 @@ export default function DocumentDetailPage({
             {/* AI knowledge toggle — pill doubles as status + quick action.
                 Off = chunks excluded from chat retriever; on = searchable. */}
             <AiIndexedPill doc={doc} onChanged={refresh} />
+            {/* "Used by N PMs" — only renders when at least one PM schedule
+                references this procedure. Hover to see all referencing
+                schedules; click to jump to the first one's asset model. */}
+            {doc.pmScheduleRefs.length > 0 && (
+              <PmScheduleRefsPill refs={doc.pmScheduleRefs} />
+            )}
             {doc.extractionStatus !== 'ready' && doc.extractionStatus !== 'not_applicable' && (
               <Pill tone={doc.extractionStatus === 'failed' ? 'danger' : 'info'}>
                 extraction: {doc.extractionStatus}
@@ -376,6 +383,32 @@ function OverviewTab({
         )}
       </div>
     </div>
+  );
+}
+
+// "Used by N PMs" pill — surfaces the reverse linkage so an admin
+// looking at a procedure knows whether it's library-only or wired into
+// PM schedules. Click jumps to the first referencing schedule's asset
+// model PM section (anchored via #pm-section in the asset-model page).
+function PmScheduleRefsPill({
+  refs,
+}: {
+  refs: AdminDocumentDetail['pmScheduleRefs'];
+}) {
+  const first = refs[0];
+  if (!first) return null;
+  const href = `/asset-models/${encodeURIComponent(first.assetModelId)}#pm-section`;
+  const title = `Used by ${refs.length} PM schedule${refs.length === 1 ? '' : 's'}:\n` +
+    refs.map((r) => `• ${r.assetModelDisplayName}: ${r.name}`).join('\n');
+  return (
+    <Link
+      href={href}
+      title={title}
+      className="inline-flex items-center gap-1 rounded-full border border-brand/40 bg-brand/10 px-2 py-0.5 text-[11px] font-medium text-brand transition hover:bg-brand/15"
+    >
+      <CalendarClock className="size-3" />
+      {refs.length} PM{refs.length === 1 ? '' : 's'}
+    </Link>
   );
 }
 

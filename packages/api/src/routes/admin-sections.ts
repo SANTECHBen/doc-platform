@@ -16,7 +16,7 @@
 // surface — it sees sections via /parts/:partId/resources.
 
 import type { FastifyInstance } from 'fastify';
-import { and, eq, inArray, asc } from 'drizzle-orm';
+import { and, eq, inArray, asc, sql } from 'drizzle-orm';
 import { schema, type Database, normalizeRequiredTools } from '@platform/db';
 import { z } from 'zod';
 import { UuidSchema } from '@platform/shared';
@@ -277,6 +277,34 @@ export async function registerAdminSections(app: FastifyInstance) {
           }
         : null;
 
+      // PM schedules that reference this document. Used by the admin's
+      // doc detail page to render a "Used by N PMs" pill linking back to
+      // the asset model that owns the schedule. Empty for non-procedure
+      // docs (no schedule can point at a PDF). One small JOIN — pm_schedules
+      // → asset_models so we can render a useful link, not just a count.
+      const pmScheduleRefs =
+        d.kind === 'structured_procedure'
+          ? ((await db.execute<{
+              id: string;
+              name: string;
+              asset_model_id: string;
+              asset_model_display_name: string;
+            }>(
+              sql`SELECT s.id, s.name,
+                       s.asset_model_id,
+                       am.display_name AS asset_model_display_name
+                  FROM pm_schedules s
+                  JOIN asset_models am ON am.id = s.asset_model_id
+                  WHERE s.document_id = ${d.id}
+                  ORDER BY am.display_name, s.name`,
+            )) as unknown as Array<{
+              id: string;
+              name: string;
+              asset_model_id: string;
+              asset_model_display_name: string;
+            }>)
+          : [];
+
       return {
         id: d.id,
         title: d.title,
@@ -291,6 +319,18 @@ export async function registerAdminSections(app: FastifyInstance) {
         extractedAt: d.extractedAt ? d.extractedAt.toISOString() : null,
         safetyCritical: d.safetyCritical,
         aiIndexed: d.aiIndexed,
+        // Inverse linkage: which PM schedules point at this procedure.
+        // Only meaningful for structured_procedure docs; for others this
+        // is an empty list (the query still runs but returns nothing
+        // since no schedule can reference a non-procedure document). The
+        // admin doc detail page uses this to render a "Used by N PMs"
+        // pill that links back to the asset model's PM section.
+        pmScheduleRefs: pmScheduleRefs.map((r) => ({
+          id: r.id,
+          name: r.name,
+          assetModelId: r.asset_model_id,
+          assetModelDisplayName: r.asset_model_display_name,
+        })),
         language: d.language,
         orderingHint: d.orderingHint,
         storageKey: d.storageKey,

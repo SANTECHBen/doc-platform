@@ -1478,6 +1478,16 @@ export interface AdminDocumentDetail {
    *  authored content) and false for uploaded media (pdf / slides /
    *  schematic / file / video) until the admin reviews and opts in. */
   aiIndexed: boolean;
+  /** PM schedules that reference this document. Always [] for non-procedure
+   *  docs (only structured_procedure can be a PM target). Used by the doc
+   *  detail page to render a "Used by N PMs" pill linking back to the
+   *  asset model section that owns each schedule. */
+  pmScheduleRefs: Array<{
+    id: string;
+    name: string;
+    assetModelId: string;
+    assetModelDisplayName: string;
+  }>;
   language: string | null;
   orderingHint: number;
   storageKey: string | null;

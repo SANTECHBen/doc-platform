@@ -484,31 +484,46 @@ function ScheduleCard({
       </div>
       <div className="flex flex-wrap gap-2">
         {schedule.schedule.document ? (
+          <>
+            <button
+              type="button"
+              onClick={onRunProcedure}
+              className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold"
+              style={{
+                background: 'rgb(var(--brand))',
+                color: 'rgb(var(--ink-on-brand, 255 255 255))',
+              }}
+            >
+              <Play size={12} strokeWidth={2.5} />
+              Run procedure
+            </button>
+            <button
+              type="button"
+              onClick={onMarkDone}
+              className="inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-inset"
+            >
+              <CheckCircle2 size={12} strokeWidth={2} />
+              Mark done (no run)
+            </button>
+          </>
+        ) : (
+          // Cadence-only PM: no procedure to launch, so the only action
+          // is acknowledging the work was performed. Promote it to the
+          // primary brand button so the tech doesn't hunt for a "what
+          // do I do here?" — there's only one thing to do.
           <button
             type="button"
-            onClick={onRunProcedure}
+            onClick={onMarkDone}
             className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold"
             style={{
               background: 'rgb(var(--brand))',
               color: 'rgb(var(--ink-on-brand, 255 255 255))',
             }}
           >
-            <Play size={12} strokeWidth={2.5} />
-            Run procedure
+            <CheckCircle2 size={12} strokeWidth={2.5} />
+            Mark performed
           </button>
-        ) : (
-          <span className="inline-flex items-center gap-1.5 rounded-md border border-dashed px-3 py-1.5 text-xs text-ink-tertiary">
-            No procedure attached
-          </span>
         )}
-        <button
-          type="button"
-          onClick={onMarkDone}
-          className="inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-inset"
-        >
-          <CheckCircle2 size={12} strokeWidth={2} />
-          Mark done (no run)
-        </button>
       </div>
     </li>
   );
