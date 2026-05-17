@@ -272,14 +272,19 @@ function ScheduleForm({
         graceDays: mode.schedule.graceDays,
       };
     }
+    // Default to "Reminder only" (empty documentId) in create mode so the
+    // cadence-only option is the visible starting point — admins who want
+    // to attach a procedure click the dropdown and pick one. Previously
+    // we pre-selected docs[0]; that hid the new "Reminder only" affordance
+    // behind a closed dropdown and made the change feel invisible.
     return {
-      documentId: docs[0]?.id ?? '',
+      documentId: '',
       name: '',
       description: '',
       cadenceValue: 90,
       graceDays: 0,
     };
-  }, [mode, docs]);
+  }, [mode]);
 
   const [documentId, setDocumentId] = useState(initial.documentId);
   const [name, setName] = useState(initial.name);
