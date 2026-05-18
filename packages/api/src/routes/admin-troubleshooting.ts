@@ -42,8 +42,12 @@ const UpdateGuideBody = z
 // consider; documentId optionally links to a structured_procedure so the
 // row gets its own "Run" button in the PWA. Same shape for both cause
 // and remedy — symmetric authoring + rendering.
+//
+// text allows empty so the admin can commit a blank "+ Add item" row
+// before the author types into it (mirrors PM Plan items). The PWA
+// filters empty-text rows out of rendering so techs never see blanks.
 const StructuredItemSchema = z.object({
-  text: z.string().min(1).max(1000),
+  text: z.string().max(1000),
   documentId: UuidSchema.nullable().optional(),
 });
 
