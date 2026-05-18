@@ -3,7 +3,18 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { use, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, Loader2, Package, Pin, Plus, Trash2, Upload } from 'lucide-react';
+import {
+  AlertTriangle,
+  CalendarRange,
+  ChevronDown,
+  Info,
+  Loader2,
+  Package,
+  Pin,
+  Plus,
+  Trash2,
+  Upload,
+} from 'lucide-react';
 import { PageHeader, PageShell } from '@/components/page-shell';
 import { PMSchedulesSection } from '@/components/pm-schedules-section';
 import { PMPlansSection } from '@/components/pm-plans-section';
@@ -80,6 +91,30 @@ export default function AssetModelDetail({
   const router = useRouter();
   const searchParams = useSearchParams();
   const continueOrgId = searchParams?.get('continue') ?? null;
+  // Tabbed layout — the page used to be one long scroll across overview,
+  // parts, maintenance, troubleshooting. Authors only need one of those at
+  // a time, so tabs cut cognitive load and let URLs deep-link
+  // (?tab=maintenance). Mirrors the pattern used on /documents/[id].
+  type Tab = 'overview' | 'parts' | 'maintenance' | 'troubleshooting';
+  const tabParam = searchParams?.get('tab');
+  const initialTab: Tab =
+    tabParam === 'parts' ||
+    tabParam === 'maintenance' ||
+    tabParam === 'troubleshooting'
+      ? (tabParam as Tab)
+      : 'overview';
+  const [tab, setTab] = useState<Tab>(initialTab);
+  function changeTab(next: Tab) {
+    setTab(next);
+    // Keep the URL in sync so the back button + refresh stay on the tab
+    // the author was using, and deep-links survive. Replace not push so
+    // tab toggles don't pile up in browser history.
+    const params = new URLSearchParams(window.location.search);
+    if (next === 'overview') params.delete('tab');
+    else params.set('tab', next);
+    const qs = params.toString();
+    router.replace(`/asset-models/${id}${qs ? `?${qs}` : ''}`, { scroll: false });
+  }
   const [model, setModel] = useState<AdminAssetModel | null>(null);
   const [instances, setInstances] = useState<ModelInstance[] | null>(null);
   const [sites, setSites] = useState<AdminSite[]>([]);
@@ -321,42 +356,69 @@ export default function AssetModelDetail({
           </>
         }
       />
-      {sites.length === 0 && (
-        <div className="mb-4 rounded border border-signal-warn/40 bg-signal-warn/10 p-3 text-sm text-signal-warn">
-          <p className="font-medium">No sites in scope yet.</p>
-          <p className="mt-1 text-ink-secondary">
-            An asset instance is a <strong>physical unit at a specific location</strong>{' '}
-            so techs scanning its QR know which unit they're servicing. The location can
-            be any of:
-          </p>
-          <ul className="ml-5 mt-1 list-disc text-ink-secondary">
-            <li>
-              <strong>The OEM's own site</strong> — factory floor, demo unit, showroom,
-              pre-deployment inventory. Use this when the QR ships with the product
-              before it's sold/installed.
-            </li>
-            <li>
-              <strong>An integrator's site</strong> — staging / commissioning facility.
-            </li>
-            <li>
-              <strong>An end-customer's site</strong> — the deployed location (e.g.,
-              "FedEx Memphis Secondary 25"). Most common for live equipment.
-            </li>
-          </ul>
-          <p className="mt-2 text-ink-secondary">
-            Open <a className="underline" href={`/tenants/${model.owner.id}`}>{model.owner.name}</a>{' '}
-            (or any other tenant in scope) and add a site there, then come back to
-            click Add instance.
-          </p>
-        </div>
-      )}
+      {/* Tab bar — sits below the page header. Mirrors /documents/[id]'s
+          tab pattern for consistency. Counts deliberately omitted per
+          product call: lighter labels, less ambient noise. */}
+      <nav className="mb-6 flex gap-2 border-b border-line">
+        <TabButton active={tab === 'overview'} onClick={() => changeTab('overview')}>
+          <Info className="size-4" /> Overview
+        </TabButton>
+        <TabButton active={tab === 'parts'} onClick={() => changeTab('parts')}>
+          <Package className="size-4" /> Parts
+        </TabButton>
+        <TabButton
+          active={tab === 'maintenance'}
+          onClick={() => changeTab('maintenance')}
+        >
+          <CalendarRange className="size-4" /> Maintenance
+        </TabButton>
+        <TabButton
+          active={tab === 'troubleshooting'}
+          onClick={() => changeTab('troubleshooting')}
+        >
+          <AlertTriangle className="size-4" /> Troubleshooting
+        </TabButton>
+      </nav>
 
-      <h2
-        id="instances-section"
-        className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-tertiary scroll-mt-24"
-      >
-        Deployed instances ({instances?.length ?? 0})
-      </h2>
+      {/* ============================== OVERVIEW ============================== */}
+      {tab === 'overview' && (
+        <>
+          {sites.length === 0 && (
+            <div className="mb-4 rounded border border-signal-warn/40 bg-signal-warn/10 p-3 text-sm text-signal-warn">
+              <p className="font-medium">No sites in scope yet.</p>
+              <p className="mt-1 text-ink-secondary">
+                An asset instance is a <strong>physical unit at a specific location</strong>{' '}
+                so techs scanning its QR know which unit they're servicing. The location can
+                be any of:
+              </p>
+              <ul className="ml-5 mt-1 list-disc text-ink-secondary">
+                <li>
+                  <strong>The OEM's own site</strong> — factory floor, demo unit, showroom,
+                  pre-deployment inventory. Use this when the QR ships with the product
+                  before it's sold/installed.
+                </li>
+                <li>
+                  <strong>An integrator's site</strong> — staging / commissioning facility.
+                </li>
+                <li>
+                  <strong>An end-customer's site</strong> — the deployed location (e.g.,
+                  "FedEx Memphis Secondary 25"). Most common for live equipment.
+                </li>
+              </ul>
+              <p className="mt-2 text-ink-secondary">
+                Open <a className="underline" href={`/tenants/${model.owner.id}`}>{model.owner.name}</a>{' '}
+                (or any other tenant in scope) and add a site there, then come back to
+                click Add instance.
+              </p>
+            </div>
+          )}
+
+          <h2
+            id="instances-section"
+            className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-tertiary scroll-mt-24"
+          >
+            Deployed instances ({instances?.length ?? 0})
+          </h2>
 
       {instances === null ? (
         <p className="p-6 text-center text-sm text-ink-tertiary">Loading…</p>
@@ -447,27 +509,24 @@ export default function AssetModelDetail({
         </div>
       )}
 
-      <BomPanel assetModelId={id} />
+        </>
+      )}
 
-      {/* Maintenance cluster — groups everything maintenance-y under one
-          visual header so the page doesn't read as a flat scroll of
-          loosely related sections. Each sub-section is independently
-          collapsible from within its own component header. The inner
-          sections supply their own vertical rhythm (mt-8); the wrapper
-          just provides the bordered-card visual + cluster heading. */}
-      <div className="mt-8 rounded-lg border border-line-subtle bg-surface-raised/50 p-4">
-        <div className="-mt-2 mb-2 flex items-baseline justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-primary">
-            Maintenance
-          </h2>
-          <span className="text-xs text-ink-tertiary">
-            PM Plans · PM Schedules · Troubleshooting
-          </span>
+      {/* ============================== PARTS ============================== */}
+      {tab === 'parts' && <BomPanel assetModelId={id} />}
+
+      {/* ============================ MAINTENANCE ============================ */}
+      {tab === 'maintenance' && (
+        <div className="flex flex-col">
+          <PMPlansSection assetModelId={id} />
+          <PMSchedulesSection assetModelId={id} />
         </div>
-        <PMPlansSection assetModelId={id} />
-        <PMSchedulesSection assetModelId={id} />
+      )}
+
+      {/* ========================= TROUBLESHOOTING ========================= */}
+      {tab === 'troubleshooting' && (
         <TroubleshootingSection assetModelId={id} />
-      </div>
+      )}
 
       <Drawer title="Edit asset model" open={editOpen} onClose={() => setEditOpen(false)}>
         <div className="flex flex-col gap-3">
@@ -1237,5 +1296,33 @@ function AddBomForm({
         </PrimaryButton>
       </div>
     </form>
+  );
+}
+
+// Tab button styled to match the convention used on /documents/[id] —
+// transparent border by default, accent underline + ink-primary text
+// when active. Negative margin pulls the active underline onto the
+// parent nav's border so they read as one line.
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm transition ${
+        active
+          ? 'border-accent text-ink-primary'
+          : 'border-transparent text-ink-tertiary hover:text-ink-primary'
+      }`}
+    >
+      {children}
+    </button>
   );
 }
