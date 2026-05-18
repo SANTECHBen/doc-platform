@@ -24,6 +24,7 @@ import {
   deleteProcedureStepMedia,
   type AdminProcedureSection,
   type AdminProcedureStep,
+  type AdminSiblingProcedure,
   type AdminStepMedia,
   type ProcedureStepKind,
   type StepBlock,
@@ -60,6 +61,10 @@ interface Props {
    *  steps so the author can type immediately; everything else stays
    *  collapsed so a long procedure stays scannable. */
   defaultExpanded?: boolean;
+  /** Sibling structured_procedure docs in the same content pack version.
+   *  Populates the "Linked sub-procedure" picker so the author can wire
+   *  this step to launch another procedure when the tech taps Run. */
+  siblingProcedures?: AdminSiblingProcedure[];
 }
 
 const KIND_OPTIONS: Array<{ value: ProcedureStepKind; label: string; icon: typeof ClipboardCheck }> = [
@@ -86,6 +91,7 @@ export function StepCard({
   sections,
   onMoveToSection,
   defaultExpanded = false,
+  siblingProcedures,
 }: Props) {
   // Collapsed by default — see Props.defaultExpanded. Authors scan dozens
   // of steps; only one is being actively edited at any moment, so the
@@ -407,6 +413,19 @@ export function StepCard({
               autoFocus={defaultExpanded}
             />
 
+            {/* Linked sub-procedure picker — wires this step to launch another
+                procedure when the tech taps Run in the PWA Job Aid. Useful for
+                conditional branches like "Replace the belt, if necessary" →
+                Belt Replacement procedure. Only renders when there's at least
+                one sibling procedure in the same content pack version. */}
+            {siblingProcedures && siblingProcedures.length > 0 && (
+              <LinkedSubProcedurePicker
+                value={step.linkedProcedureDocId}
+                siblings={siblingProcedures}
+                onChange={(next) => void onPatch({ linkedProcedureDocId: next })}
+              />
+            )}
+
             <BlockListEditor
               blocks={blocks}
               onChange={onBlocksChange}
@@ -715,6 +734,55 @@ function StepVideosPanel({
           disabled={busy === true}
         />
       </label>
+    </div>
+  );
+}
+
+// Compact picker that ties this step to a sibling structured_procedure.
+// When set, the PWA Job Aid renders a "Run sub-procedure: <title>" button
+// below the step content; tapping it pushes the linked procedure as a
+// nested Job Aid (with breadcrumb + push/pop). Skipping is just tapping
+// Next — the link is treated as an optional branch.
+function LinkedSubProcedurePicker({
+  value,
+  siblings,
+  onChange,
+}: {
+  value: string | null;
+  siblings: AdminSiblingProcedure[];
+  onChange: (next: string | null) => void;
+}) {
+  const linked = value ? siblings.find((s) => s.id === value) ?? null : null;
+  return (
+    <div
+      className={[
+        'flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm',
+        linked
+          ? 'border-accent/30 bg-accent/5'
+          : 'border-line-subtle bg-surface-inset',
+      ].join(' ')}
+    >
+      <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-ink-tertiary">
+        <ListChecks className="size-3.5" />
+        Sub-procedure
+      </span>
+      <select
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value === '' ? null : e.target.value)}
+        className="min-w-0 flex-1 rounded border border-line bg-surface px-2 py-1 text-sm text-ink-primary"
+      >
+        <option value="">— None (no Run button) —</option>
+        {siblings.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.title}
+          </option>
+        ))}
+      </select>
+      {linked && (
+        <span className="text-xs text-ink-tertiary">
+          Tech taps Run to enter <span className="font-semibold">{linked.title}</span>.
+        </span>
+      )}
     </div>
   );
 }

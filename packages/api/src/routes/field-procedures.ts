@@ -1316,6 +1316,24 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
           ],
         }),
       ]);
+      // Resolve linked sub-procedure summaries in one query so the PWA
+      // can render the "Run sub-procedure: <title>" button label without
+      // a per-step round trip. Cheap — at most one row per linked step,
+      // and most procedures link 0–2 sub-procedures.
+      const linkedDocIds = [
+        ...new Set(
+          steps
+            .map((s) => s.linkedProcedureDocId)
+            .filter((id): id is string => id !== null),
+        ),
+      ];
+      const linkedDocs = linkedDocIds.length
+        ? await db.query.documents.findMany({
+            where: inArray(schema.documents.id, linkedDocIds),
+            columns: { id: true, title: true },
+          })
+        : [];
+      const linkedById = new Map(linkedDocs.map((d) => [d.id, d]));
       const stepIds = steps.map((s) => s.id);
       const substeps = stepIds.length
         ? await db.query.procedureSubsteps.findMany({
@@ -1396,6 +1414,20 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
         steps: steps.map((s) => ({
           id: s.id,
           sectionId: s.sectionId,
+          linkedProcedureDocId: s.linkedProcedureDocId,
+          // Embed the linked sub-procedure's title so the PWA renders the
+          // "Run sub-procedure: <title>" button without a separate fetch.
+          // Null when the link is unset OR when the target doc was deleted
+          // (FK ON DELETE SET NULL clears linkedProcedureDocId in that case,
+          // so an orphan id should never appear here in practice).
+          linkedProcedureDoc:
+            s.linkedProcedureDocId &&
+            linkedById.has(s.linkedProcedureDocId)
+              ? {
+                  id: s.linkedProcedureDocId,
+                  title: linkedById.get(s.linkedProcedureDocId)!.title,
+                }
+              : null,
           kind: s.kind,
           title: s.title,
           bodyMarkdown: s.bodyMarkdown,

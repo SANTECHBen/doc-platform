@@ -56,7 +56,18 @@ interface Props {
   onClose: (state: { completed: boolean }) => void;
   /** Speak step content automatically when shown? Default true. */
   autoSpeak?: boolean;
+  /** Call-stack of parent procedure titles when this instance is rendered
+   *  as a nested sub-procedure. Drives the breadcrumb at the top of the
+   *  header ("Inspection › Belt Replacement") and the depth limit on
+   *  pushing further sub-procedures. Default [] = top-level. */
+  breadcrumb?: string[];
 }
+
+// Max nesting depth — refuse to push a sub-procedure deeper than this so
+// authored loops (A → B → A → …) can't run away. 3 is generous in practice
+// (parent → child → grandchild); a deeper stack reads as a procedure
+// modeling problem.
+const MAX_SUB_PROCEDURE_DEPTH = 3;
 
 // Internal normalized shape — what the renderer actually consumes.
 interface ResolvedJobAid {
@@ -95,6 +106,10 @@ interface ResolvedJobAid {
     /** Total steps in this step's section — denominator for the "step 3 of 7
      *  in Removal" display. */
     sectionStepTotal: number;
+    /** Sub-procedure link summary. When set, the renderer shows a "Run
+     *  sub-procedure" button below the step content that pushes the
+     *  linked procedure as a nested Job Aid. */
+    linkedSubProcedure: { docId: string; title: string } | null;
   }>;
 }
 
@@ -189,6 +204,7 @@ function buildSectionedSteps(
     const augmented = s as ProcedureDocFullDto['steps'][number] & {
       audioUrl?: string | null;
       blocks?: StepBlock[];
+      linkedProcedureDoc?: { id: string; title: string } | null;
     };
     return {
       title: s.title,
@@ -202,6 +218,12 @@ function buildSectionedSteps(
         s.sectionId == null ? null : titleById.get(s.sectionId) ?? null,
       sectionStepIndex: nextIdx,
       sectionStepTotal: totalsBySection.get(sectionKey) ?? 1,
+      linkedSubProcedure: augmented.linkedProcedureDoc
+        ? {
+            docId: augmented.linkedProcedureDoc.id,
+            title: augmented.linkedProcedureDoc.title,
+          }
+        : null,
     };
   });
 }
@@ -227,16 +249,29 @@ function normalizeFromInline(
       sectionLabel: null,
       sectionStepIndex: i + 1,
       sectionStepTotal: inline.steps.length,
+      // Inline source has no procedure-doc references.
+      linkedSubProcedure: null,
     })),
   };
 }
 
-export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): React.ReactElement {
+export function VirtualJobAid({
+  source,
+  onClose,
+  autoSpeak = true,
+  breadcrumb = [],
+}: Props): React.ReactElement {
   const [resolved, setResolved] = useState<ResolvedJobAid | null>(
     source.kind === 'inline' ? normalizeFromInline(source) : null,
   );
   const [error, setError] = useState<string | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
+  // Sub-procedure stack: when the tech taps "Run sub-procedure" on a step
+  // that carries a linkedSubProcedure, we push that doc onto the stack
+  // and mount a nested VirtualJobAid as an overlay. The nested instance
+  // can itself push deeper. On close (X or completion), the overlay
+  // unmounts and the tech lands back on the same step here.
+  const [subProcedureDocId, setSubProcedureDocId] = useState<string | null>(null);
   const [speaking, setSpeaking] = useState(false);
   const [muted, setMuted] = useState(false);
   // When the procedure has a hero video, we show a "Step 0" intro panel
@@ -562,6 +597,22 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
             <ListChecks size={12} strokeWidth={1.75} />
             VIRTUAL JOB AID
           </span>
+          {/* Breadcrumb — only rendered when this instance is nested
+              inside a parent procedure. Shows the call stack so the
+              tech always knows "where am I" inside the push/pop journey. */}
+          {breadcrumb.length > 0 && (
+            <p className="vja-breadcrumb">
+              {breadcrumb.map((c, i) => (
+                <span key={i}>
+                  {i > 0 && (
+                    <span className="vja-breadcrumb-sep">{' › '}</span>
+                  )}
+                  <span className="vja-breadcrumb-crumb">{c}</span>
+                </span>
+              ))}
+              <span className="vja-breadcrumb-sep">{' › '}</span>
+            </p>
+          )}
           <h2 className="vja-doc-title">{resolved.title}</h2>
         </div>
         <button
@@ -813,6 +864,33 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
                 ))}
               </ol>
             )}
+            {/* Linked sub-procedure call-to-action. Tapping pushes the
+                linked procedure as a nested Job Aid (overlay rendered
+                below this main return). Skipping is just tapping Next —
+                the link is an optional branch ("if necessary"). */}
+            {step.linkedSubProcedure && (
+              <div className="vja-subprocedure-cta">
+                <button
+                  type="button"
+                  className="vja-btn vja-btn-primary"
+                  disabled={breadcrumb.length >= MAX_SUB_PROCEDURE_DEPTH}
+                  onClick={() => {
+                    stopPlayback();
+                    setSubProcedureDocId(step.linkedSubProcedure!.docId);
+                  }}
+                  title={
+                    breadcrumb.length >= MAX_SUB_PROCEDURE_DEPTH
+                      ? `Nesting limit reached (${MAX_SUB_PROCEDURE_DEPTH} deep). Finish current sub-procedure first.`
+                      : `Push ${step.linkedSubProcedure.title} as a sub-procedure`
+                  }
+                >
+                  ▸ Run sub-procedure: {step.linkedSubProcedure.title}
+                </button>
+                <span className="vja-subprocedure-hint">
+                  Optional — tap Next to skip if not needed.
+                </span>
+              </div>
+            )}
           </article>
         )}
       </main>
@@ -878,6 +956,24 @@ export function VirtualJobAid({ source, onClose, autoSpeak = true }: Props): Rea
           </>
         )}
       </footer>
+
+      {/* Nested sub-procedure overlay — mounted when the tech tapped "Run
+          sub-procedure" on the current step. Renders on top of this
+          instance; closing pops back here. Recursive (the nested instance
+          can push its own sub) up to MAX_SUB_PROCEDURE_DEPTH. */}
+      {subProcedureDocId && source.kind === 'doc' && (
+        <VirtualJobAid
+          source={{
+            kind: 'doc',
+            docId: subProcedureDocId,
+            devUserId: source.devUserId,
+            devOrgId: source.devOrgId,
+          }}
+          breadcrumb={[...breadcrumb, resolved.title]}
+          autoSpeak={autoSpeak}
+          onClose={() => setSubProcedureDocId(null)}
+        />
+      )}
     </div>
   );
 }

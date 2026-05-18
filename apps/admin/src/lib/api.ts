@@ -1917,6 +1917,10 @@ export interface AdminProcedureStep {
   /** Nullable: a step with no section renders above the first explicit
    *  section (orphan group). Set by the editor when adding inside a section. */
   sectionId: string | null;
+  /** Optional sub-procedure link. When set, the PWA Job Aid renders a
+   *  "Run sub-procedure" button below this step. Server validates that
+   *  the link points at a structured_procedure in the same pack version. */
+  linkedProcedureDocId: string | null;
   kind: ProcedureStepKind;
   title: string;
   bodyMarkdown: string | null;
@@ -2036,6 +2040,9 @@ export interface CreateProcedureStepInput {
   /** Optional grouping. When null/omitted the step is an "orphan" rendered
    *  above any explicit sections. */
   sectionId?: string | null;
+  /** Optional sub-procedure link. Server validates: must be a
+   *  structured_procedure in the same content pack version, and not self. */
+  linkedProcedureDocId?: string | null;
   requiresPhoto?: boolean;
   minPhotoCount?: number;
   measurementSpec?: MeasurementSpec | null;
@@ -2043,6 +2050,22 @@ export interface CreateProcedureStepInput {
 }
 
 export type UpdateProcedureStepInput = Partial<CreateProcedureStepInput>;
+
+export interface AdminSiblingProcedure {
+  id: string;
+  title: string;
+}
+
+export async function listSiblingProcedures(
+  documentId: string,
+): Promise<AdminSiblingProcedure[]> {
+  const res = await fetch(
+    `${API_BASE}/admin/documents/${encodeURIComponent(documentId)}/sibling-procedures`,
+    { cache: 'no-store', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminSiblingProcedure[];
+}
 
 export async function listProcedureSteps(
   documentId: string,

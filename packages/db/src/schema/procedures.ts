@@ -178,6 +178,20 @@ export const procedureSteps = pgTable(
       onDelete: 'set null',
     }),
 
+    // Optional sub-procedure link. When set, the PWA Job Aid renders a
+    // "Run sub-procedure: <title>" button below this step's content. Tapping
+    // it pushes the linked procedure as a nested Job Aid (stacked with a
+    // breadcrumb) and returns here on completion or close. Useful for
+    // "if necessary" branches — e.g., an inspection step that conditionally
+    // launches the Belt Replacement procedure when the belt is out of spec.
+    // onDelete: set null so deleting the linked doc just clears the link
+    // rather than nuking the parent step. API validates the target is
+    // structured_procedure in the same content pack version.
+    linkedProcedureDocId: uuid('linked_procedure_doc_id').references(
+      () => documents.id,
+      { onDelete: 'set null' },
+    ),
+
     kind: procedureStepKindEnum('kind').notNull().default('instruction'),
 
     // Display + per-step body. bodyMarkdown lets authors embed images,

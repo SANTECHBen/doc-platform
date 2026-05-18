@@ -2412,6 +2412,39 @@
     color: rgb(var(--signal-safety));
   }
 
+  /* Breadcrumb shown in the topbar when this VJA instance is rendered
+     as a nested sub-procedure. Sits between the "VIRTUAL JOB AID"
+     caption and the doc title. */
+  .vja-breadcrumb {
+    margin: 0;
+    font-size: 11px;
+    color: rgb(var(--ink-tertiary));
+    letter-spacing: 0.02em;
+  }
+  .vja-breadcrumb-crumb {
+    color: rgb(var(--ink-secondary));
+  }
+  .vja-breadcrumb-sep {
+    color: rgb(var(--ink-tertiary));
+    margin: 0 2px;
+  }
+
+  /* Linked sub-procedure call-to-action rendered below the step body. */
+  .vja-subprocedure-cta {
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px;
+    border: 1px solid rgb(var(--brand) / 0.3);
+    background: rgb(var(--brand) / 0.06);
+    border-radius: 8px;
+  }
+  .vja-subprocedure-hint {
+    font-size: 11px;
+    color: rgb(var(--ink-tertiary));
+  }
+
   .vja-step-header {
     display: flex;
     align-items: center;

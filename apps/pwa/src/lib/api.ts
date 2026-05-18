@@ -909,6 +909,15 @@ export interface ProcedureStepDto {
   /** Nullable: steps with no sectionId render above the first explicit
    *  section ("ungrouped" — used by pre-section procedures). */
   sectionId: string | null;
+  /** When set, this step has a linked sub-procedure. The PWA Job Aid
+   *  renders a "Run sub-procedure" button below the step that pushes
+   *  the linked procedure as a nested Job Aid (stacked with breadcrumb). */
+  linkedProcedureDocId?: string | null;
+  /** Summary of the linked sub-procedure (id + title) so the PWA can
+   *  render the button label without a separate fetch. Null when the
+   *  link is unset; the API populates it from the same content pack
+   *  version when set. */
+  linkedProcedureDoc?: { id: string; title: string } | null;
   kind: ProcedureStepKind;
   title: string;
   bodyMarkdown: string | null;

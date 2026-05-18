@@ -36,6 +36,7 @@ import {
   deleteProcedureSection,
   deleteProcedureStep,
   generateProcedureStepAudio,
+  listSiblingProcedures,
   reorderProcedureSteps,
   updateProcedureSection,
   updateProcedureStep,
@@ -45,6 +46,7 @@ import {
   type AdminProcedureDocMetadata,
   type AdminProcedureSection,
   type AdminProcedureStep,
+  type AdminSiblingProcedure,
   type CreateProcedureStepInput,
   type UpdateProcedureStepInput,
 } from '@/lib/api';
@@ -101,6 +103,21 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
   // author can type immediately, while existing cards stay collapsed so
   // the procedure list stays scannable.
   const [freshStepId, setFreshStepId] = useState<string | null>(null);
+  // Sibling procedures (same content pack version) — populates the
+  // "Linked sub-procedure" picker on each step card. Single fetch at the
+  // editor level so we don't N+1 across step cards.
+  const [siblingProcedures, setSiblingProcedures] = useState<
+    AdminSiblingProcedure[]
+  >([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        setSiblingProcedures(await listSiblingProcedures(doc.id));
+      } catch {
+        // Non-fatal — picker just shows "no siblings" when empty.
+      }
+    })();
+  }, [doc.id]);
 
   const toast = useToast();
 
@@ -541,6 +558,7 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
                       moveStepToSection(s.id, target)
                     }
                     defaultExpanded={freshStepId === s.id}
+                    siblingProcedures={siblingProcedures}
                   />
                 </div>
               ))}
@@ -575,6 +593,7 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
               onDrop={onDrop}
               onDragEnd={onDragEnd}
               freshStepId={freshStepId}
+              siblingProcedures={siblingProcedures}
             />
           ))}
         </div>
@@ -626,6 +645,7 @@ function SectionGroup({
   onDrop,
   onDragEnd,
   freshStepId,
+  siblingProcedures,
 }: {
   section: AdminProcedureSection;
   steps: AdminProcedureStep[];
@@ -650,6 +670,9 @@ function SectionGroup({
   /** ID of the most recently-added step. The matching card mounts expanded
    *  so the author can type immediately. */
   freshStepId: string | null;
+  /** Sibling structured_procedure docs in the same content pack version,
+   *  surfaced to each step card's "Linked sub-procedure" picker. */
+  siblingProcedures: AdminSiblingProcedure[];
 }) {
   // Local title mirror with debounced PATCH — same pattern as step titles.
   const [title, setTitle] = useState(section.title);
@@ -723,6 +746,7 @@ function SectionGroup({
                 sections={allSections}
                 onMoveToSection={(target) => onMoveStep(s.id, target)}
                 defaultExpanded={freshStepId === s.id}
+                siblingProcedures={siblingProcedures}
               />
             </div>
           ))}

@@ -119,6 +119,9 @@ const StepCreateBody = z
     // Optional section grouping. Server validates that sectionId belongs to
     // the same document. Null = orphan step (renders above first section).
     sectionId: UuidSchema.nullable().optional(),
+    // Optional sub-procedure link. Validated below to be a structured_procedure
+    // doc in the same content pack version.
+    linkedProcedureDocId: UuidSchema.nullable().optional(),
     requiresPhoto: z.boolean().optional(),
     minPhotoCount: z.number().int().min(0).max(10).optional(),
     measurementSpec: MeasurementSpecSchema.nullable().optional(),
@@ -145,6 +148,8 @@ const StepPatchBody = z
     orderingHint: z.number().int().optional(),
     // Move a step between sections (or to orphan with null).
     sectionId: UuidSchema.nullable().optional(),
+    // Re-target / clear the sub-procedure link.
+    linkedProcedureDocId: UuidSchema.nullable().optional(),
     requiresPhoto: z.boolean().optional(),
     minPhotoCount: z.number().int().min(0).max(10).optional(),
     measurementSpec: MeasurementSpecSchema.nullable().optional(),
@@ -182,6 +187,7 @@ function rowToDTO(
     id: row.id,
     documentId: row.documentId,
     sectionId: row.sectionId,
+    linkedProcedureDocId: row.linkedProcedureDocId,
     kind: row.kind,
     title: row.title,
     bodyMarkdown: row.bodyMarkdown,
@@ -363,6 +369,40 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         }
       }
 
+      // If a linkedProcedureDocId is provided, verify it's a sibling
+      // structured_procedure in the same content pack version. Cross-pack /
+      // cross-version links would break when a pack is published or
+      // versions roll over — we forbid them at the API layer rather than
+      // letting the PWA hit a 404 mid-procedure.
+      if (body.linkedProcedureDocId) {
+        if (body.linkedProcedureDocId === ctx.doc.id) {
+          return reply.badRequest(
+            'A step cannot link to its own parent procedure.',
+          );
+        }
+        const linked = await db.query.documents.findFirst({
+          where: eq(schema.documents.id, body.linkedProcedureDocId),
+          columns: {
+            id: true,
+            kind: true,
+            contentPackVersionId: true,
+          },
+        });
+        if (!linked) {
+          return reply.badRequest('linkedProcedureDocId not found.');
+        }
+        if (linked.kind !== 'structured_procedure') {
+          return reply.badRequest(
+            'Only structured_procedure documents can be linked as sub-procedures.',
+          );
+        }
+        if (linked.contentPackVersionId !== ctx.doc.contentPackVersionId) {
+          return reply.badRequest(
+            'Linked sub-procedure must live in the same content pack version.',
+          );
+        }
+      }
+
       // Default orderingHint: append at the end with a 100-stride gap so
       // future drag-reorders don't have to rewrite every row. Compute the
       // max within the target section (sectionId scope) so each section
@@ -390,6 +430,7 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         .values({
           documentId: ctx.doc.id,
           sectionId: body.sectionId ?? null,
+          linkedProcedureDocId: body.linkedProcedureDocId ?? null,
           kind: body.kind,
           title: body.title,
           bodyMarkdown: body.bodyMarkdown ?? null,
@@ -476,6 +517,48 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         }
       }
 
+      // linkedProcedureDocId patch: same rules as create — sibling
+      // structured_procedure in the same content pack version, no self-
+      // reference. Null clears the link.
+      if (b.linkedProcedureDocId !== undefined && b.linkedProcedureDocId !== null) {
+        if (b.linkedProcedureDocId === ctx.step.documentId) {
+          return reply.badRequest(
+            'A step cannot link to its own parent procedure.',
+          );
+        }
+        const linked = await db.query.documents.findFirst({
+          where: eq(schema.documents.id, b.linkedProcedureDocId),
+          columns: {
+            id: true,
+            kind: true,
+            contentPackVersionId: true,
+          },
+        });
+        if (!linked) {
+          return reply.badRequest('linkedProcedureDocId not found.');
+        }
+        if (linked.kind !== 'structured_procedure') {
+          return reply.badRequest(
+            'Only structured_procedure documents can be linked as sub-procedures.',
+          );
+        }
+        // Use the step's own doc → its packVersion for the same-version
+        // check. ctx.step has only the step's documentId; resolve the
+        // parent doc's pack version once.
+        const parent = await db.query.documents.findFirst({
+          where: eq(schema.documents.id, ctx.step.documentId),
+          columns: { contentPackVersionId: true },
+        });
+        if (
+          !parent ||
+          linked.contentPackVersionId !== parent.contentPackVersionId
+        ) {
+          return reply.badRequest(
+            'Linked sub-procedure must live in the same content pack version.',
+          );
+        }
+      }
+
       const patch: Record<string, unknown> = { updatedAt: new Date() };
       if (b.kind !== undefined) patch.kind = nextKind;
       if (b.title !== undefined) patch.title = b.title;
@@ -483,6 +566,9 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
       if (b.safetyCritical !== undefined) patch.safetyCritical = b.safetyCritical;
       if (b.orderingHint !== undefined) patch.orderingHint = b.orderingHint;
       if (b.sectionId !== undefined) patch.sectionId = b.sectionId;
+      if (b.linkedProcedureDocId !== undefined) {
+        patch.linkedProcedureDocId = b.linkedProcedureDocId;
+      }
       if (b.blocks !== undefined) patch.blocks = b.blocks;
       // Always write the coerced evidence trio if any of them changed,
       // so coherence is preserved.
@@ -763,6 +849,38 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
       });
 
       return { ok: true, count: request.body.orderedIds.length };
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // GET /admin/documents/:documentId/sibling-procedures
+  //
+  // Returns every other structured_procedure doc in the same content pack
+  // version. Used by the StepCard's "Linked sub-procedure" picker so the
+  // dropdown has a list to choose from without the admin client having to
+  // fetch the whole pack tree.
+  // -------------------------------------------------------------------------
+  app.get<{ Params: { documentId: string } }>(
+    '/admin/documents/:documentId/sibling-procedures',
+    { schema: { params: z.object({ documentId: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadDocumentForWrite(db, request.params.documentId, scope);
+      if (!ctx) return reply.notFound();
+      const siblings = await db.query.documents.findMany({
+        where: and(
+          eq(
+            schema.documents.contentPackVersionId,
+            ctx.doc.contentPackVersionId,
+          ),
+          eq(schema.documents.kind, 'structured_procedure'),
+        ),
+        columns: { id: true, title: true },
+        orderBy: [asc(schema.documents.title)],
+      });
+      return siblings.filter((s) => s.id !== ctx.doc.id);
     },
   );
 
