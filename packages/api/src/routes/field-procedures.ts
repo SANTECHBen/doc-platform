@@ -1415,6 +1415,7 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
           id: s.id,
           sectionId: s.sectionId,
           linkedProcedureDocId: s.linkedProcedureDocId,
+          linkedProcedureStepIds: s.linkedProcedureStepIds ?? [],
           // Embed the linked sub-procedure's title so the PWA renders the
           // "Run sub-procedure: <title>" button without a separate fetch.
           // Null when the link is unset OR when the target doc was deleted

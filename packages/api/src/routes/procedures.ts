@@ -120,6 +120,7 @@ function stepToDTO(s: StepRow) {
     documentId: s.documentId,
     sectionId: s.sectionId,
     linkedProcedureDocId: s.linkedProcedureDocId,
+    linkedProcedureStepIds: s.linkedProcedureStepIds ?? [],
     kind: s.kind,
     title: s.title,
     bodyMarkdown: s.bodyMarkdown,

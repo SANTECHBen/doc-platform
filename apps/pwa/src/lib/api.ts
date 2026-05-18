@@ -918,6 +918,10 @@ export interface ProcedureStepDto {
    *  link is unset; the API populates it from the same content pack
    *  version when set. */
   linkedProcedureDoc?: { id: string; title: string } | null;
+  /** Optional subset of steps from the linked sub-procedure. Empty array
+   *  (or omitted) plays the full procedure; non-empty filters the nested
+   *  Job Aid to just these step IDs, preserving their natural order. */
+  linkedProcedureStepIds?: string[];
   kind: ProcedureStepKind;
   title: string;
   bodyMarkdown: string | null;

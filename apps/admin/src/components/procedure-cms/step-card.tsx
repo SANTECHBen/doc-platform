@@ -417,12 +417,26 @@ export function StepCard({
                 procedure when the tech taps Run in the PWA Job Aid. Useful for
                 conditional branches like "Replace the belt, if necessary" →
                 Belt Replacement procedure. Only renders when there's at least
-                one sibling procedure in the same content pack version. */}
+                one sibling procedure in the same content pack version.
+                When a sub is linked, an optional step-subset checklist
+                lets the author pin specific steps from the linked doc so
+                techs don't have to navigate the whole procedure. */}
             {siblingProcedures && siblingProcedures.length > 0 && (
               <LinkedSubProcedurePicker
-                value={step.linkedProcedureDocId}
+                linkedDocId={step.linkedProcedureDocId}
+                linkedStepIds={step.linkedProcedureStepIds}
                 siblings={siblingProcedures}
-                onChange={(next) => void onPatch({ linkedProcedureDocId: next })}
+                onChangeDoc={(next) =>
+                  void onPatch({
+                    linkedProcedureDocId: next,
+                    // Clear subset when changing the parent link — IDs from
+                    // the old doc are no longer valid against the new one.
+                    linkedProcedureStepIds: [],
+                  })
+                }
+                onChangeStepIds={(next) =>
+                  void onPatch({ linkedProcedureStepIds: next })
+                }
               />
             )}
 
@@ -743,45 +757,189 @@ function StepVideosPanel({
 // below the step content; tapping it pushes the linked procedure as a
 // nested Job Aid (with breadcrumb + push/pop). Skipping is just tapping
 // Next — the link is treated as an optional branch.
+//
+// Optional step-subset: when a link is set, the author can pin a subset
+// of steps from the linked doc to play. Empty subset = whole procedure
+// (default). Useful when the parent only references a few steps from a
+// longer procedure so techs don't navigate through irrelevant content.
 function LinkedSubProcedurePicker({
-  value,
+  linkedDocId,
+  linkedStepIds,
   siblings,
-  onChange,
+  onChangeDoc,
+  onChangeStepIds,
 }: {
-  value: string | null;
+  linkedDocId: string | null;
+  linkedStepIds: string[];
   siblings: AdminSiblingProcedure[];
-  onChange: (next: string | null) => void;
+  onChangeDoc: (next: string | null) => void;
+  onChangeStepIds: (next: string[]) => void;
 }) {
-  const linked = value ? siblings.find((s) => s.id === value) ?? null : null;
+  const linked = linkedDocId
+    ? siblings.find((s) => s.id === linkedDocId) ?? null
+    : null;
+  // Lazy-fetch the linked doc's steps for the subset checklist. Only
+  // happens when a sub is selected; we don't preload for every step card.
+  const [steps, setSteps] = useState<
+    Array<{ id: string; title: string; orderingHint: number }> | null
+  >(null);
+  const [loadingSteps, setLoadingSteps] = useState(false);
+  const [subsetOpen, setSubsetOpen] = useState(false);
+  // Reset/refetch when the linked doc changes.
+  useEffect(() => {
+    if (!linkedDocId) {
+      setSteps(null);
+      setSubsetOpen(false);
+      return;
+    }
+    let cancelled = false;
+    setLoadingSteps(true);
+    void import('@/lib/api').then(({ listProcedureSteps }) =>
+      listProcedureSteps(linkedDocId)
+        .then((rows) => {
+          if (cancelled) return;
+          setSteps(
+            rows.map((r) => ({
+              id: r.id,
+              title: r.title,
+              orderingHint: r.orderingHint,
+            })),
+          );
+        })
+        .catch(() => {
+          if (!cancelled) setSteps([]);
+        })
+        .finally(() => {
+          if (!cancelled) setLoadingSteps(false);
+        }),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [linkedDocId]);
+
+  const selectedSet = new Set(linkedStepIds);
+  function toggle(id: string) {
+    const next = new Set(selectedSet);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    // Preserve the linked doc's natural order so the saved array is
+    // sorted by orderingHint — keeps the PWA's render order stable.
+    const ordered =
+      steps?.filter((s) => next.has(s.id)).map((s) => s.id) ?? [];
+    onChangeStepIds(ordered);
+  }
+
   return (
     <div
       className={[
-        'flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm',
+        'flex flex-col gap-2 rounded-md border px-3 py-2 text-sm',
         linked
           ? 'border-accent/30 bg-accent/5'
           : 'border-line-subtle bg-surface-inset',
       ].join(' ')}
     >
-      <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-ink-tertiary">
-        <ListChecks className="size-3.5" />
-        Sub-procedure
-      </span>
-      <select
-        value={value ?? ''}
-        onChange={(e) => onChange(e.target.value === '' ? null : e.target.value)}
-        className="min-w-0 flex-1 rounded border border-line bg-surface px-2 py-1 text-sm text-ink-primary"
-      >
-        <option value="">— None (no Run button) —</option>
-        {siblings.map((s) => (
-          <option key={s.id} value={s.id}>
-            {s.title}
-          </option>
-        ))}
-      </select>
-      {linked && (
-        <span className="text-xs text-ink-tertiary">
-          Tech taps Run to enter <span className="font-semibold">{linked.title}</span>.
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-ink-tertiary">
+          <ListChecks className="size-3.5" />
+          Sub-procedure
         </span>
+        <select
+          value={linkedDocId ?? ''}
+          onChange={(e) =>
+            onChangeDoc(e.target.value === '' ? null : e.target.value)
+          }
+          className="min-w-0 flex-1 rounded border border-line bg-surface px-2 py-1 text-sm text-ink-primary"
+        >
+          <option value="">— None (no Run button) —</option>
+          {siblings.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.title}
+            </option>
+          ))}
+        </select>
+        {linked && (
+          <span className="text-xs text-ink-tertiary">
+            Tech taps Run to enter{' '}
+            <span className="font-semibold">{linked.title}</span>.
+          </span>
+        )}
+      </div>
+      {linked && (
+        <div className="flex flex-col gap-1 border-t border-line-subtle pt-2">
+          <button
+            type="button"
+            onClick={() => setSubsetOpen((o) => !o)}
+            className="self-start text-xs font-medium text-accent hover:underline"
+          >
+            {subsetOpen ? '▾' : '▸'} Choose specific steps (optional)
+            {linkedStepIds.length > 0 && (
+              <span className="ml-2 inline-flex items-center rounded-full bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">
+                {linkedStepIds.length} pinned
+              </span>
+            )}
+          </button>
+          {subsetOpen && (
+            <div className="flex flex-col gap-1.5">
+              <p className="text-[11px] text-ink-tertiary">
+                Empty selection = play the full procedure. Picking specific
+                steps trims the sub-procedure so the tech only sees these
+                rows.
+              </p>
+              {loadingSteps ? (
+                <p className="text-xs text-ink-tertiary">Loading steps…</p>
+              ) : steps && steps.length > 0 ? (
+                <ul className="flex max-h-48 flex-col gap-0.5 overflow-y-auto rounded border border-line bg-surface p-1">
+                  {steps.map((s, i) => {
+                    const checked = selectedSet.has(s.id);
+                    return (
+                      <li key={s.id}>
+                        <label
+                          className={[
+                            'flex cursor-pointer items-start gap-2 rounded px-1.5 py-1 text-xs',
+                            checked
+                              ? 'bg-accent/10 text-ink-primary'
+                              : 'text-ink-secondary hover:bg-surface-elevated',
+                          ].join(' ')}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggle(s.id)}
+                            className="mt-0.5 shrink-0"
+                          />
+                          <span className="font-mono text-[10px] tabular-nums text-ink-tertiary">
+                            {String(i + 1).padStart(2, '0')}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate">
+                            {s.title || (
+                              <span className="italic text-ink-tertiary">
+                                Untitled step
+                              </span>
+                            )}
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="text-xs text-ink-tertiary">
+                  The linked procedure has no steps yet.
+                </p>
+              )}
+              {linkedStepIds.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => onChangeStepIds([])}
+                  className="self-start text-[11px] text-ink-tertiary hover:text-signal-fault hover:underline"
+                >
+                  Clear selection (play full procedure)
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

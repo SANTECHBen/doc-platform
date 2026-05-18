@@ -191,6 +191,16 @@ export const procedureSteps = pgTable(
       () => documents.id,
       { onDelete: 'set null' },
     ),
+    // Optional step subset for the linked sub-procedure. Empty (default)
+    // means "play the whole linked procedure"; non-empty filters the
+    // linked doc's steps to just these IDs at render time, preserving
+    // the linked doc's natural ordering. Useful when the parent step
+    // only needs a few steps from a longer procedure ("see steps 3-5 of
+    // Belt Replacement" rather than the full 12-step procedure).
+    linkedProcedureStepIds: jsonb('linked_procedure_step_ids')
+      .$type<string[]>()
+      .notNull()
+      .default([]),
 
     kind: procedureStepKindEnum('kind').notNull().default('instruction'),
 

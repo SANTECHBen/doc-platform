@@ -61,6 +61,11 @@ interface Props {
    *  header ("Inspection › Belt Replacement") and the depth limit on
    *  pushing further sub-procedures. Default [] = top-level. */
   breadcrumb?: string[];
+  /** Optional step-ID filter — when set, only steps whose id is in this
+   *  list render (preserving the linked doc's natural ordering). Used
+   *  by sub-procedure pushes where the parent step pinned a specific
+   *  subset. Empty / omitted = play all loaded steps. */
+  stepIdsFilter?: string[];
 }
 
 // Max nesting depth — refuse to push a sub-procedure deeper than this so
@@ -109,11 +114,21 @@ interface ResolvedJobAid {
     /** Sub-procedure link summary. When set, the renderer shows a "Run
      *  sub-procedure" button below the step content that pushes the
      *  linked procedure as a nested Job Aid. */
-    linkedSubProcedure: { docId: string; title: string } | null;
+    linkedSubProcedure: {
+      docId: string;
+      title: string;
+      /** Optional step-ID subset. Empty = play the full linked procedure.
+       *  When set, the nested VirtualJobAid filters its steps to just
+       *  these IDs (preserving the linked doc's natural ordering). */
+      stepIds: string[];
+    } | null;
   }>;
 }
 
-function normalizeFromDoc(doc: ProcedureDocFullDto): ResolvedJobAid {
+function normalizeFromDoc(
+  doc: ProcedureDocFullDto,
+  stepIdsFilter?: string[],
+): ResolvedJobAid {
   const meta = doc.metadata;
   const hero = meta?.heroVideo ?? null;
   const safety = meta?.safety;
@@ -162,7 +177,7 @@ function normalizeFromDoc(doc: ProcedureDocFullDto): ResolvedJobAid {
           safetyNotes,
         }
       : null,
-    steps: buildSectionedSteps(doc),
+    steps: buildSectionedSteps(doc, stepIdsFilter),
   };
 }
 
@@ -173,6 +188,7 @@ function normalizeFromDoc(doc: ProcedureDocFullDto): ResolvedJobAid {
 // Job Aid; here we normalize once at load.
 function buildSectionedSteps(
   doc: ProcedureDocFullDto,
+  stepIdsFilter?: string[],
 ): ResolvedJobAid['steps'] {
   const sections = doc.sections ?? [];
   const orderById = new Map<string, number>(
@@ -181,7 +197,15 @@ function buildSectionedSteps(
   const titleById = new Map<string, string>(
     sections.map((sec) => [sec.id, sec.title]),
   );
-  const sorted = [...doc.steps].sort((a, b) => {
+  // Apply the optional subset filter before sorting + numbering so the
+  // per-section indices reflect what the tech actually sees. The filter
+  // preserves the linked doc's natural order — we just skip non-selected
+  // steps; we don't reorder them by the parent's selection sequence.
+  const baseSteps =
+    stepIdsFilter && stepIdsFilter.length > 0
+      ? doc.steps.filter((s) => stepIdsFilter.includes(s.id))
+      : doc.steps;
+  const sorted = [...baseSteps].sort((a, b) => {
     const sa =
       a.sectionId == null ? -1 : orderById.get(a.sectionId) ?? Infinity;
     const sb =
@@ -205,6 +229,7 @@ function buildSectionedSteps(
       audioUrl?: string | null;
       blocks?: StepBlock[];
       linkedProcedureDoc?: { id: string; title: string } | null;
+      linkedProcedureStepIds?: string[];
     };
     return {
       title: s.title,
@@ -222,6 +247,7 @@ function buildSectionedSteps(
         ? {
             docId: augmented.linkedProcedureDoc.id,
             title: augmented.linkedProcedureDoc.title,
+            stepIds: augmented.linkedProcedureStepIds ?? [],
           }
         : null,
     };
@@ -260,6 +286,7 @@ export function VirtualJobAid({
   onClose,
   autoSpeak = true,
   breadcrumb = [],
+  stepIdsFilter,
 }: Props): React.ReactElement {
   const [resolved, setResolved] = useState<ResolvedJobAid | null>(
     source.kind === 'inline' ? normalizeFromInline(source) : null,
@@ -271,7 +298,14 @@ export function VirtualJobAid({
   // and mount a nested VirtualJobAid as an overlay. The nested instance
   // can itself push deeper. On close (X or completion), the overlay
   // unmounts and the tech lands back on the same step here.
-  const [subProcedureDocId, setSubProcedureDocId] = useState<string | null>(null);
+  //
+  // Push state carries both the docId and the optional step-ID subset so
+  // the nested instance can trim its loaded steps to just the rows the
+  // parent step pinned ("just steps 3-5 of Belt Replacement").
+  const [subProcedurePush, setSubProcedurePush] = useState<{
+    docId: string;
+    stepIds: string[];
+  } | null>(null);
   const [speaking, setSpeaking] = useState(false);
   const [muted, setMuted] = useState(false);
   // When the procedure has a hero video, we show a "Step 0" intro panel
@@ -318,7 +352,7 @@ export function VirtualJobAid({
     (async () => {
       try {
         const full = await getProcedureDoc(source.docId, source.devUserId, source.devOrgId);
-        if (!cancelled) setResolved(normalizeFromDoc(full));
+        if (!cancelled) setResolved(normalizeFromDoc(full, stepIdsFilter));
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       }
@@ -613,7 +647,17 @@ export function VirtualJobAid({
               <span className="vja-breadcrumb-sep">{' › '}</span>
             </p>
           )}
-          <h2 className="vja-doc-title">{resolved.title}</h2>
+          <h2 className="vja-doc-title">
+            {resolved.title}
+            {/* "subset" pill — tech-visible cue that this instance was
+                pushed with a step-ID filter, not the whole procedure. */}
+            {stepIdsFilter && stepIdsFilter.length > 0 && (
+              <span className="vja-subset-pill">
+                subset · {resolved.steps.length} step
+                {resolved.steps.length === 1 ? '' : 's'}
+              </span>
+            )}
+          </h2>
         </div>
         <button
           type="button"
@@ -876,7 +920,10 @@ export function VirtualJobAid({
                   disabled={breadcrumb.length >= MAX_SUB_PROCEDURE_DEPTH}
                   onClick={() => {
                     stopPlayback();
-                    setSubProcedureDocId(step.linkedSubProcedure!.docId);
+                    setSubProcedurePush({
+                      docId: step.linkedSubProcedure!.docId,
+                      stepIds: step.linkedSubProcedure!.stepIds,
+                    });
                   }}
                   title={
                     breadcrumb.length >= MAX_SUB_PROCEDURE_DEPTH
@@ -885,9 +932,18 @@ export function VirtualJobAid({
                   }
                 >
                   ▸ Run sub-procedure: {step.linkedSubProcedure.title}
+                  {step.linkedSubProcedure.stepIds.length > 0 && (
+                    <span className="vja-subset-chip">
+                      {' · '}
+                      {step.linkedSubProcedure.stepIds.length} step
+                      {step.linkedSubProcedure.stepIds.length === 1 ? '' : 's'}
+                    </span>
+                  )}
                 </button>
                 <span className="vja-subprocedure-hint">
                   Optional — tap Next to skip if not needed.
+                  {step.linkedSubProcedure.stepIds.length > 0 &&
+                    ' Plays only the pinned steps from the sub-procedure.'}
                 </span>
               </div>
             )}
@@ -960,18 +1016,25 @@ export function VirtualJobAid({
       {/* Nested sub-procedure overlay — mounted when the tech tapped "Run
           sub-procedure" on the current step. Renders on top of this
           instance; closing pops back here. Recursive (the nested instance
-          can push its own sub) up to MAX_SUB_PROCEDURE_DEPTH. */}
-      {subProcedureDocId && source.kind === 'doc' && (
+          can push its own sub) up to MAX_SUB_PROCEDURE_DEPTH.
+          stepIdsFilter forwards the parent step's pinned subset so the
+          nested instance only renders those rows. */}
+      {subProcedurePush && source.kind === 'doc' && (
         <VirtualJobAid
           source={{
             kind: 'doc',
-            docId: subProcedureDocId,
+            docId: subProcedurePush.docId,
             devUserId: source.devUserId,
             devOrgId: source.devOrgId,
           }}
           breadcrumb={[...breadcrumb, resolved.title]}
+          stepIdsFilter={
+            subProcedurePush.stepIds.length > 0
+              ? subProcedurePush.stepIds
+              : undefined
+          }
           autoSpeak={autoSpeak}
-          onClose={() => setSubProcedureDocId(null)}
+          onClose={() => setSubProcedurePush(null)}
         />
       )}
     </div>

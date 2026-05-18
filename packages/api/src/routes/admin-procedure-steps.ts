@@ -122,6 +122,10 @@ const StepCreateBody = z
     // Optional sub-procedure link. Validated below to be a structured_procedure
     // doc in the same content pack version.
     linkedProcedureDocId: UuidSchema.nullable().optional(),
+    // Optional subset of steps from the linked sub-procedure to play.
+    // Validated below to belong to the linked doc. Empty / omitted =
+    // play the full procedure.
+    linkedProcedureStepIds: z.array(UuidSchema).max(100).optional(),
     requiresPhoto: z.boolean().optional(),
     minPhotoCount: z.number().int().min(0).max(10).optional(),
     measurementSpec: MeasurementSpecSchema.nullable().optional(),
@@ -150,6 +154,8 @@ const StepPatchBody = z
     sectionId: UuidSchema.nullable().optional(),
     // Re-target / clear the sub-procedure link.
     linkedProcedureDocId: UuidSchema.nullable().optional(),
+    // Patch the step subset (empty array = play full linked procedure).
+    linkedProcedureStepIds: z.array(UuidSchema).max(100).optional(),
     requiresPhoto: z.boolean().optional(),
     minPhotoCount: z.number().int().min(0).max(10).optional(),
     measurementSpec: MeasurementSpecSchema.nullable().optional(),
@@ -188,6 +194,7 @@ function rowToDTO(
     documentId: row.documentId,
     sectionId: row.sectionId,
     linkedProcedureDocId: row.linkedProcedureDocId,
+    linkedProcedureStepIds: row.linkedProcedureStepIds ?? [],
     kind: row.kind,
     title: row.title,
     bodyMarkdown: row.bodyMarkdown,
@@ -401,6 +408,34 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
             'Linked sub-procedure must live in the same content pack version.',
           );
         }
+        // If a step subset was provided, verify every ID belongs to the
+        // linked doc. Without this guard, the PWA would silently ignore
+        // orphan IDs at render time and the author would have no idea
+        // their subset is partially broken.
+        if (body.linkedProcedureStepIds && body.linkedProcedureStepIds.length > 0) {
+          const valid = await db.query.procedureSteps.findMany({
+            where: and(
+              eq(schema.procedureSteps.documentId, linked.id),
+              inArray(schema.procedureSteps.id, body.linkedProcedureStepIds),
+            ),
+            columns: { id: true },
+          });
+          if (valid.length !== body.linkedProcedureStepIds.length) {
+            return reply.badRequest(
+              'linkedProcedureStepIds includes IDs that do not belong to the linked sub-procedure.',
+            );
+          }
+        }
+      } else if (
+        body.linkedProcedureStepIds &&
+        body.linkedProcedureStepIds.length > 0
+      ) {
+        // Subset without a parent link is meaningless — reject it so the
+        // author notices the missing link rather than wondering why their
+        // selection has no effect.
+        return reply.badRequest(
+          'linkedProcedureStepIds requires linkedProcedureDocId to be set.',
+        );
       }
 
       // Default orderingHint: append at the end with a 100-stride gap so
@@ -431,6 +466,7 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           documentId: ctx.doc.id,
           sectionId: body.sectionId ?? null,
           linkedProcedureDocId: body.linkedProcedureDocId ?? null,
+          linkedProcedureStepIds: body.linkedProcedureStepIds ?? [],
           kind: body.kind,
           title: body.title,
           bodyMarkdown: body.bodyMarkdown ?? null,
@@ -520,6 +556,12 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
       // linkedProcedureDocId patch: same rules as create — sibling
       // structured_procedure in the same content pack version, no self-
       // reference. Null clears the link.
+      // Also validate any subset patch against the (incoming or current)
+      // linked doc.
+      const nextLinkedDocId =
+        b.linkedProcedureDocId !== undefined
+          ? b.linkedProcedureDocId
+          : ctx.step.linkedProcedureDocId;
       if (b.linkedProcedureDocId !== undefined && b.linkedProcedureDocId !== null) {
         if (b.linkedProcedureDocId === ctx.step.documentId) {
           return reply.badRequest(
@@ -558,6 +600,37 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           );
         }
       }
+      // Subset validation. Two cases:
+      //   1. Patching subset alone → use the EXISTING linkedProcedureDocId.
+      //      If there's no current link, reject (orphan subset).
+      //   2. Patching link + subset together → validate against the new link.
+      if (
+        b.linkedProcedureStepIds !== undefined &&
+        b.linkedProcedureStepIds.length > 0
+      ) {
+        if (!nextLinkedDocId) {
+          return reply.badRequest(
+            'linkedProcedureStepIds requires linkedProcedureDocId to be set.',
+          );
+        }
+        const valid = await db.query.procedureSteps.findMany({
+          where: and(
+            eq(schema.procedureSteps.documentId, nextLinkedDocId),
+            inArray(schema.procedureSteps.id, b.linkedProcedureStepIds),
+          ),
+          columns: { id: true },
+        });
+        if (valid.length !== b.linkedProcedureStepIds.length) {
+          return reply.badRequest(
+            'linkedProcedureStepIds includes IDs that do not belong to the linked sub-procedure.',
+          );
+        }
+      }
+      // Clearing the parent link also clears any stale subset so a future
+      // re-link starts fresh.
+      if (b.linkedProcedureDocId === null) {
+        b.linkedProcedureStepIds = [];
+      }
 
       const patch: Record<string, unknown> = { updatedAt: new Date() };
       if (b.kind !== undefined) patch.kind = nextKind;
@@ -568,6 +641,9 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
       if (b.sectionId !== undefined) patch.sectionId = b.sectionId;
       if (b.linkedProcedureDocId !== undefined) {
         patch.linkedProcedureDocId = b.linkedProcedureDocId;
+      }
+      if (b.linkedProcedureStepIds !== undefined) {
+        patch.linkedProcedureStepIds = b.linkedProcedureStepIds;
       }
       if (b.blocks !== undefined) patch.blocks = b.blocks;
       // Always write the coerced evidence trio if any of them changed,

@@ -2444,6 +2444,29 @@
     font-size: 11px;
     color: rgb(var(--ink-tertiary));
   }
+  /* Inline chip showing how many steps got pinned ("· 3 steps"). */
+  .vja-subset-chip {
+    font-size: 11px;
+    font-weight: 500;
+    color: rgb(var(--ink-on-brand, 255 255 255) / 0.75);
+  }
+  /* Pill on the doc title when this VJA instance is rendering a subset
+     of a parent procedure's steps. Tells the tech "you're not seeing the
+     whole procedure" so they don't get confused when steps look truncated. */
+  .vja-subset-pill {
+    display: inline-flex;
+    margin-left: 10px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgb(var(--brand) / 0.18);
+    border: 1px solid rgb(var(--brand) / 0.35);
+    color: rgb(var(--brand));
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    vertical-align: middle;
+  }
 
   .vja-step-header {
     display: flex;

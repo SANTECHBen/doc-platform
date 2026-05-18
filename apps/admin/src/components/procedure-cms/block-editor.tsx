@@ -58,6 +58,11 @@ interface Props {
   onImportLegacy?: () => void;
 }
 
+// Ordering note: the first four entries become the empty-state /
+// end-of-list quick-pick buttons (BLOCK_PICKER.slice(0, 4)) so the
+// "+5 More" overflow only catches the less common kinds. Photo sits
+// second after Paragraph because most procedure steps are
+// "write a sentence, attach a photo of the thing".
 const BLOCK_PICKER: Array<{
   kind: StepBlockKind;
   label: string;
@@ -69,6 +74,12 @@ const BLOCK_PICKER: Array<{
     label: 'Paragraph',
     description: 'Plain prose. Links auto-detected.',
     icon: Type,
+  },
+  {
+    kind: 'photo_inline',
+    label: 'Photo',
+    description: 'Reference a photo already on this step.',
+    icon: ImageIcon,
   },
   {
     kind: 'callout',
@@ -93,12 +104,6 @@ const BLOCK_PICKER: Array<{
     label: 'Key/value table',
     description: 'Two-column reference table — torque chart, parts list.',
     icon: TableIcon,
-  },
-  {
-    kind: 'photo_inline',
-    label: 'Photo',
-    description: 'Reference a photo already on this step.',
-    icon: ImageIcon,
   },
 ];
 

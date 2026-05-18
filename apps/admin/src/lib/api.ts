@@ -1921,6 +1921,10 @@ export interface AdminProcedureStep {
    *  "Run sub-procedure" button below this step. Server validates that
    *  the link points at a structured_procedure in the same pack version. */
   linkedProcedureDocId: string | null;
+  /** Optional subset of steps from the linked sub-procedure to play.
+   *  Empty array = play the full linked procedure. Server validates
+   *  every ID belongs to the linked doc. */
+  linkedProcedureStepIds: string[];
   kind: ProcedureStepKind;
   title: string;
   bodyMarkdown: string | null;
@@ -2043,6 +2047,9 @@ export interface CreateProcedureStepInput {
   /** Optional sub-procedure link. Server validates: must be a
    *  structured_procedure in the same content pack version, and not self. */
   linkedProcedureDocId?: string | null;
+  /** Optional subset of steps from the linked sub-procedure. Empty / omitted
+   *  = play the full procedure. */
+  linkedProcedureStepIds?: string[];
   requiresPhoto?: boolean;
   minPhotoCount?: number;
   measurementSpec?: MeasurementSpec | null;
