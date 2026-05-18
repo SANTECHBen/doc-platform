@@ -550,13 +550,27 @@ export interface TroubleshootingStructItem {
   document: { id: string; title: string } | null;
 }
 
+/** Paired cause/remedy entry — the OEM mental model is that each cause
+ *  has its own specific fix. The PWA renders each entry as a single
+ *  block (Cause: ... / Remedy: ...) with an optional Run button. */
+export interface TroubleshootingCause {
+  cause: string;
+  remedy: string;
+  document: { id: string; title: string } | null;
+}
+
 export interface TroubleshootingItem {
   id: string;
   symptom: string;
   cause: string | null;
   remedy: string | null;
+  /** DEPRECATED: pre-0028 unpaired parallel lists. Kept on the type so
+   *  legacy guides still render until they're re-authored as paired
+   *  `causes` entries. */
   causeItems: TroubleshootingStructItem[];
   remedyItems: TroubleshootingStructItem[];
+  /** Canonical paired cause/remedy entries (0028+). */
+  causes: TroubleshootingCause[];
   document: { id: string; title: string } | null;
 }
 

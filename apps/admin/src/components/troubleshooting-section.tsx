@@ -38,9 +38,9 @@ import {
   updateTroubleshootingGuide,
   updateTroubleshootingItem,
   type AdminPmProcedureDoc,
+  type AdminTroubleshootingCause,
   type AdminTroubleshootingGuide,
   type AdminTroubleshootingItem,
-  type AdminTroubleshootingStructItem,
 } from '@/lib/api';
 
 export function TroubleshootingSection({ assetModelId }: { assetModelId: string }) {
@@ -308,9 +308,8 @@ function GuideCard({
             <table className="data-table w-full text-sm">
               <thead className="bg-surface-inset text-left text-[10px] uppercase tracking-wider text-ink-tertiary">
                 <tr>
-                  <th className="w-56 px-3 py-2">Symptom</th>
-                  <th className="px-3 py-2">Causes</th>
-                  <th className="px-3 py-2">Remedy steps</th>
+                  <th className="w-64 px-3 py-2">Symptom</th>
+                  <th className="px-3 py-2">Possible causes &amp; remedies</th>
                   <th className="w-8 px-3 py-2"></th>
                 </tr>
               </thead>
@@ -386,21 +385,12 @@ function ItemRow({
         />
       </td>
       <td className="px-3 py-2">
-        <StructItemsEditor
-          items={item.causeItems}
-          legacyText={item.cause}
+        <PairedCausesEditor
+          causes={item.causes}
+          legacyCause={item.cause}
+          legacyRemedy={item.remedy}
           docs={docs}
-          placeholder="Add a cause…"
-          onChange={(next) => void flush({ causeItems: next })}
-        />
-      </td>
-      <td className="px-3 py-2">
-        <StructItemsEditor
-          items={item.remedyItems}
-          legacyText={item.remedy}
-          docs={docs}
-          placeholder="Add a remedy step…"
-          onChange={(next) => void flush({ remedyItems: next })}
+          onChange={(next) => void flush({ causes: next })}
         />
       </td>
       <td className="px-3 py-2">
@@ -474,168 +464,189 @@ function NewItemForm({
   );
 }
 
-// Structured items editor — drives a single cell's value (causeItems or
-// remedyItems). Each item is one row with a text input + per-item
-// procedure dropdown + delete. "+ Add" appends a blank row. Empty arrays
-// are persisted as `[]`; legacy text rows from before the column existed
-// render as a small read-only hint below the editor so authors can
-// migrate them by re-typing into the structured fields.
-function StructItemsEditor({
-  items,
-  legacyText,
+// PairedCausesEditor — the canonical authoring shape. Each entry is one
+// possible cause for the symptom, paired with its specific remedy and
+// an optional procedure link. Replaces the old "two parallel lists"
+// model that didn't capture which cause maps to which remedy.
+//
+// Layout per entry: a bordered block with two stacked textareas
+// (Cause on top, Remedy below) + a chip-style procedure attachment
+// + a hover-only delete. "+ Add cause" appends a blank pair.
+function PairedCausesEditor({
+  causes,
+  legacyCause,
+  legacyRemedy,
   docs,
-  placeholder,
   onChange,
 }: {
-  items: AdminTroubleshootingStructItem[];
-  legacyText: string | null;
+  causes: AdminTroubleshootingCause[];
+  legacyCause: string | null;
+  legacyRemedy: string | null;
   docs: AdminPmProcedureDoc[];
-  placeholder: string;
-  onChange: (next: AdminTroubleshootingStructItem[]) => void;
+  onChange: (next: AdminTroubleshootingCause[]) => void;
 }) {
-  // Local mirror so the author can type without each keystroke triggering
-  // a PATCH. Commit on blur or change.
-  const [local, setLocal] = useState<AdminTroubleshootingStructItem[]>(items);
-  useEffect(() => setLocal(items), [items]);
+  const [local, setLocal] = useState<AdminTroubleshootingCause[]>(causes);
+  useEffect(() => setLocal(causes), [causes]);
 
-  function update(next: AdminTroubleshootingStructItem[], commit: boolean) {
+  function update(next: AdminTroubleshootingCause[], commit: boolean) {
     setLocal(next);
     if (commit) onChange(next);
   }
+  function setField<K extends keyof AdminTroubleshootingCause>(
+    idx: number,
+    key: K,
+    value: AdminTroubleshootingCause[K],
+    commit: boolean,
+  ) {
+    const next = local.slice();
+    next[idx] = { ...local[idx]!, [key]: value };
+    update(next, commit);
+  }
+
+  const hasLegacy =
+    local.length === 0 &&
+    (((legacyCause ?? '').trim().length > 0) ||
+      ((legacyRemedy ?? '').trim().length > 0));
 
   return (
-    <div className="flex flex-col gap-2.5">
-      {local.length === 0 && legacyText && (
-        // Legacy free-text fallback — read-only hint that this row was
-        // authored before structured items. Author can re-type the
-        // content into the editor below to migrate it.
-        <div className="rounded-sm border border-dashed border-line-subtle bg-surface-inset/50 px-2 py-1.5 text-xs italic text-ink-tertiary">
-          {legacyText}
+    <div className="flex flex-col gap-3">
+      {hasLegacy && (
+        // Legacy free-text fallback — surfaces pre-0028 unpaired data so
+        // the author can see it and retype into the structured fields
+        // below to migrate.
+        <div className="rounded-sm border border-dashed border-line-subtle bg-surface-inset/50 px-3 py-2 text-xs italic text-ink-tertiary">
+          {legacyCause && (
+            <div>
+              <span className="font-semibold not-italic text-ink-tertiary">Cause:</span>{' '}
+              {legacyCause}
+            </div>
+          )}
+          {legacyRemedy && (
+            <div className={legacyCause ? 'mt-1' : ''}>
+              <span className="font-semibold not-italic text-ink-tertiary">Remedy:</span>{' '}
+              {legacyRemedy}
+            </div>
+          )}
+          <div className="mt-1 text-[10px]">
+            Legacy unpaired data — add a structured cause below to migrate.
+          </div>
         </div>
       )}
-      {local.map((it, idx) => {
-        const linkedDoc = it.documentId
-          ? docs.find((d) => d.id === it.documentId)
+      {local.map((entry, idx) => {
+        const linkedDoc = entry.documentId
+          ? docs.find((d) => d.id === entry.documentId)
           : null;
         return (
           <div
             key={idx}
-            className="group relative flex items-start gap-2 rounded-sm border border-transparent hover:border-line-subtle hover:bg-surface-inset/30"
+            className="group relative rounded-md border border-line-subtle bg-surface px-3 py-2"
           >
-            {/* Bullet marker — visual prefix matching the OEM format. */}
-            <span
-              className="mt-1.5 shrink-0 select-none text-ink-tertiary"
-              aria-hidden
+            <button
+              type="button"
+              onClick={() => update(local.filter((_, i) => i !== idx), true)}
+              className="absolute right-1.5 top-1.5 rounded p-1 text-ink-tertiary opacity-0 transition group-hover:opacity-100 hover:bg-signal-fault/10 hover:text-signal-fault"
+              aria-label="Delete cause"
+              title="Delete this cause + remedy"
             >
-              •
-            </span>
-            <div className="min-w-0 flex-1 flex flex-col gap-1 py-0.5">
+              <Trash2 size={12} />
+            </button>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary">
+                Cause
+              </label>
               <textarea
-                value={it.text}
-                onChange={(e) => {
-                  const next = local.slice();
-                  next[idx] = { ...it, text: e.target.value };
-                  update(next, false);
-                }}
+                value={entry.cause}
+                onChange={(e) => setField(idx, 'cause', e.target.value, false)}
                 onBlur={() => {
-                  const v = local[idx]!.text.trim();
-                  if (v !== items[idx]?.text) {
-                    const next = local.slice();
-                    next[idx] = { ...it, text: v };
-                    update(next, true);
-                  }
+                  const v = local[idx]!.cause.trim();
+                  if (v !== causes[idx]?.cause) setField(idx, 'cause', v, true);
                 }}
-                placeholder={placeholder}
+                placeholder="e.g., Sprockets misaligned (2.2)"
                 rows={1}
-                // Auto-grow with content via field-sizing (modern browsers);
-                // min-h keeps short fields tidy elsewhere.
                 style={{ fieldSizing: 'content' } as React.CSSProperties}
-                className="min-h-[1.5rem] w-full resize-none rounded-sm border border-transparent bg-transparent px-1 py-0.5 leading-snug hover:border-line focus:border-accent focus:bg-surface"
+                className="min-h-[1.75rem] w-full resize-none rounded-sm border border-line bg-surface px-2 py-1 leading-snug focus:border-accent focus:bg-surface"
               />
-              {/* Procedure attachment — chip-style when linked, dashed
-                  "+ link procedure" select when not. Less prominent than
-                  the bullet text so the OEM-style content stays primary;
-                  echoes how OEM docs annotate references (e.g., "(2.2)"). */}
-              <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-ink-tertiary">
-                {linkedDoc ? (
-                  <>
-                    <span className="inline-flex items-center gap-1 rounded-full border border-brand/30 bg-brand/5 px-2 py-0.5 text-brand">
-                      ↗ {linkedDoc.title}
-                    </span>
-                    <select
-                      value=""
-                      onChange={(e) => {
-                        const v = e.target.value || null;
-                        const next = local.slice();
-                        next[idx] = { ...it, documentId: v };
-                        update(next, true);
-                      }}
-                      className="rounded border border-transparent bg-transparent px-1 py-0.5 text-[10px] text-ink-tertiary hover:border-line"
-                      aria-label="Change linked procedure"
-                      title="Change or unlink"
-                    >
-                      <option value="">change…</option>
-                      <option value="">— unlink —</option>
-                      {docs
-                        .filter((d) => d.id !== it.documentId)
-                        .map((d) => (
-                          <option key={d.id} value={d.id}>
-                            {d.title}
-                          </option>
-                        ))}
-                    </select>
-                  </>
-                ) : (
+            </div>
+            <div className="mt-2 flex flex-col gap-1">
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary">
+                Remedy
+              </label>
+              <textarea
+                value={entry.remedy}
+                onChange={(e) => setField(idx, 'remedy', e.target.value, false)}
+                onBlur={() => {
+                  const v = local[idx]!.remedy.trim();
+                  if (v !== causes[idx]?.remedy) setField(idx, 'remedy', v, true);
+                }}
+                placeholder="What to do about this cause"
+                rows={1}
+                style={{ fieldSizing: 'content' } as React.CSSProperties}
+                className="min-h-[1.75rem] w-full resize-none rounded-sm border border-line bg-surface px-2 py-1 leading-snug focus:border-accent focus:bg-surface"
+              />
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-tertiary">
+              {linkedDoc ? (
+                <>
+                  <span className="inline-flex items-center gap-1 rounded-full border border-brand/30 bg-brand/5 px-2 py-0.5 text-brand">
+                    ↗ {linkedDoc.title}
+                  </span>
                   <select
                     value=""
                     onChange={(e) => {
                       const v = e.target.value || null;
-                      const next = local.slice();
-                      next[idx] = { ...it, documentId: v };
-                      update(next, true);
+                      setField(idx, 'documentId', v, true);
                     }}
-                    className="rounded border border-dashed border-line-subtle bg-transparent px-1.5 py-0.5 text-[10px] text-ink-tertiary hover:border-accent/40 hover:text-accent"
-                    aria-label="Link a procedure to this bullet"
+                    className="rounded border border-transparent bg-transparent px-1 py-0.5 text-[10px] text-ink-tertiary hover:border-line"
+                    aria-label="Change or unlink the procedure"
+                    title="Change or unlink"
                   >
-                    <option value="">+ link procedure</option>
-                    {docs.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.title}
-                      </option>
-                    ))}
+                    <option value="">change…</option>
+                    <option value="">— unlink —</option>
+                    {docs
+                      .filter((d) => d.id !== entry.documentId)
+                      .map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.title}
+                        </option>
+                      ))}
                   </select>
-                )}
-              </div>
+                </>
+              ) : (
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const v = e.target.value || null;
+                    setField(idx, 'documentId', v, true);
+                  }}
+                  className="rounded border border-dashed border-line-subtle bg-transparent px-1.5 py-0.5 text-[10px] text-ink-tertiary hover:border-accent/40 hover:text-accent"
+                  aria-label="Link a procedure to this cause/remedy"
+                >
+                  <option value="">+ link procedure</option>
+                  {docs.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.title}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
-            {/* Delete — fades in on hover to keep the row visually quiet
-                when the author is reading. */}
-            <button
-              type="button"
-              onClick={() => {
-                const next = local.filter((_, i) => i !== idx);
-                update(next, true);
-              }}
-              className="mt-1 shrink-0 rounded p-1 text-ink-tertiary opacity-0 transition group-hover:opacity-100 hover:bg-signal-fault/10 hover:text-signal-fault"
-              aria-label="Delete bullet"
-              title="Delete bullet"
-            >
-              <Trash2 size={12} />
-            </button>
           </div>
         );
       })}
       <button
         type="button"
         onClick={() => {
-          // Append an empty item; commit immediately so the row exists
-          // server-side and onBlur on the new input flushes the text.
-          // Empty-text items render as blank rows in the PWA — author
-          // should fill them in or delete.
-          update([...local, { text: '', documentId: null }], true);
+          // Append an empty pair; commit immediately so the row exists
+          // server-side and onBlur on the new inputs flushes the text.
+          // Empty entries are filtered out by the PWA renderer.
+          update(
+            [...local, { cause: '', remedy: '', documentId: null }],
+            true,
+          );
         }}
         className="self-start inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-ink-tertiary hover:bg-accent/10 hover:text-accent"
       >
-        <Plus size={11} strokeWidth={2} /> Add bullet
+        <Plus size={11} strokeWidth={2} /> Add cause
       </button>
     </div>
   );

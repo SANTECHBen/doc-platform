@@ -56,16 +56,31 @@ export const troubleshootingItems = pgTable(
     // the corresponding items array is empty.
     cause: text('cause'),
     remedy: text('remedy'),
-    // Structured per-step entries. Each item is a discrete cause or
-    // remedy with its own optional Job Aid link, so the tech sees a
-    // row + Run button per entry rather than a paragraph with one
-    // generic Run at the bottom. Empty array = use legacy text field.
+    // DEPRECATED (kept on the table to avoid a destructive drop). The
+    // 0027 model treated cause + remedy as independent parallel lists,
+    // missing the OEM pairing where each cause has its own specific
+    // remedy. Use `causes` below instead — admin UI + PWA only read/
+    // write that field now.
     causeItems: jsonb('cause_items')
       .$type<Array<{ text: string; documentId?: string | null }>>()
       .notNull()
       .default([]),
     remedyItems: jsonb('remedy_items')
       .$type<Array<{ text: string; documentId?: string | null }>>()
+      .notNull()
+      .default([]),
+    // Paired cause/remedy entries — the canonical structured shape.
+    // Each item: one cause + its specific remedy + optional procedure
+    // link. Matches the OEM mental model where a symptom has multiple
+    // distinct causes each with their own fix.
+    causes: jsonb('causes')
+      .$type<
+        Array<{
+          cause: string;
+          remedy: string;
+          documentId?: string | null;
+        }>
+      >()
       .notNull()
       .default([]),
     // Row-level Job Aid fallback. Used when the entire remedy is "run

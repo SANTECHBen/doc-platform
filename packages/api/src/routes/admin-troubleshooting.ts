@@ -38,14 +38,20 @@ const UpdateGuideBody = z
     message: 'At least one field is required.',
   });
 
-// Structured cause/remedy step. Each item is one entry the tech might
-// consider; documentId optionally links to a structured_procedure so the
-// row gets its own "Run" button in the PWA. Same shape for both cause
-// and remedy — symmetric authoring + rendering.
-//
-// text allows empty so the admin can commit a blank "+ Add item" row
-// before the author types into it (mirrors PM Plan items). The PWA
-// filters empty-text rows out of rendering so techs never see blanks.
+// Paired cause/remedy entry. Each represents one possible cause for the
+// symptom, paired with its specific remedy and an optional procedure
+// link the tech can launch right from that entry. text fields allow
+// empty so the admin can commit a blank "+ Add cause" row before the
+// author types into it; PWA filters empty rows.
+const CauseSchema = z.object({
+  cause: z.string().max(2000),
+  remedy: z.string().max(2000),
+  documentId: UuidSchema.nullable().optional(),
+});
+
+// Deprecated structured-item shape from 0027 — still accepted on
+// create/patch so the admin form can write to legacy fields if needed,
+// but the new authoring path uses `causes` exclusively.
 const StructuredItemSchema = z.object({
   text: z.string().max(1000),
   documentId: UuidSchema.nullable().optional(),
@@ -53,11 +59,13 @@ const StructuredItemSchema = z.object({
 
 const CreateItemBody = z.object({
   symptom: z.string().min(1).max(500),
-  // cause/remedy can be empty on create — author types into the row inline.
+  // cause/remedy/legacy items remain accepted for back-compat, but new
+  // authoring writes paired `causes` only.
   cause: z.string().max(2000).nullable().optional(),
   remedy: z.string().max(2000).nullable().optional(),
   causeItems: z.array(StructuredItemSchema).max(30).optional(),
   remedyItems: z.array(StructuredItemSchema).max(30).optional(),
+  causes: z.array(CauseSchema).max(30).optional(),
   documentId: UuidSchema.nullable().optional(),
   orderingHint: z.number().int().optional(),
 });
@@ -69,6 +77,7 @@ const UpdateItemBody = z
     remedy: z.string().max(2000).nullable().optional(),
     causeItems: z.array(StructuredItemSchema).max(30).optional(),
     remedyItems: z.array(StructuredItemSchema).max(30).optional(),
+    causes: z.array(CauseSchema).max(30).optional(),
     documentId: UuidSchema.nullable().optional(),
     orderingHint: z.number().int().optional(),
   })
@@ -80,13 +89,15 @@ const ReorderBody = z.object({
   orderedIds: z.array(UuidSchema).min(1),
 });
 
-// Validates that every documentId referenced by a structured cause/remedy
-// item is a structured_procedure in the same owner org as the asset
-// model. Returns null on success; an error message string on first
-// failure. Reusable across POST + PATCH; cheap (one query for all IDs).
+// Validates that every documentId referenced by a structured item is a
+// structured_procedure in the same owner org as the asset model. Works
+// for both the deprecated `causeItems`/`remedyItems` shape and the new
+// paired `causes` shape — we just collect documentIds from a list of
+// objects regardless of which fields they carry. Returns null on
+// success; an error message string on first failure.
 async function validateItemDocumentIds(
   db: Database,
-  items: Array<{ text: string; documentId?: string | null }> | undefined,
+  items: Array<{ documentId?: string | null }> | undefined,
   ownerOrganizationId: string,
 ): Promise<string | null> {
   if (!items || items.length === 0) return null;
@@ -107,7 +118,7 @@ async function validateItemDocumentIds(
   }
   for (const d of docs) {
     if (d.kind !== 'structured_procedure') {
-      return 'Only structured_procedure documents can be linked to cause/remedy items.';
+      return 'Only structured_procedure documents can be linked to cause/remedy entries.';
     }
     if (d.packVersion.pack.ownerOrganizationId !== ownerOrganizationId) {
       return 'A linked document is owned by a different organization than the troubleshooting guide.';
@@ -189,6 +200,7 @@ function itemToDTO(
     remedy: i.remedy,
     causeItems: i.causeItems ?? [],
     remedyItems: i.remedyItems ?? [],
+    causes: i.causes ?? [],
     documentId: i.documentId,
     document: i.document ?? null,
     orderingHint: i.orderingHint,
@@ -374,8 +386,8 @@ export async function registerAdminTroubleshooting(app: FastifyInstance) {
           );
         }
       }
-      // Per-item documentIds inside causeItems / remedyItems share the
-      // same rules. One query for all referenced IDs across both lists.
+      // Per-item documentIds — validate across all three shapes
+      // (deprecated causeItems / remedyItems + new paired causes).
       const itemErr =
         (await validateItemDocumentIds(
           db,
@@ -385,6 +397,11 @@ export async function registerAdminTroubleshooting(app: FastifyInstance) {
         (await validateItemDocumentIds(
           db,
           request.body.remedyItems,
+          ctx.model.ownerOrganizationId,
+        )) ??
+        (await validateItemDocumentIds(
+          db,
+          request.body.causes,
           ctx.model.ownerOrganizationId,
         ));
       if (itemErr) return reply.badRequest(itemErr);
@@ -411,6 +428,7 @@ export async function registerAdminTroubleshooting(app: FastifyInstance) {
           remedy: request.body.remedy ?? null,
           causeItems: request.body.causeItems ?? [],
           remedyItems: request.body.remedyItems ?? [],
+          causes: request.body.causes ?? [],
           documentId: request.body.documentId ?? null,
           orderingHint,
           createdByUserId: auth.userId,
@@ -474,6 +492,11 @@ export async function registerAdminTroubleshooting(app: FastifyInstance) {
             db,
             request.body.remedyItems,
             model.ownerOrganizationId,
+          )) ??
+          (await validateItemDocumentIds(
+            db,
+            request.body.causes,
+            model.ownerOrganizationId,
           ));
         if (itemErr) return reply.badRequest(itemErr);
       }
@@ -484,6 +507,7 @@ export async function registerAdminTroubleshooting(app: FastifyInstance) {
       if (b.remedy !== undefined) patch.remedy = b.remedy;
       if (b.causeItems !== undefined) patch.causeItems = b.causeItems;
       if (b.remedyItems !== undefined) patch.remedyItems = b.remedyItems;
+      if (b.causes !== undefined) patch.causes = b.causes;
       if (b.documentId !== undefined) patch.documentId = b.documentId;
       if (b.orderingHint !== undefined) patch.orderingHint = b.orderingHint;
       const [updated] = await db

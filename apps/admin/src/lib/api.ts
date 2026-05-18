@@ -2521,10 +2521,20 @@ export async function deletePmPlanItem(itemId: string): Promise<void> {
 
 // --- Troubleshooting Guides ---------------------------------------------
 
-/** Structured cause/remedy row — each item is one entry with optional
- *  procedure link. Empty array on either field means "use the legacy
- *  free-text column" (back-compat for rows authored before items
- *  landed). */
+/** Paired cause/remedy entry — each represents one possible cause for
+ *  the symptom, with its specific remedy and an optional procedure link
+ *  the tech can run right from that entry. Canonical structured shape;
+ *  the old causeItems/remedyItems split is deprecated and ignored by
+ *  the admin UI. */
+export interface AdminTroubleshootingCause {
+  cause: string;
+  remedy: string;
+  documentId?: string | null;
+}
+
+/** Deprecated structured-item shape from 0027. Still present in DTOs
+ *  so old data round-trips through the API, but the admin UI no longer
+ *  writes here. */
 export interface AdminTroubleshootingStructItem {
   text: string;
   documentId?: string | null;
@@ -2538,6 +2548,7 @@ export interface AdminTroubleshootingItem {
   remedy: string | null;
   causeItems: AdminTroubleshootingStructItem[];
   remedyItems: AdminTroubleshootingStructItem[];
+  causes: AdminTroubleshootingCause[];
   documentId: string | null;
   document: { id: string; title: string; kind: string } | null;
   orderingHint: number;
@@ -2614,6 +2625,7 @@ export async function createTroubleshootingItem(
     remedy?: string | null;
     causeItems?: AdminTroubleshootingStructItem[];
     remedyItems?: AdminTroubleshootingStructItem[];
+    causes?: AdminTroubleshootingCause[];
     documentId?: string | null;
     orderingHint?: number;
   },
@@ -2638,6 +2650,7 @@ export async function updateTroubleshootingItem(
     remedy?: string | null;
     causeItems?: AdminTroubleshootingStructItem[];
     remedyItems?: AdminTroubleshootingStructItem[];
+    causes?: AdminTroubleshootingCause[];
     documentId?: string | null;
   },
 ): Promise<AdminTroubleshootingItem> {

@@ -42,6 +42,7 @@ import {
   type PmServiceRecordItem,
   type PmStatus,
   type PmStatusPayload,
+  type TroubleshootingCause,
   type TroubleshootingGuide,
 } from '@/lib/api';
 
@@ -651,75 +652,102 @@ function TroubleshootingRow({
       </button>
       {open && (
         <div className="flex flex-col gap-3 bg-surface-inset/40 px-3 py-2 pl-8 text-xs">
-          {/* Causes — structured items render as numbered rows. Legacy
-              free-text falls back when no structured items exist (so
-              rows authored before items landed still display). Each
-              structured cause item can have its own Run button when the
-              author linked a procedure to it. */}
-          {(item.causeItems.length > 0 || item.cause) && (
-            <div>
-              <div className="font-semibold uppercase text-ink-tertiary text-[10px] tracking-wider">
-                {item.causeItems.length > 1 ? 'Causes' : 'Cause'}
-              </div>
-              {item.causeItems.length > 0 ? (
-                <ul className="mt-1 flex flex-col gap-1.5">
-                  {item.causeItems.map((c, i) => (
-                    <StructItemRow
+          {/* Paired cause + remedy blocks. Each entry has one cause and
+              its own specific remedy (the OEM mental model). Falls back
+              to legacy unpaired data only when no paired entries exist. */}
+          {(() => {
+            const paired = (item.causes ?? []).filter(
+              (c) => c.cause.trim().length > 0 || c.remedy.trim().length > 0,
+            );
+            if (paired.length > 0) {
+              return (
+                <ul className="flex flex-col gap-2">
+                  {paired.map((c, i) => (
+                    <PairedCauseBlock
                       key={i}
-                      item={c}
+                      entry={c}
                       onRunProcedure={onRunProcedure}
                     />
                   ))}
                 </ul>
-              ) : (
-                <div className="mt-0.5 text-ink-secondary whitespace-pre-line">
-                  {item.cause}
-                </div>
-              )}
-            </div>
-          )}
-          {/* Remedies — same structured-items pattern. Numbered rows
-              with optional per-row Run procedure button. */}
-          {(item.remedyItems.length > 0 || item.remedy) && (
-            <div>
-              <div className="font-semibold uppercase text-ink-tertiary text-[10px] tracking-wider">
-                {item.remedyItems.length > 1 ? 'Remedy steps' : 'Remedy'}
-              </div>
-              {item.remedyItems.length > 0 ? (
-                <ul className="mt-1 flex flex-col gap-1.5">
-                  {item.remedyItems.map((r, i) => (
-                    <StructItemRow
-                      key={i}
-                      item={r}
-                      onRunProcedure={onRunProcedure}
-                    />
-                  ))}
-                </ul>
-              ) : (
-                <div className="mt-0.5 text-ink-secondary whitespace-pre-line">
-                  {item.remedy}
-                </div>
-              )}
-            </div>
-          )}
+              );
+            }
+            // Legacy fallback — old unpaired causeItems / remedyItems
+            // (pre-0028) or legacy free-text. Show both columns split as
+            // before so nothing disappears on existing rows.
+            const hasLegacyStruct =
+              item.causeItems.length > 0 || item.remedyItems.length > 0;
+            const hasLegacyText = item.cause || item.remedy;
+            if (!hasLegacyStruct && !hasLegacyText) return null;
+            return (
+              <>
+                {(item.causeItems.length > 0 || item.cause) && (
+                  <div>
+                    <div className="font-semibold uppercase text-ink-tertiary text-[10px] tracking-wider">
+                      {item.causeItems.length > 1 ? 'Causes' : 'Cause'}
+                    </div>
+                    {item.causeItems.length > 0 ? (
+                      <ul className="mt-1 flex flex-col gap-1.5">
+                        {item.causeItems.map((c, i) => (
+                          <StructItemRow
+                            key={i}
+                            item={c}
+                            onRunProcedure={onRunProcedure}
+                          />
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className="mt-0.5 text-ink-secondary whitespace-pre-line">
+                        {item.cause}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {(item.remedyItems.length > 0 || item.remedy) && (
+                  <div>
+                    <div className="font-semibold uppercase text-ink-tertiary text-[10px] tracking-wider">
+                      {item.remedyItems.length > 1 ? 'Remedy steps' : 'Remedy'}
+                    </div>
+                    {item.remedyItems.length > 0 ? (
+                      <ul className="mt-1 flex flex-col gap-1.5">
+                        {item.remedyItems.map((r, i) => (
+                          <StructItemRow
+                            key={i}
+                            item={r}
+                            onRunProcedure={onRunProcedure}
+                          />
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className="mt-0.5 text-ink-secondary whitespace-pre-line">
+                        {item.remedy}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            );
+          })()}
           {/* Row-level fallback procedure — only used when the row
               has a single overall procedure (no per-item links). When
-              individual remedy items already carry their own Run
-              buttons, this duplicates them; suppress in that case. */}
-          {item.document && item.remedyItems.length === 0 && (
-            <button
-              type="button"
-              onClick={() => onRunProcedure(item.document!.id)}
-              className="self-start inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold"
-              style={{
-                background: 'rgb(var(--brand))',
-                color: 'rgb(var(--ink-on-brand, 255 255 255))',
-              }}
-            >
-              <Play size={12} strokeWidth={2.5} />
-              Run procedure: {item.document.title}
-            </button>
-          )}
+              individual entries already carry their own Run buttons,
+              this duplicates them; suppress in that case. */}
+          {item.document &&
+            (item.causes ?? []).length === 0 &&
+            item.remedyItems.length === 0 && (
+              <button
+                type="button"
+                onClick={() => onRunProcedure(item.document!.id)}
+                className="self-start inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold"
+                style={{
+                  background: 'rgb(var(--brand))',
+                  color: 'rgb(var(--ink-on-brand, 255 255 255))',
+                }}
+              >
+                <Play size={12} strokeWidth={2.5} />
+                Run procedure: {item.document.title}
+              </button>
+            )}
         </div>
       )}
     </li>
@@ -756,6 +784,57 @@ function StructItemRow({
         >
           <Play size={11} strokeWidth={2.5} />
           Run
+        </button>
+      )}
+    </li>
+  );
+}
+
+// Paired cause/remedy block — OEM table format where each cause is
+// shown with its own specific remedy directly underneath. The optional
+// procedure link applies to this pair (i.e., "to fix this cause, run
+// this procedure").
+function PairedCauseBlock({
+  entry,
+  onRunProcedure,
+}: {
+  entry: TroubleshootingCause;
+  onRunProcedure: (docId: string) => void;
+}) {
+  const cause = entry.cause.trim();
+  const remedy = entry.remedy.trim();
+  if (!cause && !remedy) return null;
+  return (
+    <li className="rounded-md border border-line-subtle bg-surface px-2.5 py-2">
+      {cause && (
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary">
+            Cause
+          </div>
+          <div className="mt-0.5 whitespace-pre-line text-ink-secondary">
+            {cause}
+          </div>
+        </div>
+      )}
+      {remedy && (
+        <div className={cause ? 'mt-1.5' : ''}>
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary">
+            Remedy
+          </div>
+          <div className="mt-0.5 whitespace-pre-line text-ink-secondary">
+            {remedy}
+          </div>
+        </div>
+      )}
+      {entry.document && (
+        <button
+          type="button"
+          onClick={() => onRunProcedure(entry.document!.id)}
+          className="mt-2 inline-flex items-center gap-1 rounded-md border border-brand/40 bg-brand/5 px-2 py-1 text-[11px] font-medium text-brand hover:bg-brand/10"
+          title={`Run ${entry.document.title}`}
+        >
+          <Play size={11} strokeWidth={2.5} />
+          Run: {entry.document.title}
         </button>
       )}
     </li>

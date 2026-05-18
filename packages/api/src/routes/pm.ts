@@ -309,17 +309,29 @@ export async function registerPmRoutes(app: FastifyInstance) {
           document: { columns: { id: true, title: true, kind: true } },
         },
       });
-      // Resolve titles for every documentId referenced by per-item
-      // causeItems / remedyItems in a single query so the PWA can render
-      // each row's "Run" button label without a per-item round trip.
+      // Resolve titles for every documentId referenced across all
+      // structured shapes — paired causes (canonical) + legacy
+      // causeItems/remedyItems — in a single query so the PWA renders
+      // Run-button labels without per-item round trips.
       type StructItem = { text: string; documentId?: string | null };
+      type PairedCause = {
+        cause: string;
+        remedy: string;
+        documentId?: string | null;
+      };
       const allItemDocIds = [
         ...new Set(
-          items.flatMap((it) =>
-            ([...(it.causeItems ?? []), ...(it.remedyItems ?? [])] as StructItem[])
-              .map((s) => s.documentId ?? null)
-              .filter((id): id is string => id !== null),
-          ),
+          items.flatMap((it) => {
+            const struct = [
+              ...((it.causeItems ?? []) as StructItem[]),
+              ...((it.remedyItems ?? []) as StructItem[]),
+            ];
+            const paired = (it.causes ?? []) as PairedCause[];
+            return [
+              ...struct.map((s) => s.documentId ?? null),
+              ...paired.map((p) => p.documentId ?? null),
+            ].filter((id): id is string => id !== null);
+          }),
         ),
       ];
       const itemDocs = allItemDocIds.length
@@ -329,13 +341,20 @@ export async function registerPmRoutes(app: FastifyInstance) {
           })
         : [];
       const itemDocById = new Map(itemDocs.map((d) => [d.id, d]));
+      const resolveDoc = (id: string | null | undefined) =>
+        id && itemDocById.has(id)
+          ? { id, title: itemDocById.get(id)!.title }
+          : null;
       const resolveStruct = (arr: StructItem[]) =>
         arr.map((s) => ({
           text: s.text,
-          document:
-            s.documentId && itemDocById.has(s.documentId)
-              ? { id: s.documentId, title: itemDocById.get(s.documentId)!.title }
-              : null,
+          document: resolveDoc(s.documentId ?? null),
+        }));
+      const resolvePaired = (arr: PairedCause[]) =>
+        arr.map((p) => ({
+          cause: p.cause,
+          remedy: p.remedy,
+          document: resolveDoc(p.documentId ?? null),
         }));
 
       return {
@@ -350,6 +369,7 @@ export async function registerPmRoutes(app: FastifyInstance) {
               remedy: it.remedy,
               causeItems: resolveStruct((it.causeItems ?? []) as StructItem[]),
               remedyItems: resolveStruct((it.remedyItems ?? []) as StructItem[]),
+              causes: resolvePaired((it.causes ?? []) as PairedCause[]),
               document: it.document
                 ? { id: it.document.id, title: it.document.title }
                 : null,
