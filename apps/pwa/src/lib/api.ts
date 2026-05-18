@@ -542,11 +542,21 @@ export async function fetchPmPlanStatus(
 
 // --- Troubleshooting ---------------------------------------------------
 
+/** Structured cause/remedy item with optional procedure link. The PWA
+ *  renders each item as a numbered row; rows with a `document` get a
+ *  small Run button that opens the linked procedure as a Job Aid. */
+export interface TroubleshootingStructItem {
+  text: string;
+  document: { id: string; title: string } | null;
+}
+
 export interface TroubleshootingItem {
   id: string;
   symptom: string;
   cause: string | null;
   remedy: string | null;
+  causeItems: TroubleshootingStructItem[];
+  remedyItems: TroubleshootingStructItem[];
   document: { id: string; title: string } | null;
 }
 

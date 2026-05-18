@@ -6,6 +6,7 @@ import {
   boolean,
   timestamp,
   index,
+  jsonb,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import { assetModels } from './assets';
@@ -49,11 +50,28 @@ export const troubleshootingItems = pgTable(
       .notNull()
       .references(() => troubleshootingGuides.id, { onDelete: 'cascade' }),
     symptom: text('symptom').notNull(),
+    // Legacy free-text cause/remedy. Kept for back-compat with rows
+    // authored before the structured items arrays landed. New authoring
+    // uses causeItems / remedyItems; PWA only falls back to these when
+    // the corresponding items array is empty.
     cause: text('cause'),
     remedy: text('remedy'),
-    // Optional Job Aid the tech can launch from the PWA when this row
-    // matches their problem. Set null on delete so removing the linked
-    // procedure clears the link rather than nuking the triage row.
+    // Structured per-step entries. Each item is a discrete cause or
+    // remedy with its own optional Job Aid link, so the tech sees a
+    // row + Run button per entry rather than a paragraph with one
+    // generic Run at the bottom. Empty array = use legacy text field.
+    causeItems: jsonb('cause_items')
+      .$type<Array<{ text: string; documentId?: string | null }>>()
+      .notNull()
+      .default([]),
+    remedyItems: jsonb('remedy_items')
+      .$type<Array<{ text: string; documentId?: string | null }>>()
+      .notNull()
+      .default([]),
+    // Row-level Job Aid fallback. Used when the entire remedy is "run
+    // this one procedure"; per-item links in remedyItems override on a
+    // step-by-step basis. Set null on delete clears the link rather
+    // than nuking the triage row.
     documentId: uuid('document_id').references(() => documents.id, {
       onDelete: 'set null',
     }),

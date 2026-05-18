@@ -650,28 +650,65 @@ function TroubleshootingRow({
         )}
       </button>
       {open && (
-        <div className="flex flex-col gap-2 bg-surface-inset/40 px-3 py-2 pl-8 text-xs">
-          {item.cause && (
+        <div className="flex flex-col gap-3 bg-surface-inset/40 px-3 py-2 pl-8 text-xs">
+          {/* Causes — structured items render as numbered rows. Legacy
+              free-text falls back when no structured items exist (so
+              rows authored before items landed still display). Each
+              structured cause item can have its own Run button when the
+              author linked a procedure to it. */}
+          {(item.causeItems.length > 0 || item.cause) && (
             <div>
               <div className="font-semibold uppercase text-ink-tertiary text-[10px] tracking-wider">
-                Cause
+                {item.causeItems.length > 1 ? 'Causes' : 'Cause'}
               </div>
-              <div className="mt-0.5 text-ink-secondary whitespace-pre-line">
-                {item.cause}
-              </div>
+              {item.causeItems.length > 0 ? (
+                <ol className="mt-1 flex flex-col gap-1.5">
+                  {item.causeItems.map((c, i) => (
+                    <StructItemRow
+                      key={i}
+                      index={i + 1}
+                      item={c}
+                      onRunProcedure={onRunProcedure}
+                    />
+                  ))}
+                </ol>
+              ) : (
+                <div className="mt-0.5 text-ink-secondary whitespace-pre-line">
+                  {item.cause}
+                </div>
+              )}
             </div>
           )}
-          {item.remedy && (
+          {/* Remedies — same structured-items pattern. Numbered rows
+              with optional per-row Run procedure button. */}
+          {(item.remedyItems.length > 0 || item.remedy) && (
             <div>
               <div className="font-semibold uppercase text-ink-tertiary text-[10px] tracking-wider">
-                Remedy
+                {item.remedyItems.length > 1 ? 'Remedy steps' : 'Remedy'}
               </div>
-              <div className="mt-0.5 text-ink-secondary whitespace-pre-line">
-                {item.remedy}
-              </div>
+              {item.remedyItems.length > 0 ? (
+                <ol className="mt-1 flex flex-col gap-1.5">
+                  {item.remedyItems.map((r, i) => (
+                    <StructItemRow
+                      key={i}
+                      index={i + 1}
+                      item={r}
+                      onRunProcedure={onRunProcedure}
+                    />
+                  ))}
+                </ol>
+              ) : (
+                <div className="mt-0.5 text-ink-secondary whitespace-pre-line">
+                  {item.remedy}
+                </div>
+              )}
             </div>
           )}
-          {item.document && (
+          {/* Row-level fallback procedure — only used when the row
+              has a single overall procedure (no per-item links). When
+              individual remedy items already carry their own Run
+              buttons, this duplicates them; suppress in that case. */}
+          {item.document && item.remedyItems.length === 0 && (
             <button
               type="button"
               onClick={() => onRunProcedure(item.document!.id)}
@@ -686,6 +723,45 @@ function TroubleshootingRow({
             </button>
           )}
         </div>
+      )}
+    </li>
+  );
+}
+
+// Structured cause/remedy row — numbered, text + optional Run button
+// when the author wired a procedure to this specific item. Compact
+// inline layout so the row reads as one line on a phone with the Run
+// affordance trailing.
+function StructItemRow({
+  index,
+  item,
+  onRunProcedure,
+}: {
+  index: number;
+  item: { text: string; document: { id: string; title: string } | null };
+  onRunProcedure: (docId: string) => void;
+}) {
+  // Skip empty rows the author hasn't filled in yet — keeps the PWA
+  // surface clean while the admin is mid-edit.
+  if (!item.text.trim()) return null;
+  return (
+    <li className="flex items-start gap-2">
+      <span className="mt-0.5 shrink-0 font-mono text-[10px] tabular-nums text-ink-tertiary">
+        {index}.
+      </span>
+      <span className="min-w-0 flex-1 whitespace-pre-line text-ink-secondary">
+        {item.text}
+      </span>
+      {item.document && (
+        <button
+          type="button"
+          onClick={() => onRunProcedure(item.document!.id)}
+          className="inline-flex shrink-0 items-center gap-1 rounded-md border border-brand/40 bg-brand/5 px-2 py-1 text-[11px] font-medium text-brand hover:bg-brand/10"
+          title={`Run ${item.document.title}`}
+        >
+          <Play size={11} strokeWidth={2.5} />
+          Run
+        </button>
       )}
     </li>
   );

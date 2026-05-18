@@ -40,6 +40,7 @@ import {
   type AdminPmProcedureDoc,
   type AdminTroubleshootingGuide,
   type AdminTroubleshootingItem,
+  type AdminTroubleshootingStructItem,
 } from '@/lib/api';
 
 export function TroubleshootingSection({ assetModelId }: { assetModelId: string }) {
@@ -308,9 +309,8 @@ function GuideCard({
               <thead className="bg-surface-inset text-left text-[10px] uppercase tracking-wider text-ink-tertiary">
                 <tr>
                   <th className="w-56 px-3 py-2">Symptom</th>
-                  <th className="px-3 py-2">Cause</th>
-                  <th className="px-3 py-2">Remedy</th>
-                  <th className="w-44 px-3 py-2">Procedure</th>
+                  <th className="px-3 py-2">Causes</th>
+                  <th className="px-3 py-2">Remedy steps</th>
                   <th className="w-8 px-3 py-2"></th>
                 </tr>
               </thead>
@@ -329,7 +329,6 @@ function GuideCard({
           )}
           <NewItemForm
             guideId={guide.id}
-            docs={docs}
             onAdded={onChanged}
             onToast={onToast}
           />
@@ -351,11 +350,7 @@ function ItemRow({
   onToast: (tone: 'ok' | 'err', body: string) => void;
 }) {
   const [symptom, setSymptom] = useState(item.symptom);
-  const [cause, setCause] = useState(item.cause ?? '');
-  const [remedy, setRemedy] = useState(item.remedy ?? '');
   useEffect(() => setSymptom(item.symptom), [item.symptom]);
-  useEffect(() => setCause(item.cause ?? ''), [item.cause]);
-  useEffect(() => setRemedy(item.remedy ?? ''), [item.remedy]);
 
   async function flush(patch: Parameters<typeof updateTroubleshootingItem>[1]) {
     try {
@@ -391,46 +386,22 @@ function ItemRow({
         />
       </td>
       <td className="px-3 py-2">
-        <textarea
-          value={cause}
-          onChange={(e) => setCause(e.target.value)}
-          onBlur={() => {
-            const v = cause.trim() || null;
-            if (v !== (item.cause ?? null)) void flush({ cause: v });
-          }}
-          rows={3}
-          className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-line focus:border-accent focus:bg-surface"
-          placeholder="—"
+        <StructItemsEditor
+          items={item.causeItems}
+          legacyText={item.cause}
+          docs={docs}
+          placeholder="Add a cause…"
+          onChange={(next) => void flush({ causeItems: next })}
         />
       </td>
       <td className="px-3 py-2">
-        <textarea
-          value={remedy}
-          onChange={(e) => setRemedy(e.target.value)}
-          onBlur={() => {
-            const v = remedy.trim() || null;
-            if (v !== (item.remedy ?? null)) void flush({ remedy: v });
-          }}
-          rows={3}
-          className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-line focus:border-accent focus:bg-surface"
-          placeholder="—"
+        <StructItemsEditor
+          items={item.remedyItems}
+          legacyText={item.remedy}
+          docs={docs}
+          placeholder="Add a remedy step…"
+          onChange={(next) => void flush({ remedyItems: next })}
         />
-      </td>
-      <td className="px-3 py-2">
-        <Select
-          value={item.documentId ?? ''}
-          onChange={(e) => {
-            const v = e.target.value || null;
-            if (v !== (item.documentId ?? null)) void flush({ documentId: v });
-          }}
-        >
-          <option value="">— None —</option>
-          {docs.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.title}
-            </option>
-          ))}
-        </Select>
       </td>
       <td className="px-3 py-2">
         <button
@@ -448,19 +419,14 @@ function ItemRow({
 
 function NewItemForm({
   guideId,
-  docs,
   onAdded,
   onToast,
 }: {
   guideId: string;
-  docs: AdminPmProcedureDoc[];
   onAdded: () => Promise<void>;
   onToast: (tone: 'ok' | 'err', body: string) => void;
 }) {
   const [symptom, setSymptom] = useState('');
-  const [cause, setCause] = useState('');
-  const [remedy, setRemedy] = useState('');
-  const [documentId, setDocumentId] = useState<string>('');
   const [busy, setBusy] = useState(false);
 
   async function submit(e: React.FormEvent) {
@@ -468,16 +434,14 @@ function NewItemForm({
     if (!symptom.trim()) return;
     setBusy(true);
     try {
+      // Create the row with just the symptom — the author fills in
+      // structured cause/remedy items inline on the freshly-added row.
+      // Keeps the add-form short and matches the inline-editing pattern
+      // the rest of the page uses.
       await createTroubleshootingItem(guideId, {
         symptom: symptom.trim(),
-        cause: cause.trim() || null,
-        remedy: remedy.trim() || null,
-        documentId: documentId || null,
       });
       setSymptom('');
-      setCause('');
-      setRemedy('');
-      setDocumentId('');
       await onAdded();
     } catch (e) {
       onToast('err', e instanceof Error ? e.message : String(e));
@@ -491,40 +455,13 @@ function NewItemForm({
       onSubmit={submit}
       className="flex flex-col gap-2 border-t border-line-subtle bg-surface-inset px-3 py-3"
     >
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-[14rem_1fr_1fr_11rem]">
-        <textarea
-          value={symptom}
-          onChange={(e) => setSymptom(e.target.value)}
-          placeholder="Symptom (e.g., Conveyor belt not moving)"
-          rows={2}
-          className="rounded border border-line bg-surface px-2 py-1.5 text-sm"
-        />
-        <textarea
-          value={cause}
-          onChange={(e) => setCause(e.target.value)}
-          placeholder="Cause (optional)"
-          rows={2}
-          className="rounded border border-line bg-surface px-2 py-1.5 text-sm"
-        />
-        <textarea
-          value={remedy}
-          onChange={(e) => setRemedy(e.target.value)}
-          placeholder="Remedy (optional)"
-          rows={2}
-          className="rounded border border-line bg-surface px-2 py-1.5 text-sm"
-        />
-        <Select
-          value={documentId}
-          onChange={(e) => setDocumentId(e.target.value)}
-        >
-          <option value="">Procedure: — None —</option>
-          {docs.map((d) => (
-            <option key={d.id} value={d.id}>
-              Procedure: {d.title}
-            </option>
-          ))}
-        </Select>
-      </div>
+      <textarea
+        value={symptom}
+        onChange={(e) => setSymptom(e.target.value)}
+        placeholder="Symptom (e.g., Conveyor belt not moving)"
+        rows={2}
+        className="rounded border border-line bg-surface px-2 py-1.5 text-sm"
+      />
       <button
         type="submit"
         disabled={busy || !symptom.trim()}
@@ -534,5 +471,116 @@ function NewItemForm({
         {busy ? 'Adding…' : 'Add row'}
       </button>
     </form>
+  );
+}
+
+// Structured items editor — drives a single cell's value (causeItems or
+// remedyItems). Each item is one row with a text input + per-item
+// procedure dropdown + delete. "+ Add" appends a blank row. Empty arrays
+// are persisted as `[]`; legacy text rows from before the column existed
+// render as a small read-only hint below the editor so authors can
+// migrate them by re-typing into the structured fields.
+function StructItemsEditor({
+  items,
+  legacyText,
+  docs,
+  placeholder,
+  onChange,
+}: {
+  items: AdminTroubleshootingStructItem[];
+  legacyText: string | null;
+  docs: AdminPmProcedureDoc[];
+  placeholder: string;
+  onChange: (next: AdminTroubleshootingStructItem[]) => void;
+}) {
+  // Local mirror so the author can type without each keystroke triggering
+  // a PATCH. Commit on blur or change.
+  const [local, setLocal] = useState<AdminTroubleshootingStructItem[]>(items);
+  useEffect(() => setLocal(items), [items]);
+
+  function update(next: AdminTroubleshootingStructItem[], commit: boolean) {
+    setLocal(next);
+    if (commit) onChange(next);
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {local.length === 0 && legacyText && (
+        // Legacy free-text fallback — read-only hint that this row was
+        // authored before structured items. Author can re-type the
+        // content into the editor below to migrate it.
+        <div className="rounded-sm border border-dashed border-line-subtle bg-surface-inset/50 px-2 py-1.5 text-xs italic text-ink-tertiary">
+          {legacyText}
+        </div>
+      )}
+      {local.map((it, idx) => (
+        <div key={idx} className="flex items-start gap-1.5">
+          <span className="mt-1.5 shrink-0 font-mono text-[10px] tabular-nums text-ink-tertiary">
+            {idx + 1}.
+          </span>
+          <input
+            value={it.text}
+            onChange={(e) => {
+              const next = local.slice();
+              next[idx] = { ...it, text: e.target.value };
+              update(next, false);
+            }}
+            onBlur={() => {
+              const v = local[idx]!.text.trim();
+              if (v !== items[idx]?.text) {
+                const next = local.slice();
+                next[idx] = { ...it, text: v };
+                update(next, true);
+              }
+            }}
+            placeholder={placeholder}
+            className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-line focus:border-accent focus:bg-surface"
+          />
+          <select
+            value={it.documentId ?? ''}
+            onChange={(e) => {
+              const v = e.target.value || null;
+              const next = local.slice();
+              next[idx] = { ...it, documentId: v };
+              update(next, true);
+            }}
+            className="w-32 shrink-0 rounded border border-line bg-surface px-1.5 py-0.5 text-xs"
+            title="Optional procedure to launch from this item"
+          >
+            <option value="">— No proc —</option>
+            {docs.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.title}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => {
+              const next = local.filter((_, i) => i !== idx);
+              update(next, true);
+            }}
+            className="mt-0.5 rounded p-0.5 text-ink-tertiary hover:bg-signal-fault/10 hover:text-signal-fault"
+            aria-label="Delete item"
+            title="Delete item"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={() => {
+          // Append an empty item; commit immediately so the row exists
+          // server-side and onBlur on the new input flushes the text.
+          // Empty-text items render as blank rows in the PWA — author
+          // should fill them in or delete.
+          update([...local, { text: '', documentId: null }], true);
+        }}
+        className="self-start inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-ink-tertiary hover:bg-accent/10 hover:text-accent"
+      >
+        <Plus size={11} strokeWidth={2} /> Add item
+      </button>
+    </div>
   );
 }

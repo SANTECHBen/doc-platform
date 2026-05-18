@@ -309,6 +309,35 @@ export async function registerPmRoutes(app: FastifyInstance) {
           document: { columns: { id: true, title: true, kind: true } },
         },
       });
+      // Resolve titles for every documentId referenced by per-item
+      // causeItems / remedyItems in a single query so the PWA can render
+      // each row's "Run" button label without a per-item round trip.
+      type StructItem = { text: string; documentId?: string | null };
+      const allItemDocIds = [
+        ...new Set(
+          items.flatMap((it) =>
+            ([...(it.causeItems ?? []), ...(it.remedyItems ?? [])] as StructItem[])
+              .map((s) => s.documentId ?? null)
+              .filter((id): id is string => id !== null),
+          ),
+        ),
+      ];
+      const itemDocs = allItemDocIds.length
+        ? await db.query.documents.findMany({
+            where: inArray(schema.documents.id, allItemDocIds),
+            columns: { id: true, title: true },
+          })
+        : [];
+      const itemDocById = new Map(itemDocs.map((d) => [d.id, d]));
+      const resolveStruct = (arr: StructItem[]) =>
+        arr.map((s) => ({
+          text: s.text,
+          document:
+            s.documentId && itemDocById.has(s.documentId)
+              ? { id: s.documentId, title: itemDocById.get(s.documentId)!.title }
+              : null,
+        }));
+
       return {
         guides: guides.map((g) => ({
           guide: { id: g.id, name: g.name, description: g.description },
@@ -319,6 +348,8 @@ export async function registerPmRoutes(app: FastifyInstance) {
               symptom: it.symptom,
               cause: it.cause,
               remedy: it.remedy,
+              causeItems: resolveStruct((it.causeItems ?? []) as StructItem[]),
+              remedyItems: resolveStruct((it.remedyItems ?? []) as StructItem[]),
               document: it.document
                 ? { id: it.document.id, title: it.document.title }
                 : null,

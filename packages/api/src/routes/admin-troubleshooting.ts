@@ -38,11 +38,22 @@ const UpdateGuideBody = z
     message: 'At least one field is required.',
   });
 
+// Structured cause/remedy step. Each item is one entry the tech might
+// consider; documentId optionally links to a structured_procedure so the
+// row gets its own "Run" button in the PWA. Same shape for both cause
+// and remedy — symmetric authoring + rendering.
+const StructuredItemSchema = z.object({
+  text: z.string().min(1).max(1000),
+  documentId: UuidSchema.nullable().optional(),
+});
+
 const CreateItemBody = z.object({
   symptom: z.string().min(1).max(500),
   // cause/remedy can be empty on create — author types into the row inline.
   cause: z.string().max(2000).nullable().optional(),
   remedy: z.string().max(2000).nullable().optional(),
+  causeItems: z.array(StructuredItemSchema).max(30).optional(),
+  remedyItems: z.array(StructuredItemSchema).max(30).optional(),
   documentId: UuidSchema.nullable().optional(),
   orderingHint: z.number().int().optional(),
 });
@@ -52,6 +63,8 @@ const UpdateItemBody = z
     symptom: z.string().min(1).max(500).optional(),
     cause: z.string().max(2000).nullable().optional(),
     remedy: z.string().max(2000).nullable().optional(),
+    causeItems: z.array(StructuredItemSchema).max(30).optional(),
+    remedyItems: z.array(StructuredItemSchema).max(30).optional(),
     documentId: UuidSchema.nullable().optional(),
     orderingHint: z.number().int().optional(),
   })
@@ -62,6 +75,42 @@ const UpdateItemBody = z
 const ReorderBody = z.object({
   orderedIds: z.array(UuidSchema).min(1),
 });
+
+// Validates that every documentId referenced by a structured cause/remedy
+// item is a structured_procedure in the same owner org as the asset
+// model. Returns null on success; an error message string on first
+// failure. Reusable across POST + PATCH; cheap (one query for all IDs).
+async function validateItemDocumentIds(
+  db: Database,
+  items: Array<{ text: string; documentId?: string | null }> | undefined,
+  ownerOrganizationId: string,
+): Promise<string | null> {
+  if (!items || items.length === 0) return null;
+  const ids = [
+    ...new Set(
+      items
+        .map((i) => i.documentId ?? null)
+        .filter((id): id is string => id !== null),
+    ),
+  ];
+  if (ids.length === 0) return null;
+  const docs = await db.query.documents.findMany({
+    where: inArray(schema.documents.id, ids),
+    with: { packVersion: { with: { pack: true } } },
+  });
+  if (docs.length !== ids.length) {
+    return 'One or more linked documentIds were not found.';
+  }
+  for (const d of docs) {
+    if (d.kind !== 'structured_procedure') {
+      return 'Only structured_procedure documents can be linked to cause/remedy items.';
+    }
+    if (d.packVersion.pack.ownerOrganizationId !== ownerOrganizationId) {
+      return 'A linked document is owned by a different organization than the troubleshooting guide.';
+    }
+  }
+  return null;
+}
 
 async function loadModelForWrite(
   db: Database,
@@ -134,6 +183,8 @@ function itemToDTO(
     symptom: i.symptom,
     cause: i.cause,
     remedy: i.remedy,
+    causeItems: i.causeItems ?? [],
+    remedyItems: i.remedyItems ?? [],
     documentId: i.documentId,
     document: i.document ?? null,
     orderingHint: i.orderingHint,
@@ -319,6 +370,20 @@ export async function registerAdminTroubleshooting(app: FastifyInstance) {
           );
         }
       }
+      // Per-item documentIds inside causeItems / remedyItems share the
+      // same rules. One query for all referenced IDs across both lists.
+      const itemErr =
+        (await validateItemDocumentIds(
+          db,
+          request.body.causeItems,
+          ctx.model.ownerOrganizationId,
+        )) ??
+        (await validateItemDocumentIds(
+          db,
+          request.body.remedyItems,
+          ctx.model.ownerOrganizationId,
+        ));
+      if (itemErr) return reply.badRequest(itemErr);
 
       let orderingHint = request.body.orderingHint;
       if (orderingHint === undefined) {
@@ -340,6 +405,8 @@ export async function registerAdminTroubleshooting(app: FastifyInstance) {
           symptom: request.body.symptom.trim(),
           cause: request.body.cause ?? null,
           remedy: request.body.remedy ?? null,
+          causeItems: request.body.causeItems ?? [],
+          remedyItems: request.body.remedyItems ?? [],
           documentId: request.body.documentId ?? null,
           orderingHint,
           createdByUserId: auth.userId,
@@ -385,11 +452,34 @@ export async function registerAdminTroubleshooting(app: FastifyInstance) {
           );
         }
       }
+      // Per-item documentIds inside causeItems / remedyItems share the
+      // same rules as the row-level documentId. Need the model's owner
+      // org to scope.
+      const model = await db.query.assetModels.findFirst({
+        where: eq(schema.assetModels.id, ctx.guide.assetModelId),
+        columns: { ownerOrganizationId: true },
+      });
+      if (model) {
+        const itemErr =
+          (await validateItemDocumentIds(
+            db,
+            request.body.causeItems,
+            model.ownerOrganizationId,
+          )) ??
+          (await validateItemDocumentIds(
+            db,
+            request.body.remedyItems,
+            model.ownerOrganizationId,
+          ));
+        if (itemErr) return reply.badRequest(itemErr);
+      }
       const b = request.body;
       const patch: Record<string, unknown> = { updatedAt: new Date() };
       if (b.symptom !== undefined) patch.symptom = b.symptom.trim();
       if (b.cause !== undefined) patch.cause = b.cause;
       if (b.remedy !== undefined) patch.remedy = b.remedy;
+      if (b.causeItems !== undefined) patch.causeItems = b.causeItems;
+      if (b.remedyItems !== undefined) patch.remedyItems = b.remedyItems;
       if (b.documentId !== undefined) patch.documentId = b.documentId;
       if (b.orderingHint !== undefined) patch.orderingHint = b.orderingHint;
       const [updated] = await db

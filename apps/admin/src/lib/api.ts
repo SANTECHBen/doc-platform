@@ -2521,12 +2521,23 @@ export async function deletePmPlanItem(itemId: string): Promise<void> {
 
 // --- Troubleshooting Guides ---------------------------------------------
 
+/** Structured cause/remedy row — each item is one entry with optional
+ *  procedure link. Empty array on either field means "use the legacy
+ *  free-text column" (back-compat for rows authored before items
+ *  landed). */
+export interface AdminTroubleshootingStructItem {
+  text: string;
+  documentId?: string | null;
+}
+
 export interface AdminTroubleshootingItem {
   id: string;
   guideId: string;
   symptom: string;
   cause: string | null;
   remedy: string | null;
+  causeItems: AdminTroubleshootingStructItem[];
+  remedyItems: AdminTroubleshootingStructItem[];
   documentId: string | null;
   document: { id: string; title: string; kind: string } | null;
   orderingHint: number;
@@ -2601,6 +2612,8 @@ export async function createTroubleshootingItem(
     symptom: string;
     cause?: string | null;
     remedy?: string | null;
+    causeItems?: AdminTroubleshootingStructItem[];
+    remedyItems?: AdminTroubleshootingStructItem[];
     documentId?: string | null;
     orderingHint?: number;
   },
@@ -2623,6 +2636,8 @@ export async function updateTroubleshootingItem(
     symptom?: string;
     cause?: string | null;
     remedy?: string | null;
+    causeItems?: AdminTroubleshootingStructItem[];
+    remedyItems?: AdminTroubleshootingStructItem[];
     documentId?: string | null;
   },
 ): Promise<AdminTroubleshootingItem> {
