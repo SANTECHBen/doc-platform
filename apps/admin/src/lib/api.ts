@@ -2521,14 +2521,27 @@ export async function deletePmPlanItem(itemId: string): Promise<void> {
 
 // --- Troubleshooting Guides ---------------------------------------------
 
+/** A single remedy step inside a cause. Renders as a bullet or numbered
+ *  row in the admin grid and on the PWA; each step may carry its own
+ *  procedure link. */
+export interface AdminTroubleshootingRemedyStep {
+  text: string;
+  documentId?: string | null;
+}
+
 /** Paired cause/remedy entry — each represents one possible cause for
- *  the symptom, with its specific remedy and an optional procedure link
- *  the tech can run right from that entry. Canonical structured shape;
- *  the old causeItems/remedyItems split is deprecated and ignored by
- *  the admin UI. */
+ *  the symptom, with its remedy expressed as one or more steps (bullet
+ *  or numbered list) and optional per-step procedure links. The legacy
+ *  single `remedy` string and per-cause `documentId` from 0028 are kept
+ *  optional so older rows still deserialize until they're re-authored. */
 export interface AdminTroubleshootingCause {
   cause: string;
-  remedy: string;
+  /** Legacy pre-0029 single-text remedy. Reading code should prefer
+   *  `remedySteps` when populated. */
+  remedy?: string | null;
+  remedySteps?: AdminTroubleshootingRemedyStep[];
+  remedyStyle?: 'bullet' | 'numbered';
+  /** Legacy pre-0029 per-cause fallback procedure link. */
   documentId?: string | null;
 }
 

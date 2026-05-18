@@ -550,13 +550,20 @@ export interface TroubleshootingStructItem {
   document: { id: string; title: string } | null;
 }
 
+/** A single remedy step inside a cause. Multiple steps render as a
+ *  bullet or numbered list; each step may carry its own Run button. */
+export interface TroubleshootingRemedyStep {
+  text: string;
+  document: { id: string; title: string } | null;
+}
+
 /** Paired cause/remedy entry — the OEM mental model is that each cause
- *  has its own specific fix. The PWA renders each entry as a single
- *  block (Cause: ... / Remedy: ...) with an optional Run button. */
+ *  has its own specific fix. The remedy is one or more steps rendered
+ *  as a bullet or numbered list, like a mini procedure. */
 export interface TroubleshootingCause {
   cause: string;
-  remedy: string;
-  document: { id: string; title: string } | null;
+  remedyStyle: 'bullet' | 'numbered';
+  remedySteps: TroubleshootingRemedyStep[];
 }
 
 export interface TroubleshootingItem {

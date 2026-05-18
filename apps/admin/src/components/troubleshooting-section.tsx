@@ -9,7 +9,7 @@
 // frequency. Distinct from PM Plans (recurring scheduled checks) — this
 // is reactive triage.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ChevronDown,
@@ -41,6 +41,7 @@ import {
   type AdminTroubleshootingCause,
   type AdminTroubleshootingGuide,
   type AdminTroubleshootingItem,
+  type AdminTroubleshootingRemedyStep,
 } from '@/lib/api';
 
 export function TroubleshootingSection({ assetModelId }: { assetModelId: string }) {
@@ -485,22 +486,62 @@ function PairedCausesEditor({
   docs: AdminPmProcedureDoc[];
   onChange: (next: AdminTroubleshootingCause[]) => void;
 }) {
-  const [local, setLocal] = useState<AdminTroubleshootingCause[]>(causes);
-  useEffect(() => setLocal(causes), [causes]);
+  // Normalize on load — pre-0029 entries stored a single `remedy`
+  // string and an optional per-cause documentId; collapse those into a
+  // single bullet step so the editor only deals with one shape. The
+  // normalized entry round-trips on save, which drops the legacy fields
+  // from the stored jsonb on first edit (migrate-on-write).
+  const normalized = useMemo(() => causes.map(normalizeCause), [causes]);
+  const [local, setLocal] = useState<AdminTroubleshootingCause[]>(normalized);
+  useEffect(() => setLocal(normalized), [normalized]);
 
   function update(next: AdminTroubleshootingCause[], commit: boolean) {
     setLocal(next);
     if (commit) onChange(next);
   }
-  function setField<K extends keyof AdminTroubleshootingCause>(
-    idx: number,
-    key: K,
-    value: AdminTroubleshootingCause[K],
+  function setCause(idx: number, value: string, commit: boolean) {
+    const next = local.slice();
+    next[idx] = { ...local[idx]!, cause: value };
+    update(next, commit);
+  }
+  function setStyle(idx: number, value: 'bullet' | 'numbered') {
+    const next = local.slice();
+    next[idx] = { ...local[idx]!, remedyStyle: value };
+    update(next, true);
+  }
+  function setStep(
+    cIdx: number,
+    sIdx: number,
+    patch: Partial<AdminTroubleshootingRemedyStep>,
     commit: boolean,
   ) {
     const next = local.slice();
-    next[idx] = { ...local[idx]!, [key]: value };
+    const entry = local[cIdx]!;
+    const steps = (entry.remedySteps ?? []).slice();
+    steps[sIdx] = { ...steps[sIdx]!, ...patch };
+    next[cIdx] = { ...entry, remedySteps: steps };
     update(next, commit);
+  }
+  function addStep(cIdx: number) {
+    const next = local.slice();
+    const entry = local[cIdx]!;
+    next[cIdx] = {
+      ...entry,
+      remedySteps: [
+        ...(entry.remedySteps ?? []),
+        { text: '', documentId: null },
+      ],
+    };
+    update(next, true);
+  }
+  function deleteStep(cIdx: number, sIdx: number) {
+    const next = local.slice();
+    const entry = local[cIdx]!;
+    next[cIdx] = {
+      ...entry,
+      remedySteps: (entry.remedySteps ?? []).filter((_, i) => i !== sIdx),
+    };
+    update(next, true);
   }
 
   const hasLegacy =
@@ -533,9 +574,8 @@ function PairedCausesEditor({
         </div>
       )}
       {local.map((entry, idx) => {
-        const linkedDoc = entry.documentId
-          ? docs.find((d) => d.id === entry.documentId)
-          : null;
+        const style = entry.remedyStyle ?? 'bullet';
+        const steps = entry.remedySteps ?? [];
         return (
           <div
             key={idx}
@@ -556,10 +596,10 @@ function PairedCausesEditor({
               </label>
               <textarea
                 value={entry.cause}
-                onChange={(e) => setField(idx, 'cause', e.target.value, false)}
+                onChange={(e) => setCause(idx, e.target.value, false)}
                 onBlur={() => {
                   const v = local[idx]!.cause.trim();
-                  if (v !== causes[idx]?.cause) setField(idx, 'cause', v, true);
+                  if (v !== normalized[idx]?.cause) setCause(idx, v, true);
                 }}
                 placeholder="e.g., Sprockets misaligned (2.2)"
                 rows={1}
@@ -567,68 +607,143 @@ function PairedCausesEditor({
                 className="min-h-[1.75rem] w-full resize-none rounded-sm border border-line bg-surface px-2 py-1 leading-snug focus:border-accent focus:bg-surface"
               />
             </div>
-            <div className="mt-2 flex flex-col gap-1">
+            <div className="mt-2 flex items-center justify-between">
               <label className="text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary">
-                Remedy
+                Remedy steps
               </label>
-              <textarea
-                value={entry.remedy}
-                onChange={(e) => setField(idx, 'remedy', e.target.value, false)}
-                onBlur={() => {
-                  const v = local[idx]!.remedy.trim();
-                  if (v !== causes[idx]?.remedy) setField(idx, 'remedy', v, true);
-                }}
-                placeholder="What to do about this cause"
-                rows={1}
-                style={{ fieldSizing: 'content' } as React.CSSProperties}
-                className="min-h-[1.75rem] w-full resize-none rounded-sm border border-line bg-surface px-2 py-1 leading-snug focus:border-accent focus:bg-surface"
-              />
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-tertiary">
-              {linkedDoc ? (
-                <>
-                  <span className="inline-flex items-center gap-1 rounded-full border border-brand/30 bg-brand/5 px-2 py-0.5 text-brand">
-                    ↗ {linkedDoc.title}
-                  </span>
-                  <select
-                    value=""
-                    onChange={(e) => {
-                      const v = e.target.value || null;
-                      setField(idx, 'documentId', v, true);
-                    }}
-                    className="rounded border border-transparent bg-transparent px-1 py-0.5 text-[10px] text-ink-tertiary hover:border-line"
-                    aria-label="Change or unlink the procedure"
-                    title="Change or unlink"
-                  >
-                    <option value="">change…</option>
-                    <option value="">— unlink —</option>
-                    {docs
-                      .filter((d) => d.id !== entry.documentId)
-                      .map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {d.title}
-                        </option>
-                      ))}
-                  </select>
-                </>
-              ) : (
-                <select
-                  value=""
-                  onChange={(e) => {
-                    const v = e.target.value || null;
-                    setField(idx, 'documentId', v, true);
-                  }}
-                  className="rounded border border-dashed border-line-subtle bg-transparent px-1.5 py-0.5 text-[10px] text-ink-tertiary hover:border-accent/40 hover:text-accent"
-                  aria-label="Link a procedure to this cause/remedy"
+              {/* Style toggle — bullet vs numbered list. Numbered when
+                  the steps are sequential ("do this, then this"); bullet
+                  when they're alternatives or unordered checks. */}
+              <div className="flex rounded border border-line-subtle text-[10px]">
+                <button
+                  type="button"
+                  onClick={() => setStyle(idx, 'bullet')}
+                  className={`px-1.5 py-0.5 ${
+                    style === 'bullet'
+                      ? 'bg-accent/10 text-accent'
+                      : 'text-ink-tertiary hover:text-ink-secondary'
+                  }`}
+                  title="Bulleted list"
+                  aria-pressed={style === 'bullet'}
                 >
-                  <option value="">+ link procedure</option>
-                  {docs.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.title}
-                    </option>
-                  ))}
-                </select>
-              )}
+                  •
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStyle(idx, 'numbered')}
+                  className={`border-l border-line-subtle px-1.5 py-0.5 ${
+                    style === 'numbered'
+                      ? 'bg-accent/10 text-accent'
+                      : 'text-ink-tertiary hover:text-ink-secondary'
+                  }`}
+                  title="Numbered list"
+                  aria-pressed={style === 'numbered'}
+                >
+                  1.
+                </button>
+              </div>
+            </div>
+            <div className="mt-1 flex flex-col gap-1.5">
+              {steps.map((step, sIdx) => {
+                const linkedDoc = step.documentId
+                  ? docs.find((d) => d.id === step.documentId)
+                  : null;
+                return (
+                  <div
+                    key={sIdx}
+                    className="group/step flex items-start gap-1.5"
+                  >
+                    <span
+                      className="mt-2 w-5 shrink-0 select-none text-center text-[11px] text-ink-tertiary"
+                      aria-hidden
+                    >
+                      {style === 'numbered' ? `${sIdx + 1}.` : '•'}
+                    </span>
+                    <div className="min-w-0 flex-1 flex flex-col gap-1">
+                      <textarea
+                        value={step.text}
+                        onChange={(e) =>
+                          setStep(idx, sIdx, { text: e.target.value }, false)
+                        }
+                        onBlur={() => {
+                          const v = local[idx]!.remedySteps![sIdx]!.text.trim();
+                          if (
+                            v !== normalized[idx]?.remedySteps?.[sIdx]?.text
+                          ) {
+                            setStep(idx, sIdx, { text: v }, true);
+                          }
+                        }}
+                        placeholder="What to do for this step"
+                        rows={1}
+                        style={{ fieldSizing: 'content' } as React.CSSProperties}
+                        className="min-h-[1.75rem] w-full resize-none rounded-sm border border-line bg-surface px-2 py-1 leading-snug focus:border-accent focus:bg-surface"
+                      />
+                      <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-ink-tertiary">
+                        {linkedDoc ? (
+                          <>
+                            <span className="inline-flex items-center gap-1 rounded-full border border-brand/30 bg-brand/5 px-2 py-0.5 text-brand">
+                              ↗ {linkedDoc.title}
+                            </span>
+                            <select
+                              value=""
+                              onChange={(e) => {
+                                const v = e.target.value || null;
+                                setStep(idx, sIdx, { documentId: v }, true);
+                              }}
+                              className="rounded border border-transparent bg-transparent px-1 py-0.5 text-[10px] text-ink-tertiary hover:border-line"
+                              aria-label="Change or unlink the procedure"
+                              title="Change or unlink"
+                            >
+                              <option value="">change…</option>
+                              <option value="">— unlink —</option>
+                              {docs
+                                .filter((d) => d.id !== step.documentId)
+                                .map((d) => (
+                                  <option key={d.id} value={d.id}>
+                                    {d.title}
+                                  </option>
+                                ))}
+                            </select>
+                          </>
+                        ) : (
+                          <select
+                            value=""
+                            onChange={(e) => {
+                              const v = e.target.value || null;
+                              setStep(idx, sIdx, { documentId: v }, true);
+                            }}
+                            className="rounded border border-dashed border-line-subtle bg-transparent px-1.5 py-0.5 text-[10px] text-ink-tertiary hover:border-accent/40 hover:text-accent"
+                            aria-label="Link a procedure to this step"
+                          >
+                            <option value="">+ link procedure</option>
+                            {docs.map((d) => (
+                              <option key={d.id} value={d.id}>
+                                {d.title}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => deleteStep(idx, sIdx)}
+                      className="mt-2 shrink-0 rounded p-1 text-ink-tertiary opacity-0 transition group-hover/step:opacity-100 hover:bg-signal-fault/10 hover:text-signal-fault"
+                      aria-label="Delete step"
+                      title="Delete step"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => addStep(idx)}
+                className="ml-6 self-start inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-ink-tertiary hover:bg-accent/10 hover:text-accent"
+              >
+                <Plus size={11} strokeWidth={2} /> Add step
+              </button>
             </div>
           </div>
         );
@@ -636,11 +751,19 @@ function PairedCausesEditor({
       <button
         type="button"
         onClick={() => {
-          // Append an empty pair; commit immediately so the row exists
-          // server-side and onBlur on the new inputs flushes the text.
-          // Empty entries are filtered out by the PWA renderer.
+          // Append an empty cause with one empty step; commit
+          // immediately so the row exists server-side and onBlur on the
+          // new inputs flushes the text. Empty entries are filtered out
+          // by the PWA renderer.
           update(
-            [...local, { cause: '', remedy: '', documentId: null }],
+            [
+              ...local,
+              {
+                cause: '',
+                remedyStyle: 'bullet',
+                remedySteps: [{ text: '', documentId: null }],
+              },
+            ],
             true,
           );
         }}
@@ -650,4 +773,26 @@ function PairedCausesEditor({
       </button>
     </div>
   );
+}
+
+// Normalize a stored cause entry into the editor's canonical shape:
+// always has `remedyStyle` + `remedySteps`. Pre-0029 entries with only
+// `remedy` + per-cause `documentId` collapse into a single bullet step,
+// and the legacy fields are dropped so the next save migrates the row.
+function normalizeCause(c: AdminTroubleshootingCause): AdminTroubleshootingCause {
+  if (c.remedySteps && c.remedySteps.length > 0) {
+    return {
+      cause: c.cause,
+      remedyStyle: c.remedyStyle ?? 'bullet',
+      remedySteps: c.remedySteps,
+    };
+  }
+  const legacyText = (c.remedy ?? '').trim();
+  return {
+    cause: c.cause,
+    remedyStyle: 'bullet',
+    remedySteps: legacyText
+      ? [{ text: legacyText, documentId: c.documentId ?? null }]
+      : [{ text: '', documentId: null }],
+  };
 }

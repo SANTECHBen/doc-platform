@@ -70,14 +70,24 @@ export const troubleshootingItems = pgTable(
       .notNull()
       .default([]),
     // Paired cause/remedy entries — the canonical structured shape.
-    // Each item: one cause + its specific remedy + optional procedure
-    // link. Matches the OEM mental model where a symptom has multiple
-    // distinct causes each with their own fix.
+    // Each entry: one cause + its remedy (as a list of steps, like a
+    // mini procedure) + optional per-step procedure links. Matches the
+    // OEM mental model where a symptom has multiple distinct causes
+    // each with their own multi-step fix.
+    //
+    // Back-compat: the legacy 0028 shape stored a single `remedy`
+    // string; we still accept it on read and surface it as a single
+    // step in pm.ts. Writers always emit `remedySteps`.
     causes: jsonb('causes')
       .$type<
         Array<{
           cause: string;
-          remedy: string;
+          remedy?: string | null;
+          remedySteps?: Array<{
+            text: string;
+            documentId?: string | null;
+          }>;
+          remedyStyle?: 'bullet' | 'numbered';
           documentId?: string | null;
         }>
       >()

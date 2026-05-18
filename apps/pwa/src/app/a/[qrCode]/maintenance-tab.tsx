@@ -657,7 +657,9 @@ function TroubleshootingRow({
               to legacy unpaired data only when no paired entries exist. */}
           {(() => {
             const paired = (item.causes ?? []).filter(
-              (c) => c.cause.trim().length > 0 || c.remedy.trim().length > 0,
+              (c) =>
+                c.cause.trim().length > 0 ||
+                (c.remedySteps ?? []).some((s) => s.text.trim().length > 0),
             );
             if (paired.length > 0) {
               return (
@@ -791,9 +793,9 @@ function StructItemRow({
 }
 
 // Paired cause/remedy block — OEM table format where each cause is
-// shown with its own specific remedy directly underneath. The optional
-// procedure link applies to this pair (i.e., "to fix this cause, run
-// this procedure").
+// shown with its remedy as a bullet or numbered list of steps. Each
+// step may carry its own Run button when the author wired a procedure
+// to that step.
 function PairedCauseBlock({
   entry,
   onRunProcedure,
@@ -802,8 +804,13 @@ function PairedCauseBlock({
   onRunProcedure: (docId: string) => void;
 }) {
   const cause = entry.cause.trim();
-  const remedy = entry.remedy.trim();
-  if (!cause && !remedy) return null;
+  const steps = (entry.remedySteps ?? []).filter((s) => s.text.trim().length > 0);
+  if (!cause && steps.length === 0) return null;
+  const ListTag = entry.remedyStyle === 'numbered' ? 'ol' : 'ul';
+  const listClass =
+    entry.remedyStyle === 'numbered'
+      ? 'list-decimal'
+      : 'list-disc';
   return (
     <li className="rounded-md border border-line-subtle bg-surface px-2.5 py-2">
       {cause && (
@@ -816,26 +823,34 @@ function PairedCauseBlock({
           </div>
         </div>
       )}
-      {remedy && (
+      {steps.length > 0 && (
         <div className={cause ? 'mt-1.5' : ''}>
           <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary">
-            Remedy
+            {steps.length > 1 ? 'Remedy steps' : 'Remedy'}
           </div>
-          <div className="mt-0.5 whitespace-pre-line text-ink-secondary">
-            {remedy}
-          </div>
+          <ListTag className={`${listClass} mt-1 ml-5 flex flex-col gap-1`}>
+            {steps.map((s, i) => (
+              <li key={i} className="text-ink-secondary marker:text-ink-tertiary">
+                <div className="flex flex-wrap items-start gap-2">
+                  <span className="min-w-0 flex-1 whitespace-pre-line">
+                    {s.text}
+                  </span>
+                  {s.document && (
+                    <button
+                      type="button"
+                      onClick={() => onRunProcedure(s.document!.id)}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-brand/40 bg-brand/5 px-2 py-1 text-[11px] font-medium text-brand hover:bg-brand/10"
+                      title={`Run ${s.document.title}`}
+                    >
+                      <Play size={11} strokeWidth={2.5} />
+                      Run
+                    </button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ListTag>
         </div>
-      )}
-      {entry.document && (
-        <button
-          type="button"
-          onClick={() => onRunProcedure(entry.document!.id)}
-          className="mt-2 inline-flex items-center gap-1 rounded-md border border-brand/40 bg-brand/5 px-2 py-1 text-[11px] font-medium text-brand hover:bg-brand/10"
-          title={`Run ${entry.document.title}`}
-        >
-          <Play size={11} strokeWidth={2.5} />
-          Run: {entry.document.title}
-        </button>
       )}
     </li>
   );

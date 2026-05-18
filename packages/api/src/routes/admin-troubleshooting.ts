@@ -39,13 +39,21 @@ const UpdateGuideBody = z
   });
 
 // Paired cause/remedy entry. Each represents one possible cause for the
-// symptom, paired with its specific remedy and an optional procedure
-// link the tech can launch right from that entry. text fields allow
-// empty so the admin can commit a blank "+ Add cause" row before the
-// author types into it; PWA filters empty rows.
+// symptom, paired with its remedy (one or more steps, rendered as
+// bullet or numbered list) and optional per-step procedure links. text
+// fields allow empty so the admin can commit a blank "+ Add cause" row
+// before the author types into it; PWA filters empty rows.
+const RemedyStepSchema = z.object({
+  text: z.string().max(2000),
+  documentId: UuidSchema.nullable().optional(),
+});
 const CauseSchema = z.object({
   cause: z.string().max(2000),
-  remedy: z.string().max(2000),
+  // Legacy single-text remedy from 0028. Accepted on read so older rows
+  // keep working; new writes should send `remedySteps` instead.
+  remedy: z.string().max(2000).nullable().optional(),
+  remedySteps: z.array(RemedyStepSchema).max(30).optional(),
+  remedyStyle: z.enum(['bullet', 'numbered']).optional(),
   documentId: UuidSchema.nullable().optional(),
 });
 
@@ -88,6 +96,23 @@ const UpdateItemBody = z
 const ReorderBody = z.object({
   orderedIds: z.array(UuidSchema).min(1),
 });
+
+// Flattens every documentId reference in a paired-causes array — top-
+// level cause link + every per-step link inside remedySteps — so they
+// can be validated in one pass by validateItemDocumentIds.
+function flattenCauseDocIds(
+  causes: z.infer<typeof CauseSchema>[] | undefined,
+): Array<{ documentId?: string | null }> {
+  if (!causes) return [];
+  const out: Array<{ documentId?: string | null }> = [];
+  for (const c of causes) {
+    out.push({ documentId: c.documentId ?? null });
+    for (const s of c.remedySteps ?? []) {
+      out.push({ documentId: s.documentId ?? null });
+    }
+  }
+  return out;
+}
 
 // Validates that every documentId referenced by a structured item is a
 // structured_procedure in the same owner org as the asset model. Works
@@ -401,7 +426,7 @@ export async function registerAdminTroubleshooting(app: FastifyInstance) {
         )) ??
         (await validateItemDocumentIds(
           db,
-          request.body.causes,
+          flattenCauseDocIds(request.body.causes),
           ctx.model.ownerOrganizationId,
         ));
       if (itemErr) return reply.badRequest(itemErr);
@@ -495,7 +520,7 @@ export async function registerAdminTroubleshooting(app: FastifyInstance) {
           )) ??
           (await validateItemDocumentIds(
             db,
-            request.body.causes,
+            flattenCauseDocIds(request.body.causes),
             model.ownerOrganizationId,
           ));
         if (itemErr) return reply.badRequest(itemErr);

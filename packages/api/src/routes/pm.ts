@@ -314,9 +314,14 @@ export async function registerPmRoutes(app: FastifyInstance) {
       // causeItems/remedyItems — in a single query so the PWA renders
       // Run-button labels without per-item round trips.
       type StructItem = { text: string; documentId?: string | null };
+      type RemedyStep = { text: string; documentId?: string | null };
       type PairedCause = {
         cause: string;
-        remedy: string;
+        // Pre-0029 single-string remedy. Normalized into remedySteps
+        // on read so the PWA only has to render one shape.
+        remedy?: string | null;
+        remedySteps?: RemedyStep[];
+        remedyStyle?: 'bullet' | 'numbered';
         documentId?: string | null;
       };
       const allItemDocIds = [
@@ -327,9 +332,13 @@ export async function registerPmRoutes(app: FastifyInstance) {
               ...((it.remedyItems ?? []) as StructItem[]),
             ];
             const paired = (it.causes ?? []) as PairedCause[];
+            const pairedDocIds = paired.flatMap((p) => [
+              p.documentId ?? null,
+              ...(p.remedySteps ?? []).map((s) => s.documentId ?? null),
+            ]);
             return [
               ...struct.map((s) => s.documentId ?? null),
-              ...paired.map((p) => p.documentId ?? null),
+              ...pairedDocIds,
             ].filter((id): id is string => id !== null);
           }),
         ),
@@ -351,11 +360,26 @@ export async function registerPmRoutes(app: FastifyInstance) {
           document: resolveDoc(s.documentId ?? null),
         }));
       const resolvePaired = (arr: PairedCause[]) =>
-        arr.map((p) => ({
-          cause: p.cause,
-          remedy: p.remedy,
-          document: resolveDoc(p.documentId ?? null),
-        }));
+        arr.map((p) => {
+          // Migrate-on-read: a pre-0029 entry has a `remedy` string but
+          // no remedySteps. Surface it as a single bullet step so the
+          // PWA only needs one render path. The per-cause documentId
+          // (also pre-0029) becomes the step's link.
+          const steps =
+            p.remedySteps && p.remedySteps.length > 0
+              ? p.remedySteps
+              : p.remedy
+                ? [{ text: p.remedy, documentId: p.documentId ?? null }]
+                : [];
+          return {
+            cause: p.cause,
+            remedyStyle: p.remedyStyle ?? 'bullet',
+            remedySteps: steps.map((s) => ({
+              text: s.text,
+              document: resolveDoc(s.documentId ?? null),
+            })),
+          };
+        });
 
       return {
         guides: guides.map((g) => ({
