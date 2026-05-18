@@ -504,7 +504,7 @@ function StructItemsEditor({
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2.5">
       {local.length === 0 && legacyText && (
         // Legacy free-text fallback — read-only hint that this row was
         // authored before structured items. Author can re-type the
@@ -513,61 +513,117 @@ function StructItemsEditor({
           {legacyText}
         </div>
       )}
-      {local.map((it, idx) => (
-        <div key={idx} className="flex items-start gap-1.5">
-          <span className="mt-1.5 shrink-0 font-mono text-[10px] tabular-nums text-ink-tertiary">
-            {idx + 1}.
-          </span>
-          <input
-            value={it.text}
-            onChange={(e) => {
-              const next = local.slice();
-              next[idx] = { ...it, text: e.target.value };
-              update(next, false);
-            }}
-            onBlur={() => {
-              const v = local[idx]!.text.trim();
-              if (v !== items[idx]?.text) {
-                const next = local.slice();
-                next[idx] = { ...it, text: v };
+      {local.map((it, idx) => {
+        const linkedDoc = it.documentId
+          ? docs.find((d) => d.id === it.documentId)
+          : null;
+        return (
+          <div
+            key={idx}
+            className="group relative flex items-start gap-2 rounded-sm border border-transparent hover:border-line-subtle hover:bg-surface-inset/30"
+          >
+            {/* Bullet marker — visual prefix matching the OEM format. */}
+            <span
+              className="mt-1.5 shrink-0 select-none text-ink-tertiary"
+              aria-hidden
+            >
+              •
+            </span>
+            <div className="min-w-0 flex-1 flex flex-col gap-1 py-0.5">
+              <textarea
+                value={it.text}
+                onChange={(e) => {
+                  const next = local.slice();
+                  next[idx] = { ...it, text: e.target.value };
+                  update(next, false);
+                }}
+                onBlur={() => {
+                  const v = local[idx]!.text.trim();
+                  if (v !== items[idx]?.text) {
+                    const next = local.slice();
+                    next[idx] = { ...it, text: v };
+                    update(next, true);
+                  }
+                }}
+                placeholder={placeholder}
+                rows={1}
+                // Auto-grow with content via field-sizing (modern browsers);
+                // min-h keeps short fields tidy elsewhere.
+                style={{ fieldSizing: 'content' } as React.CSSProperties}
+                className="min-h-[1.5rem] w-full resize-none rounded-sm border border-transparent bg-transparent px-1 py-0.5 leading-snug hover:border-line focus:border-accent focus:bg-surface"
+              />
+              {/* Procedure attachment — chip-style when linked, dashed
+                  "+ link procedure" select when not. Less prominent than
+                  the bullet text so the OEM-style content stays primary;
+                  echoes how OEM docs annotate references (e.g., "(2.2)"). */}
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-ink-tertiary">
+                {linkedDoc ? (
+                  <>
+                    <span className="inline-flex items-center gap-1 rounded-full border border-brand/30 bg-brand/5 px-2 py-0.5 text-brand">
+                      ↗ {linkedDoc.title}
+                    </span>
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        const v = e.target.value || null;
+                        const next = local.slice();
+                        next[idx] = { ...it, documentId: v };
+                        update(next, true);
+                      }}
+                      className="rounded border border-transparent bg-transparent px-1 py-0.5 text-[10px] text-ink-tertiary hover:border-line"
+                      aria-label="Change linked procedure"
+                      title="Change or unlink"
+                    >
+                      <option value="">change…</option>
+                      <option value="">— unlink —</option>
+                      {docs
+                        .filter((d) => d.id !== it.documentId)
+                        .map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.title}
+                          </option>
+                        ))}
+                    </select>
+                  </>
+                ) : (
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      const v = e.target.value || null;
+                      const next = local.slice();
+                      next[idx] = { ...it, documentId: v };
+                      update(next, true);
+                    }}
+                    className="rounded border border-dashed border-line-subtle bg-transparent px-1.5 py-0.5 text-[10px] text-ink-tertiary hover:border-accent/40 hover:text-accent"
+                    aria-label="Link a procedure to this bullet"
+                  >
+                    <option value="">+ link procedure</option>
+                    {docs.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.title}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </div>
+            {/* Delete — fades in on hover to keep the row visually quiet
+                when the author is reading. */}
+            <button
+              type="button"
+              onClick={() => {
+                const next = local.filter((_, i) => i !== idx);
                 update(next, true);
-              }
-            }}
-            placeholder={placeholder}
-            className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-line focus:border-accent focus:bg-surface"
-          />
-          <select
-            value={it.documentId ?? ''}
-            onChange={(e) => {
-              const v = e.target.value || null;
-              const next = local.slice();
-              next[idx] = { ...it, documentId: v };
-              update(next, true);
-            }}
-            className="w-32 shrink-0 rounded border border-line bg-surface px-1.5 py-0.5 text-xs"
-            title="Optional procedure to launch from this item"
-          >
-            <option value="">— No proc —</option>
-            {docs.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.title}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={() => {
-              const next = local.filter((_, i) => i !== idx);
-              update(next, true);
-            }}
-            className="mt-0.5 rounded p-0.5 text-ink-tertiary hover:bg-signal-fault/10 hover:text-signal-fault"
-            aria-label="Delete item"
-            title="Delete item"
-          >
-            <Trash2 size={12} />
-          </button>
-        </div>
-      ))}
+              }}
+              className="mt-1 shrink-0 rounded p-1 text-ink-tertiary opacity-0 transition group-hover:opacity-100 hover:bg-signal-fault/10 hover:text-signal-fault"
+              aria-label="Delete bullet"
+              title="Delete bullet"
+            >
+              <Trash2 size={12} />
+            </button>
+          </div>
+        );
+      })}
       <button
         type="button"
         onClick={() => {
@@ -579,7 +635,7 @@ function StructItemsEditor({
         }}
         className="self-start inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-ink-tertiary hover:bg-accent/10 hover:text-accent"
       >
-        <Plus size={11} strokeWidth={2} /> Add item
+        <Plus size={11} strokeWidth={2} /> Add bullet
       </button>
     </div>
   );

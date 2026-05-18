@@ -662,16 +662,15 @@ function TroubleshootingRow({
                 {item.causeItems.length > 1 ? 'Causes' : 'Cause'}
               </div>
               {item.causeItems.length > 0 ? (
-                <ol className="mt-1 flex flex-col gap-1.5">
+                <ul className="mt-1 flex flex-col gap-1.5">
                   {item.causeItems.map((c, i) => (
                     <StructItemRow
                       key={i}
-                      index={i + 1}
                       item={c}
                       onRunProcedure={onRunProcedure}
                     />
                   ))}
-                </ol>
+                </ul>
               ) : (
                 <div className="mt-0.5 text-ink-secondary whitespace-pre-line">
                   {item.cause}
@@ -687,16 +686,15 @@ function TroubleshootingRow({
                 {item.remedyItems.length > 1 ? 'Remedy steps' : 'Remedy'}
               </div>
               {item.remedyItems.length > 0 ? (
-                <ol className="mt-1 flex flex-col gap-1.5">
+                <ul className="mt-1 flex flex-col gap-1.5">
                   {item.remedyItems.map((r, i) => (
                     <StructItemRow
                       key={i}
-                      index={i + 1}
                       item={r}
                       onRunProcedure={onRunProcedure}
                     />
                   ))}
-                </ol>
+                </ul>
               ) : (
                 <div className="mt-0.5 text-ink-secondary whitespace-pre-line">
                   {item.remedy}
@@ -728,16 +726,13 @@ function TroubleshootingRow({
   );
 }
 
-// Structured cause/remedy row — numbered, text + optional Run button
-// when the author wired a procedure to this specific item. Compact
-// inline layout so the row reads as one line on a phone with the Run
-// affordance trailing.
+// Structured cause/remedy row — bullet prefix matching the OEM table
+// format (single bullet, multi-line wraps cleanly), text + optional Run
+// button when the author wired a procedure to this specific item.
 function StructItemRow({
-  index,
   item,
   onRunProcedure,
 }: {
-  index: number;
   item: { text: string; document: { id: string; title: string } | null };
   onRunProcedure: (docId: string) => void;
 }) {
@@ -746,8 +741,8 @@ function StructItemRow({
   if (!item.text.trim()) return null;
   return (
     <li className="flex items-start gap-2">
-      <span className="mt-0.5 shrink-0 font-mono text-[10px] tabular-nums text-ink-tertiary">
-        {index}.
+      <span className="mt-0.5 shrink-0 select-none text-ink-tertiary" aria-hidden>
+        •
       </span>
       <span className="min-w-0 flex-1 whitespace-pre-line text-ink-secondary">
         {item.text}
