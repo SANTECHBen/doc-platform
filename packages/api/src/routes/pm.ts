@@ -259,6 +259,74 @@ export async function registerPmRoutes(app: FastifyInstance) {
       });
     },
   );
+
+  // ------------------------------------------------------------------
+  // GET /assets/:instanceId/troubleshooting
+  //
+  // Returns the troubleshooting guides + items for the instance's asset
+  // model. Read-only — the PWA renders symptoms in a list; tapping a
+  // row reveals cause + remedy, and rows with a linked procedure launch
+  // VirtualJobAid the same way the procedure library does.
+  // ------------------------------------------------------------------
+  app.get<{ Params: { instanceId: string } }>(
+    '/assets/:instanceId/troubleshooting',
+    { schema: { params: z.object({ instanceId: UuidSchema }) } },
+    async (request, reply) => {
+      requireAuthOrScan(request);
+      const instance = await db.query.assetInstances.findFirst({
+        where: eq(schema.assetInstances.id, request.params.instanceId),
+        with: { site: true, model: true },
+      });
+      if (!instance) return reply.code(404).send({ error: 'not_found' });
+      const scope = await getEffectiveOrgScope(request, db);
+      if (!scope) return reply.code(401).send({ error: 'unauthorized' });
+      if (!scope.all && !scope.orgIds.includes(instance.site.organizationId)) {
+        return reply.code(404).send({ error: 'not_found' });
+      }
+
+      const guides = await db.query.troubleshootingGuides.findMany({
+        where: and(
+          eq(schema.troubleshootingGuides.assetModelId, instance.assetModelId),
+          eq(schema.troubleshootingGuides.disabled, false),
+        ),
+        orderBy: [
+          asc(schema.troubleshootingGuides.orderingHint),
+          asc(schema.troubleshootingGuides.createdAt),
+        ],
+      });
+      if (guides.length === 0) return { guides: [] };
+
+      const items = await db.query.troubleshootingItems.findMany({
+        where: inArray(
+          schema.troubleshootingItems.guideId,
+          guides.map((g) => g.id),
+        ),
+        orderBy: [
+          asc(schema.troubleshootingItems.orderingHint),
+          asc(schema.troubleshootingItems.createdAt),
+        ],
+        with: {
+          document: { columns: { id: true, title: true, kind: true } },
+        },
+      });
+      return {
+        guides: guides.map((g) => ({
+          guide: { id: g.id, name: g.name, description: g.description },
+          items: items
+            .filter((it) => it.guideId === g.id)
+            .map((it) => ({
+              id: it.id,
+              symptom: it.symptom,
+              cause: it.cause,
+              remedy: it.remedy,
+              document: it.document
+                ? { id: it.document.id, title: it.document.title }
+                : null,
+            })),
+        })),
+      };
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------

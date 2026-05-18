@@ -540,6 +540,32 @@ export async function fetchPmPlanStatus(
   return (await res.json()) as PmPlanStatusPayload;
 }
 
+// --- Troubleshooting ---------------------------------------------------
+
+export interface TroubleshootingItem {
+  id: string;
+  symptom: string;
+  cause: string | null;
+  remedy: string | null;
+  document: { id: string; title: string } | null;
+}
+
+export interface TroubleshootingGuide {
+  guide: { id: string; name: string; description: string | null };
+  items: TroubleshootingItem[];
+}
+
+export async function fetchTroubleshooting(
+  assetInstanceId: string,
+): Promise<{ guides: TroubleshootingGuide[] }> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/assets/${encodeURIComponent(assetInstanceId)}/troubleshooting`,
+    { cache: 'no-store' },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { guides: TroubleshootingGuide[] };
+}
+
 export async function createPmPlanServiceRecord(params: {
   assetInstanceId: string;
   planId: string;

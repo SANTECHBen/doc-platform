@@ -7,6 +7,7 @@ import { ChevronDown, Loader2, Package, Pin, Plus, Trash2, Upload } from 'lucide
 import { PageHeader, PageShell } from '@/components/page-shell';
 import { PMSchedulesSection } from '@/components/pm-schedules-section';
 import { PMPlansSection } from '@/components/pm-plans-section';
+import { TroubleshootingSection } from '@/components/troubleshooting-section';
 import { useToast } from '@/components/toast';
 import {
   Drawer,
@@ -448,9 +449,25 @@ export default function AssetModelDetail({
 
       <BomPanel assetModelId={id} />
 
-      <PMPlansSection assetModelId={id} />
-
-      <PMSchedulesSection assetModelId={id} />
+      {/* Maintenance cluster — groups everything maintenance-y under one
+          visual header so the page doesn't read as a flat scroll of
+          loosely related sections. Each sub-section is independently
+          collapsible from within its own component header. The inner
+          sections supply their own vertical rhythm (mt-8); the wrapper
+          just provides the bordered-card visual + cluster heading. */}
+      <div className="mt-8 rounded-lg border border-line-subtle bg-surface-raised/50 p-4">
+        <div className="-mt-2 mb-2 flex items-baseline justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-primary">
+            Maintenance
+          </h2>
+          <span className="text-xs text-ink-tertiary">
+            PM Plans · PM Schedules · Troubleshooting
+          </span>
+        </div>
+        <PMPlansSection assetModelId={id} />
+        <PMSchedulesSection assetModelId={id} />
+        <TroubleshootingSection assetModelId={id} />
+      </div>
 
       <Drawer title="Edit asset model" open={editOpen} onClose={() => setEditOpen(false)}>
         <div className="flex flex-col gap-3">

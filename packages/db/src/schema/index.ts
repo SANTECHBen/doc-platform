@@ -18,3 +18,4 @@ export * from './procedures';
 export * from './feedback';
 export * from './voice-usage';
 export * from './preventive-maintenance';
+export * from './troubleshooting';

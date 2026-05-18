@@ -2519,6 +2519,135 @@ export async function deletePmPlanItem(itemId: string): Promise<void> {
   }
 }
 
+// --- Troubleshooting Guides ---------------------------------------------
+
+export interface AdminTroubleshootingItem {
+  id: string;
+  guideId: string;
+  symptom: string;
+  cause: string | null;
+  remedy: string | null;
+  documentId: string | null;
+  document: { id: string; title: string; kind: string } | null;
+  orderingHint: number;
+}
+
+export interface AdminTroubleshootingGuide {
+  id: string;
+  assetModelId: string;
+  name: string;
+  description: string | null;
+  orderingHint: number;
+  disabled: boolean;
+  items: AdminTroubleshootingItem[];
+}
+
+export async function listTroubleshootingGuides(
+  modelId: string,
+): Promise<AdminTroubleshootingGuide[]> {
+  const res = await fetch(
+    `${API_BASE}/admin/asset-models/${encodeURIComponent(modelId)}/troubleshooting-guides`,
+    { cache: 'no-store', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function createTroubleshootingGuide(
+  modelId: string,
+  body: { name: string; description?: string | null },
+): Promise<AdminTroubleshootingGuide> {
+  const res = await fetch(
+    `${API_BASE}/admin/asset-models/${encodeURIComponent(modelId)}/troubleshooting-guides`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function updateTroubleshootingGuide(
+  guideId: string,
+  patch: { name?: string; description?: string | null; disabled?: boolean },
+): Promise<AdminTroubleshootingGuide> {
+  const res = await fetch(
+    `${API_BASE}/admin/troubleshooting-guides/${encodeURIComponent(guideId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(patch),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function deleteTroubleshootingGuide(guideId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/troubleshooting-guides/${encodeURIComponent(guideId)}`,
+    { method: 'DELETE', headers: await authHeaders() },
+  );
+  if (!res.ok && res.status !== 204) {
+    throw new Error(`API ${res.status}: ${await res.text()}`);
+  }
+}
+
+export async function createTroubleshootingItem(
+  guideId: string,
+  body: {
+    symptom: string;
+    cause?: string | null;
+    remedy?: string | null;
+    documentId?: string | null;
+    orderingHint?: number;
+  },
+): Promise<AdminTroubleshootingItem> {
+  const res = await fetch(
+    `${API_BASE}/admin/troubleshooting-guides/${encodeURIComponent(guideId)}/items`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function updateTroubleshootingItem(
+  itemId: string,
+  patch: {
+    symptom?: string;
+    cause?: string | null;
+    remedy?: string | null;
+    documentId?: string | null;
+  },
+): Promise<AdminTroubleshootingItem> {
+  const res = await fetch(
+    `${API_BASE}/admin/troubleshooting-items/${encodeURIComponent(itemId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(patch),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function deleteTroubleshootingItem(itemId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/troubleshooting-items/${encodeURIComponent(itemId)}`,
+    { method: 'DELETE', headers: await authHeaders() },
+  );
+  if (!res.ok && res.status !== 204) {
+    throw new Error(`API ${res.status}: ${await res.text()}`);
+  }
+}
+
 export async function patchProcedureStepAudioDuration(
   stepId: string,
   audioDurationMs: number,

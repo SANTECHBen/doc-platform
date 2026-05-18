@@ -31,6 +31,7 @@ import {
 import {
   fetchPmStatus,
   fetchPmPlanStatus,
+  fetchTroubleshooting,
   createPmServiceRecord,
   createPmPlanServiceRecord,
   listDocuments,
@@ -41,6 +42,7 @@ import {
   type PmServiceRecordItem,
   type PmStatus,
   type PmStatusPayload,
+  type TroubleshootingGuide,
 } from '@/lib/api';
 
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
@@ -124,6 +126,10 @@ export function MaintenanceTab({
   // procedure library so the tech sees plans grouped by (plan, frequency)
   // instead of one row per check.
   const [planData, setPlanData] = useState<PmPlanStatusPayload | null>(null);
+  // OEM-style triage tables — reactive (tech has a symptom, looks it up)
+  // rather than scheduled. Rendered as a dedicated section below
+  // Checklists so the tech sees scheduled-work first, then symptom-driven.
+  const [troubleshooting, setTroubleshooting] = useState<TroubleshootingGuide[]>([]);
   // Procedure library — every structured_procedure attached to this
   // asset model (OEM pack + field captures). Rendered as the "Procedures"
   // section below the PM cards. Fetched once on mount + when version IDs
@@ -133,12 +139,14 @@ export function MaintenanceTab({
 
   async function refresh() {
     try {
-      const [flat, plans] = await Promise.all([
+      const [flat, plans, ts] = await Promise.all([
         fetchPmStatus(assetInstanceId),
         fetchPmPlanStatus(assetInstanceId),
+        fetchTroubleshooting(assetInstanceId).catch(() => ({ guides: [] })),
       ]);
       setData(flat);
       setPlanData(plans);
+      setTroubleshooting(ts.guides);
       onChange?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -247,11 +255,13 @@ export function MaintenanceTab({
   const upcoming = data.schedules
     .filter((s) => !s.needsAction)
     .sort((a, b) => a.daysUntilDue - b.daysUntilDue);
-  // "Anything maintenance-y exists" combines both models — flat schedules
-  // AND plan buckets — so the empty/all-done states reflect the whole
-  // surface, not just the flat-schedule slice.
+  // "Anything maintenance-y exists" combines flat schedules + plan buckets
+  // + troubleshooting guides — so the empty/all-done states reflect the
+  // whole surface, not just the flat-schedule slice.
   const anyMaintenance =
-    data.schedules.length > 0 || allBuckets.length > 0;
+    data.schedules.length > 0 ||
+    allBuckets.length > 0 ||
+    troubleshooting.length > 0;
   const anyNeedsAction =
     dueNow.length > 0 ||
     allBuckets.some((b) => b.bucket.needsAction);
@@ -390,6 +400,30 @@ export function MaintenanceTab({
                   }
                 />
               ))}
+          </ol>
+        </Section>
+      )}
+
+      {troubleshooting.length > 0 && (
+        <Section
+          title="Troubleshooting"
+          badgeCount={troubleshooting.reduce((n, g) => n + g.items.length, 0)}
+          icon={AlertCircle}
+        >
+          <p className="mb-2 text-xs text-ink-tertiary">
+            Symptom-driven triage. Tap a symptom to expand the cause + remedy;
+            rows with a linked procedure offer "Run procedure" inline.
+          </p>
+          <ol className="flex flex-col gap-3">
+            {troubleshooting.map((g) => (
+              <TroubleshootingGuideCard
+                key={g.guide.id}
+                guide={g}
+                onRunProcedure={(docId) =>
+                  onLaunchProcedure(docId, '', () => void refresh())
+                }
+              />
+            ))}
           </ol>
         </Section>
       )}
@@ -544,6 +578,114 @@ function PlanBucketCard({
             Mark all performed
           </button>
         </>
+      )}
+    </li>
+  );
+}
+
+// Troubleshooting guide card — guide name as header, each row collapsed
+// to just the symptom by default. Tap a row to reveal cause + remedy +
+// optional "Run procedure" button. Matches the OEM-table mental model
+// the admin authored from but stays scannable on a phone.
+function TroubleshootingGuideCard({
+  guide,
+  onRunProcedure,
+}: {
+  guide: TroubleshootingGuide;
+  onRunProcedure: (docId: string) => void;
+}) {
+  return (
+    <li className="rounded-md border border-line bg-surface-raised">
+      <header className="border-b border-line-subtle px-3 py-2">
+        <h4 className="text-sm font-semibold text-ink-primary">
+          {guide.guide.name}
+        </h4>
+        {guide.guide.description && (
+          <p className="mt-0.5 text-xs text-ink-secondary">
+            {guide.guide.description}
+          </p>
+        )}
+      </header>
+      <ul className="divide-y divide-line-subtle">
+        {guide.items.map((it) => (
+          <TroubleshootingRow
+            key={it.id}
+            item={it}
+            onRunProcedure={onRunProcedure}
+          />
+        ))}
+      </ul>
+    </li>
+  );
+}
+
+function TroubleshootingRow({
+  item,
+  onRunProcedure,
+}: {
+  item: TroubleshootingGuide['items'][number];
+  onRunProcedure: (docId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-surface-inset"
+      >
+        <span className="mt-0.5 shrink-0 text-ink-tertiary">
+          {open ? '▾' : '▸'}
+        </span>
+        <span className="flex-1 text-sm font-medium text-ink-primary">
+          {item.symptom}
+        </span>
+        {item.document && (
+          <span
+            className="shrink-0 text-[10px] uppercase text-brand"
+            title="Has linked procedure"
+          >
+            ▸ Run
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="flex flex-col gap-2 bg-surface-inset/40 px-3 py-2 pl-8 text-xs">
+          {item.cause && (
+            <div>
+              <div className="font-semibold uppercase text-ink-tertiary text-[10px] tracking-wider">
+                Cause
+              </div>
+              <div className="mt-0.5 text-ink-secondary whitespace-pre-line">
+                {item.cause}
+              </div>
+            </div>
+          )}
+          {item.remedy && (
+            <div>
+              <div className="font-semibold uppercase text-ink-tertiary text-[10px] tracking-wider">
+                Remedy
+              </div>
+              <div className="mt-0.5 text-ink-secondary whitespace-pre-line">
+                {item.remedy}
+              </div>
+            </div>
+          )}
+          {item.document && (
+            <button
+              type="button"
+              onClick={() => onRunProcedure(item.document!.id)}
+              className="self-start inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold"
+              style={{
+                background: 'rgb(var(--brand))',
+                color: 'rgb(var(--ink-on-brand, 255 255 255))',
+              }}
+            >
+              <Play size={12} strokeWidth={2.5} />
+              Run procedure: {item.document.title}
+            </button>
+          )}
+        </div>
       )}
     </li>
   );
