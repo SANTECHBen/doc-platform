@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
-import { and, eq, inArray, sql } from 'drizzle-orm';
-import { schema } from '@platform/db';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { schema, type Database } from '@platform/db';
+import { PM_PLAN_FREQUENCY_LABEL } from '@platform/db';
 import {
   createHybridRetriever,
   extractCitedChunkIds,
@@ -347,6 +348,18 @@ If no authored procedure plausibly matches, do NOT improvise a step list. Answer
 
     const stepsDirective = '';
 
+    // Structured knowledge — PM plans + PM schedules + troubleshooting
+    // guides for this asset model. These tables aren't part of the
+    // document_chunks RAG corpus (no embeddings pipeline) so without
+    // explicit injection the AI is blind to them. They're small enough
+    // to inline in the system prompt and scoped per-model, so we just
+    // fetch + format on every request. If/when these get large we'd
+    // move to summaries or fold them into the embeddings pipeline.
+    const structuredKnowledgeBlock = await buildStructuredKnowledgeBlock(
+      db,
+      instance.model.id,
+    );
+
     // Build system prompt.
     const safetyDirective = buildSafetyDirective(chunks);
     const systemText =
@@ -362,7 +375,10 @@ If no authored procedure plausibly matches, do NOT improvise a step list. Answer
           part: partContext,
         },
         safetyDirective,
-      ) + authoredProcedureCatalog + stepsDirective;
+      ) +
+      authoredProcedureCatalog +
+      structuredKnowledgeBlock +
+      stepsDirective;
 
     // Record the user's message now so it survives even if the stream fails later.
     // Image attachment is noted inline so the history is complete.
@@ -832,4 +848,198 @@ Output ONLY a JSON object. No prose. No code fences. Schema:
     inputTokens: resp.usage.input_tokens,
     outputTokens: resp.usage.output_tokens,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Structured knowledge injection — PM plans + PM schedules + troubleshooting
+// guides, fetched per asset model and inlined into the system prompt.
+// ---------------------------------------------------------------------------
+//
+// Why inline rather than embed: these tables are bounded per model
+// (a typical splitter has ~3 PM plans with ~20 rows each, ~3
+// troubleshooting guides with ~15 rows each — well under 5k tokens
+// combined) and the content is structured, not narrative, so chunking
+// would just lose the cause→remedy pairing. Inlining gives the model
+// the full table to reason about and keeps the RAG pipeline focused
+// on long-form documents.
+//
+// If usage grows: cap per-model output here, or split very long
+// troubleshooting guides into chunked rows in document_chunks with a
+// synthetic doc per guide.
+
+// Row shapes for the paired-causes jsonb. Mirrors the canonical 0029
+// shape and the legacy 0028 + pre-0028 fields for migrate-on-read.
+type RemedyStep = { text: string; documentId?: string | null };
+type PairedCause = {
+  cause: string;
+  remedy?: string | null;
+  remedySteps?: RemedyStep[];
+  remedyStyle?: 'bullet' | 'numbered';
+  documentId?: string | null;
+};
+
+async function buildStructuredKnowledgeBlock(
+  db: Database,
+  assetModelId: string,
+): Promise<string> {
+  const [plans, schedules, guides] = await Promise.all([
+    db.query.pmPlans.findMany({
+      where: and(
+        eq(schema.pmPlans.assetModelId, assetModelId),
+        eq(schema.pmPlans.disabled, false),
+      ),
+      orderBy: [asc(schema.pmPlans.orderingHint), asc(schema.pmPlans.createdAt)],
+      with: {
+        items: {
+          orderBy: [
+            asc(schema.pmPlanItems.orderingHint),
+            asc(schema.pmPlanItems.createdAt),
+          ],
+          with: { document: { columns: { id: true, title: true } } },
+        },
+      },
+    }),
+    db.query.pmSchedules.findMany({
+      where: and(
+        eq(schema.pmSchedules.assetModelId, assetModelId),
+        eq(schema.pmSchedules.disabled, false),
+      ),
+      orderBy: [asc(schema.pmSchedules.createdAt)],
+      with: { document: { columns: { id: true, title: true } } },
+    }),
+    db.query.troubleshootingGuides.findMany({
+      where: and(
+        eq(schema.troubleshootingGuides.assetModelId, assetModelId),
+        eq(schema.troubleshootingGuides.disabled, false),
+      ),
+      orderBy: [
+        asc(schema.troubleshootingGuides.orderingHint),
+        asc(schema.troubleshootingGuides.createdAt),
+      ],
+      with: {
+        items: {
+          orderBy: [
+            asc(schema.troubleshootingItems.orderingHint),
+            asc(schema.troubleshootingItems.createdAt),
+          ],
+        },
+      },
+    }),
+  ]);
+
+  const sections: string[] = [];
+
+  if (plans.length > 0) {
+    const planBlocks = plans.map((p) => {
+      // Group items by frequency so the AI can answer "what should I
+      // check daily?" without scanning the whole table. Within a
+      // frequency, items keep their authored order.
+      const byFreq = new Map<string, typeof p.items>();
+      for (const it of p.items) {
+        const arr = byFreq.get(it.frequency) ?? [];
+        arr.push(it);
+        byFreq.set(it.frequency, arr);
+      }
+      const freqOrder = ['D', 'W', 'M', 'Q', 'S', 'Y'] as const;
+      const lines: string[] = [`[Plan: ${p.name}]`];
+      if (p.description) lines.push(`  ${p.description}`);
+      for (const f of freqOrder) {
+        const items = byFreq.get(f);
+        if (!items || items.length === 0) continue;
+        lines.push(`  ${PM_PLAN_FREQUENCY_LABEL[f]}:`);
+        for (const it of items) {
+          const remarks = it.remarks ? `. Remarks: ${it.remarks}` : '';
+          const proc = it.document
+            ? ` [procedure: ${it.document.title}]`
+            : '';
+          lines.push(
+            `    - ${it.component} — ${it.checkText}${remarks}${proc}`,
+          );
+        }
+      }
+      return lines.join('\n');
+    });
+    sections.push(
+      `PREVENTIVE MAINTENANCE PLANS (per-row checklist with frequency):\n${planBlocks.join('\n\n')}`,
+    );
+  }
+
+  if (schedules.length > 0) {
+    const lines = schedules.map((s) => {
+      const cadence =
+        s.cadenceKind === 'days'
+          ? `every ${s.cadenceValue} day(s)`
+          : `cadence=${s.cadenceKind}:${s.cadenceValue}`;
+      const proc = s.document ? ` [procedure: ${s.document.title}]` : '';
+      const desc = s.description ? ` — ${s.description}` : '';
+      return `- ${s.name} (${cadence})${desc}${proc}`;
+    });
+    sections.push(
+      `PM SCHEDULES (calendar-based recurring procedures for this model):\n${lines.join('\n')}`,
+    );
+  }
+
+  if (guides.length > 0) {
+    const guideBlocks = guides.map((g) => {
+      const lines: string[] = [`[Guide: ${g.name}]`];
+      if (g.description) lines.push(`  ${g.description}`);
+      for (const item of g.items) {
+        lines.push(`  Symptom: ${item.symptom}`);
+        // Migrate-on-read for the causes jsonb. Prefer paired causes
+        // (0028+) with remedySteps (0029+). Fall back to the older
+        // single-string remedy, then to the legacy per-item cause +
+        // remedy text columns.
+        const paired = (item.causes ?? []) as PairedCause[];
+        const validPaired = paired.filter(
+          (c) =>
+            c.cause.trim().length > 0 ||
+            (c.remedy ?? '').trim().length > 0 ||
+            (c.remedySteps ?? []).some((s) => s.text.trim().length > 0),
+        );
+        if (validPaired.length > 0) {
+          for (const c of validPaired) {
+            if (c.cause.trim()) lines.push(`    - Cause: ${c.cause.trim()}`);
+            const steps =
+              c.remedySteps && c.remedySteps.length > 0
+                ? c.remedySteps
+                : c.remedy
+                  ? [{ text: c.remedy, documentId: c.documentId ?? null }]
+                  : [];
+            const validSteps = steps.filter((s) => s.text.trim().length > 0);
+            if (validSteps.length > 0) {
+              const style = c.remedyStyle === 'numbered' ? 'numbered' : 'bulleted';
+              lines.push(`      Remedy (${style}):`);
+              validSteps.forEach((s, i) => {
+                const marker = c.remedyStyle === 'numbered' ? `${i + 1}.` : '-';
+                lines.push(`        ${marker} ${s.text.trim()}`);
+              });
+            }
+          }
+        } else if (item.cause || item.remedy) {
+          // Pre-0028 unpaired free-text fields.
+          if (item.cause) lines.push(`    - Cause: ${item.cause}`);
+          if (item.remedy) lines.push(`      Remedy: ${item.remedy}`);
+        }
+      }
+      return lines.join('\n');
+    });
+    sections.push(
+      `TROUBLESHOOTING GUIDES (symptom → cause → remedy steps):\n${guideBlocks.join('\n\n')}`,
+    );
+  }
+
+  if (sections.length === 0) return '';
+
+  return (
+    '\n\n' +
+    sections.join('\n\n') +
+    '\n\nWhen the user asks about preventive maintenance, checks, ' +
+    'frequencies, schedules, symptoms, faults, or how to diagnose a ' +
+    'problem, draw your answer directly from the PM PLANS, PM SCHEDULES, ' +
+    'and TROUBLESHOOTING GUIDES above — these are the authoritative ' +
+    'source for this asset model. Cite the plan or guide by name in ' +
+    'your prose. If the user describes a symptom that matches one in a ' +
+    'troubleshooting guide, list the possible causes and their remedy ' +
+    'steps in the order shown.'
+  );
 }
