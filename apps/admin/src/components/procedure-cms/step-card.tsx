@@ -778,55 +778,121 @@ function LinkedSubProcedurePicker({
   const linked = linkedDocId
     ? siblings.find((s) => s.id === linkedDocId) ?? null
     : null;
-  // Lazy-fetch the linked doc's steps for the subset checklist. Only
-  // happens when a sub is selected; we don't preload for every step card.
-  const [steps, setSteps] = useState<
-    Array<{ id: string; title: string; orderingHint: number }> | null
-  >(null);
+  // Lazy-fetch the linked doc's outline (sections + steps) for the
+  // subset checklist. Steps sort by (section orderingHint, step
+  // orderingHint) so the picker matches the order the tech sees in the
+  // PWA Job Aid — not the random orderingHint-only sort that interleaves
+  // across sections. Section headers render above their steps so the
+  // author can see which phase each row belongs to.
+  type OutlineStep = {
+    id: string;
+    title: string;
+    orderingHint: number;
+    sectionId: string | null;
+  };
+  type OutlineSection = {
+    id: string;
+    title: string;
+    orderingHint: number;
+  };
+  const [steps, setSteps] = useState<OutlineStep[] | null>(null);
+  const [sections, setSections] = useState<OutlineSection[]>([]);
   const [loadingSteps, setLoadingSteps] = useState(false);
   const [subsetOpen, setSubsetOpen] = useState(false);
   // Reset/refetch when the linked doc changes.
   useEffect(() => {
     if (!linkedDocId) {
       setSteps(null);
+      setSections([]);
       setSubsetOpen(false);
       return;
     }
     let cancelled = false;
     setLoadingSteps(true);
-    void import('@/lib/api').then(({ listProcedureSteps }) =>
-      listProcedureSteps(linkedDocId)
-        .then((rows) => {
-          if (cancelled) return;
-          setSteps(
-            rows.map((r) => ({
-              id: r.id,
-              title: r.title,
-              orderingHint: r.orderingHint,
-            })),
-          );
-        })
-        .catch(() => {
-          if (!cancelled) setSteps([]);
-        })
-        .finally(() => {
-          if (!cancelled) setLoadingSteps(false);
-        }),
+    void import('@/lib/api').then(
+      ({ listProcedureSteps, listProcedureSections }) =>
+        Promise.all([
+          listProcedureSteps(linkedDocId),
+          listProcedureSections(linkedDocId).catch(() => []),
+        ])
+          .then(([stepRows, sectionRows]) => {
+            if (cancelled) return;
+            setSteps(
+              stepRows.map((r) => ({
+                id: r.id,
+                title: r.title,
+                orderingHint: r.orderingHint,
+                sectionId: r.sectionId,
+              })),
+            );
+            setSections(
+              sectionRows.map((s) => ({
+                id: s.id,
+                title: s.title,
+                orderingHint: s.orderingHint,
+              })),
+            );
+          })
+          .catch(() => {
+            if (!cancelled) {
+              setSteps([]);
+              setSections([]);
+            }
+          })
+          .finally(() => {
+            if (!cancelled) setLoadingSteps(false);
+          }),
     );
     return () => {
       cancelled = true;
     };
   }, [linkedDocId]);
 
+  // Compute the canonical display order: orphan steps first (no section
+  // header), then each section in its orderingHint sequence with its
+  // steps inside. Used for both rendering AND when persisting the user's
+  // selection so saved IDs are in the same order the tech will play them.
+  const orderedGroups: Array<{
+    section: OutlineSection | null;
+    items: OutlineStep[];
+  }> = (() => {
+    if (!steps) return [];
+    const sortByHint = (a: OutlineStep, b: OutlineStep) =>
+      a.orderingHint - b.orderingHint;
+    const orphans = steps
+      .filter((s) => s.sectionId == null)
+      .slice()
+      .sort(sortByHint);
+    const sectionGroups = [...sections]
+      .sort((a, b) => a.orderingHint - b.orderingHint)
+      .map((sec) => ({
+        section: sec,
+        items: steps
+          .filter((s) => s.sectionId === sec.id)
+          .slice()
+          .sort(sortByHint),
+      }));
+    const groups: Array<{
+      section: OutlineSection | null;
+      items: OutlineStep[];
+    }> = [];
+    if (orphans.length > 0) groups.push({ section: null, items: orphans });
+    for (const g of sectionGroups) {
+      if (g.items.length > 0) groups.push(g);
+    }
+    return groups;
+  })();
+  const orderedSteps = orderedGroups.flatMap((g) => g.items);
+
   const selectedSet = new Set(linkedStepIds);
   function toggle(id: string) {
     const next = new Set(selectedSet);
     if (next.has(id)) next.delete(id);
     else next.add(id);
-    // Preserve the linked doc's natural order so the saved array is
-    // sorted by orderingHint — keeps the PWA's render order stable.
-    const ordered =
-      steps?.filter((s) => next.has(s.id)).map((s) => s.id) ?? [];
+    // Persist IDs in the same canonical order the tech sees them so the
+    // PWA's Job Aid plays them in section/step order, not the random
+    // sequence the author clicked.
+    const ordered = orderedSteps.filter((s) => next.has(s.id)).map((s) => s.id);
     onChangeStepIds(ordered);
   }
 
@@ -888,41 +954,60 @@ function LinkedSubProcedurePicker({
               </p>
               {loadingSteps ? (
                 <p className="text-xs text-ink-tertiary">Loading steps…</p>
-              ) : steps && steps.length > 0 ? (
-                <ul className="flex max-h-48 flex-col gap-0.5 overflow-y-auto rounded border border-line bg-surface p-1">
-                  {steps.map((s, i) => {
-                    const checked = selectedSet.has(s.id);
-                    return (
-                      <li key={s.id}>
-                        <label
-                          className={[
-                            'flex cursor-pointer items-start gap-2 rounded px-1.5 py-1 text-xs',
-                            checked
-                              ? 'bg-accent/10 text-ink-primary'
-                              : 'text-ink-secondary hover:bg-surface-elevated',
-                          ].join(' ')}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggle(s.id)}
-                            className="mt-0.5 shrink-0"
-                          />
-                          <span className="font-mono text-[10px] tabular-nums text-ink-tertiary">
-                            {String(i + 1).padStart(2, '0')}
-                          </span>
-                          <span className="min-w-0 flex-1 truncate">
-                            {s.title || (
-                              <span className="italic text-ink-tertiary">
-                                Untitled step
-                              </span>
-                            )}
-                          </span>
-                        </label>
-                      </li>
-                    );
-                  })}
-                </ul>
+              ) : orderedGroups.length > 0 ? (
+                <div className="flex max-h-64 flex-col gap-2 overflow-y-auto rounded border border-line bg-surface p-1.5">
+                  {orderedGroups.map((g) => (
+                    <div key={g.section?.id ?? '__orphan__'} className="flex flex-col gap-0.5">
+                      {g.section && (
+                        // Section header — mirrors the PWA Job Aid's section
+                        // pill so the author sees the same grouping they're
+                        // pinning steps from. Sticky inside the scrollable
+                        // checklist so it stays visible as the author scrolls
+                        // through long sections.
+                        <div className="sticky top-0 z-10 -mx-1.5 -mt-1.5 mb-0.5 border-b border-line-subtle bg-surface/95 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary backdrop-blur">
+                          {g.section.title}
+                        </div>
+                      )}
+                      <ul className="flex flex-col gap-0.5">
+                        {g.items.map((s, i) => {
+                          const checked = selectedSet.has(s.id);
+                          return (
+                            <li key={s.id}>
+                              <label
+                                className={[
+                                  'flex cursor-pointer items-start gap-2 rounded px-1.5 py-1 text-xs',
+                                  checked
+                                    ? 'bg-accent/10 text-ink-primary'
+                                    : 'text-ink-secondary hover:bg-surface-elevated',
+                                ].join(' ')}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => toggle(s.id)}
+                                  className="mt-0.5 shrink-0"
+                                />
+                                {/* Per-section step number — matches the
+                                    Job Aid's "Removal: step 3 of 7" cue
+                                    so the author picks the right rows. */}
+                                <span className="font-mono text-[10px] tabular-nums text-ink-tertiary">
+                                  {String(i + 1).padStart(2, '0')}
+                                </span>
+                                <span className="min-w-0 flex-1 truncate">
+                                  {s.title || (
+                                    <span className="italic text-ink-tertiary">
+                                      Untitled step
+                                    </span>
+                                  )}
+                                </span>
+                              </label>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
               ) : (
                 <p className="text-xs text-ink-tertiary">
                   The linked procedure has no steps yet.
