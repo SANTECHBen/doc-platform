@@ -3,11 +3,12 @@
 // Field-tech preventive maintenance view for an asset instance.
 //
 // Layout follows the rest of the PWA's industrial / SCADA design language:
-//   - A flat status strip at the top (3 mono-caps metrics: overdue, due
-//     today, next-up). No gradients or decorative chrome.
-//   - A row of flat tab buttons with an active underline indicator picks
-//     the visible slice (Action / Upcoming / Checklists / Troubleshoot /
-//     Procedures / History). Only one slice renders at a time.
+//   - A grid of category cards at the top (Action / Upcoming /
+//     Checklists / Troubleshoot / Procedures / History). Each card
+//     carries a small LED indicator + count + subtitle — the LED's
+//     colour (red pulse / amber pulse / idle grey) communicates urgency
+//     so the red reads as a low-key signal, not an alarm.
+//   - Tapping a card selects its slice; the chosen slice renders below.
 //   - Slice rows use the shared .surface-etched and .pill tokens so this
 //     tab matches Parts / Documents / Training.
 //
@@ -15,11 +16,7 @@
 // service-record posts.
 
 import { useEffect, useMemo, useState } from 'react';
-import {
-  Clock,
-  Play,
-  type LucideIcon,
-} from 'lucide-react';
+import { Clock, Play } from 'lucide-react';
 import {
   fetchPmStatus,
   fetchPmPlanStatus,
@@ -270,13 +267,76 @@ export function MaintenanceTab({
     return cands.sort((a, b) => a.days - b.days)[0] ?? null;
   })();
 
-  const filters: Array<{ key: FilterKey; label: string; count: number }> = [
-    { key: 'action', label: 'Action', count: actionCount },
-    { key: 'upcoming', label: 'Upcoming', count: upcoming.length },
-    { key: 'checklists', label: 'Checklists', count: allBuckets.length },
-    { key: 'troubleshoot', label: 'Troubleshoot', count: troubleshootingTotal },
-    { key: 'library', label: 'Procedures', count: libraryProcedures.length },
-    { key: 'history', label: 'History', count: data.history.length },
+  // One card per category. `tone` drives the LED dot (fault = red pulse,
+  // warn = amber pulse, idle = grey static). Subtitle is the secondary
+  // information line shown under the count.
+  const cards: CategoryCard[] = [
+    {
+      key: 'action',
+      label: 'Action',
+      count: actionCount,
+      tone: actionCount > 0 ? 'fault' : 'idle',
+      subtitle:
+        actionCount === 0
+          ? 'All caught up'
+          : [
+              overdueCount > 0
+                ? `${overdueCount} overdue`
+                : null,
+              dueTodayCount > 0 ? `${dueTodayCount} due today` : null,
+            ]
+              .filter(Boolean)
+              .join(' · '),
+    },
+    {
+      key: 'upcoming',
+      label: 'Upcoming',
+      count: upcoming.length,
+      tone: 'idle',
+      subtitle: nextItem
+        ? `Next ${formatDaysUntil(nextItem.days)}`
+        : 'None scheduled',
+    },
+    {
+      key: 'checklists',
+      label: 'Checklists',
+      count: allBuckets.length,
+      tone: overdueBuckets.length > 0 ? 'warn' : 'idle',
+      subtitle:
+        allBuckets.length === 0
+          ? 'No checklists authored'
+          : `${overdueBuckets.length} need attention`,
+    },
+    {
+      key: 'troubleshoot',
+      label: 'Troubleshoot',
+      count: troubleshootingTotal,
+      tone: 'idle',
+      subtitle:
+        troubleshooting.length === 0
+          ? 'No guides authored'
+          : `${troubleshooting.length} guide${troubleshooting.length === 1 ? '' : 's'}`,
+    },
+    {
+      key: 'library',
+      label: 'Procedures',
+      count: libraryProcedures.length,
+      tone: 'idle',
+      subtitle:
+        libraryProcedures.length === 0
+          ? 'No procedures'
+          : 'Tap to run ad-hoc',
+    },
+    {
+      key: 'history',
+      label: 'History',
+      count: data.history.length,
+      tone: 'idle',
+      subtitle:
+        data.history.length === 0
+          ? 'No services logged'
+          : `Last ${data.history.length} services`,
+    },
   ];
 
   const slice = (() => {
@@ -475,13 +535,11 @@ export function MaintenanceTab({
         />
       ) : (
         <>
-          <StatusStrip
-            overdueCount={overdueCount}
-            dueTodayCount={dueTodayCount}
-            nextItem={nextItem}
+          <CategoryGrid
+            cards={cards}
+            active={active}
+            onSelect={setActive}
           />
-
-          <FilterBar filters={filters} active={active} onSelect={setActive} />
 
           {slice}
         </>
@@ -503,134 +561,88 @@ function statusRank(s: PmPlanBucket['status']): number {
   }
 }
 
-// Flat 3-column status strip — sibling of the nameplate-metrics pattern
-// used on Overview. No gradient, no icon ball; just .cap labels and
-// monospace tabular values.
-function StatusStrip({
-  overdueCount,
-  dueTodayCount,
-  nextItem,
-}: {
-  overdueCount: number;
-  dueTodayCount: number;
-  nextItem: { label: string; days: number } | null;
-}) {
-  return (
-    <div className="surface-etched grid grid-cols-3 divide-x divide-line-subtle">
-      <StripCell
-        label="Overdue"
-        value={String(overdueCount)}
-        tone={overdueCount > 0 ? 'fault' : 'neutral'}
-      />
-      <StripCell
-        label="Due Today"
-        value={String(dueTodayCount)}
-        tone={dueTodayCount > 0 ? 'warn' : 'neutral'}
-      />
-      <StripCell
-        label="Next"
-        value={nextItem ? formatDaysUntil(nextItem.days) : '—'}
-        sub={nextItem?.label}
-      />
-    </div>
-  );
-}
+// 2-column grid of category cards — replaces the previous tab row.
+// Each card carries its own LED indicator + count + subtitle, so the
+// dedicated "status strip" is no longer needed. Active card gets a
+// brand-tinted border; status urgency is communicated by the LED dot
+// (.led-fault pulses red, .led-warn pulses amber, .led-idle is static
+// grey) rather than by red text — the red reads as a low-key signal,
+// not an alarm.
+type CategoryTone = 'fault' | 'warn' | 'idle';
 
-function StripCell({
-  label,
-  value,
-  sub,
-  tone,
-}: {
+type CategoryCard = {
+  key: FilterKey;
   label: string;
-  value: string;
-  sub?: string;
-  tone?: 'fault' | 'warn' | 'neutral';
-}) {
-  const valColor =
-    tone === 'fault'
-      ? 'rgb(var(--signal-fault))'
-      : tone === 'warn'
-        ? 'rgb(var(--signal-warn))'
-        : 'rgb(var(--ink-primary))';
-  return (
-    <div className="px-3 py-3 min-w-0">
-      <div className="cap mb-1">{label}</div>
-      <div
-        className="font-mono text-lg font-medium tabular-nums leading-tight"
-        style={{ color: valColor }}
-      >
-        {value}
-      </div>
-      {sub && (
-        <div className="mt-0.5 truncate text-[11px] text-ink-tertiary">
-          {sub}
-        </div>
-      )}
-    </div>
-  );
-}
+  count: number;
+  tone: CategoryTone;
+  subtitle: string;
+};
 
-// Horizontal scrollable row of flat tab buttons with an underline-on-
-// active indicator. Mono caps labels match the rest of the tab chrome.
-function FilterBar({
-  filters,
+function CategoryGrid({
+  cards,
   active,
   onSelect,
 }: {
-  filters: Array<{ key: FilterKey; label: string; count: number }>;
+  cards: CategoryCard[];
   active: FilterKey;
   onSelect: (k: FilterKey) => void;
 }) {
   return (
-    <div
-      className="-mx-1 flex gap-4 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      style={{ borderBottom: '1px solid rgb(var(--line))' }}
-      role="tablist"
-    >
-      {filters.map((f) => {
-        const isActive = f.key === active;
-        return (
-          <button
-            key={f.key}
-            type="button"
-            role="tab"
-            aria-selected={isActive}
-            onClick={() => onSelect(f.key)}
-            className="relative shrink-0 py-2.5 text-xs font-medium uppercase tracking-[0.08em] transition-colors"
-            style={{
-              fontFamily: 'var(--font-mono)',
-              color: isActive
-                ? 'rgb(var(--ink-primary))'
-                : 'rgb(var(--ink-tertiary))',
-            }}
-          >
-            <span className="inline-flex items-center gap-1.5">
-              {f.label}
-              {f.count > 0 && (
-                <span
-                  className="font-mono text-[10.5px] tabular-nums"
-                  style={{
-                    color: isActive
-                      ? 'rgb(var(--ink-secondary))'
-                      : 'rgb(var(--ink-tertiary))',
-                  }}
-                >
-                  {f.count}
-                </span>
-              )}
-            </span>
-            {isActive && (
-              <span
-                aria-hidden
-                className="absolute inset-x-0 -bottom-px h-0.5"
-                style={{ background: 'rgb(var(--brand))' }}
-              />
-            )}
-          </button>
-        );
-      })}
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      {cards.map((c) => (
+        <CategoryCardButton
+          key={c.key}
+          card={c}
+          active={c.key === active}
+          onClick={() => onSelect(c.key)}
+        />
+      ))}
     </div>
+  );
+}
+
+function CategoryCardButton({
+  card,
+  active,
+  onClick,
+}: {
+  card: CategoryCard;
+  active: boolean;
+  onClick: () => void;
+}) {
+  const ledClass =
+    card.tone === 'fault'
+      ? 'led led-fault'
+      : card.tone === 'warn'
+        ? 'led led-warn'
+        : 'led led-idle';
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className="surface-etched flex flex-col items-start gap-1 p-3 text-left"
+      style={
+        active
+          ? {
+              borderColor: 'rgb(var(--brand))',
+              boxShadow:
+                'inset 0 1px 0 rgb(var(--surface-plate-top)), inset 0 -1px 0 rgba(0,0,0,0.18), 0 0 0 1px rgba(var(--brand) / 0.35)',
+            }
+          : undefined
+      }
+    >
+      <span className="flex items-center gap-2">
+        <span className={ledClass} aria-hidden />
+        <span className="cap">{card.label}</span>
+      </span>
+      <span className="font-mono text-2xl font-medium tabular-nums leading-none text-ink-primary">
+        {card.count}
+      </span>
+      <span className="text-[11px] text-ink-tertiary line-clamp-1">
+        {card.subtitle}
+      </span>
+    </button>
   );
 }
 
