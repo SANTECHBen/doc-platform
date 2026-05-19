@@ -2,32 +2,22 @@
 
 // Field-tech preventive maintenance view for an asset instance.
 //
-// Redesigned to reduce visual clutter:
-//   - Health hero at top: at-a-glance "what's my state" summary.
-//   - Segmented filter pills below — only one slice renders at a time
-//     (Action needed / Upcoming / Checklists / Troubleshoot / Library /
-//     History) instead of stacking every section vertically.
-//   - Status-accented cards (colored left bar) read priority at a glance.
-//   - Procedure library renders as a tile grid for easier thumb-scanning.
+// Layout follows the rest of the PWA's industrial / SCADA design language:
+//   - A flat status strip at the top (3 mono-caps metrics: overdue, due
+//     today, next-up). No gradients or decorative chrome.
+//   - A row of flat tab buttons with an active underline indicator picks
+//     the visible slice (Action / Upcoming / Checklists / Troubleshoot /
+//     Procedures / History). Only one slice renders at a time.
+//   - Slice rows use the shared .surface-etched and .pill tokens so this
+//     tab matches Parts / Documents / Training.
 //
-// All data flows and actions are unchanged — same refresh, same launch
-// hook, same service-record posts.
+// All data flows and actions unchanged — same refresh, launch hook,
+// service-record posts.
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  AlertCircle,
-  AlertTriangle,
-  CalendarClock,
-  CalendarDays,
-  CheckCircle2,
-  ChevronRight,
-  ClipboardList,
   Clock,
-  History as HistoryIcon,
-  ListChecks,
   Play,
-  Sparkles,
-  Stethoscope,
   type LucideIcon,
 } from 'lucide-react';
 import {
@@ -71,34 +61,12 @@ function formatDaysUntil(days: number): string {
   return `${Math.abs(days)} days ago`;
 }
 
-const STATUS_TONE: Record<
-  PmStatus,
-  { label: string; bg: string; text: string; accent: string }
-> = {
-  overdue: {
-    label: 'Overdue',
-    bg: 'rgba(var(--signal-fault) / 0.12)',
-    text: 'rgb(var(--signal-fault))',
-    accent: 'rgb(var(--signal-fault))',
-  },
-  due: {
-    label: 'Due',
-    bg: 'rgba(var(--signal-warn) / 0.12)',
-    text: 'rgb(var(--signal-warn))',
-    accent: 'rgb(var(--signal-warn))',
-  },
-  soon: {
-    label: 'Soon',
-    bg: 'rgba(var(--brand) / 0.12)',
-    text: 'rgb(var(--brand))',
-    accent: 'rgb(var(--brand))',
-  },
-  upcoming: {
-    label: 'Upcoming',
-    bg: 'rgba(var(--ink-tertiary) / 0.12)',
-    text: 'rgb(var(--ink-tertiary))',
-    accent: 'rgb(var(--ink-tertiary))',
-  },
+// Maps PmStatus / PmPlanBucket['status'] to the shared .pill tone classes.
+const STATUS_PILL: Record<PmStatus, { label: string; className: string }> = {
+  overdue: { label: 'Overdue', className: 'pill pill-fault' },
+  due: { label: 'Due', className: 'pill pill-warn' },
+  soon: { label: 'Soon', className: 'pill pill-info' },
+  upcoming: { label: 'Upcoming', className: 'pill' },
 };
 
 type FilterKey =
@@ -220,7 +188,14 @@ export function MaintenanceTab({
 
   if (error) {
     return (
-      <p className="rounded-md border border-signal-fault/40 bg-signal-fault/10 p-3 text-sm text-signal-fault">
+      <p
+        className="rounded-md border p-3 text-sm"
+        style={{
+          borderColor: 'rgba(var(--signal-fault) / 0.4)',
+          background: 'rgba(var(--signal-fault) / 0.1)',
+          color: 'rgb(var(--signal-fault))',
+        }}
+      >
         {error}
       </p>
     );
@@ -244,6 +219,12 @@ export function MaintenanceTab({
     0,
   );
   const actionCount = dueNow.length + overdueBuckets.length;
+  const overdueCount =
+    dueNow.filter((s) => s.status === 'overdue').length +
+    overdueBuckets.filter((b) => b.bucket.status === 'overdue').length;
+  const dueTodayCount =
+    dueNow.filter((s) => s.status === 'due').length +
+    overdueBuckets.filter((b) => b.bucket.status === 'due').length;
   const anyMaintenance =
     data.schedules.length > 0 ||
     allBuckets.length > 0 ||
@@ -269,75 +250,35 @@ export function MaintenanceTab({
     }
   }
 
-  // Compute the "next thing" preview the hero uses when no action is
-  // needed — first looks at upcoming flat schedules, then at upcoming
-  // plan buckets, picking whichever is sooner.
+  // Next-up preview: pick whichever of (upcoming flat schedule,
+  // upcoming plan bucket) is sooner — populates the third metric in
+  // the strip when nothing is overdue/due.
   const nextItem = (() => {
-    const cands: Array<{ name: string; days: number }> = [];
+    const cands: Array<{ label: string; days: number }> = [];
     if (upcoming[0]) {
       cands.push({
-        name: upcoming[0].schedule.name,
+        label: upcoming[0].schedule.name,
         days: upcoming[0].daysUntilDue,
       });
     }
     if (upcomingBuckets[0]) {
       cands.push({
-        name: `${upcomingBuckets[0].plan.name} · ${upcomingBuckets[0].bucket.frequencyLabel}`,
+        label: `${upcomingBuckets[0].plan.name} · ${upcomingBuckets[0].bucket.frequencyLabel}`,
         days: upcomingBuckets[0].bucket.daysUntilDue,
       });
     }
     return cands.sort((a, b) => a.days - b.days)[0] ?? null;
   })();
 
-  const filters: Array<{
-    key: FilterKey;
-    label: string;
-    icon: LucideIcon;
-    count: number;
-    tone?: 'fault' | 'warn' | 'neutral';
-  }> = [
-    {
-      key: 'action',
-      label: 'Action',
-      icon: AlertCircle,
-      count: actionCount,
-      tone: actionCount > 0 ? 'fault' : 'neutral',
-    },
-    {
-      key: 'upcoming',
-      label: 'Upcoming',
-      icon: CalendarDays,
-      count: upcoming.length,
-    },
-    {
-      key: 'checklists',
-      label: 'Checklists',
-      icon: ClipboardList,
-      count: allBuckets.length,
-    },
-    {
-      key: 'troubleshoot',
-      label: 'Troubleshoot',
-      icon: Stethoscope,
-      count: troubleshootingTotal,
-    },
-    {
-      key: 'library',
-      label: 'Procedures',
-      icon: ListChecks,
-      count: libraryProcedures.length,
-    },
-    {
-      key: 'history',
-      label: 'History',
-      icon: HistoryIcon,
-      count: data.history.length,
-    },
+  const filters: Array<{ key: FilterKey; label: string; count: number }> = [
+    { key: 'action', label: 'Action', count: actionCount },
+    { key: 'upcoming', label: 'Upcoming', count: upcoming.length },
+    { key: 'checklists', label: 'Checklists', count: allBuckets.length },
+    { key: 'troubleshoot', label: 'Troubleshoot', count: troubleshootingTotal },
+    { key: 'library', label: 'Procedures', count: libraryProcedures.length },
+    { key: 'history', label: 'History', count: data.history.length },
   ];
 
-  // Build the content for the active slice. Each slice is responsible
-  // for rendering its own empty state inline, so the hero/filters stay
-  // visible even when one filter is empty.
   const slice = (() => {
     switch (active) {
       case 'action': {
@@ -345,19 +286,17 @@ export function MaintenanceTab({
         if (empty) {
           return (
             <SliceEmpty
-              icon={CheckCircle2}
               title="Nothing needs action"
               body={
                 nextItem
-                  ? `Next: "${nextItem.name}" ${formatDaysUntil(nextItem.days)}.`
+                  ? `Next: "${nextItem.label}" ${formatDaysUntil(nextItem.days)}.`
                   : 'Check back later or browse the procedure library.'
               }
-              tone="ok"
             />
           );
         }
         return (
-          <div className="flex flex-col gap-2.5">
+          <div className="flex flex-col gap-2">
             {dueNow.map((s) => (
               <ScheduleCard
                 key={s.schedule.id}
@@ -402,14 +341,13 @@ export function MaintenanceTab({
         if (upcoming.length === 0) {
           return (
             <SliceEmpty
-              icon={CalendarDays}
               title="Nothing upcoming"
               body="No scheduled maintenance in the planning window."
             />
           );
         }
         return (
-          <div className="flex flex-col gap-2.5">
+          <div className="flex flex-col gap-2">
             {upcoming.map((s) => (
               <ScheduleCard
                 key={s.schedule.id}
@@ -435,18 +373,14 @@ export function MaintenanceTab({
         if (allBuckets.length === 0) {
           return (
             <SliceEmpty
-              icon={ClipboardList}
               title="No checklists"
               body="No OEM-style PM checklists are set up for this model."
             />
           );
         }
         return (
-          <div className="flex flex-col gap-2.5">
-            <p className="text-xs text-ink-tertiary">
-              OEM-style PM checklists grouped by frequency. Tap a card to
-              expand the rows, then "Mark all performed" once complete.
-            </p>
+          <div className="flex flex-col gap-2">
+            <p className="cap">Grouped by frequency</p>
             {allBuckets
               .slice()
               .sort(
@@ -472,7 +406,6 @@ export function MaintenanceTab({
         if (troubleshooting.length === 0) {
           return (
             <SliceEmpty
-              icon={Stethoscope}
               title="No troubleshooting guides"
               body="No symptom-driven triage tables authored for this model yet."
             />
@@ -480,10 +413,7 @@ export function MaintenanceTab({
         }
         return (
           <div className="flex flex-col gap-3">
-            <p className="text-xs text-ink-tertiary">
-              Symptom-driven triage. Tap a symptom to expand the cause +
-              remedy; rows with a linked procedure offer "Run procedure".
-            </p>
+            <p className="cap">Symptom-driven triage</p>
             {troubleshooting.map((g) => (
               <TroubleshootingGuideCard
                 key={g.guide.id}
@@ -499,36 +429,28 @@ export function MaintenanceTab({
         if (libraryProcedures.length === 0) {
           return (
             <SliceEmpty
-              icon={ListChecks}
               title="No procedures in library"
               body="Every authored procedure is already scheduled above, or no procedures are attached to this asset model."
             />
           );
         }
         return (
-          <div className="flex flex-col gap-2.5">
-            <p className="text-xs text-ink-tertiary">
-              Tap any procedure to open it as a Job Aid. PM-scheduled
-              procedures live in the other tabs.
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              {libraryProcedures.map((p) => (
-                <ProcedureTile
-                  key={p.id}
-                  doc={p}
-                  onLaunch={() =>
-                    onLaunchProcedure(p.id, '', () => void refresh())
-                  }
-                />
-              ))}
-            </div>
-          </div>
+          <ul className="flex flex-col">
+            {libraryProcedures.map((p) => (
+              <ProcedureRow
+                key={p.id}
+                doc={p}
+                onLaunch={() =>
+                  onLaunchProcedure(p.id, '', () => void refresh())
+                }
+              />
+            ))}
+          </ul>
         );
       case 'history':
         if (data.history.length === 0) {
           return (
             <SliceEmpty
-              icon={HistoryIcon}
               title="No service history yet"
               body="Once maintenance is logged on this asset, you'll see it here."
             />
@@ -548,28 +470,18 @@ export function MaintenanceTab({
     <div className="flex flex-col gap-4">
       {nothingScheduled && libraryProcedures.length === 0 ? (
         <EmptyState
-          icon={CalendarClock}
           title="No PM schedules for this model"
           body="An admin can author PM schedules from the asset model detail page. Once added, every instance of this model — including this one — will see what's due here."
         />
       ) : (
         <>
-          <HealthHero
-            actionCount={actionCount}
-            overdueCount={dueNow.filter((s) => s.status === 'overdue').length +
-              overdueBuckets.filter((b) => b.bucket.status === 'overdue').length}
-            dueTodayCount={dueNow.filter((s) => s.status === 'due').length +
-              overdueBuckets.filter((b) => b.bucket.status === 'due').length}
+          <StatusStrip
+            overdueCount={overdueCount}
+            dueTodayCount={dueTodayCount}
             nextItem={nextItem}
-            anyMaintenance={anyMaintenance}
-            onActOnIssues={() => setActive('action')}
           />
 
-          <FilterBar
-            filters={filters}
-            active={active}
-            onSelect={setActive}
-          />
+          <FilterBar filters={filters} active={active} onSelect={setActive} />
 
           {slice}
         </>
@@ -591,207 +503,129 @@ function statusRank(s: PmPlanBucket['status']): number {
   }
 }
 
-// Health hero — the visual anchor of the tab. Three states:
-//   - action needed: red gradient, action count + breakdown
-//   - all caught up: green check, next-up preview
-//   - nothing scheduled yet: neutral, encouraging copy
-function HealthHero({
-  actionCount,
+// Flat 3-column status strip — sibling of the nameplate-metrics pattern
+// used on Overview. No gradient, no icon ball; just .cap labels and
+// monospace tabular values.
+function StatusStrip({
   overdueCount,
   dueTodayCount,
   nextItem,
-  anyMaintenance,
-  onActOnIssues,
 }: {
-  actionCount: number;
   overdueCount: number;
   dueTodayCount: number;
-  nextItem: { name: string; days: number } | null;
-  anyMaintenance: boolean;
-  onActOnIssues: () => void;
+  nextItem: { label: string; days: number } | null;
 }) {
-  const needsAction = actionCount > 0;
-  const tone = needsAction
-    ? {
-        accent: 'rgb(var(--signal-fault))',
-        bg: 'rgba(var(--signal-fault) / 0.08)',
-        icon: AlertTriangle,
-        label: 'Action needed',
-      }
-    : anyMaintenance
-      ? {
-          accent: 'rgb(var(--signal-ok))',
-          bg: 'rgba(var(--signal-ok) / 0.08)',
-          icon: CheckCircle2,
-          label: 'All caught up',
-        }
-      : {
-          accent: 'rgb(var(--ink-tertiary))',
-          bg: 'rgba(var(--ink-tertiary) / 0.06)',
-          icon: Sparkles,
-          label: 'Ready',
-        };
-  const Icon = tone.icon;
-
   return (
-    <button
-      type="button"
-      onClick={needsAction ? onActOnIssues : undefined}
-      disabled={!needsAction}
-      className="relative flex w-full items-stretch gap-3 overflow-hidden rounded-xl border bg-surface-raised p-4 text-left transition disabled:cursor-default"
-      style={{
-        borderColor: tone.accent,
-        background: `linear-gradient(135deg, ${tone.bg}, transparent 80%)`,
-      }}
-    >
-      <div
-        className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full"
-        style={{ background: `${tone.accent}1a` }}
-      >
-        <Icon size={26} strokeWidth={2} style={{ color: tone.accent }} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div
-          className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.14em]"
-          style={{ color: tone.accent }}
-        >
-          {tone.label}
-        </div>
-        {needsAction ? (
-          <>
-            <div className="mt-0.5 text-xl font-semibold text-ink-primary">
-              {actionCount} item{actionCount === 1 ? '' : 's'} to handle
-            </div>
-            <div className="mt-0.5 text-xs text-ink-secondary">
-              {overdueCount > 0 && (
-                <span>
-                  <span
-                    className="font-semibold"
-                    style={{ color: 'rgb(var(--signal-fault))' }}
-                  >
-                    {overdueCount} overdue
-                  </span>
-                  {dueTodayCount > 0 ? ' · ' : ''}
-                </span>
-              )}
-              {dueTodayCount > 0 && (
-                <span>
-                  <span
-                    className="font-semibold"
-                    style={{ color: 'rgb(var(--signal-warn))' }}
-                  >
-                    {dueTodayCount} due today
-                  </span>
-                </span>
-              )}
-            </div>
-          </>
-        ) : anyMaintenance ? (
-          <>
-            <div className="mt-0.5 text-xl font-semibold text-ink-primary">
-              No maintenance due
-            </div>
-            {nextItem && (
-              <div className="mt-0.5 truncate text-xs text-ink-secondary">
-                Next: <span className="text-ink-primary">{nextItem.name}</span>{' '}
-                · {formatDaysUntil(nextItem.days)}
-              </div>
-            )}
-          </>
-        ) : (
-          <>
-            <div className="mt-0.5 text-xl font-semibold text-ink-primary">
-              Procedures only
-            </div>
-            <div className="mt-0.5 text-xs text-ink-secondary">
-              No PM schedules yet — browse the library to run ad-hoc.
-            </div>
-          </>
-        )}
-      </div>
-      {needsAction && (
-        <ChevronRight
-          size={20}
-          strokeWidth={2}
-          className="shrink-0 self-center text-ink-tertiary"
-        />
-      )}
-    </button>
+    <div className="surface-etched grid grid-cols-3 divide-x divide-line-subtle">
+      <StripCell
+        label="Overdue"
+        value={String(overdueCount)}
+        tone={overdueCount > 0 ? 'fault' : 'neutral'}
+      />
+      <StripCell
+        label="Due Today"
+        value={String(dueTodayCount)}
+        tone={dueTodayCount > 0 ? 'warn' : 'neutral'}
+      />
+      <StripCell
+        label="Next"
+        value={nextItem ? formatDaysUntil(nextItem.days) : '—'}
+        sub={nextItem?.label}
+      />
+    </div>
   );
 }
 
-// Horizontal scrollable filter bar — pill segmented control. The active
-// pill gets the brand fill + raised contrast; inactive pills stay quiet.
-// Counts render as a small chip and turn red on the Action pill when
-// there's outstanding work.
+function StripCell({
+  label,
+  value,
+  sub,
+  tone,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  tone?: 'fault' | 'warn' | 'neutral';
+}) {
+  const valColor =
+    tone === 'fault'
+      ? 'rgb(var(--signal-fault))'
+      : tone === 'warn'
+        ? 'rgb(var(--signal-warn))'
+        : 'rgb(var(--ink-primary))';
+  return (
+    <div className="px-3 py-3 min-w-0">
+      <div className="cap mb-1">{label}</div>
+      <div
+        className="font-mono text-lg font-medium tabular-nums leading-tight"
+        style={{ color: valColor }}
+      >
+        {value}
+      </div>
+      {sub && (
+        <div className="mt-0.5 truncate text-[11px] text-ink-tertiary">
+          {sub}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Horizontal scrollable row of flat tab buttons with an underline-on-
+// active indicator. Mono caps labels match the rest of the tab chrome.
 function FilterBar({
   filters,
   active,
   onSelect,
 }: {
-  filters: Array<{
-    key: FilterKey;
-    label: string;
-    icon: LucideIcon;
-    count: number;
-    tone?: 'fault' | 'warn' | 'neutral';
-  }>;
+  filters: Array<{ key: FilterKey; label: string; count: number }>;
   active: FilterKey;
   onSelect: (k: FilterKey) => void;
 }) {
   return (
-    <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div
+      className="-mx-1 flex gap-4 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      style={{ borderBottom: '1px solid rgb(var(--line))' }}
+      role="tablist"
+    >
       {filters.map((f) => {
         const isActive = f.key === active;
-        const isFault = f.tone === 'fault' && f.count > 0;
-        const Icon = f.icon;
         return (
           <button
             key={f.key}
             type="button"
+            role="tab"
+            aria-selected={isActive}
             onClick={() => onSelect(f.key)}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition"
-            style={
-              isActive
-                ? {
-                    background: 'rgb(var(--brand))',
-                    color: 'rgb(var(--ink-on-brand, 255 255 255))',
-                    borderColor: 'rgb(var(--brand))',
-                  }
-                : {
-                    background: 'rgb(var(--surface-raised))',
-                    color: 'rgb(var(--ink-secondary))',
-                    borderColor: 'rgb(var(--line))',
-                  }
-            }
+            className="relative shrink-0 py-2.5 text-xs font-medium uppercase tracking-[0.08em] transition-colors"
+            style={{
+              fontFamily: 'var(--font-mono)',
+              color: isActive
+                ? 'rgb(var(--ink-primary))'
+                : 'rgb(var(--ink-tertiary))',
+            }}
           >
-            <Icon size={13} strokeWidth={2} />
-            <span>{f.label}</span>
-            {f.count > 0 && (
+            <span className="inline-flex items-center gap-1.5">
+              {f.label}
+              {f.count > 0 && (
+                <span
+                  className="font-mono text-[10.5px] tabular-nums"
+                  style={{
+                    color: isActive
+                      ? 'rgb(var(--ink-secondary))'
+                      : 'rgb(var(--ink-tertiary))',
+                  }}
+                >
+                  {f.count}
+                </span>
+              )}
+            </span>
+            {isActive && (
               <span
-                className="ml-0.5 inline-flex min-w-[18px] items-center justify-center rounded-full px-1.5 text-[10px] font-semibold leading-none"
-                style={
-                  isActive
-                    ? {
-                        background: 'rgba(255 255 255 / 0.22)',
-                        color: 'rgb(var(--ink-on-brand, 255 255 255))',
-                        paddingBlock: '3px',
-                      }
-                    : isFault
-                      ? {
-                          background: 'rgb(var(--signal-fault))',
-                          color: 'rgb(var(--ink-on-brand, 255 255 255))',
-                          paddingBlock: '3px',
-                        }
-                      : {
-                          background: 'rgba(var(--ink-tertiary) / 0.15)',
-                          color: 'rgb(var(--ink-tertiary))',
-                          paddingBlock: '3px',
-                        }
-                }
-              >
-                {f.count}
-              </span>
+                aria-hidden
+                className="absolute inset-x-0 -bottom-px h-0.5"
+                style={{ background: 'rgb(var(--brand))' }}
+              />
             )}
           </button>
         );
@@ -800,8 +634,8 @@ function FilterBar({
   );
 }
 
-// Status-accented PM schedule card. Colored left bar (red/amber/blue/grey)
-// reads priority at a glance; primary action is the dominant brand button.
+// PM schedule row — etched card, status pill via shared .pill tokens,
+// primary action via shared .btn classes.
 function ScheduleCard({
   schedule,
   compact,
@@ -813,7 +647,7 @@ function ScheduleCard({
   onRunProcedure: () => void;
   onMarkDone: () => void;
 }) {
-  const tone = STATUS_TONE[schedule.status];
+  const pill = STATUS_PILL[schedule.status];
   const dueText =
     schedule.status === 'overdue'
       ? `Overdue · ${formatDaysUntil(schedule.daysUntilDue)}`
@@ -822,27 +656,14 @@ function ScheduleCard({
         : `Due ${formatDaysUntil(schedule.daysUntilDue)} (${formatNextDue(schedule.nextDueAt)})`;
 
   return (
-    <div
-      className="relative flex flex-col gap-3 overflow-hidden rounded-xl border bg-surface-raised p-3.5 pl-4"
-      style={{ borderColor: 'rgb(var(--line))' }}
-    >
-      <span
-        aria-hidden
-        className="absolute inset-y-0 left-0 w-1"
-        style={{ background: tone.accent }}
-      />
+    <div className="surface-etched flex flex-col gap-3 p-3">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span
-              className="rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.08em]"
-              style={{ background: tone.bg, color: tone.text }}
-            >
-              {tone.label}
-            </span>
+            <span className={pill.className}>{pill.label}</span>
             <span className="text-[11px] text-ink-tertiary">{dueText}</span>
           </div>
-          <div className="mt-1 text-base font-semibold text-ink-primary">
+          <div className="mt-1.5 text-[15px] font-medium text-ink-primary">
             {schedule.schedule.name}
           </div>
           {!compact && schedule.schedule.description && (
@@ -850,14 +671,14 @@ function ScheduleCard({
               {schedule.schedule.description}
             </p>
           )}
-          <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[11px] text-ink-tertiary">
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-ink-tertiary">
             <span className="inline-flex items-center gap-1">
               <Clock size={10} strokeWidth={1.75} />
               every {schedule.schedule.cadenceValue} day
               {schedule.schedule.cadenceValue === 1 ? '' : 's'}
             </span>
             {schedule.lastPerformedAt && (
-              <span>Last: {formatNextDue(schedule.lastPerformedAt)}</span>
+              <span>Last {formatNextDue(schedule.lastPerformedAt)}</span>
             )}
           </div>
         </div>
@@ -868,21 +689,18 @@ function ScheduleCard({
             <button
               type="button"
               onClick={onRunProcedure}
-              className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold"
-              style={{
-                background: 'rgb(var(--brand))',
-                color: 'rgb(var(--ink-on-brand, 255 255 255))',
-              }}
+              className="btn btn-primary"
+              style={{ minHeight: 38, padding: '0 14px', fontSize: 13 }}
             >
-              <Play size={12} strokeWidth={2.5} />
+              <Play size={13} strokeWidth={2.25} />
               Run procedure
             </button>
             <button
               type="button"
               onClick={onMarkDone}
-              className="inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-inset"
+              className="btn btn-secondary"
+              style={{ minHeight: 38, padding: '0 12px', fontSize: 12.5 }}
             >
-              <CheckCircle2 size={12} strokeWidth={2} />
               Mark done
             </button>
           </>
@@ -890,13 +708,9 @@ function ScheduleCard({
           <button
             type="button"
             onClick={onMarkDone}
-            className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold"
-            style={{
-              background: 'rgb(var(--brand))',
-              color: 'rgb(var(--ink-on-brand, 255 255 255))',
-            }}
+            className="btn btn-primary"
+            style={{ minHeight: 38, padding: '0 14px', fontSize: 13 }}
           >
-            <CheckCircle2 size={12} strokeWidth={2.5} />
             Mark performed
           </button>
         )}
@@ -905,8 +719,8 @@ function ScheduleCard({
   );
 }
 
-// One card per (plan, frequency) bucket — same accent-bar treatment as
-// the schedule card. Collapsed by default; expand reveals checklist rows.
+// Plan bucket — one row per (plan, frequency). Collapsed by default;
+// header tap toggles expanded checklist + "mark all performed".
 function PlanBucketCard({
   planName,
   bucket,
@@ -919,7 +733,7 @@ function PlanBucketCard({
   onMarkPerformed: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const tone = STATUS_TONE[bucket.status];
+  const pill = STATUS_PILL[bucket.status];
   const dueText =
     bucket.status === 'overdue'
       ? `Overdue · ${formatDaysUntil(bucket.daysUntilDue)}`
@@ -928,51 +742,42 @@ function PlanBucketCard({
         : `Due ${formatDaysUntil(bucket.daysUntilDue)} (${formatNextDue(bucket.nextDueAt)})`;
 
   return (
-    <div
-      className="relative overflow-hidden rounded-xl border bg-surface-raised"
-      style={{ borderColor: 'rgb(var(--line))' }}
-    >
-      <span
-        aria-hidden
-        className="absolute inset-y-0 left-0 w-1"
-        style={{ background: tone.accent }}
-      />
+    <div className="surface-etched">
       <button
         type="button"
         onClick={() => setExpanded((e) => !e)}
-        className="flex w-full items-start gap-3 p-3.5 pl-4 text-left"
+        className="flex w-full items-start gap-3 p-3 text-left"
+        aria-expanded={expanded}
       >
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span
-              className="rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.08em]"
-              style={{ background: tone.bg, color: tone.text }}
-            >
-              {tone.label}
-            </span>
+            <span className={pill.className}>{pill.label}</span>
             <span className="text-[11px] text-ink-tertiary">{dueText}</span>
           </div>
-          <div className="mt-1 text-base font-semibold text-ink-primary">
+          <div className="mt-1.5 text-[15px] font-medium text-ink-primary">
             {planName}
           </div>
-          <div className="mt-0.5 text-xs text-ink-tertiary">
-            {bucket.frequencyLabel} checks · {bucket.itemCount} item
+          <div className="mt-0.5 font-mono text-[11px] text-ink-tertiary">
+            {bucket.frequencyLabel} · {bucket.itemCount} item
             {bucket.itemCount === 1 ? '' : 's'}
           </div>
         </div>
-        <ChevronRight
-          size={18}
-          strokeWidth={2}
-          className="shrink-0 self-center text-ink-tertiary transition-transform"
-          style={{ transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}
-        />
+        <span
+          aria-hidden
+          className="font-mono text-sm leading-none text-ink-tertiary mt-1"
+        >
+          {expanded ? '−' : '+'}
+        </span>
       </button>
 
       {expanded && (
-        <div className="flex flex-col gap-2 px-3.5 pb-3.5 pl-4">
-          <ul className="flex flex-col divide-y divide-line-subtle rounded-md border border-line-subtle bg-surface">
+        <div
+          className="flex flex-col gap-2 px-3 pb-3"
+          style={{ borderTop: '1px solid rgb(var(--line-subtle))' }}
+        >
+          <ul className="flex flex-col divide-y divide-line-subtle">
             {bucket.items.map((it) => (
-              <li key={it.id} className="flex items-start gap-3 px-3 py-2">
+              <li key={it.id} className="flex items-start gap-3 py-2">
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium text-ink-primary">
                     {it.component}
@@ -989,9 +794,10 @@ function PlanBucketCard({
                   <button
                     type="button"
                     onClick={() => onRunProcedure(it.document!.id)}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-brand/40 bg-brand/5 px-2 py-1 text-[11px] font-medium text-brand hover:bg-brand/10"
+                    className="btn btn-secondary"
+                    style={{ minHeight: 30, padding: '0 10px', fontSize: 11.5 }}
                   >
-                    <Play size={11} strokeWidth={2.5} />
+                    <Play size={11} strokeWidth={2.25} />
                     Run
                   </button>
                 )}
@@ -1001,13 +807,9 @@ function PlanBucketCard({
           <button
             type="button"
             onClick={onMarkPerformed}
-            className="self-start inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold"
-            style={{
-              background: 'rgb(var(--brand))',
-              color: 'rgb(var(--ink-on-brand, 255 255 255))',
-            }}
+            className="btn btn-primary self-start"
+            style={{ minHeight: 36, padding: '0 14px', fontSize: 13 }}
           >
-            <CheckCircle2 size={12} strokeWidth={2.5} />
             Mark all performed
           </button>
         </div>
@@ -1016,8 +818,6 @@ function PlanBucketCard({
   );
 }
 
-// Troubleshooting guide card — rounded surface, guide name as a clear
-// header, rows divided by hairlines.
 function TroubleshootingGuideCard({
   guide,
   onRunProcedure,
@@ -1026,8 +826,11 @@ function TroubleshootingGuideCard({
   onRunProcedure: (docId: string) => void;
 }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-line bg-surface-raised">
-      <header className="border-b border-line-subtle bg-surface-inset/40 px-3.5 py-2.5">
+    <div className="surface-etched">
+      <header
+        className="px-3 py-2.5"
+        style={{ borderBottom: '1px solid rgb(var(--line-subtle))' }}
+      >
         <h4 className="text-sm font-semibold text-ink-primary">
           {guide.guide.name}
         </h4>
@@ -1063,28 +866,25 @@ function TroubleshootingRow({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-start gap-2 px-3.5 py-2.5 text-left hover:bg-surface-inset"
+        className="flex w-full items-start gap-2 px-3 py-2.5 text-left hover:bg-surface-inset"
+        aria-expanded={open}
       >
-        <ChevronRight
-          size={14}
-          strokeWidth={2}
-          className="mt-0.5 shrink-0 text-ink-tertiary transition-transform"
-          style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
-        />
+        <span
+          aria-hidden
+          className="mt-0.5 shrink-0 font-mono text-sm leading-none text-ink-tertiary"
+        >
+          {open ? '−' : '+'}
+        </span>
         <span className="flex-1 text-sm font-medium text-ink-primary">
           {item.symptom}
         </span>
-        {item.document && (
-          <span
-            className="shrink-0 rounded-full bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-brand"
-            title="Has linked procedure"
-          >
-            Run
-          </span>
-        )}
+        {item.document && <span className="cap text-brand">RUN</span>}
       </button>
       {open && (
-        <div className="flex flex-col gap-3 bg-surface-inset/40 px-3.5 py-2.5 pl-9 text-xs">
+        <div
+          className="flex flex-col gap-3 px-3 py-2.5 pl-8 text-xs"
+          style={{ background: 'rgb(var(--surface-inset))' }}
+        >
           {(() => {
             const paired = (item.causes ?? []).filter(
               (c) =>
@@ -1112,7 +912,7 @@ function TroubleshootingRow({
               <>
                 {(item.causeItems.length > 0 || item.cause) && (
                   <div>
-                    <div className="font-semibold uppercase text-ink-tertiary text-[10px] tracking-wider">
+                    <div className="cap">
                       {item.causeItems.length > 1 ? 'Causes' : 'Cause'}
                     </div>
                     {item.causeItems.length > 0 ? (
@@ -1134,7 +934,7 @@ function TroubleshootingRow({
                 )}
                 {(item.remedyItems.length > 0 || item.remedy) && (
                   <div>
-                    <div className="font-semibold uppercase text-ink-tertiary text-[10px] tracking-wider">
+                    <div className="cap">
                       {item.remedyItems.length > 1 ? 'Remedy steps' : 'Remedy'}
                     </div>
                     {item.remedyItems.length > 0 ? (
@@ -1163,13 +963,10 @@ function TroubleshootingRow({
               <button
                 type="button"
                 onClick={() => onRunProcedure(item.document!.id)}
-                className="self-start inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold"
-                style={{
-                  background: 'rgb(var(--brand))',
-                  color: 'rgb(var(--ink-on-brand, 255 255 255))',
-                }}
+                className="btn btn-primary self-start"
+                style={{ minHeight: 36, padding: '0 14px', fontSize: 13 }}
               >
-                <Play size={12} strokeWidth={2.5} />
+                <Play size={12} strokeWidth={2.25} />
                 Run procedure: {item.document.title}
               </button>
             )}
@@ -1202,10 +999,11 @@ function StructItemRow({
         <button
           type="button"
           onClick={() => onRunProcedure(item.document!.id)}
-          className="inline-flex shrink-0 items-center gap-1 rounded-md border border-brand/40 bg-brand/5 px-2 py-1 text-[11px] font-medium text-brand hover:bg-brand/10"
+          className="btn btn-secondary"
+          style={{ minHeight: 28, padding: '0 8px', fontSize: 11 }}
           title={`Run ${item.document.title}`}
         >
-          <Play size={11} strokeWidth={2.5} />
+          <Play size={10} strokeWidth={2.25} />
           Run
         </button>
       )}
@@ -1229,12 +1027,17 @@ function PairedCauseBlock({
   const listClass =
     entry.remedyStyle === 'numbered' ? 'list-decimal' : 'list-disc';
   return (
-    <li className="rounded-md border border-line-subtle bg-surface px-2.5 py-2">
+    <li
+      className="px-2.5 py-2"
+      style={{
+        border: '1px solid rgb(var(--line-subtle))',
+        background: 'rgb(var(--surface-raised))',
+        borderRadius: 4,
+      }}
+    >
       {cause && (
         <div>
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary">
-            Cause
-          </div>
+          <div className="cap">Cause</div>
           <div className="mt-0.5 whitespace-pre-line text-ink-secondary">
             {cause}
           </div>
@@ -1242,7 +1045,7 @@ function PairedCauseBlock({
       )}
       {steps.length > 0 && (
         <div className={cause ? 'mt-1.5' : ''}>
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary">
+          <div className="cap">
             {steps.length > 1 ? 'Remedy steps' : 'Remedy'}
           </div>
           <ListTag className={`${listClass} mt-1 ml-5 flex flex-col gap-1`}>
@@ -1259,10 +1062,11 @@ function PairedCauseBlock({
                     <button
                       type="button"
                       onClick={() => onRunProcedure(s.document!.id)}
-                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-brand/40 bg-brand/5 px-2 py-1 text-[11px] font-medium text-brand hover:bg-brand/10"
+                      className="btn btn-secondary"
+                      style={{ minHeight: 28, padding: '0 8px', fontSize: 11 }}
                       title={`Run ${s.document.title}`}
                     >
-                      <Play size={11} strokeWidth={2.5} />
+                      <Play size={10} strokeWidth={2.25} />
                       Run
                     </button>
                   )}
@@ -1276,9 +1080,9 @@ function PairedCauseBlock({
   );
 }
 
-// Procedure library tile — two per row, easy thumb-tap target. Icon
-// header, title body, verified chip footer when relevant.
-function ProcedureTile({
+// Procedure library row — uses the shared list-row chrome so this slice
+// looks identical to the parts list / document list.
+function ProcedureRow({
   doc,
   onLaunch,
 }: {
@@ -1288,53 +1092,40 @@ function ProcedureTile({
   const isField = doc.source === 'field';
   const isUnverified = isField && doc.verified === false;
   return (
-    <button
-      type="button"
-      onClick={onLaunch}
-      className="group flex h-full flex-col gap-2 rounded-xl border border-line bg-surface-raised p-3 text-left transition hover:border-brand/40 hover:bg-brand/5"
-    >
-      <div className="flex items-center justify-between">
-        <span
-          className="flex h-8 w-8 items-center justify-center rounded-lg"
-          style={{
-            background: 'rgba(var(--brand) / 0.1)',
-            color: 'rgb(var(--brand))',
-          }}
-        >
-          <ListChecks size={16} strokeWidth={2} />
-        </span>
-        <Play
-          size={14}
-          strokeWidth={2.5}
-          className="text-ink-tertiary transition group-hover:text-brand"
-        />
-      </div>
-      <span className="line-clamp-3 text-sm font-medium text-ink-primary">
-        {doc.title}
-      </span>
-      {isField && (
-        <span
-          className={`mt-auto inline-flex w-fit items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] uppercase ${
-            isUnverified
-              ? 'border-signal-warn/40 bg-signal-warn/10 text-signal-warn'
-              : 'border-signal-ok/40 bg-signal-ok/10 text-signal-ok'
-          }`}
-          title={
-            isUnverified
-              ? 'Field-captured procedure — pending admin review'
-              : 'Field-captured procedure — verified by admin'
-          }
-        >
-          {isUnverified ? 'unverified' : 'verified'} · field
-        </span>
-      )}
-    </button>
+    <li>
+      <button
+        type="button"
+        onClick={onLaunch}
+        className="list-row w-full text-left"
+      >
+        <div className="list-row-body">
+          <span className="list-row-title">{doc.title}</span>
+          {isField && (
+            <span className="mt-1">
+              <span
+                className={`pill ${isUnverified ? 'pill-warn' : 'pill-ok'}`}
+                title={
+                  isUnverified
+                    ? 'Field-captured procedure — pending admin review'
+                    : 'Field-captured procedure — verified by admin'
+                }
+              >
+                {isUnverified ? 'UNVERIFIED' : 'VERIFIED'} · FIELD
+              </span>
+            </span>
+          )}
+        </div>
+        <div className="list-row-aside">
+          <Play size={14} strokeWidth={2} className="text-ink-tertiary" />
+        </div>
+      </button>
+    </li>
   );
 }
 
 function HistoryRow({ record }: { record: PmServiceRecordItem }) {
   return (
-    <div className="rounded-xl border border-line-subtle bg-surface-raised p-3 text-sm">
+    <div className="surface-etched p-3 text-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="font-medium text-ink-primary">
@@ -1351,7 +1142,7 @@ function HistoryRow({ record }: { record: PmServiceRecordItem }) {
             <p className="mt-1 text-xs text-ink-secondary">{record.notes}</p>
           )}
         </div>
-        <div className="text-right text-xs text-ink-tertiary">
+        <div className="text-right font-mono text-[11px] text-ink-tertiary">
           <div>{formatNextDue(record.performedAt)}</div>
           <div>{record.performedBy.displayName}</div>
         </div>
@@ -1360,46 +1151,32 @@ function HistoryRow({ record }: { record: PmServiceRecordItem }) {
   );
 }
 
-// Per-slice empty state — smaller and less heavy than the page-level
-// EmptyState since the hero already framed the situation.
-function SliceEmpty({
-  icon: Icon,
-  title,
-  body,
-  tone,
-}: {
-  icon: LucideIcon;
-  title: string;
-  body: string;
-  tone?: 'ok';
-}) {
-  const color =
-    tone === 'ok' ? 'rgb(var(--signal-ok))' : 'rgb(var(--ink-tertiary))';
+function SliceEmpty({ title, body }: { title: string; body: string }) {
   return (
-    <div className="flex flex-col items-center gap-1.5 rounded-xl border border-dashed border-line bg-surface-raised p-6 text-center">
-      <Icon size={24} strokeWidth={1.5} style={{ color }} />
+    <div
+      className="flex flex-col items-center gap-1.5 p-6 text-center"
+      style={{
+        border: '1px dashed rgb(var(--line))',
+        borderRadius: 4,
+        background: 'rgb(var(--surface-inset))',
+      }}
+    >
       <p className="text-sm font-medium text-ink-primary">{title}</p>
       <p className="max-w-sm text-xs text-ink-secondary">{body}</p>
     </div>
   );
 }
 
-function EmptyState({
-  icon: Icon,
-  title,
-  body,
-  tone,
-}: {
-  icon: LucideIcon;
-  title: string;
-  body: string;
-  tone?: 'ok';
-}) {
-  const color =
-    tone === 'ok' ? 'rgb(var(--signal-ok))' : 'rgb(var(--ink-tertiary))';
+function EmptyState({ title, body }: { title: string; body: string }) {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-line bg-surface-raised p-6 text-center">
-      <Icon size={28} strokeWidth={1.5} style={{ color }} />
+    <div
+      className="flex flex-col items-center gap-2 p-6 text-center"
+      style={{
+        border: '1px dashed rgb(var(--line))',
+        borderRadius: 4,
+        background: 'rgb(var(--surface-inset))',
+      }}
+    >
       <p className="text-base font-medium text-ink-primary">{title}</p>
       <p className="max-w-sm text-sm text-ink-secondary">{body}</p>
     </div>
