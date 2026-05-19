@@ -17,6 +17,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Clock, Play } from 'lucide-react';
+import { useToast } from '@/components/toast';
 import {
   fetchPmStatus,
   fetchPmPlanStatus,
@@ -116,6 +117,11 @@ export function MaintenanceTab({
   // "automatic overdue list" failure mode where overdue items
   // appeared without intent and made the grid look like a header.
   const [active, setActive] = useState<FilterKey | null>(null);
+  // Tracks the schedule / plan-bucket whose Mark performed is
+  // currently in-flight, so the right button can show a spinner.
+  // Keyed by schedule.id or `${planId}:${frequency}` for buckets.
+  const [marking, setMarking] = useState<string | null>(null);
+  const toast = useToast();
 
   async function refresh() {
     try {
@@ -143,7 +149,10 @@ export function MaintenanceTab({
   async function logPlanPerformed(
     planId: string,
     frequency: PmPlanBucket['frequency'],
+    bucketLabel: string,
   ) {
+    const key = `${planId}:${frequency}`;
+    setMarking(key);
     try {
       await createPmPlanServiceRecord({
         assetInstanceId,
@@ -153,8 +162,17 @@ export function MaintenanceTab({
         devOrgId: DEV_ORG_ID,
       });
       await refresh();
+      toast.success(
+        `${bucketLabel} marked performed`,
+        'Logged to service history.',
+      );
     } catch (e) {
-      alert(`Failed to log: ${e instanceof Error ? e.message : String(e)}`);
+      toast.error(
+        'Could not mark performed',
+        e instanceof Error ? e.message : String(e),
+      );
+    } finally {
+      setMarking(null);
     }
   }
 
@@ -261,9 +279,10 @@ export function MaintenanceTab({
 
   async function logServicePerformed(s: PmScheduleStatusItem) {
     if (!DEV_USER_ID || !DEV_ORG_ID) {
-      alert('Sign in required to log service.');
+      toast.error('Sign in required', 'Sign in to log service.');
       return;
     }
+    setMarking(s.schedule.id);
     try {
       await createPmServiceRecord({
         assetInstanceId,
@@ -273,8 +292,17 @@ export function MaintenanceTab({
         devOrgId: DEV_ORG_ID,
       });
       await refresh();
+      toast.success(
+        `${s.schedule.name} marked performed`,
+        'Logged to service history.',
+      );
     } catch (e) {
-      alert(`Failed to log: ${e instanceof Error ? e.message : String(e)}`);
+      toast.error(
+        'Could not mark performed',
+        e instanceof Error ? e.message : String(e),
+      );
+    } finally {
+      setMarking(null);
     }
   }
 
@@ -360,7 +388,7 @@ export function MaintenanceTab({
     },
     {
       key: 'walkthroughs',
-      label: 'Walkthroughs',
+      label: 'Preventive Maintenance',
       count: walkthroughCount,
       tone: 'idle',
       subtitle:
@@ -422,9 +450,13 @@ export function MaintenanceTab({
               <ScheduleCard
                 key={s.schedule.id}
                 schedule={s}
+                marking={marking === s.schedule.id}
                 onRunProcedure={() => {
                   if (!s.schedule.document) {
-                    alert('No procedure attached to this PM schedule yet.');
+                    toast.error(
+                      'No procedure attached',
+                      'Attach a procedure to this PM schedule in the admin console.',
+                    );
                     return;
                   }
                   launchDoc(s.schedule.document.id, () => void refresh());
@@ -443,16 +475,27 @@ export function MaintenanceTab({
                   key={`${row.plan.id}:${row.bucket.frequency}`}
                   planName={row.plan.name}
                   bucket={row.bucket}
+                  marking={
+                    marking === `${row.plan.id}:${row.bucket.frequency}`
+                  }
                   onRun={() =>
                     launchInline(
                       `${row.plan.name} · ${row.bucket.frequencyLabel}`,
                       planBucketToSteps(row.bucket),
                       () =>
-                        void logPlanPerformed(row.plan.id, row.bucket.frequency),
+                        void logPlanPerformed(
+                          row.plan.id,
+                          row.bucket.frequency,
+                          `${row.plan.name} · ${row.bucket.frequencyLabel}`,
+                        ),
                     )
                   }
                   onMarkPerformed={() =>
-                    void logPlanPerformed(row.plan.id, row.bucket.frequency)
+                    void logPlanPerformed(
+                      row.plan.id,
+                      row.bucket.frequency,
+                      `${row.plan.name} · ${row.bucket.frequencyLabel}`,
+                    )
                   }
                 />
               ))}
@@ -495,9 +538,13 @@ export function MaintenanceTab({
                 key={s.schedule.id}
                 schedule={s}
                 compact
+                marking={marking === s.schedule.id}
                 onRunProcedure={() => {
                   if (!s.schedule.document) {
-                    alert('No procedure attached to this PM schedule yet.');
+                    toast.error(
+                      'No procedure attached',
+                      'Attach a procedure to this PM schedule in the admin console.',
+                    );
                     return;
                   }
                   launchDoc(s.schedule.document.id, () => void refresh());
@@ -515,8 +562,8 @@ export function MaintenanceTab({
         if (allBuckets.length === 0 && nonRrProcedures.length === 0) {
           return (
             <SliceEmpty
-              title="No walkthroughs"
-              body="No PM checklists or non-R&R procedures for this model yet."
+              title="No preventive maintenance"
+              body="No PM checklists or routine procedures for this model yet."
             />
           );
         }
@@ -536,16 +583,27 @@ export function MaintenanceTab({
                       key={`${row.plan.id}:${row.bucket.frequency}`}
                       planName={row.plan.name}
                       bucket={row.bucket}
+                      marking={
+                        marking === `${row.plan.id}:${row.bucket.frequency}`
+                      }
                       onRun={() =>
                         launchInline(
                           `${row.plan.name} · ${row.bucket.frequencyLabel}`,
                           planBucketToSteps(row.bucket),
                           () =>
-                            void logPlanPerformed(row.plan.id, row.bucket.frequency),
+                            void logPlanPerformed(
+                              row.plan.id,
+                              row.bucket.frequency,
+                              `${row.plan.name} · ${row.bucket.frequencyLabel}`,
+                            ),
                         )
                       }
                       onMarkPerformed={() =>
-                        void logPlanPerformed(row.plan.id, row.bucket.frequency)
+                        void logPlanPerformed(
+                          row.plan.id,
+                          row.bucket.frequency,
+                          `${row.plan.name} · ${row.bucket.frequencyLabel}`,
+                        )
                       }
                     />
                   ))}
@@ -749,11 +807,13 @@ function CategoryCardButton({
 function ScheduleCard({
   schedule,
   compact,
+  marking,
   onRunProcedure,
   onMarkDone,
 }: {
   schedule: PmScheduleStatusItem;
   compact?: boolean;
+  marking: boolean;
   onRunProcedure: () => void;
   onMarkDone: () => void;
 }) {
@@ -808,20 +868,22 @@ function ScheduleCard({
             <button
               type="button"
               onClick={onMarkDone}
-              className="btn btn-secondary"
+              disabled={marking}
+              className={`btn btn-secondary ${marking ? 'btn-loading' : ''}`}
               style={{ minHeight: 38, padding: '0 12px', fontSize: 12.5 }}
             >
-              Mark done
+              {marking ? 'Marking…' : 'Mark done'}
             </button>
           </>
         ) : (
           <button
             type="button"
             onClick={onMarkDone}
-            className="btn btn-primary"
+            disabled={marking}
+            className={`btn btn-primary ${marking ? 'btn-loading' : ''}`}
             style={{ minHeight: 38, padding: '0 14px', fontSize: 13 }}
           >
-            Mark performed
+            {marking ? 'Marking…' : 'Mark performed'}
           </button>
         )}
       </div>
@@ -837,11 +899,16 @@ function ScheduleCard({
 function PlanBucketCard({
   planName,
   bucket,
+  marking,
   onRun,
   onMarkPerformed,
 }: {
   planName: string;
   bucket: PmPlanBucket;
+  /** When true the Mark performed button shows a spinner. Driven by
+   *  the parent's "currently marking" state so the click has visible
+   *  feedback even before the refresh fetch returns. */
+  marking: boolean;
   onRun: () => void;
   onMarkPerformed: () => void;
 }) {
@@ -861,12 +928,19 @@ function PlanBucketCard({
             <span className={pill.className}>{pill.label}</span>
             <span className="text-[11px] text-ink-tertiary">{dueText}</span>
           </div>
-          <div className="mt-1.5 text-[15px] font-medium text-ink-primary">
+          {/* Frequency is the heading — Daily / Monthly / Quarterly /
+              Yearly. The plan name (e.g., "Cleaning and Inspection
+              Schedule") sits above as a small caption since a tech
+              looking at three rows of the same plan name learned
+              nothing from the repetition. */}
+          <div className="mt-1.5 text-[11px] uppercase tracking-[0.1em] text-ink-tertiary">
             {planName}
           </div>
+          <div className="mt-0.5 text-[15px] font-medium text-ink-primary">
+            {bucket.frequencyLabel}
+          </div>
           <div className="mt-0.5 font-mono text-[11px] text-ink-tertiary">
-            {bucket.frequencyLabel} · {bucket.itemCount} item
-            {bucket.itemCount === 1 ? '' : 's'}
+            {bucket.itemCount} item{bucket.itemCount === 1 ? '' : 's'}
           </div>
         </div>
       </div>
@@ -883,10 +957,11 @@ function PlanBucketCard({
         <button
           type="button"
           onClick={onMarkPerformed}
-          className="btn btn-secondary"
+          disabled={marking}
+          className={`btn btn-secondary ${marking ? 'btn-loading' : ''}`}
           style={{ minHeight: 38, padding: '0 12px', fontSize: 12.5 }}
         >
-          Mark performed
+          {marking ? 'Marking…' : 'Mark performed'}
         </button>
       </div>
     </div>
