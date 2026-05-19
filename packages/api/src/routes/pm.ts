@@ -43,6 +43,23 @@ const CreatePlanServiceRecordBody = z.object({
   notes: z.string().max(2000).nullable().optional(),
 });
 
+// Calendar-day diff using UTC midnight. Used by the plan-bucket
+// status calc to avoid ms-level floor underflow when (now - anchor)
+// is sub-millisecond. See the call site in computePmPlanStatusForInstance.
+function utcDayDiff(from: Date, to: Date): number {
+  const a = Date.UTC(
+    from.getUTCFullYear(),
+    from.getUTCMonth(),
+    from.getUTCDate(),
+  );
+  const b = Date.UTC(
+    to.getUTCFullYear(),
+    to.getUTCMonth(),
+    to.getUTCDate(),
+  );
+  return Math.floor((b - a) / 86_400_000);
+}
+
 export async function registerPmRoutes(app: FastifyInstance) {
   const { db } = app.ctx;
 
@@ -523,8 +540,13 @@ async function computePmPlanStatusForInstance(
         const nextDueMs =
           anchor.getTime() + cadenceDays * 24 * 60 * 60 * 1000;
         const nextDueAt = new Date(nextDueMs);
-        const msUntilDue = nextDueMs - now.getTime();
-        const daysUntilDue = Math.floor(msUntilDue / (24 * 60 * 60 * 1000));
+        // Calendar-day diff at UTC midnight, NOT ms-floor. The prior
+        // ms math under-flowed when (now - anchor) was sub-millisecond:
+        // a Daily bucket marked at 10:00:00 returning at 10:00:00.234
+        // gave msUntilDue = 86_399_766 → floor / 86_400_000 = 0 →
+        // status 'due', leaving the just-marked item still reading as
+        // "Due today" on the PWA card. Day-diff gives 1 → status 'soon'.
+        const daysUntilDue = utcDayDiff(now, nextDueAt);
         const status: PmPlanBucketStatus =
           daysUntilDue < 0
             ? 'overdue'

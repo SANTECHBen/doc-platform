@@ -1167,12 +1167,28 @@ function ProcedureRow({
 }
 
 function HistoryRow({ record }: { record: PmServiceRecordItem }) {
+  // Three kinds of history rows: schedule (pmSchedule), plan bucket
+  // (pmPlan), and ad-hoc (neither). Render them with a tiny mono-caps
+  // kind label so a tech scanning the list can tell which surface the
+  // mark came from.
+  const kindLabel = record.pmSchedule
+    ? 'SCHEDULE'
+    : record.pmPlan
+      ? 'PM PLAN'
+      : 'AD-HOC';
+  const title = record.pmSchedule?.name
+    ?? (record.pmPlan
+      ? `${record.pmPlan.name} · ${record.pmPlan.frequencyLabel}`
+      : null);
   return (
     <div className="surface-etched p-3 text-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
+          <span className="cap" style={{ color: 'rgb(var(--ink-tertiary))' }}>
+            {kindLabel}
+          </span>
           <div className="font-medium text-ink-primary">
-            {record.pmSchedule?.name ?? (
+            {title ?? (
               <span className="italic text-ink-tertiary">Ad-hoc service</span>
             )}
           </div>

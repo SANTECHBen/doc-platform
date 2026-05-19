@@ -14,7 +14,7 @@
 import type { FastifyInstance } from 'fastify';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { schema, type Database } from '@platform/db';
+import { schema, PM_PLAN_FREQUENCY_LABEL, type Database } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth';
 import { getScope, requireOrgInScope } from '../middleware/scope';
@@ -407,37 +407,91 @@ export async function computePmStatusForInstance(
     };
   });
 
-  // 3. Recent history (last 20 records on this instance, any schedule
-  //    or ad-hoc). Includes performer's display name + linked
-  //    schedule/document for context.
-  const history = await db.query.pmServiceRecords.findMany({
-    where: eq(schema.pmServiceRecords.assetInstanceId, instance.id),
-    orderBy: [desc(schema.pmServiceRecords.performedAt)],
-    limit: 20,
-    with: {
-      schedule: { columns: { id: true, name: true } },
-      document: { columns: { id: true, title: true } },
-      performedBy: { columns: { id: true, displayName: true } },
-    },
-  });
+  // 3. Recent history — union of schedule-based AND plan-bucket records.
+  //    Both kinds get marked via "Mark performed" on the PWA, so a tech
+  //    expects to see both reflected in History. Prior to this merge,
+  //    plan-bucket marks were saved server-side but never surfaced
+  //    here, making the History count look stuck.
+  const [scheduleHistory, planHistory] = await Promise.all([
+    db.query.pmServiceRecords.findMany({
+      where: eq(schema.pmServiceRecords.assetInstanceId, instance.id),
+      orderBy: [desc(schema.pmServiceRecords.performedAt)],
+      limit: 20,
+      with: {
+        schedule: { columns: { id: true, name: true } },
+        document: { columns: { id: true, title: true } },
+        performedBy: { columns: { id: true, displayName: true } },
+      },
+    }),
+    db.query.pmPlanServiceRecords.findMany({
+      where: eq(schema.pmPlanServiceRecords.assetInstanceId, instance.id),
+      orderBy: [desc(schema.pmPlanServiceRecords.performedAt)],
+      limit: 20,
+      with: {
+        plan: { columns: { id: true, name: true } },
+        performedBy: { columns: { id: true, displayName: true } },
+      },
+    }),
+  ]);
+
+  // Merge + sort + cap at 20. Plan records carry a pmPlan field with
+  // the bucket frequency so the PWA can render "Cleaning · Daily"
+  // instead of an unlabeled row.
+  type HistoryItem = {
+    id: string;
+    pmSchedule: { id: string; name: string } | null;
+    pmPlan: { id: string; name: string; frequencyLabel: string } | null;
+    document: { id: string; title: string } | null;
+    performedBy: { id: string; displayName: string };
+    performedAt: string;
+    notes: string | null;
+  };
+  const merged: HistoryItem[] = [
+    ...scheduleHistory.map(
+      (h): HistoryItem => ({
+        id: h.id,
+        pmSchedule: h.schedule
+          ? { id: h.schedule.id, name: h.schedule.name }
+          : null,
+        pmPlan: null,
+        document: h.document
+          ? { id: h.document.id, title: h.document.title }
+          : null,
+        performedBy: {
+          id: h.performedBy.id,
+          displayName: h.performedBy.displayName,
+        },
+        performedAt: h.performedAt.toISOString(),
+        notes: h.notes,
+      }),
+    ),
+    ...planHistory.map(
+      (h): HistoryItem => ({
+        id: h.id,
+        pmSchedule: null,
+        pmPlan: h.plan
+          ? {
+              id: h.plan.id,
+              name: h.plan.name,
+              frequencyLabel: PM_PLAN_FREQUENCY_LABEL[h.frequency],
+            }
+          : null,
+        document: null,
+        performedBy: {
+          id: h.performedBy.id,
+          displayName: h.performedBy.displayName,
+        },
+        performedAt: h.performedAt.toISOString(),
+        notes: h.notes,
+      }),
+    ),
+  ]
+    .sort((a, b) => b.performedAt.localeCompare(a.performedAt))
+    .slice(0, 20);
 
   return {
     schedules: decorated,
-    history: history.map((h) => ({
-      id: h.id,
-      pmSchedule: h.schedule
-        ? { id: h.schedule.id, name: h.schedule.name }
-        : null,
-      document: h.document
-        ? { id: h.document.id, title: h.document.title }
-        : null,
-      performedBy: {
-        id: h.performedBy.id,
-        displayName: h.performedBy.displayName,
-      },
-      performedAt: h.performedAt.toISOString(),
-      notes: h.notes,
-    })),
+    history: merged,
     summary: {
       overdue: decorated.filter((d) => d.status === 'overdue').length,
       due: decorated.filter((d) => d.status === 'due').length,

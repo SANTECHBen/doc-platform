@@ -467,7 +467,12 @@ export interface PmScheduleStatusItem {
 
 export interface PmServiceRecordItem {
   id: string;
+  /** Set when this record is a schedule-based mark (PmServiceRecord). */
   pmSchedule: { id: string; name: string } | null;
+  /** Set when this record is a plan-bucket mark (PmPlanServiceRecord) —
+   *  one of pmSchedule / pmPlan is non-null per row. The frequencyLabel
+   *  is the friendly bucket name ("Daily" / "Monthly" / ...). */
+  pmPlan: { id: string; name: string; frequencyLabel: string } | null;
   document: { id: string; title: string } | null;
   performedBy: { id: string; displayName: string };
   performedAt: string;
