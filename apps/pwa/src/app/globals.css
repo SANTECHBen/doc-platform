@@ -624,7 +624,9 @@
     50%      { opacity: 0.65; transform: scale(0.92); }
   }
 
-  /* Pill — mono, uppercase, small. Signal colors for semantic. */
+  /* Pill — mono, uppercase, small. Signal colors for semantic.
+     No background fill; the signal colour lives in the text + a thin
+     1px border so the chip still reads as a discrete tag. */
   .pill {
     display: inline-flex;
     align-items: center;
@@ -637,15 +639,15 @@
     letter-spacing: 0.06em;
     text-transform: uppercase;
     font-family: var(--font-mono);
-    background: rgb(var(--surface-elevated));
+    background: transparent;
     color: rgb(var(--ink-secondary));
     border: 1px solid rgb(var(--line));
   }
-  .pill-ok     { background: rgba(var(--signal-ok) / 0.14);    color: rgb(var(--signal-ok));    border-color: transparent; }
-  .pill-warn   { background: rgba(var(--signal-warn) / 0.14);  color: rgb(var(--signal-warn));  border-color: transparent; }
-  .pill-fault  { background: rgba(var(--signal-fault) / 0.14); color: rgb(var(--signal-fault)); border-color: transparent; }
-  .pill-info   { background: rgba(var(--brand-soft-v), var(--brand-soft-a)); color: rgb(var(--ink-brand)); border-color: transparent; }
-  .pill-safety { background: rgba(var(--signal-safety) / 0.14); color: rgb(var(--signal-safety)); border-color: transparent; }
+  .pill-ok     { color: rgb(var(--signal-ok));    border-color: rgba(var(--signal-ok) / 0.45); }
+  .pill-warn   { color: rgb(var(--signal-warn));  border-color: rgba(var(--signal-warn) / 0.45); }
+  .pill-fault  { color: rgb(var(--signal-fault)); border-color: rgba(var(--signal-fault) / 0.45); }
+  .pill-info   { color: rgb(var(--ink-brand));    border-color: rgba(var(--brand) / 0.45); }
+  .pill-safety { color: rgb(var(--signal-safety)); border-color: rgba(var(--signal-safety) / 0.45); }
 
   /* kbd */
   .kbd {
@@ -689,11 +691,10 @@
      ------------------------------------------------------------ */
   .nameplate {
     position: relative;
-    background: linear-gradient(180deg, rgb(var(--surface-plate-top)) 0%, rgb(var(--surface-plate-bottom)) 100%);
-    border: 1px solid rgb(var(--surface-plate-edge));
+    background: rgb(var(--surface-raised));
+    border: 1px solid rgb(var(--line));
     border-radius: 8px;
     padding: 24px 28px 22px 36px;
-    box-shadow: var(--shadow-plate);
     overflow: hidden;
   }
   .nameplate::before {
@@ -702,18 +703,7 @@
     position: absolute;
     left: 0; top: 0; bottom: 0;
     width: 3px;
-    background: linear-gradient(180deg, rgb(var(--brand-strong)), rgb(var(--brand)));
-    box-shadow: 0 0 12px rgba(var(--brand-glow), var(--brand-glow-a));
-  }
-  .nameplate::after {
-    /* subtle radial wash in top right */
-    content: '';
-    position: absolute;
-    top: -40%; right: -20%;
-    width: 60%; height: 140%;
-    background: radial-gradient(ellipse at center, rgba(var(--brand-glow), var(--brand-glow-a)), transparent 70%);
-    opacity: 0.35;
-    pointer-events: none;
+    background: rgb(var(--brand));
   }
 
   /* Corner marks — L-brackets in each corner, like a real ID plate */
@@ -812,9 +802,7 @@
   .nameplate-hero-image-placeholder {
     width: 100%;
     height: 100%;
-    background:
-      radial-gradient(120% 80% at 50% 0%, rgba(var(--brand-glow), 0.18), transparent 60%),
-      linear-gradient(180deg, rgb(var(--surface-elevated)), rgb(var(--surface-base)));
+    background: rgb(var(--surface-inset));
   }
   .nameplate-hero-overlay {
     pointer-events: none;
@@ -1214,7 +1202,8 @@
   @keyframes btnSpin { to { transform: rotate(360deg); } }
 
   /* ------------------------------------------------------------
-     ICON CHIP — soft-tinted square for a leading icon.
+     ICON CHIP — leading icon wrapper.
+     No fill; the signal colour applies only to the icon stroke.
      Sits between .led (8px dot) and a full card.
      ------------------------------------------------------------ */
   .icon-chip {
@@ -1222,24 +1211,20 @@
     align-items: center;
     justify-content: center;
     width: 32px; height: 32px;
-    border-radius: 8px;
     flex-shrink: 0;
-    background: rgba(var(--brand-soft-v), var(--brand-soft-a));
+    background: transparent;
     color: rgb(var(--brand-strong));
-    box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset;
   }
-  .icon-chip-sm { width: 24px; height: 24px; border-radius: 6px; }
-  .icon-chip-md { width: 40px; height: 40px; border-radius: 9px; }
-  .icon-chip-lg { width: 56px; height: 56px; border-radius: 12px; }
-  .icon-chip-ok     { background: rgba(var(--signal-ok) / 0.14);    color: rgb(var(--signal-ok)); }
-  .icon-chip-warn   { background: rgba(var(--signal-warn) / 0.14);  color: rgb(var(--signal-warn)); }
-  .icon-chip-fault  { background: rgba(var(--signal-fault) / 0.14); color: rgb(var(--signal-fault)); }
-  .icon-chip-info   { background: rgba(var(--brand-soft-v), var(--brand-soft-a)); color: rgb(var(--brand-strong)); }
-  .icon-chip-safety { background: rgba(var(--signal-safety) / 0.14); color: rgb(var(--signal-safety)); }
+  .icon-chip-sm { width: 24px; height: 24px; }
+  .icon-chip-md { width: 40px; height: 40px; }
+  .icon-chip-lg { width: 56px; height: 56px; }
+  .icon-chip-ok     { color: rgb(var(--signal-ok)); }
+  .icon-chip-warn   { color: rgb(var(--signal-warn)); }
+  .icon-chip-fault  { color: rgb(var(--signal-fault)); }
+  .icon-chip-info   { color: rgb(var(--brand-strong)); }
+  .icon-chip-safety { color: rgb(var(--signal-safety)); }
   .icon-chip-neutral{
-    background: rgb(var(--surface-inset));
     color: rgb(var(--ink-secondary));
-    border: 1px solid rgb(var(--line-subtle));
   }
 
   /* ------------------------------------------------------------
@@ -1338,7 +1323,7 @@
     transition: border-color 120ms ease, background 120ms ease;
   }
   .list-row + .list-row { margin-top: 6px; }
-  .list-row:hover { border-color: rgb(var(--line-strong)); background: rgb(var(--surface-elevated)); }
+  .list-row:hover { border-color: rgb(var(--line-strong)); }
   .list-row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .list-row-title { font-size: 14px; font-weight: 500; color: rgb(var(--ink-primary)); }
   .list-row-desc { font-size: 12.5px; color: rgb(var(--ink-secondary)); }
@@ -2316,9 +2301,7 @@
     z-index: 110;
     display: flex;
     flex-direction: column;
-    background:
-      radial-gradient(120% 80% at 50% 0%, rgba(var(--brand-glow) / 0.10), transparent 60%),
-      rgb(var(--surface-base));
+    background: rgb(var(--surface-base));
     animation: voiceModeIn 280ms cubic-bezier(0.2, 0.6, 0.2, 1);
   }
 
@@ -2351,7 +2334,7 @@
     height: 40px;
     border-radius: 999px;
     border: 1px solid rgb(var(--line) / 0.6);
-    background: rgb(var(--surface-elevated) / 0.6);
+    background: transparent;
     color: rgb(var(--ink-secondary));
     display: inline-flex;
     align-items: center;
@@ -2361,7 +2344,7 @@
   .vja-mute:hover,
   .vja-close:hover {
     color: rgb(var(--ink-primary));
-    background: rgb(var(--surface-elevated));
+    border-color: rgb(var(--line-strong));
   }
 
   .vja-progress {
@@ -3210,24 +3193,20 @@
     width: 100%;
     padding: 16px 18px;
     border-radius: 12px;
-    background:
-      linear-gradient(135deg, rgb(var(--brand-glow) / 0.10), rgb(var(--brand-glow) / 0.04));
-    border: 1px solid rgb(var(--brand) / 0.4);
+    background: rgb(var(--surface-raised));
+    border: 1px solid rgb(var(--brand) / 0.5);
     color: rgb(var(--ink-primary));
     text-align: left;
-    transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+    transition: transform 120ms ease, border-color 120ms ease;
     animation: assistantMsgIn 380ms cubic-bezier(0.34, 1.42, 0.64, 1);
   }
   .procedure-launcher:hover {
     border-color: rgb(var(--brand));
-    background: linear-gradient(135deg, rgb(var(--brand-glow) / 0.16), rgb(var(--brand-glow) / 0.06));
   }
   .procedure-launcher:active { transform: translateY(1px) scale(0.992); }
   .procedure-launcher-icon {
     width: 44px;
     height: 44px;
-    border-radius: 10px;
-    background: rgb(var(--brand) / 0.18);
     color: rgb(var(--brand));
     display: inline-flex;
     align-items: center;

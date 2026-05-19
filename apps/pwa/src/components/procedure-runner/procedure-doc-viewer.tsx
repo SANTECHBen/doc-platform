@@ -230,13 +230,13 @@ export function ProcedureDocViewer({
                 {stepCount} step{stepCount === 1 ? '' : 's'}
               </span>
               {m?.estimatedMinutes != null && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-brand/15 px-2.5 py-1 text-xs font-medium text-ink-primary">
+                <span className="inline-flex items-center gap-1 rounded-full border border-brand/40 px-2.5 py-1 text-xs font-medium text-ink-primary">
                   <Clock size={12} strokeWidth={2.25} className="text-brand" />
                   {formatDuration(m.estimatedMinutes)}
                 </span>
               )}
               {m?.skillLevel && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-brand/15 px-2.5 py-1 text-xs font-medium text-ink-primary">
+                <span className="inline-flex items-center gap-1 rounded-full border border-brand/40 px-2.5 py-1 text-xs font-medium text-ink-primary">
                   <GraduationCap
                     size={12}
                     strokeWidth={2.25}

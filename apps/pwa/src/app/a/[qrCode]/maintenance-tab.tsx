@@ -190,8 +190,7 @@ export function MaintenanceTab({
       <p
         className="rounded-md border p-3 text-sm"
         style={{
-          borderColor: 'rgba(var(--signal-fault) / 0.4)',
-          background: 'rgba(var(--signal-fault) / 0.1)',
+          borderColor: 'rgba(var(--signal-fault) / 0.45)',
           color: 'rgb(var(--signal-fault))',
         }}
       >
@@ -887,7 +886,7 @@ function TroubleshootingRow({
       <button
         type="button"
         onClick={onRun}
-        className="flex w-full items-center gap-3 px-3 py-3 text-left hover:bg-surface-inset"
+        className="flex w-full items-center gap-3 px-3 py-3 text-left"
       >
         <span className="flex-1 text-sm font-medium text-ink-primary">
           {item.symptom}
@@ -1070,7 +1069,6 @@ function SliceEmpty({ title, body }: { title: string; body: string }) {
       style={{
         border: '1px dashed rgb(var(--line))',
         borderRadius: 4,
-        background: 'rgb(var(--surface-inset))',
       }}
     >
       <p className="text-sm font-medium text-ink-primary">{title}</p>
@@ -1086,7 +1084,6 @@ function EmptyState({ title, body }: { title: string; body: string }) {
       style={{
         border: '1px dashed rgb(var(--line))',
         borderRadius: 4,
-        background: 'rgb(var(--surface-inset))',
       }}
     >
       <p className="text-base font-medium text-ink-primary">{title}</p>

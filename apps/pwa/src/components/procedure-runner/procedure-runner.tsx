@@ -906,11 +906,11 @@ function ProgressStrip({
             onClick={() => onJump(i)}
             className={`flex h-8 min-w-[2rem] items-center justify-center rounded-md border px-1.5 font-mono text-xs tabular-nums transition ${
               isCurrent
-                ? 'border-brand bg-brand/10 text-brand'
+                ? 'border-brand text-brand'
                 : isDone
-                  ? 'border-signal-ok/40 bg-signal-ok/10 text-signal-ok'
+                  ? 'border-signal-ok/40 text-signal-ok'
                   : isSkipped
-                    ? 'border-signal-warn/40 bg-signal-warn/10 text-signal-warn'
+                    ? 'border-signal-warn/40 text-signal-warn'
                     : 'border-line bg-surface-raised text-ink-tertiary'
             }`}
             aria-label={`Step ${i + 1} — ${s.title}${isDone ? ' (done)' : isSkipped ? ' (skipped)' : ''}`}

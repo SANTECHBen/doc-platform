@@ -66,7 +66,7 @@ export function TextSection({
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{slice.before}</ReactMarkdown>
         </div>
       )}
-      <div className="rounded-md border-l-4 border-brand bg-brand/5 px-3 py-2">
+      <div className="rounded-md border-l-4 border-brand px-3 py-2">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{slice.match}</ReactMarkdown>
       </div>
       {slice.after && (

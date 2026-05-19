@@ -443,15 +443,13 @@ function QuizResultView({
       <div
         className={`flex items-start gap-3 rounded-md border p-4 ${
           passed
-            ? 'border-signal-ok/40 bg-signal-ok/10'
-            : 'border-signal-fault/40 bg-signal-fault/10'
+            ? 'border-signal-ok/50'
+            : 'border-signal-fault/50'
         }`}
       >
         <div
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
-            passed
-              ? 'bg-signal-ok/20 text-signal-ok'
-              : 'bg-signal-fault/20 text-signal-fault'
+          className={`flex h-10 w-10 shrink-0 items-center justify-center ${
+            passed ? 'text-signal-ok' : 'text-signal-fault'
           }`}
         >
           {passed ? (
@@ -486,8 +484,8 @@ function QuizResultView({
               key={q.questionIndex}
               className={`flex items-center gap-3 rounded-md border px-3 py-2 text-sm ${
                 q.correct
-                  ? 'border-signal-ok/30 bg-signal-ok/10 text-signal-ok'
-                  : 'border-signal-fault/30 bg-signal-fault/10 text-signal-fault'
+                  ? 'border-signal-ok/40 text-signal-ok'
+                  : 'border-signal-fault/40 text-signal-fault'
               }`}
             >
               {q.correct ? (
