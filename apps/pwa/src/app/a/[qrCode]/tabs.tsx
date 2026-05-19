@@ -199,15 +199,18 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
               <OverviewSpecs hub={hub} openIssueCount={openIssueCount} />
             </DetailsDisclosure>
           </div>
+        ) : active === 'library' ? (
+          /* Library renders directly into the scroll region — its
+             segmented control + filter chips + list rows already carry
+             their own structure and don't need a surrounding raised
+             panel. */
+          <LibraryTab
+            hub={hub}
+            section={librarySection}
+            onSectionChange={setLibrarySection}
+          />
         ) : (
           <section className="rounded-md border border-line bg-surface-raised p-4 md:p-6">
-            {active === 'library' && (
-              <LibraryTab
-                hub={hub}
-                section={librarySection}
-                onSectionChange={setLibrarySection}
-              />
-            )}
             {active === 'parts' && <PartsTab hub={hub} qrCode={qrCode} />}
             {active === 'maintenance' && (
               <MaintenanceTab

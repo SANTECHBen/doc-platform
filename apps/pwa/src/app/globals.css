@@ -1305,6 +1305,127 @@
   }
 
   /* ------------------------------------------------------------
+     KIND CHIP — icon-led filter chip for Library
+     A row of these sits below the segmented control so a tech can
+     narrow to PDFs / Videos / Schematics with one tap. Chips only
+     render when there's enough variety to be useful — see
+     availableKindFilters in docs-tab.tsx.
+     ------------------------------------------------------------ */
+  .kind-chip-row {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+  .kind-chip-row::-webkit-scrollbar { display: none; }
+  .kind-chip {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 1px solid rgb(var(--line));
+    background: rgb(var(--surface-raised));
+    color: rgb(var(--ink-secondary));
+    font-size: 12.5px;
+    font-weight: 500;
+    letter-spacing: -0.003em;
+    cursor: pointer;
+    transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+  }
+  .kind-chip:hover {
+    color: rgb(var(--ink-primary));
+    border-color: rgb(var(--line-strong));
+  }
+  .kind-chip[data-active='true'] {
+    color: rgb(var(--brand-ink));
+    background: rgb(var(--brand));
+    border-color: rgb(var(--brand));
+  }
+
+  /* ------------------------------------------------------------
+     DOC ROW — Library default row
+     Single 64px tap target: 48px thumbnail or kind glyph on the
+     left, title + one-line mono-caps metadata, ChevronRight on the
+     right. Replaces the previous denser-but-busier row with a
+     glanceable 8-docs-per-screen layout sized for gloved hands.
+     ------------------------------------------------------------ */
+  .doc-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 64px;
+    padding: 8px 12px;
+    background: rgb(var(--surface-raised));
+    border: 1px solid rgb(var(--line));
+    border-radius: 6px;
+    text-align: left;
+    transition: border-color 120ms, background 120ms;
+    cursor: pointer;
+  }
+  .doc-row:hover {
+    border-color: rgb(var(--line-strong));
+    background: rgb(var(--surface-elevated));
+  }
+  .doc-row-thumb {
+    width: 48px;
+    height: 48px;
+    border-radius: 4px;
+    object-fit: cover;
+    border: 1px solid rgb(var(--line-subtle));
+    background: rgb(var(--surface-inset));
+    flex-shrink: 0;
+  }
+  .doc-row-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 4px;
+    background: rgb(var(--surface-elevated));
+    color: rgb(var(--ink-secondary));
+    flex-shrink: 0;
+  }
+  .doc-row-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .doc-row-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: rgb(var(--ink-primary));
+    letter-spacing: -0.005em;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .doc-row-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-tertiary));
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .doc-row-meta-sep {
+    color: rgb(var(--ink-tertiary));
+    opacity: 0.6;
+  }
+
+  /* ------------------------------------------------------------
      SEGBAR — segmented tab control
      ------------------------------------------------------------ */
   .segbar {

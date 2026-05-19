@@ -131,6 +131,43 @@ interface OpenDoc {
 // faster than typing — keep the surface clean.
 const SEARCH_THRESHOLD = 8;
 
+// Kind filter — narrows the doc list to one media type. The chips are
+// gated on the loaded set so unused kinds don't render an empty filter
+// for an asset that has only PDFs. Kept short — too many filters and
+// nobody scans them.
+type KindFilter = 'all' | 'pdf' | 'video' | 'schematic' | 'doc';
+const KIND_FILTERS: KindFilter[] = ['all', 'pdf', 'video', 'schematic', 'doc'];
+
+function entryMatchesKind(entry: DocEntry, filter: KindFilter): boolean {
+  if (filter === 'all') return true;
+  if (filter === 'pdf') return entry.kind === 'pdf';
+  if (filter === 'video')
+    return entry.kind === 'video' || entry.kind === 'external_video';
+  if (filter === 'schematic') return entry.kind === 'schematic';
+  // 'doc' is the catch-all for written content (markdown, slides, file).
+  return (
+    entry.kind === 'markdown' ||
+    entry.kind === 'slides' ||
+    entry.kind === 'file'
+  );
+}
+
+function kindFilterLabel(f: KindFilter): string {
+  if (f === 'all') return 'All';
+  if (f === 'pdf') return 'PDF';
+  if (f === 'video') return 'Video';
+  if (f === 'schematic') return 'Schematic';
+  return 'Doc';
+}
+
+function kindFilterIcon(f: KindFilter): LucideIcon {
+  if (f === 'pdf') return FileType2;
+  if (f === 'video') return Video;
+  if (f === 'schematic') return CircuitBoard;
+  if (f === 'doc') return FileText;
+  return LayoutGrid;
+}
+
 // Identity for procedure runs (auth-required surface). Reads stay scan-only;
 // these env vars stand in for the OIDC tokens until prod sign-in is wired.
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
@@ -166,6 +203,27 @@ export function DocsTab({
   const [authoringActive, setAuthoringActive] = useState(false);
   const [authPromptOpen, setAuthPromptOpen] = useState(false);
   const [query, setQuery] = useState('');
+  // Kind filter — narrows the visible doc list by media type. The
+  // available filters are derived from the loaded set so we don't show
+  // a "Video" chip when the asset has no videos. 'all' is the default
+  // and never hidden. Persisted across reloads so a tech who lives in
+  // schematics doesn't re-pick the filter every scan.
+  const [kindFilter, setKindFilter] = useState<KindFilter>('all');
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const stored = window.localStorage.getItem('eh:docs-kind') as
+      | KindFilter
+      | null;
+    if (stored && KIND_FILTERS.includes(stored)) setKindFilter(stored);
+  }, []);
+  function changeKindFilter(next: KindFilter) {
+    setKindFilter(next);
+    try {
+      window.localStorage.setItem('eh:docs-kind', next);
+    } catch {
+      // ignore
+    }
+  }
   // Grid (default on >= md viewports) vs list (default on phones, where
   // screen real estate is precious and a tech wants to skim 10+ docs at a
   // glance). Persisted in localStorage so the choice survives reloads —
@@ -336,22 +394,30 @@ export function DocsTab({
 
   const entries = buildEntries(docs);
   const showSearch = entries.length > SEARCH_THRESHOLD;
+  // Available filters — chip row drops any that have zero matches in
+  // the current entry set so techs don't tap an empty filter. 'all' is
+  // always present.
+  const availableKindFilters = KIND_FILTERS.filter(
+    (f) =>
+      f === 'all' || entries.some((e) => entryMatchesKind(e, f)),
+  );
+  const showKindFilter = availableKindFilters.length > 2;
   const q = query.trim().toLowerCase();
-  const filtered = q
-    ? entries.filter((e) => {
-        const hay = [
-          e.title,
-          e.parentDocTitle,
-          e.refCode,
-          kindLabel(e.kind),
-          ...e.tags,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
-        return hay.includes(q);
-      })
-    : entries;
+  const filtered = entries.filter((e) => {
+    if (!entryMatchesKind(e, kindFilter)) return false;
+    if (!q) return true;
+    const hay = [
+      e.title,
+      e.parentDocTitle,
+      e.refCode,
+      kindLabel(e.kind),
+      ...e.tags,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    return hay.includes(q);
+  });
 
   function onOpenEntry(e: DocEntry) {
     if (e.kind === 'structured_procedure') {
@@ -418,6 +484,27 @@ export function DocsTab({
             placeholder="Search by title, ref code, kind, or tag"
           />
         </label>
+      )}
+      {showKindFilter && (
+        <div role="group" aria-label="Filter by kind" className="kind-chip-row">
+          {availableKindFilters.map((f) => {
+            const Icon = kindFilterIcon(f);
+            const active = kindFilter === f;
+            return (
+              <button
+                key={f}
+                type="button"
+                onClick={() => changeKindFilter(f)}
+                data-active={active}
+                aria-pressed={active}
+                className="kind-chip"
+              >
+                <Icon size={14} strokeWidth={2} />
+                <span>{kindFilterLabel(f)}</span>
+              </button>
+            );
+          })}
+        </div>
       )}
       {/* Procedures moved out of Documents in favor of Maintenance. Surface
           a small hint so a tech who scanned for "the procedure I just
@@ -546,9 +633,10 @@ export function DocsTab({
   );
 }
 
-// Compact list-row representation of a doc entry. Used when the techician
-// flips Documents to list view — denser, scan-friendly, leaves more
-// vertical space for the next 5–10 docs to be visible at a glance.
+// Compact list-row representation of a doc entry. Default view — denser
+// and scan-friendly so a tech can skim 8+ docs at a glance. 64px row
+// height (gloved-hand floor), 48px thumbnail/icon, title + one-line
+// mono-caps metadata (kind · ref code).
 function DocRowItem({
   entry: e,
   onOpen,
@@ -562,26 +650,42 @@ function DocRowItem({
       <button
         type="button"
         onClick={() => onOpen(e)}
-        className="surface-etched flex w-full items-center gap-3 px-3 py-2.5 text-left"
+        className="doc-row"
       >
         {e.thumbnailUrl ? (
           <img
             src={e.thumbnailUrl}
             alt=""
-            className="h-12 w-12 shrink-0 rounded border border-line-subtle bg-surface-inset object-cover"
+            className="doc-row-thumb"
             draggable={false}
           />
         ) : (
-          <div className="icon-chip icon-chip-md icon-chip-neutral">
-            <Icon size={18} strokeWidth={1.75} />
-          </div>
+          <span className="doc-row-icon">
+            <Icon size={20} strokeWidth={1.75} />
+          </span>
         )}
-        <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-medium leading-snug text-ink-primary">
-            {e.title}
-          </h3>
+        <div className="doc-row-body">
+          <span className="doc-row-title">{e.title}</span>
+          <span className="doc-row-meta">
+            {kindLabel(e.kind)}
+            <span className="doc-row-meta-sep">·</span>
+            {e.refCode}
+            {e.parentDocTitle && (
+              <>
+                <span className="doc-row-meta-sep">·</span>
+                <span className="truncate">{e.parentDocTitle}</span>
+              </>
+            )}
+          </span>
         </div>
-        <ChevronRight size={16} strokeWidth={2} className="shrink-0 text-ink-tertiary" />
+        {e.source === 'field' && !e.verified && (
+          <span className="pill pill-warn shrink-0">UNVERIFIED</span>
+        )}
+        <ChevronRight
+          size={16}
+          strokeWidth={2}
+          className="shrink-0 text-ink-tertiary"
+        />
       </button>
     </li>
   );
