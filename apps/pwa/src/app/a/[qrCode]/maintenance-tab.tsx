@@ -66,12 +66,14 @@ const STATUS_PILL: Record<PmStatus, { label: string; className: string }> = {
   upcoming: { label: 'Upcoming', className: 'pill' },
 };
 
+// The category cards drive a slice below them. 'action' is special — it
+// pins open above the grid when there's work to do, so picking another
+// card never hides the urgent work. The grid itself only renders
+// non-action categories.
 type FilterKey =
-  | 'action'
   | 'upcoming'
-  | 'checklists'
+  | 'walkthroughs'
   | 'troubleshoot'
-  | 'library'
   | 'history';
 
 export function MaintenanceTab({
@@ -98,7 +100,7 @@ export function MaintenanceTab({
   const [troubleshooting, setTroubleshooting] = useState<TroubleshootingGuide[]>([]);
   const [procedures, setProcedures] = useState<DocumentListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [active, setActive] = useState<FilterKey>('action');
+  const [active, setActive] = useState<FilterKey>('upcoming');
 
   async function refresh() {
     try {
@@ -296,27 +298,14 @@ export function MaintenanceTab({
     return cands.sort((a, b) => a.days - b.days)[0] ?? null;
   })();
 
-  // One card per category. `tone` drives the LED dot (fault = red pulse,
-  // warn = amber pulse, idle = grey static). Subtitle is the secondary
-  // information line shown under the count.
+  // The non-action category cards. Action lives ABOVE the grid as a
+  // pinned slice so urgent work is never one tap away — see the Action
+  // pinned block in the JSX below.
+  // 'walkthroughs' merges what used to be two separate categories
+  // (checklists + procedure library). Both routed into the same
+  // VirtualJobAid runner so splitting them was friction without payoff.
+  const walkthroughCount = allBuckets.length + libraryProcedures.length;
   const cards: CategoryCard[] = [
-    {
-      key: 'action',
-      label: 'Action',
-      count: actionCount,
-      tone: actionCount > 0 ? 'fault' : 'idle',
-      subtitle:
-        actionCount === 0
-          ? 'All caught up'
-          : [
-              overdueCount > 0
-                ? `${overdueCount} overdue`
-                : null,
-              dueTodayCount > 0 ? `${dueTodayCount} due today` : null,
-            ]
-              .filter(Boolean)
-              .join(' · '),
-    },
     {
       key: 'upcoming',
       label: 'Upcoming',
@@ -327,14 +316,16 @@ export function MaintenanceTab({
         : 'None scheduled',
     },
     {
-      key: 'checklists',
-      label: 'Checklists',
-      count: allBuckets.length,
+      key: 'walkthroughs',
+      label: 'Walkthroughs',
+      count: walkthroughCount,
       tone: overdueBuckets.length > 0 ? 'warn' : 'idle',
       subtitle:
-        allBuckets.length === 0
-          ? 'No checklists authored'
-          : `${overdueBuckets.length} need attention`,
+        walkthroughCount === 0
+          ? 'None authored'
+          : overdueBuckets.length > 0
+            ? `${overdueBuckets.length} need attention`
+            : `${libraryProcedures.length} on-demand`,
     },
     {
       key: 'troubleshoot',
@@ -345,16 +336,6 @@ export function MaintenanceTab({
         troubleshooting.length === 0
           ? 'No guides authored'
           : `${troubleshooting.length} guide${troubleshooting.length === 1 ? '' : 's'}`,
-    },
-    {
-      key: 'library',
-      label: 'Procedures',
-      count: libraryProcedures.length,
-      tone: 'idle',
-      subtitle:
-        libraryProcedures.length === 0
-          ? 'No procedures'
-          : 'Tap to run ad-hoc',
     },
     {
       key: 'history',
@@ -368,65 +349,61 @@ export function MaintenanceTab({
     },
   ];
 
-  const slice = (() => {
-    switch (active) {
-      case 'action': {
-        const empty = dueNow.length === 0 && overdueBuckets.length === 0;
-        if (empty) {
-          return (
-            <SliceEmpty
-              title="Nothing needs action"
-              body={
-                nextItem
-                  ? `Next: "${nextItem.label}" ${formatDaysUntil(nextItem.days)}.`
-                  : 'Check back later or browse the procedure library.'
-              }
+  // Action band renders ABOVE the grid (see JSX). It's never selected
+  // through the grid; it's pinned open when there's urgent work so a
+  // tap on another category doesn't hide it.
+  const actionBand =
+    actionCount > 0 ? (
+      <section aria-label="Action" className="flex flex-col gap-2">
+        <p className="cap" style={{ color: 'rgb(var(--signal-fault))' }}>
+          Action — {overdueCount > 0 ? `${overdueCount} overdue` : ''}
+          {overdueCount > 0 && dueTodayCount > 0 ? ' · ' : ''}
+          {dueTodayCount > 0 ? `${dueTodayCount} due today` : ''}
+        </p>
+        <div className="flex flex-col gap-2">
+          {dueNow.map((s) => (
+            <ScheduleCard
+              key={s.schedule.id}
+              schedule={s}
+              onRunProcedure={() => {
+                if (!s.schedule.document) {
+                  alert('No procedure attached to this PM schedule yet.');
+                  return;
+                }
+                launchDoc(s.schedule.document.id, () => void refresh());
+              }}
+              onMarkDone={() => void logServicePerformed(s)}
             />
-          );
-        }
-        return (
-          <div className="flex flex-col gap-2">
-            {dueNow.map((s) => (
-              <ScheduleCard
-                key={s.schedule.id}
-                schedule={s}
-                onRunProcedure={() => {
-                  if (!s.schedule.document) {
-                    alert('No procedure attached to this PM schedule yet.');
-                    return;
-                  }
-                  launchDoc(s.schedule.document.id, () => void refresh());
-                }}
-                onMarkDone={() => void logServicePerformed(s)}
+          ))}
+          {overdueBuckets
+            .slice()
+            .sort(
+              (a, b) =>
+                statusRank(a.bucket.status) - statusRank(b.bucket.status),
+            )
+            .map((row) => (
+              <PlanBucketCard
+                key={`${row.plan.id}:${row.bucket.frequency}`}
+                planName={row.plan.name}
+                bucket={row.bucket}
+                onRun={() =>
+                  launchInline(
+                    `${row.plan.name} · ${row.bucket.frequencyLabel}`,
+                    planBucketToSteps(row.bucket),
+                    () => void logPlanPerformed(row.plan.id, row.bucket.frequency),
+                  )
+                }
+                onMarkPerformed={() =>
+                  void logPlanPerformed(row.plan.id, row.bucket.frequency)
+                }
               />
             ))}
-            {overdueBuckets
-              .slice()
-              .sort(
-                (a, b) =>
-                  statusRank(a.bucket.status) - statusRank(b.bucket.status),
-              )
-              .map((row) => (
-                <PlanBucketCard
-                  key={`${row.plan.id}:${row.bucket.frequency}`}
-                  planName={row.plan.name}
-                  bucket={row.bucket}
-                  onRun={() =>
-                    launchInline(
-                      `${row.plan.name} · ${row.bucket.frequencyLabel}`,
-                      planBucketToSteps(row.bucket),
-                      () =>
-                        void logPlanPerformed(row.plan.id, row.bucket.frequency),
-                    )
-                  }
-                  onMarkPerformed={() =>
-                    void logPlanPerformed(row.plan.id, row.bucket.frequency)
-                  }
-                />
-              ))}
-          </div>
-        );
-      }
+        </div>
+      </section>
+    ) : null;
+
+  const slice = (() => {
+    switch (active) {
       case 'upcoming':
         if (upcoming.length === 0) {
           return (
@@ -455,44 +432,67 @@ export function MaintenanceTab({
             ))}
           </div>
         );
-      case 'checklists':
-        if (allBuckets.length === 0) {
+      case 'walkthroughs': {
+        // Merge of the prior 'checklists' (PM plan buckets — grouped
+        // step lists per frequency) and 'library' (ad-hoc authored
+        // procedures). Both route into VirtualJobAid, so the
+        // distinction was friction for techs picking a walkthrough.
+        if (allBuckets.length === 0 && libraryProcedures.length === 0) {
           return (
             <SliceEmpty
-              title="No checklists"
-              body="No OEM-style PM checklists are set up for this model."
+              title="No walkthroughs"
+              body="No PM checklists or authored procedures for this model yet."
             />
           );
         }
         return (
-          <div className="flex flex-col gap-2">
-            <p className="cap">Grouped by frequency</p>
-            {allBuckets
-              .slice()
-              .sort(
-                (a, b) =>
-                  statusRank(a.bucket.status) - statusRank(b.bucket.status),
-              )
-              .map((row) => (
-                <PlanBucketCard
-                  key={`${row.plan.id}:${row.bucket.frequency}`}
-                  planName={row.plan.name}
-                  bucket={row.bucket}
-                  onRun={() =>
-                    launchInline(
-                      `${row.plan.name} · ${row.bucket.frequencyLabel}`,
-                      planBucketToSteps(row.bucket),
-                      () =>
-                        void logPlanPerformed(row.plan.id, row.bucket.frequency),
-                    )
-                  }
-                  onMarkPerformed={() =>
-                    void logPlanPerformed(row.plan.id, row.bucket.frequency)
-                  }
-                />
-              ))}
+          <div className="flex flex-col gap-4">
+            {allBuckets.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <p className="cap">PM checklists · grouped by frequency</p>
+                {allBuckets
+                  .slice()
+                  .sort(
+                    (a, b) =>
+                      statusRank(a.bucket.status) - statusRank(b.bucket.status),
+                  )
+                  .map((row) => (
+                    <PlanBucketCard
+                      key={`${row.plan.id}:${row.bucket.frequency}`}
+                      planName={row.plan.name}
+                      bucket={row.bucket}
+                      onRun={() =>
+                        launchInline(
+                          `${row.plan.name} · ${row.bucket.frequencyLabel}`,
+                          planBucketToSteps(row.bucket),
+                          () =>
+                            void logPlanPerformed(row.plan.id, row.bucket.frequency),
+                        )
+                      }
+                      onMarkPerformed={() =>
+                        void logPlanPerformed(row.plan.id, row.bucket.frequency)
+                      }
+                    />
+                  ))}
+              </div>
+            )}
+            {libraryProcedures.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <p className="cap">Procedures · run on demand</p>
+                <ul className="flex flex-col">
+                  {libraryProcedures.map((p) => (
+                    <ProcedureRow
+                      key={p.id}
+                      doc={p}
+                      onLaunch={() => launchDoc(p.id)}
+                    />
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         );
+      }
       case 'troubleshoot':
         if (troubleshooting.length === 0) {
           return (
@@ -528,26 +528,6 @@ export function MaintenanceTab({
             ))}
           </div>
         );
-      case 'library':
-        if (libraryProcedures.length === 0) {
-          return (
-            <SliceEmpty
-              title="No procedures in library"
-              body="Every authored procedure is already scheduled above, or no procedures are attached to this asset model."
-            />
-          );
-        }
-        return (
-          <ul className="flex flex-col">
-            {libraryProcedures.map((p) => (
-              <ProcedureRow
-                key={p.id}
-                doc={p}
-                onLaunch={() => launchDoc(p.id)}
-              />
-            ))}
-          </ul>
-        );
       case 'history':
         if (data.history.length === 0) {
           return (
@@ -576,10 +556,13 @@ export function MaintenanceTab({
         />
       ) : (
         <>
+          {actionBand}
+
           <CategoryGrid
             cards={cards}
             active={active}
             onSelect={setActive}
+            allCaughtUp={actionCount === 0}
           />
 
           {slice}
@@ -623,21 +606,36 @@ function CategoryGrid({
   cards,
   active,
   onSelect,
+  allCaughtUp,
 }: {
   cards: CategoryCard[];
   active: FilterKey;
   onSelect: (k: FilterKey) => void;
+  /** Render an OK-LED "All caught up" header above the grid when
+   *  there's no Action band — gives techs a single calm signal that
+   *  the asset is healthy, separate from the per-category readouts. */
+  allCaughtUp: boolean;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-      {cards.map((c) => (
-        <CategoryCardButton
-          key={c.key}
-          card={c}
-          active={c.key === active}
-          onClick={() => onSelect(c.key)}
-        />
-      ))}
+    <div className="flex flex-col gap-2">
+      {allCaughtUp && (
+        <div className="flex items-center gap-2">
+          <span className="led led-ok" aria-hidden />
+          <span className="cap" style={{ color: 'rgb(var(--signal-ok))' }}>
+            All caught up
+          </span>
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {cards.map((c) => (
+          <CategoryCardButton
+            key={c.key}
+            card={c}
+            active={c.key === active}
+            onClick={() => onSelect(c.key)}
+          />
+        ))}
+      </div>
     </div>
   );
 }
