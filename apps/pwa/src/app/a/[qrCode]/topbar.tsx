@@ -4,20 +4,20 @@ import { useEffect, useState } from 'react';
 import type { AssetHubPayload } from '@/lib/shared-schema';
 import { BrandLogo } from '@/components/brand-logo';
 import { ThemeToggle } from '@/components/theme-toggle';
-import { DensityToggle } from '@/components/density-toggle';
 
 // Asset hub topbar. Two presentations driven by the URL hash:
 //
 //   • Overview (no hash / #overview) — OEM brand mark on the left. The
 //     identity band beneath carries the asset photo + title.
-//   • Any other tab — compact asset chip in the topbar so the tech
-//     never loses the "what am I working on" context as they move
-//     between Library / Parts / Maintenance / Assistant.
+//   • Any other tab — compact asset name in the topbar so the tech
+//     never loses "what am I working on" context as they move between
+//     Library / Parts / Maintenance / Assistant. The status LED before
+//     the name communicates whether anything needs attention.
 //
-// Right cluster carries the gloved-hands ergonomics knobs: density
-// toggle (bumps html font-size on shop floors) and theme toggle.
-// Density is promoted to a first-class control because the wall-mount
-// tablet use case depends on it.
+// Right cluster: theme toggle only. Density is still available via
+// the DensityToggle component but lives elsewhere — promoting it
+// into the topbar made the surface read as "settings cluster" rather
+// than a service-tool chrome.
 
 export function AssetTopbar({ hub }: { hub: AssetHubPayload }) {
   const [showChip, setShowChip] = useState(false);
@@ -58,7 +58,6 @@ export function AssetTopbar({ hub }: { hub: AssetHubPayload }) {
         </div>
       )}
       <div className="app-topbar-actions">
-        <DensityToggle />
         <ThemeToggle />
       </div>
     </header>
@@ -73,18 +72,7 @@ function AssetChip({ hub }: { hub: AssetHubPayload }) {
   return (
     <div className="app-topbar-chip" aria-label="Asset identity">
       <span className={ledClass} aria-hidden />
-      {hub.assetModel.imageUrl && (
-        <img
-          src={hub.assetModel.imageUrl}
-          alt=""
-          className="app-topbar-chip-thumb"
-        />
-      )}
       <span className="app-topbar-chip-name">{hub.assetModel.displayName}</span>
-      <span className="app-topbar-chip-serial">
-        <span className="cap">S/N</span>
-        <span className="serial">{hub.assetInstance.serialNumber}</span>
-      </span>
     </div>
   );
 }

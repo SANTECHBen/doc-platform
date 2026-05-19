@@ -26,6 +26,8 @@ import { VirtualJobAid, type JobAidSource } from '@/components/virtual-job-aid';
 import { ModeChooser, type ChosenMode } from '@/components/mode-chooser';
 import { ImageZoom } from '@/components/image-zoom';
 import {
+  fetchPmPlanStatus,
+  fetchPmStatus,
   fetchPreflight,
   listDocuments,
   speak,
@@ -506,6 +508,14 @@ function IdentityBand({ hub }: { hub: AssetHubPayload }) {
 // identity band and the action band. Open WO / PM Due / Rev /
 // Installed. Open WO and PM Due are tappable when their counts > 0
 // and route the tech to the appropriate tab.
+//
+// PM Due reconciles with the Maintenance tab: the server-side
+// hub.tabs.pm.needsAction only counts PmSchedule rows, while
+// Maintenance's "Action" count merges both PmSchedule.needsAction
+// and PmPlanBucket overdue/due statuses. Without this client-side
+// fetch the Overview would show "PM DUE 0" while Maintenance shows
+// several overdue plan-bucket items — bad signal for a tech making
+// a stop/work decision.
 function StatusStrip({
   hub,
   openIssueCount,
@@ -515,8 +525,45 @@ function StatusStrip({
   openIssueCount: number;
   onOpenMaintenance: () => void;
 }) {
-  const pmAction = hub.tabs.pm.needsAction;
-  const pmOverdue = hub.tabs.pm.overdue;
+  // Seed from the server payload so first paint shows something
+  // sensible; replace with the merged client count once the
+  // additional plan-status fetch resolves.
+  const [pmAction, setPmAction] = useState<number>(hub.tabs.pm.needsAction);
+  const [pmOverdue, setPmOverdue] = useState<number>(hub.tabs.pm.overdue);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [flat, plans] = await Promise.all([
+          fetchPmStatus(hub.assetInstance.id),
+          fetchPmPlanStatus(hub.assetInstance.id),
+        ]);
+        if (cancelled) return;
+        const scheduleAction = flat.schedules.filter((s) => s.needsAction)
+          .length;
+        const scheduleOverdue = flat.schedules.filter(
+          (s) => s.status === 'overdue',
+        ).length;
+        let bucketAction = 0;
+        let bucketOverdue = 0;
+        for (const p of plans.plans) {
+          for (const b of p.buckets) {
+            if (b.status === 'overdue' || b.status === 'due') bucketAction += 1;
+            if (b.status === 'overdue') bucketOverdue += 1;
+          }
+        }
+        setPmAction(scheduleAction + bucketAction);
+        setPmOverdue(scheduleOverdue + bucketOverdue);
+      } catch {
+        // Fall through to the server-seeded counts — non-fatal.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hub.assetInstance.id]);
+
   const woTone =
     openIssueCount > 0 ? 'warn' : ('ok' as 'warn' | 'ok' | 'fault' | 'muted');
   const pmTone: 'warn' | 'ok' | 'fault' | 'muted' =

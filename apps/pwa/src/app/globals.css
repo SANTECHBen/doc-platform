@@ -240,9 +240,9 @@
 }
 
 /* Compact asset chip — shown on every tab EXCEPT Overview so the tech
-   never loses identity context. Sits in the topbar where the OEM brand
-   would be; the OEM mark is established on the Overview surface and
-   needn't repeat. */
+   never loses identity context. Status LED + asset name only — no
+   thumbnail, no serial number. Per UX feedback the chip should read
+   as a label not a control. */
 .app-topbar-chip {
   flex: 1;
   min-width: 0;
@@ -250,23 +250,10 @@
   align-items: center;
   gap: 8px;
   height: 32px;
-  padding: 0 8px;
-  border-radius: 4px;
-  background: rgb(var(--surface-inset));
-  border: 1px solid rgb(var(--line-subtle));
-}
-.app-topbar-chip-thumb {
-  width: 24px;
-  height: 24px;
-  border-radius: 3px;
-  object-fit: contain;
-  background: rgb(var(--surface-raised));
-  border: 1px solid rgb(var(--line-subtle));
-  flex-shrink: 0;
-  padding: 1px;
+  padding: 0 4px;
 }
 .app-topbar-chip-name {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: rgb(var(--ink-primary));
   letter-spacing: -0.01em;
@@ -274,32 +261,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
-}
-.app-topbar-chip-serial {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: rgb(var(--ink-secondary));
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-}
-.app-topbar-chip-serial .cap {
-  font-size: 9.5px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: rgb(var(--ink-tertiary));
-}
-.app-topbar-chip-serial .serial {
-  color: rgb(var(--ink-brand));
-  font-weight: 500;
-}
-@media (max-width: 380px) {
-  .app-topbar-chip { gap: 6px; padding: 0 6px; }
-  .app-topbar-chip-thumb { display: none; }
-  .app-topbar-chip-name { font-size: 12.5px; }
 }
 
 .app-scroll {
@@ -2141,19 +2102,29 @@
   .composer {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 6px;
+    gap: 4px;
+    padding: 8px 10px;
     background: rgb(var(--surface-base));
     border: 0;
     border-top: 1px solid rgb(var(--line));
     border-radius: 0;
     transition: border-color 160ms ease;
+    /* Prevent the 44px right-side cluster (voice + send) from being
+       pushed off the right edge inside the section wrapper. */
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
   }
   .composer:focus-within {
     border-top-color: rgb(var(--brand));
   }
   .composer input {
+    /* min-width:0 lets the input actually shrink to fit alongside the
+       44px icon buttons — without it the input keeps its intrinsic
+       size and pushes the trailing send-btn off the right edge on
+       phone-sized viewports. */
     flex: 1;
+    min-width: 0;
     background: transparent;
     border: none;
     outline: none;

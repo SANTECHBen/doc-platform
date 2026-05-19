@@ -66,15 +66,26 @@ const STATUS_PILL: Record<PmStatus, { label: string; className: string }> = {
   upcoming: { label: 'Upcoming', className: 'pill' },
 };
 
-// The category cards drive a slice below them. 'action' is special — it
-// pins open above the grid when there's work to do, so picking another
-// card never hides the urgent work. The grid itself only renders
-// non-action categories.
+// The category cards drive a slice below them. Nothing renders below
+// the grid until the tech taps a card — the prior "auto-pin Action
+// open" behavior was confusing alongside the Overview's PM Due count
+// (different totals depending on data source) and made the cards feel
+// like decoration rather than the navigation.
 type FilterKey =
+  | 'action'
   | 'upcoming'
   | 'walkthroughs'
+  | 'removal'
   | 'troubleshoot'
   | 'history';
+
+// R&R heuristic — a procedure is treated as "Removal & Replacement"
+// when its title contains any of these tokens (case-insensitive).
+// Authoring doesn't (yet) categorize procedures explicitly; this is
+// the pragmatic shortcut until it does. Keep the regex deliberately
+// narrow so a "Daily inspection" doesn't accidentally match "replace
+// the safety guards" prose.
+const RR_TITLE_RE = /\b(removal|replacement|replace|remove|r&r|swap|rebuild)\b/i;
 
 export function MaintenanceTab({
   assetInstanceId,
@@ -100,7 +111,11 @@ export function MaintenanceTab({
   const [troubleshooting, setTroubleshooting] = useState<TroubleshootingGuide[]>([]);
   const [procedures, setProcedures] = useState<DocumentListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [active, setActive] = useState<FilterKey>('upcoming');
+  // Nothing selected by default — the cards are the navigation. A
+  // tech tapping any card reveals its slice below. This avoids the
+  // "automatic overdue list" failure mode where overdue items
+  // appeared without intent and made the grid look like a header.
+  const [active, setActive] = useState<FilterKey | null>(null);
 
   async function refresh() {
     try {
@@ -185,6 +200,19 @@ export function MaintenanceTab({
           a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }),
         ),
     [procedures, scheduledDocIds],
+  );
+
+  // Split the procedure library by R&R heuristic. R&R procedures get
+  // their own card so a tech replacing a worn part doesn't dig through
+  // a mixed Walkthroughs list; the remainder (inspections, diagnostics,
+  // calibrations etc.) stays in Walkthroughs.
+  const rrProcedures = useMemo(
+    () => libraryProcedures.filter((p) => RR_TITLE_RE.test(p.title)),
+    [libraryProcedures],
+  );
+  const nonRrProcedures = useMemo(
+    () => libraryProcedures.filter((p) => !RR_TITLE_RE.test(p.title)),
+    [libraryProcedures],
   );
 
   if (error) {
@@ -298,14 +326,29 @@ export function MaintenanceTab({
     return cands.sort((a, b) => a.days - b.days)[0] ?? null;
   })();
 
-  // The non-action category cards. Action lives ABOVE the grid as a
-  // pinned slice so urgent work is never one tap away — see the Action
-  // pinned block in the JSX below.
-  // 'walkthroughs' merges what used to be two separate categories
-  // (checklists + procedure library). Both routed into the same
-  // VirtualJobAid runner so splitting them was friction without payoff.
-  const walkthroughCount = allBuckets.length + libraryProcedures.length;
+  // Card grid. Six cards arranged 2×3 (phone) or 3×2 (tablet). Action
+  // is back IN the grid (no longer pinned above) per UX feedback —
+  // cards are the navigation, the slice content only reveals on tap.
+  // Walkthroughs holds PM checklists + non-R&R procedures (inspections
+  // / diagnostics / calibrations); R&R has its own card so a tech
+  // replacing a worn part doesn't dig through a mixed list.
+  const walkthroughCount = allBuckets.length + nonRrProcedures.length;
   const cards: CategoryCard[] = [
+    {
+      key: 'action',
+      label: 'Action',
+      count: actionCount,
+      tone: actionCount === 0 ? 'ok' : overdueCount > 0 ? 'fault' : 'warn',
+      subtitle:
+        actionCount === 0
+          ? 'All caught up'
+          : [
+              overdueCount > 0 ? `${overdueCount} overdue` : null,
+              dueTodayCount > 0 ? `${dueTodayCount} due today` : null,
+            ]
+              .filter(Boolean)
+              .join(' · '),
+    },
     {
       key: 'upcoming',
       label: 'Upcoming',
@@ -319,13 +362,21 @@ export function MaintenanceTab({
       key: 'walkthroughs',
       label: 'Walkthroughs',
       count: walkthroughCount,
-      tone: overdueBuckets.length > 0 ? 'warn' : 'idle',
+      tone: 'idle',
       subtitle:
         walkthroughCount === 0
           ? 'None authored'
-          : overdueBuckets.length > 0
-            ? `${overdueBuckets.length} need attention`
-            : `${libraryProcedures.length} on-demand`,
+          : `${allBuckets.length} checklist${allBuckets.length === 1 ? '' : 's'} · ${nonRrProcedures.length} procedure${nonRrProcedures.length === 1 ? '' : 's'}`,
+    },
+    {
+      key: 'removal',
+      label: 'Removal & Replace',
+      count: rrProcedures.length,
+      tone: 'idle',
+      subtitle:
+        rrProcedures.length === 0
+          ? 'None authored'
+          : 'Tap to run',
     },
     {
       key: 'troubleshoot',
@@ -349,61 +400,85 @@ export function MaintenanceTab({
     },
   ];
 
-  // Action band renders ABOVE the grid (see JSX). It's never selected
-  // through the grid; it's pinned open when there's urgent work so a
-  // tap on another category doesn't hide it.
-  const actionBand =
-    actionCount > 0 ? (
-      <section aria-label="Action" className="flex flex-col gap-2">
-        <p className="cap" style={{ color: 'rgb(var(--signal-fault))' }}>
-          Action — {overdueCount > 0 ? `${overdueCount} overdue` : ''}
-          {overdueCount > 0 && dueTodayCount > 0 ? ' · ' : ''}
-          {dueTodayCount > 0 ? `${dueTodayCount} due today` : ''}
-        </p>
-        <div className="flex flex-col gap-2">
-          {dueNow.map((s) => (
-            <ScheduleCard
-              key={s.schedule.id}
-              schedule={s}
-              onRunProcedure={() => {
-                if (!s.schedule.document) {
-                  alert('No procedure attached to this PM schedule yet.');
-                  return;
-                }
-                launchDoc(s.schedule.document.id, () => void refresh());
-              }}
-              onMarkDone={() => void logServicePerformed(s)}
+  const slice = (() => {
+    if (active === null) return null;
+    switch (active) {
+      case 'action': {
+        if (actionCount === 0) {
+          return (
+            <SliceEmpty
+              title="Nothing needs action"
+              body={
+                nextItem
+                  ? `Next: "${nextItem.label}" ${formatDaysUntil(nextItem.days)}.`
+                  : 'Check back later or pick another card.'
+              }
             />
-          ))}
-          {overdueBuckets
-            .slice()
-            .sort(
-              (a, b) =>
-                statusRank(a.bucket.status) - statusRank(b.bucket.status),
-            )
-            .map((row) => (
-              <PlanBucketCard
-                key={`${row.plan.id}:${row.bucket.frequency}`}
-                planName={row.plan.name}
-                bucket={row.bucket}
-                onRun={() =>
-                  launchInline(
-                    `${row.plan.name} · ${row.bucket.frequencyLabel}`,
-                    planBucketToSteps(row.bucket),
-                    () => void logPlanPerformed(row.plan.id, row.bucket.frequency),
-                  )
-                }
-                onMarkPerformed={() =>
-                  void logPlanPerformed(row.plan.id, row.bucket.frequency)
-                }
+          );
+        }
+        return (
+          <div className="flex flex-col gap-2">
+            {dueNow.map((s) => (
+              <ScheduleCard
+                key={s.schedule.id}
+                schedule={s}
+                onRunProcedure={() => {
+                  if (!s.schedule.document) {
+                    alert('No procedure attached to this PM schedule yet.');
+                    return;
+                  }
+                  launchDoc(s.schedule.document.id, () => void refresh());
+                }}
+                onMarkDone={() => void logServicePerformed(s)}
               />
             ))}
-        </div>
-      </section>
-    ) : null;
-
-  const slice = (() => {
-    switch (active) {
+            {overdueBuckets
+              .slice()
+              .sort(
+                (a, b) =>
+                  statusRank(a.bucket.status) - statusRank(b.bucket.status),
+              )
+              .map((row) => (
+                <PlanBucketCard
+                  key={`${row.plan.id}:${row.bucket.frequency}`}
+                  planName={row.plan.name}
+                  bucket={row.bucket}
+                  onRun={() =>
+                    launchInline(
+                      `${row.plan.name} · ${row.bucket.frequencyLabel}`,
+                      planBucketToSteps(row.bucket),
+                      () =>
+                        void logPlanPerformed(row.plan.id, row.bucket.frequency),
+                    )
+                  }
+                  onMarkPerformed={() =>
+                    void logPlanPerformed(row.plan.id, row.bucket.frequency)
+                  }
+                />
+              ))}
+          </div>
+        );
+      }
+      case 'removal':
+        if (rrProcedures.length === 0) {
+          return (
+            <SliceEmpty
+              title="No removal & replacement procedures"
+              body="None authored for this asset model yet."
+            />
+          );
+        }
+        return (
+          <ul className="flex flex-col">
+            {rrProcedures.map((p) => (
+              <ProcedureRow
+                key={p.id}
+                doc={p}
+                onLaunch={() => launchDoc(p.id)}
+              />
+            ))}
+          </ul>
+        );
       case 'upcoming':
         if (upcoming.length === 0) {
           return (
@@ -433,15 +508,15 @@ export function MaintenanceTab({
           </div>
         );
       case 'walkthroughs': {
-        // Merge of the prior 'checklists' (PM plan buckets — grouped
-        // step lists per frequency) and 'library' (ad-hoc authored
-        // procedures). Both route into VirtualJobAid, so the
-        // distinction was friction for techs picking a walkthrough.
-        if (allBuckets.length === 0 && libraryProcedures.length === 0) {
+        // PM plan checklists + non-R&R authored procedures. R&R
+        // procedures (removal / replacement / swap / rebuild titles)
+        // live in their own card; everything else routine —
+        // inspections, calibrations, diagnostics — surfaces here.
+        if (allBuckets.length === 0 && nonRrProcedures.length === 0) {
           return (
             <SliceEmpty
               title="No walkthroughs"
-              body="No PM checklists or authored procedures for this model yet."
+              body="No PM checklists or non-R&R procedures for this model yet."
             />
           );
         }
@@ -476,11 +551,11 @@ export function MaintenanceTab({
                   ))}
               </div>
             )}
-            {libraryProcedures.length > 0 && (
+            {nonRrProcedures.length > 0 && (
               <div className="flex flex-col gap-1">
                 <p className="cap">Procedures · run on demand</p>
                 <ul className="flex flex-col">
-                  {libraryProcedures.map((p) => (
+                  {nonRrProcedures.map((p) => (
                     <ProcedureRow
                       key={p.id}
                       doc={p}
@@ -556,13 +631,10 @@ export function MaintenanceTab({
         />
       ) : (
         <>
-          {actionBand}
-
           <CategoryGrid
             cards={cards}
             active={active}
-            onSelect={setActive}
-            allCaughtUp={actionCount === 0}
+            onSelect={(k) => setActive((cur) => (cur === k ? null : k))}
           />
 
           {slice}
@@ -592,7 +664,7 @@ function statusRank(s: PmPlanBucket['status']): number {
 // (.led-fault pulses red, .led-warn pulses amber, .led-idle is static
 // grey) rather than by red text — the red reads as a low-key signal,
 // not an alarm.
-type CategoryTone = 'fault' | 'warn' | 'idle';
+type CategoryTone = 'fault' | 'warn' | 'ok' | 'idle';
 
 type CategoryCard = {
   key: FilterKey;
@@ -606,36 +678,21 @@ function CategoryGrid({
   cards,
   active,
   onSelect,
-  allCaughtUp,
 }: {
   cards: CategoryCard[];
-  active: FilterKey;
+  active: FilterKey | null;
   onSelect: (k: FilterKey) => void;
-  /** Render an OK-LED "All caught up" header above the grid when
-   *  there's no Action band — gives techs a single calm signal that
-   *  the asset is healthy, separate from the per-category readouts. */
-  allCaughtUp: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-2">
-      {allCaughtUp && (
-        <div className="flex items-center gap-2">
-          <span className="led led-ok" aria-hidden />
-          <span className="cap" style={{ color: 'rgb(var(--signal-ok))' }}>
-            All caught up
-          </span>
-        </div>
-      )}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {cards.map((c) => (
-          <CategoryCardButton
-            key={c.key}
-            card={c}
-            active={c.key === active}
-            onClick={() => onSelect(c.key)}
-          />
-        ))}
-      </div>
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      {cards.map((c) => (
+        <CategoryCardButton
+          key={c.key}
+          card={c}
+          active={c.key === active}
+          onClick={() => onSelect(c.key)}
+        />
+      ))}
     </div>
   );
 }
@@ -654,7 +711,9 @@ function CategoryCardButton({
       ? 'led led-fault'
       : card.tone === 'warn'
         ? 'led led-warn'
-        : 'led led-idle';
+        : card.tone === 'ok'
+          ? 'led led-ok'
+          : 'led led-idle';
   return (
     <button
       type="button"
