@@ -18,7 +18,7 @@ export function BrandLogo({
     return (
       <div
         className="brand-mark-square"
-        style={{ width: 22, height: 22, fontSize: 10 }}
+        style={{ width: 36, height: 36, fontSize: 14 }}
       >
         {initials}
       </div>
@@ -30,7 +30,7 @@ export function BrandLogo({
       <img
         src={src}
         alt={alt}
-        style={{ maxHeight: 22, maxWidth: 120, objectFit: 'contain' }}
+        style={{ maxHeight: 40, maxWidth: 200, objectFit: 'contain' }}
         onError={() => setFailed(true)}
       />
     </ImageZoom>

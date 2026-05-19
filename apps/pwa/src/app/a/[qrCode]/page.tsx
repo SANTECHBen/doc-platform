@@ -113,11 +113,11 @@ export default async function AssetHubPage({
             <>
               <div
                 className="brand-mark-square"
-                style={{ width: 22, height: 22, fontSize: 10 }}
+                style={{ width: 36, height: 36, fontSize: 14 }}
               >
                 {hub.brand.initials}
               </div>
-              <span className="text-sm font-medium text-ink-primary">
+              <span className="text-base font-medium text-ink-primary">
                 {hub.brand.displayName}
               </span>
             </>

@@ -20,7 +20,7 @@ import { PartsTab } from './parts-tab';
 import { IssuesPanel } from './issues-panel';
 import { MaintenanceTab } from './maintenance-tab';
 import { VoiceMode, type PrefetchedGreeting } from '@/components/voice-mode';
-import { VirtualJobAid } from '@/components/virtual-job-aid';
+import { VirtualJobAid, type JobAidSource } from '@/components/virtual-job-aid';
 import { ModeChooser, type ChosenMode } from '@/components/mode-chooser';
 import { ImageZoom } from '@/components/image-zoom';
 import {
@@ -74,8 +74,13 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
   );
   const [voiceOpen, setVoiceOpen] = useState(false);
   // VirtualJobAid mount for procedures launched from the Overview quick
-  // actions card (not from voice mode — voice mode owns its own handoff).
-  const [overviewJobAidDocId, setOverviewJobAidDocId] = useState<string | null>(null);
+  // actions card OR from the Maintenance tab (PM bucket → inline steps,
+  // troubleshooting row → inline steps, scheduled procedure → docId).
+  // Voice mode owns its own handoff and never writes here.
+  const [jobAidRequest, setJobAidRequest] = useState<{
+    source: JobAidSource;
+    onCompleted?: () => void;
+  } | null>(null);
 
   // Prefetch the greeting (preflight + TTS blob) the moment the chooser
   // is up, so tapping Hands-Free starts speaking ~immediately rather than
@@ -144,11 +149,16 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
     });
   }, []);
 
-  const compactNameplate = active !== 'overview';
+  // Nameplate only appears on Overview — every other tab gets straight
+  // to its own content. The page-level topbar already carries the brand
+  // logo, so techs don't lose context.
+  const showNameplate = active === 'overview';
 
   return (
     <>
-      <Nameplate hub={hub} compact={compactNameplate} openIssueCount={openIssueCount} />
+      {showNameplate && (
+        <Nameplate hub={hub} compact={false} openIssueCount={openIssueCount} />
+      )}
 
       <TabBar hub={hub} active={active} setActive={changeTab} position="top" />
 
@@ -157,7 +167,16 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
           <div className="flex flex-col gap-4">
             <ProceduresQuickActions
               versionId={hub.pinnedContentPackVersion?.id ?? null}
-              onLaunch={setOverviewJobAidDocId}
+              onLaunch={(docId) =>
+                setJobAidRequest({
+                  source: {
+                    kind: 'doc',
+                    docId,
+                    devUserId: DEV_USER_ID,
+                    devOrgId: DEV_ORG_ID,
+                  },
+                })
+              }
             />
             <div className="spec-panel">
               <OverviewSpecs hub={hub} openIssueCount={openIssueCount} />
@@ -185,7 +204,9 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
                 assetInstanceId={hub.assetInstance.id}
                 versionId={hub.pinnedContentPackVersion?.id ?? null}
                 fieldCapturesVersionId={hub.fieldCapturesVersionId ?? null}
-                onLaunchProcedure={(docId) => setOverviewJobAidDocId(docId)}
+                onLaunchJobAid={(source, onCompleted) =>
+                  setJobAidRequest({ source, onCompleted })
+                }
               />
             )}
             {active === 'chat' && <ChatTab hub={hub} qrCode={qrCode} />}
@@ -257,19 +278,18 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
         />
       )}
 
-      {/* VirtualJobAid mount for procedures launched from the Overview
-          quick-actions card. Voice mode uses its own VirtualJobAid mount
-          for [procedure:UUID] handoffs — these don't overlap because
-          voiceOpen and overviewJobAidDocId are independent state. */}
-      {overviewJobAidDocId && DEV_USER_ID && DEV_ORG_ID && (
+      {/* VirtualJobAid mount for procedures + synthesized step lists
+          launched from Overview quick-actions or the Maintenance tab.
+          Voice mode uses its own VirtualJobAid mount for [procedure:UUID]
+          handoffs — these don't overlap because voiceOpen and
+          jobAidRequest are independent state. */}
+      {jobAidRequest && DEV_USER_ID && DEV_ORG_ID && (
         <VirtualJobAid
-          source={{
-            kind: 'doc',
-            docId: overviewJobAidDocId,
-            devUserId: DEV_USER_ID,
-            devOrgId: DEV_ORG_ID,
+          source={jobAidRequest.source}
+          onClose={({ completed }) => {
+            if (completed) jobAidRequest.onCompleted?.();
+            setJobAidRequest(null);
           }}
-          onClose={() => setOverviewJobAidDocId(null)}
         />
       )}
     </>

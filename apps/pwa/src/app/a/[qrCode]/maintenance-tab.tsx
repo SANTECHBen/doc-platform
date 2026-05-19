@@ -31,9 +31,9 @@ import {
   type PmServiceRecordItem,
   type PmStatus,
   type PmStatusPayload,
-  type TroubleshootingCause,
   type TroubleshootingGuide,
 } from '@/lib/api';
+import type { JobAidSource } from '@/components/virtual-job-aid';
 
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
 const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
@@ -78,16 +78,18 @@ export function MaintenanceTab({
   assetInstanceId,
   versionId,
   fieldCapturesVersionId,
-  onLaunchProcedure,
+  onLaunchJobAid,
   onChange,
 }: {
   assetInstanceId: string;
   versionId: string | null;
   fieldCapturesVersionId: string | null;
-  onLaunchProcedure: (
-    docId: string,
-    pmScheduleId: string,
-    onCompleted: () => void,
+  /** Mounts a VirtualJobAid for the supplied source (an authored doc or
+   *  an inline synthesized step list). `onCompleted` fires when the
+   *  tech advances past the last step; ignored on plain close. */
+  onLaunchJobAid: (
+    source: JobAidSource,
+    onCompleted?: () => void,
   ) => void;
   onChange?: () => void;
 }) {
@@ -247,6 +249,34 @@ export function MaintenanceTab({
     }
   }
 
+  // Local helpers that adapt callers (cards / rows) to the unified
+  // onLaunchJobAid surface. `launchDoc` wraps an authored procedure;
+  // `launchInline` synthesizes the click-through step list from data
+  // we already have in hand (plan checklist, troubleshooting causes).
+  function launchDoc(docId: string, onCompleted?: () => void) {
+    onLaunchJobAid(
+      {
+        kind: 'doc',
+        docId,
+        devUserId: DEV_USER_ID,
+        devOrgId: DEV_ORG_ID,
+      },
+      onCompleted,
+    );
+  }
+  function launchInline(
+    title: string,
+    steps: Array<{
+      title: string;
+      bodyMarkdown?: string | null;
+      safetyCritical?: boolean;
+    }>,
+    onCompleted?: () => void,
+  ) {
+    if (steps.length === 0) return;
+    onLaunchJobAid({ kind: 'inline', title, steps }, onCompleted);
+  }
+
   // Next-up preview: pick whichever of (upcoming flat schedule,
   // upcoming plan bucket) is sooner — populates the third metric in
   // the strip when nothing is overdue/due.
@@ -366,11 +396,7 @@ export function MaintenanceTab({
                     alert('No procedure attached to this PM schedule yet.');
                     return;
                   }
-                  onLaunchProcedure(
-                    s.schedule.document.id,
-                    s.schedule.id,
-                    () => void refresh(),
-                  );
+                  launchDoc(s.schedule.document.id, () => void refresh());
                 }}
                 onMarkDone={() => void logServicePerformed(s)}
               />
@@ -386,8 +412,13 @@ export function MaintenanceTab({
                   key={`${row.plan.id}:${row.bucket.frequency}`}
                   planName={row.plan.name}
                   bucket={row.bucket}
-                  onRunProcedure={(docId) =>
-                    onLaunchProcedure(docId, '', () => void refresh())
+                  onRun={() =>
+                    launchInline(
+                      `${row.plan.name} · ${row.bucket.frequencyLabel}`,
+                      planBucketToSteps(row.bucket),
+                      () =>
+                        void logPlanPerformed(row.plan.id, row.bucket.frequency),
+                    )
                   }
                   onMarkPerformed={() =>
                     void logPlanPerformed(row.plan.id, row.bucket.frequency)
@@ -418,11 +449,7 @@ export function MaintenanceTab({
                     alert('No procedure attached to this PM schedule yet.');
                     return;
                   }
-                  onLaunchProcedure(
-                    s.schedule.document.id,
-                    s.schedule.id,
-                    () => void refresh(),
-                  );
+                  launchDoc(s.schedule.document.id, () => void refresh());
                 }}
                 onMarkDone={() => void logServicePerformed(s)}
               />
@@ -452,8 +479,13 @@ export function MaintenanceTab({
                   key={`${row.plan.id}:${row.bucket.frequency}`}
                   planName={row.plan.name}
                   bucket={row.bucket}
-                  onRunProcedure={(docId) =>
-                    onLaunchProcedure(docId, '', () => void refresh())
+                  onRun={() =>
+                    launchInline(
+                      `${row.plan.name} · ${row.bucket.frequencyLabel}`,
+                      planBucketToSteps(row.bucket),
+                      () =>
+                        void logPlanPerformed(row.plan.id, row.bucket.frequency),
+                    )
                   }
                   onMarkPerformed={() =>
                     void logPlanPerformed(row.plan.id, row.bucket.frequency)
@@ -478,9 +510,21 @@ export function MaintenanceTab({
               <TroubleshootingGuideCard
                 key={g.guide.id}
                 guide={g}
-                onRunProcedure={(docId) =>
-                  onLaunchProcedure(docId, '', () => void refresh())
-                }
+                onRunItem={(item) => {
+                  // Each symptom is its own click-through job-aid.
+                  // If the row has a single linked procedure and no
+                  // structured cause/remedy data, launch that doc
+                  // directly — otherwise synthesize inline steps from
+                  // the structured causes / remedies.
+                  const inlineSteps = troubleshootingToSteps(item);
+                  if (inlineSteps.length > 0) {
+                    launchInline(item.symptom, inlineSteps);
+                    return;
+                  }
+                  if (item.document) {
+                    launchDoc(item.document.id);
+                  }
+                }}
               />
             ))}
           </div>
@@ -500,9 +544,7 @@ export function MaintenanceTab({
               <ProcedureRow
                 key={p.id}
                 doc={p}
-                onLaunch={() =>
-                  onLaunchProcedure(p.id, '', () => void refresh())
-                }
+                onLaunch={() => launchDoc(p.id)}
               />
             ))}
           </ul>
@@ -731,20 +773,22 @@ function ScheduleCard({
   );
 }
 
-// Plan bucket — one row per (plan, frequency). Collapsed by default;
-// header tap toggles expanded checklist + "mark all performed".
+// Plan bucket — one row per (plan, frequency). Tap launches the bucket
+// as a click-through job-aid (one step per checklist item). Completing
+// the last step auto-logs the bucket as performed via the onCompleted
+// callback the parent supplies; "Mark performed" stays as a quick way
+// to log without walking the checklist.
 function PlanBucketCard({
   planName,
   bucket,
-  onRunProcedure,
+  onRun,
   onMarkPerformed,
 }: {
   planName: string;
   bucket: PmPlanBucket;
-  onRunProcedure: (docId: string) => void;
+  onRun: () => void;
   onMarkPerformed: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const pill = STATUS_PILL[bucket.status];
   const dueText =
     bucket.status === 'overdue'
@@ -754,13 +798,8 @@ function PlanBucketCard({
         : `Due ${formatDaysUntil(bucket.daysUntilDue)} (${formatNextDue(bucket.nextDueAt)})`;
 
   return (
-    <div className="surface-etched">
-      <button
-        type="button"
-        onClick={() => setExpanded((e) => !e)}
-        className="flex w-full items-start gap-3 p-3 text-left"
-        aria-expanded={expanded}
-      >
+    <div className="surface-etched flex flex-col gap-3 p-3">
+      <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className={pill.className}>{pill.label}</span>
@@ -774,68 +813,36 @@ function PlanBucketCard({
             {bucket.itemCount === 1 ? '' : 's'}
           </div>
         </div>
-        <span
-          aria-hidden
-          className="font-mono text-sm leading-none text-ink-tertiary mt-1"
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={onRun}
+          className="btn btn-primary"
+          style={{ minHeight: 38, padding: '0 14px', fontSize: 13 }}
         >
-          {expanded ? '−' : '+'}
-        </span>
-      </button>
-
-      {expanded && (
-        <div
-          className="flex flex-col gap-2 px-3 pb-3"
-          style={{ borderTop: '1px solid rgb(var(--line-subtle))' }}
+          <Play size={13} strokeWidth={2.25} />
+          Start checklist
+        </button>
+        <button
+          type="button"
+          onClick={onMarkPerformed}
+          className="btn btn-secondary"
+          style={{ minHeight: 38, padding: '0 12px', fontSize: 12.5 }}
         >
-          <ul className="flex flex-col divide-y divide-line-subtle">
-            {bucket.items.map((it) => (
-              <li key={it.id} className="flex items-start gap-3 py-2">
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-ink-primary">
-                    {it.component}
-                    <span className="text-ink-tertiary"> · </span>
-                    {it.checkText}
-                  </div>
-                  {it.remarks && (
-                    <div className="mt-0.5 text-xs text-ink-secondary">
-                      {it.remarks}
-                    </div>
-                  )}
-                </div>
-                {it.document && (
-                  <button
-                    type="button"
-                    onClick={() => onRunProcedure(it.document!.id)}
-                    className="btn btn-secondary"
-                    style={{ minHeight: 30, padding: '0 10px', fontSize: 11.5 }}
-                  >
-                    <Play size={11} strokeWidth={2.25} />
-                    Run
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-          <button
-            type="button"
-            onClick={onMarkPerformed}
-            className="btn btn-primary self-start"
-            style={{ minHeight: 36, padding: '0 14px', fontSize: 13 }}
-          >
-            Mark all performed
-          </button>
-        </div>
-      )}
+          Mark performed
+        </button>
+      </div>
     </div>
   );
 }
 
 function TroubleshootingGuideCard({
   guide,
-  onRunProcedure,
+  onRunItem,
 }: {
   guide: TroubleshootingGuide;
-  onRunProcedure: (docId: string) => void;
+  onRunItem: (item: TroubleshootingGuide['items'][number]) => void;
 }) {
   return (
     <div className="surface-etched">
@@ -857,7 +864,7 @@ function TroubleshootingGuideCard({
           <TroubleshootingRow
             key={it.id}
             item={it}
-            onRunProcedure={onRunProcedure}
+            onRun={() => onRunItem(it)}
           />
         ))}
       </ul>
@@ -865,231 +872,124 @@ function TroubleshootingGuideCard({
   );
 }
 
+// Symptom row — tap launches the click-through diagnostic walkthrough
+// (the inline causes / remedies are synthesized into job-aid steps by
+// the parent before launching).
 function TroubleshootingRow({
   item,
-  onRunProcedure,
+  onRun,
 }: {
   item: TroubleshootingGuide['items'][number];
-  onRunProcedure: (docId: string) => void;
+  onRun: () => void;
 }) {
-  const [open, setOpen] = useState(false);
   return (
     <li>
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-start gap-2 px-3 py-2.5 text-left hover:bg-surface-inset"
-        aria-expanded={open}
+        onClick={onRun}
+        className="flex w-full items-center gap-3 px-3 py-3 text-left hover:bg-surface-inset"
       >
-        <span
-          aria-hidden
-          className="mt-0.5 shrink-0 font-mono text-sm leading-none text-ink-tertiary"
-        >
-          {open ? '−' : '+'}
-        </span>
         <span className="flex-1 text-sm font-medium text-ink-primary">
           {item.symptom}
         </span>
-        {item.document && <span className="cap text-brand">RUN</span>}
+        <Play
+          size={14}
+          strokeWidth={2}
+          className="shrink-0 text-ink-tertiary"
+        />
       </button>
-      {open && (
-        <div
-          className="flex flex-col gap-3 px-3 py-2.5 pl-8 text-xs"
-          style={{ background: 'rgb(var(--surface-inset))' }}
-        >
-          {(() => {
-            const paired = (item.causes ?? []).filter(
-              (c) =>
-                c.cause.trim().length > 0 ||
-                (c.remedySteps ?? []).some((s) => s.text.trim().length > 0),
-            );
-            if (paired.length > 0) {
-              return (
-                <ul className="flex flex-col gap-2">
-                  {paired.map((c, i) => (
-                    <PairedCauseBlock
-                      key={i}
-                      entry={c}
-                      onRunProcedure={onRunProcedure}
-                    />
-                  ))}
-                </ul>
-              );
-            }
-            const hasLegacyStruct =
-              item.causeItems.length > 0 || item.remedyItems.length > 0;
-            const hasLegacyText = item.cause || item.remedy;
-            if (!hasLegacyStruct && !hasLegacyText) return null;
-            return (
-              <>
-                {(item.causeItems.length > 0 || item.cause) && (
-                  <div>
-                    <div className="cap">
-                      {item.causeItems.length > 1 ? 'Causes' : 'Cause'}
-                    </div>
-                    {item.causeItems.length > 0 ? (
-                      <ul className="mt-1 flex flex-col gap-1.5">
-                        {item.causeItems.map((c, i) => (
-                          <StructItemRow
-                            key={i}
-                            item={c}
-                            onRunProcedure={onRunProcedure}
-                          />
-                        ))}
-                      </ul>
-                    ) : (
-                      <div className="mt-0.5 text-ink-secondary whitespace-pre-line">
-                        {item.cause}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {(item.remedyItems.length > 0 || item.remedy) && (
-                  <div>
-                    <div className="cap">
-                      {item.remedyItems.length > 1 ? 'Remedy steps' : 'Remedy'}
-                    </div>
-                    {item.remedyItems.length > 0 ? (
-                      <ul className="mt-1 flex flex-col gap-1.5">
-                        {item.remedyItems.map((r, i) => (
-                          <StructItemRow
-                            key={i}
-                            item={r}
-                            onRunProcedure={onRunProcedure}
-                          />
-                        ))}
-                      </ul>
-                    ) : (
-                      <div className="mt-0.5 text-ink-secondary whitespace-pre-line">
-                        {item.remedy}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
-            );
-          })()}
-          {item.document &&
-            (item.causes ?? []).length === 0 &&
-            item.remedyItems.length === 0 && (
-              <button
-                type="button"
-                onClick={() => onRunProcedure(item.document!.id)}
-                className="btn btn-primary self-start"
-                style={{ minHeight: 36, padding: '0 14px', fontSize: 13 }}
-              >
-                <Play size={12} strokeWidth={2.25} />
-                Run procedure: {item.document.title}
-              </button>
-            )}
-        </div>
-      )}
     </li>
   );
 }
 
-function StructItemRow({
-  item,
-  onRunProcedure,
-}: {
-  item: { text: string; document: { id: string; title: string } | null };
-  onRunProcedure: (docId: string) => void;
-}) {
-  if (!item.text.trim()) return null;
-  return (
-    <li className="flex items-start gap-2">
-      <span
-        className="mt-0.5 shrink-0 select-none text-ink-tertiary"
-        aria-hidden
-      >
-        •
-      </span>
-      <span className="min-w-0 flex-1 whitespace-pre-line text-ink-secondary">
-        {item.text}
-      </span>
-      {item.document && (
-        <button
-          type="button"
-          onClick={() => onRunProcedure(item.document!.id)}
-          className="btn btn-secondary"
-          style={{ minHeight: 28, padding: '0 8px', fontSize: 11 }}
-          title={`Run ${item.document.title}`}
-        >
-          <Play size={10} strokeWidth={2.25} />
-          Run
-        </button>
-      )}
-    </li>
-  );
+// ─── synth helpers ──────────────────────────────────────────────────
+// Build a click-through step list from a plan-bucket's checklist items.
+// Each step shows the component + check; the body carries the remarks
+// and a hint about any linked procedure (the linked-procedure name is
+// surfaced as text rather than a tap target so the inline walkthrough
+// stays a single, completable flow).
+function planBucketToSteps(bucket: PmPlanBucket): Array<{
+  title: string;
+  bodyMarkdown?: string | null;
+}> {
+  return bucket.items.map((it) => {
+    const parts: string[] = [];
+    if (it.remarks) parts.push(it.remarks);
+    if (it.document) parts.push(`_Linked procedure: ${it.document.title}_`);
+    return {
+      title: `${it.component} — ${it.checkText}`,
+      bodyMarkdown: parts.length > 0 ? parts.join('\n\n') : null,
+    };
+  });
 }
 
-function PairedCauseBlock({
-  entry,
-  onRunProcedure,
-}: {
-  entry: TroubleshootingCause;
-  onRunProcedure: (docId: string) => void;
-}) {
-  const cause = entry.cause.trim();
-  const steps = (entry.remedySteps ?? []).filter(
-    (s) => s.text.trim().length > 0,
+// Build a click-through diagnostic walkthrough from a troubleshooting
+// row. One step per candidate cause; each step's body lists the remedy
+// steps as a markdown list so the tech can work through them in order.
+// Legacy unpaired data (causeItems / remedyItems / free-text) is
+// flattened into one summary step.
+function troubleshootingToSteps(
+  item: TroubleshootingGuide['items'][number],
+): Array<{ title: string; bodyMarkdown?: string | null }> {
+  const out: Array<{ title: string; bodyMarkdown?: string | null }> = [];
+
+  const paired = (item.causes ?? []).filter(
+    (c) =>
+      c.cause.trim().length > 0 ||
+      (c.remedySteps ?? []).some((s) => s.text.trim().length > 0),
   );
-  if (!cause && steps.length === 0) return null;
-  const ListTag = entry.remedyStyle === 'numbered' ? 'ol' : 'ul';
-  const listClass =
-    entry.remedyStyle === 'numbered' ? 'list-decimal' : 'list-disc';
-  return (
-    <li
-      className="px-2.5 py-2"
-      style={{
-        border: '1px solid rgb(var(--line-subtle))',
-        background: 'rgb(var(--surface-raised))',
-        borderRadius: 4,
-      }}
-    >
-      {cause && (
-        <div>
-          <div className="cap">Cause</div>
-          <div className="mt-0.5 whitespace-pre-line text-ink-secondary">
-            {cause}
-          </div>
-        </div>
-      )}
-      {steps.length > 0 && (
-        <div className={cause ? 'mt-1.5' : ''}>
-          <div className="cap">
-            {steps.length > 1 ? 'Remedy steps' : 'Remedy'}
-          </div>
-          <ListTag className={`${listClass} mt-1 ml-5 flex flex-col gap-1`}>
-            {steps.map((s, i) => (
-              <li
-                key={i}
-                className="text-ink-secondary marker:text-ink-tertiary"
-              >
-                <div className="flex flex-wrap items-start gap-2">
-                  <span className="min-w-0 flex-1 whitespace-pre-line">
-                    {s.text}
-                  </span>
-                  {s.document && (
-                    <button
-                      type="button"
-                      onClick={() => onRunProcedure(s.document!.id)}
-                      className="btn btn-secondary"
-                      style={{ minHeight: 28, padding: '0 8px', fontSize: 11 }}
-                      title={`Run ${s.document.title}`}
-                    >
-                      <Play size={10} strokeWidth={2.25} />
-                      Run
-                    </button>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ListTag>
-        </div>
-      )}
-    </li>
-  );
+
+  if (paired.length > 0) {
+    paired.forEach((c) => {
+      const cause = c.cause.trim();
+      const steps = (c.remedySteps ?? []).filter(
+        (s) => s.text.trim().length > 0,
+      );
+      const bullets =
+        steps.length > 0
+          ? steps
+              .map((s, i) => {
+                const prefix = c.remedyStyle === 'numbered' ? `${i + 1}.` : '-';
+                const docHint = s.document
+                  ? ` _(see: ${s.document.title})_`
+                  : '';
+                return `${prefix} ${s.text}${docHint}`;
+              })
+              .join('\n')
+          : '';
+      out.push({
+        title: cause ? `Possible cause: ${cause}` : 'Possible cause',
+        bodyMarkdown: bullets || null,
+      });
+    });
+    return out;
+  }
+
+  const causeText =
+    item.causeItems.length > 0
+      ? item.causeItems
+          .filter((c) => c.text.trim())
+          .map((c) => `- ${c.text}`)
+          .join('\n')
+      : item.cause?.trim() ?? '';
+  const remedyText =
+    item.remedyItems.length > 0
+      ? item.remedyItems
+          .filter((r) => r.text.trim())
+          .map((r, i) => `${i + 1}. ${r.text}`)
+          .join('\n')
+      : item.remedy?.trim() ?? '';
+
+  if (causeText || remedyText) {
+    const sections: string[] = [];
+    if (causeText) sections.push(`**Cause(s)**\n\n${causeText}`);
+    if (remedyText) sections.push(`**Remedy**\n\n${remedyText}`);
+    out.push({
+      title: item.symptom,
+      bodyMarkdown: sections.join('\n\n'),
+    });
+  }
+  return out;
 }
 
 // Procedure library row — uses the shared list-row chrome so this slice

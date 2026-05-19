@@ -61,7 +61,7 @@
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 
   /* Sticky offset for the top tabbar so it sits below the .app-topbar. */
-  --app-topbar-h: 57px;
+  --app-topbar-h: 64px;
 }
 
 /* Light is the default. Dark opts in via [data-theme="dark"]. */
@@ -120,7 +120,7 @@
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 
   /* Sticky offset for the top tabbar so it sits below the .app-topbar. */
-  --app-topbar-h: 57px;
+  --app-topbar-h: 64px;
 }
 
 /* =========================================================================
