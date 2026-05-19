@@ -1928,6 +1928,55 @@
   }
   .search-input input::placeholder { color: rgb(var(--ink-tertiary)); }
 
+  /* Scan input — promoted variant used on Parts where finding a PN
+     match in <2 seconds is the primary workflow. Larger height, mono
+     16px (no iOS zoom), prominent focus ring, scanner-glyph leading
+     icon. Otherwise inherits everything from .search-input. */
+  .scan-input {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 52px;
+    padding: 0 14px;
+    background: rgb(var(--surface-raised));
+    border: 1px solid rgb(var(--line-strong));
+    border-radius: 4px;
+    color: rgb(var(--ink-secondary));
+    transition: border-color 140ms ease, box-shadow 140ms ease;
+    position: relative;
+  }
+  .scan-input::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: rgb(var(--brand));
+    border-radius: 4px 0 0 4px;
+  }
+  .scan-input:focus-within {
+    border-color: rgb(var(--brand));
+    box-shadow: 0 0 0 3px rgba(var(--brand-soft-v), var(--brand-soft-a));
+  }
+  .scan-input input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: rgb(var(--ink-primary));
+    font-family: var(--font-mono);
+    font-size: 16px;
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .scan-input input::placeholder {
+    color: rgb(var(--ink-tertiary));
+    font-family: var(--font-sans);
+    letter-spacing: -0.005em;
+    font-size: 14px;
+  }
+
   /* Layout-only — visual chrome comes from .surface-etched applied in JSX. */
   .part-row {
     padding: 14px 18px;

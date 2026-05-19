@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -97,6 +97,44 @@ export function PartsTab({
   const [query, setQuery] = useState('');
   const [lightbox, setLightbox] = useState<LightboxTarget | null>(null);
   const [openPartId, setOpenPartId] = useState<string | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Auto-focus the search input once the BOM is loaded — Parts is the
+  // surface a tech reaches for when they're holding a sticker and need
+  // a PN match in <2 seconds. The keyboard rises automatically; if the
+  // tech wants to scroll the list instead, dismissing the keyboard is
+  // one tap. Only fires on the first load so re-renders don't steal
+  // focus from the detail overlay.
+  const focusedOnceRef = useRef(false);
+  useEffect(() => {
+    if (focusedOnceRef.current) return;
+    if (!rows || rows.length === 0) return;
+    focusedOnceRef.current = true;
+    // Defer so the input is mounted by the time we focus.
+    const id = setTimeout(() => searchRef.current?.focus(), 0);
+    return () => clearTimeout(id);
+  }, [rows]);
+
+  // Paste-to-open. If the pasted text matches a part's OEM number or a
+  // cross-reference exactly (case-insensitive), open that part directly
+  // — the most common workflow is scan the QR, paste the PN from a
+  // sticker app, tap the part. This shortcut removes the redundant
+  // "type, scan visually, tap" step.
+  function onSearchPaste(e: React.ClipboardEvent<HTMLInputElement>) {
+    if (!rows) return;
+    const pasted = e.clipboardData.getData('text').trim();
+    if (!pasted) return;
+    const key = pasted.toLowerCase();
+    const match = rows.find((r) => {
+      if (r.oemPartNumber && r.oemPartNumber.toLowerCase() === key) return true;
+      return r.crossReferences.some((xr) => xr.toLowerCase() === key);
+    });
+    if (match) {
+      e.preventDefault();
+      setQuery('');
+      setOpenPartId(match.partId);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -155,13 +193,18 @@ export function PartsTab({
 
   return (
     <div className="flex flex-col gap-4">
-      <label className="search-input">
-        <Search size={16} strokeWidth={2} className="text-ink-tertiary" />
+      <label className="scan-input">
+        <Search size={18} strokeWidth={2} className="text-ink-tertiary" />
         <input
+          ref={searchRef}
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by part #, name, position, or cross-ref"
+          onPaste={onSearchPaste}
+          inputMode="search"
+          autoCapitalize="characters"
+          spellCheck={false}
+          placeholder="Scan or paste a part number…"
         />
       </label>
 
