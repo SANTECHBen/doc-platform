@@ -6,6 +6,7 @@ import {
   FileText,
   GraduationCap,
   LayoutGrid,
+  Library,
   ListChecks,
   MessageSquare,
   Play,
@@ -35,16 +36,14 @@ const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
 
 type TabKey =
   | 'overview'
-  | 'docs'
-  | 'training'
+  | 'library'
   | 'parts'
   | 'maintenance'
   | 'chat';
 
 const TABS: Array<{ key: TabKey; label: string; icon: LucideIcon }> = [
   { key: 'overview', label: 'Overview', icon: LayoutGrid },
-  { key: 'docs', label: 'Documents', icon: FileText },
-  { key: 'training', label: 'Training', icon: GraduationCap },
+  { key: 'library', label: 'Library', icon: Library },
   { key: 'parts', label: 'Parts', icon: Wrench },
   { key: 'maintenance', label: 'Maintenance', icon: CalendarClock },
   { key: 'chat', label: 'Assistant', icon: MessageSquare },
@@ -52,10 +51,22 @@ const TABS: Array<{ key: TabKey; label: string; icon: LucideIcon }> = [
 
 const TAB_KEYS = TABS.map((t) => t.key);
 
-function readTabFromHash(): TabKey | null {
+// Library subsection — persisted via the hash so a bookmark deep-links
+// straight into Documents or Training. Legacy hashes (#docs / #training)
+// route here too so old links keep working.
+type LibrarySection = 'documents' | 'training';
+
+function readTabFromHash(): { tab: TabKey; library?: LibrarySection } | null {
   if (typeof window === 'undefined') return null;
-  const h = window.location.hash.replace(/^#/, '') as TabKey;
-  return (TAB_KEYS as string[]).includes(h) ? (h as TabKey) : null;
+  const h = window.location.hash.replace(/^#/, '');
+  // Back-compat: #docs and #training fold into Library with the
+  // corresponding sub-section pre-selected.
+  if (h === 'docs') return { tab: 'library', library: 'documents' };
+  if (h === 'training') return { tab: 'library', library: 'training' };
+  if ((TAB_KEYS as string[]).includes(h)) {
+    return { tab: h as TabKey };
+  }
+  return null;
 }
 
 // Mode choice gates the asset hub. 'choosing' shows the ModeChooser
@@ -66,6 +77,8 @@ type Mode = 'choosing' | 'voice' | 'browse';
 
 export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: string }) {
   const [active, setActive] = useState<TabKey>('overview');
+  const [librarySection, setLibrarySection] =
+    useState<LibrarySection>('documents');
   const [openIssueCount, setOpenIssueCount] = useState<number>(
     hub.tabs.openWorkOrders.count,
   );
@@ -126,12 +139,14 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
   // immediately popping out to the QR scanner.
   useEffect(() => {
     const initial = readTabFromHash();
-    if (initial && initial !== 'overview') {
-      setActive(initial);
+    if (initial && initial.tab !== 'overview') {
+      setActive(initial.tab);
+      if (initial.library) setLibrarySection(initial.library);
     }
     function onPop() {
       const fromHash = readTabFromHash();
-      setActive(fromHash ?? 'overview');
+      setActive(fromHash?.tab ?? 'overview');
+      if (fromHash?.library) setLibrarySection(fromHash.library);
     }
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -190,14 +205,13 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
           </div>
         ) : (
           <section className="rounded-md border border-line bg-surface-raised p-4 md:p-6">
-            {active === 'docs' && (
-              <DocsTab
-                versionId={hub.pinnedContentPackVersion?.id ?? null}
-                fieldCapturesVersionId={hub.fieldCapturesVersionId ?? null}
-                assetInstanceId={hub.assetInstance.id}
+            {active === 'library' && (
+              <LibraryTab
+                hub={hub}
+                section={librarySection}
+                onSectionChange={setLibrarySection}
               />
             )}
-            {active === 'training' && <TrainingTab hub={hub} />}
             {active === 'parts' && <PartsTab hub={hub} qrCode={qrCode} />}
             {active === 'maintenance' && (
               <MaintenanceTab
@@ -286,6 +300,11 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
       {jobAidRequest && DEV_USER_ID && DEV_ORG_ID && (
         <VirtualJobAid
           source={jobAidRequest.source}
+          // PM checklists + troubleshooting are synthesized as inline
+          // step lists; those are quick-reference walkthroughs and
+          // shouldn't auto-narrate. Authored doc procedures keep the
+          // default voice-over behavior.
+          autoSpeak={jobAidRequest.source.kind !== 'inline'}
           onClose={({ completed }) => {
             if (completed) jobAidRequest.onCompleted?.();
             setJobAidRequest(null);
@@ -293,6 +312,82 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
         />
       )}
     </>
+  );
+}
+
+// Library — merged Documents + Training surface. A 2-button segmented
+// control at the top picks which view renders below. Documents and
+// Training were peer tabs before this; merging them frees a slot in
+// the bottom tabbar while keeping both surfaces a single tap away.
+function LibraryTab({
+  hub,
+  section,
+  onSectionChange,
+}: {
+  hub: AssetHubPayload;
+  section: LibrarySection;
+  onSectionChange: (s: LibrarySection) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="grid grid-cols-2 gap-2">
+        <LibrarySegmentButton
+          icon={FileText}
+          label="Documents"
+          active={section === 'documents'}
+          onClick={() => onSectionChange('documents')}
+        />
+        <LibrarySegmentButton
+          icon={GraduationCap}
+          label="Training"
+          active={section === 'training'}
+          onClick={() => onSectionChange('training')}
+        />
+      </div>
+      {section === 'documents' ? (
+        <DocsTab
+          versionId={hub.pinnedContentPackVersion?.id ?? null}
+          fieldCapturesVersionId={hub.fieldCapturesVersionId ?? null}
+          assetInstanceId={hub.assetInstance.id}
+        />
+      ) : (
+        <TrainingTab hub={hub} />
+      )}
+    </div>
+  );
+}
+
+function LibrarySegmentButton({
+  icon: Icon,
+  label,
+  active,
+  onClick,
+}: {
+  icon: LucideIcon;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className="surface-etched flex items-center justify-center gap-2 py-2.5"
+      style={
+        active
+          ? {
+              borderColor: 'rgb(var(--brand))',
+              boxShadow:
+                'inset 0 1px 0 rgb(var(--surface-plate-top)), inset 0 -1px 0 rgba(0,0,0,0.18), 0 0 0 1px rgba(var(--brand) / 0.35)',
+              color: 'rgb(var(--ink-primary))',
+            }
+          : { color: 'rgb(var(--ink-secondary))' }
+      }
+    >
+      <Icon size={15} strokeWidth={2} />
+      <span className="text-sm font-medium">{label}</span>
+    </button>
   );
 }
 
