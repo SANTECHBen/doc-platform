@@ -61,7 +61,7 @@
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 
   /* Sticky offset for the top tabbar so it sits below the .app-topbar. */
-  --app-topbar-h: 64px;
+  --app-topbar-h: 52px;
 }
 
 /* Light is the default. Dark opts in via [data-theme="dark"]. */
@@ -120,7 +120,7 @@
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 
   /* Sticky offset for the top tabbar so it sits below the .app-topbar. */
-  --app-topbar-h: 64px;
+  --app-topbar-h: 52px;
 }
 
 /* =========================================================================
@@ -197,7 +197,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 14px;
+  height: var(--app-topbar-h);
+  padding: 0 12px;
   background: rgb(var(--surface-raised) / 0.92);
   backdrop-filter: saturate(1.4) blur(12px);
   -webkit-backdrop-filter: saturate(1.4) blur(12px);
@@ -219,11 +220,86 @@
   flex: 1;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 8px;
   min-width: 0;
   color: rgb(var(--ink-primary));
   font-weight: 600;
+}
+.app-topbar-brand img {
+  max-height: 28px !important;
+}
+
+/* Right-side action cluster (density, theme). Tight gap so two
+   36×36 buttons feel like one control group. */
+.app-topbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* Compact asset chip — shown on every tab EXCEPT Overview so the tech
+   never loses identity context. Sits in the topbar where the OEM brand
+   would be; the OEM mark is established on the Overview surface and
+   needn't repeat. */
+.app-topbar-chip {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: rgb(var(--surface-inset));
+  border: 1px solid rgb(var(--line-subtle));
+}
+.app-topbar-chip-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  object-fit: contain;
+  background: rgb(var(--surface-raised));
+  border: 1px solid rgb(var(--line-subtle));
+  flex-shrink: 0;
+  padding: 1px;
+}
+.app-topbar-chip-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgb(var(--ink-primary));
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.app-topbar-chip-serial {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: rgb(var(--ink-secondary));
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.app-topbar-chip-serial .cap {
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgb(var(--ink-tertiary));
+}
+.app-topbar-chip-serial .serial {
+  color: rgb(var(--ink-brand));
+  font-weight: 500;
+}
+@media (max-width: 380px) {
+  .app-topbar-chip { gap: 6px; padding: 0 6px; }
+  .app-topbar-chip-thumb { display: none; }
+  .app-topbar-chip-name { font-size: 12.5px; }
 }
 
 .app-scroll {
@@ -303,12 +379,13 @@
 }
 .app-tabbar-item[data-active='true'] {
   color: rgb(var(--brand));
+  background: rgba(var(--brand-soft-v), var(--brand-soft-a));
 }
 .app-tabbar-item[data-active='true']::before {
   content: '';
   position: absolute;
   inset: 4px 18% auto 18%;
-  height: 2px;
+  height: 3px;
   bottom: auto;
   background: rgb(var(--brand));
   border-radius: 2px;

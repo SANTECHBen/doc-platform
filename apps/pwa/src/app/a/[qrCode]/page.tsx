@@ -1,9 +1,8 @@
 import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
-import { ThemeToggle } from '@/components/theme-toggle';
 import { ScanWall } from '@/components/scan-wall';
-import { BrandLogo } from '@/components/brand-logo';
 import { AssetHubTabs } from './tabs';
+import { AssetTopbar } from './topbar';
 import { resolveAssetHub } from '@/lib/api';
 import { SCAN_COOKIE_NAME, verifyScanSessionValue } from '@/lib/scan-session';
 
@@ -98,33 +97,7 @@ export default async function AssetHubPage({
 
   return (
     <main className="app-shell" style={brandStyle}>
-      <header className="app-topbar">
-        <div className="app-topbar-brand">
-          {hub.brand.logoUrl ? (
-            // Logo carries the brand identity on its own — don't pair
-            // with the company name (redundant when the logo already
-            // spells it out).
-            <BrandLogo
-              src={hub.brand.logoUrl}
-              alt={hub.brand.displayName}
-              initials={hub.brand.initials}
-            />
-          ) : (
-            <>
-              <div
-                className="brand-mark-square"
-                style={{ width: 36, height: 36, fontSize: 14 }}
-              >
-                {hub.brand.initials}
-              </div>
-              <span className="text-base font-medium text-ink-primary">
-                {hub.brand.displayName}
-              </span>
-            </>
-          )}
-        </div>
-        <ThemeToggle />
-      </header>
+      <AssetTopbar hub={hub} />
 
       <div className="app-scroll page-enter flex flex-col gap-4">
         <AssetHubTabs hub={hub} qrCode={qrCode} />
