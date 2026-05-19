@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   CalendarClock,
+  ChevronDown,
   FileText,
   GraduationCap,
   LayoutGrid,
@@ -164,22 +165,19 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
     });
   }, []);
 
-  // Nameplate only appears on Overview — every other tab gets straight
-  // to its own content. The page-level topbar already carries the brand
-  // logo, so techs don't lose context.
-  const showNameplate = active === 'overview';
-
   return (
     <>
-      {showNameplate && (
-        <Nameplate hub={hub} compact={false} openIssueCount={openIssueCount} />
-      )}
-
       <TabBar hub={hub} active={active} setActive={changeTab} position="top" />
 
       <div key={active} className="tab-pane flex flex-col gap-4">
         {active === 'overview' ? (
           <div className="flex flex-col gap-4">
+            <IdentityBand hub={hub} />
+            <StatusStrip
+              hub={hub}
+              openIssueCount={openIssueCount}
+              onOpenMaintenance={() => changeTab('maintenance')}
+            />
             <ProceduresQuickActions
               versionId={hub.pinnedContentPackVersion?.id ?? null}
               onLaunch={(docId) =>
@@ -193,15 +191,13 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
                 })
               }
             />
-            <div className="spec-panel">
+            <IssuesPanel
+              assetInstanceId={hub.assetInstance.id}
+              onCountChange={setOpenIssueCount}
+            />
+            <DetailsDisclosure>
               <OverviewSpecs hub={hub} openIssueCount={openIssueCount} />
-            </div>
-            <div className="spec-panel">
-              <IssuesPanel
-                assetInstanceId={hub.assetInstance.id}
-                onCountChange={setOpenIssueCount}
-              />
-            </div>
+            </DetailsDisclosure>
           </div>
         ) : (
           <section className="rounded-md border border-line bg-surface-raised p-4 md:p-6">
@@ -391,11 +387,11 @@ function LibrarySegmentButton({
   );
 }
 
-// Overview quick-actions card. Lists the asset's authored procedures as
-// tappable rows so a tech who just scanned the QR has a one-tap entry
-// into "how do I work on this thing right now?" without browsing Docs.
-// Empty / loading state is rendered as null so the Overview tab stays
-// clean for assets with no procedures yet.
+// Overview action band. Lists the asset's authored procedures as
+// large tap targets so a tech who just scanned the QR has a one-tap
+// entry into "how do I work on this thing right now?" without
+// browsing Library. Rendered as null when there's nothing to show so
+// the Overview tab stays clean for unconfigured assets.
 function ProceduresQuickActions({
   versionId,
   onLaunch,
@@ -420,7 +416,7 @@ function ProceduresQuickActions({
           .sort((a, b) =>
             a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }),
           )
-          .slice(0, 5);
+          .slice(0, 6);
         setProcs(authored);
       } catch {
         if (!cancelled) setProcs([]);
@@ -434,174 +430,169 @@ function ProceduresQuickActions({
   if (!procs || procs.length === 0) return null;
 
   return (
-    <div className="spec-panel">
-      <div className="caption mb-2 text-ink-tertiary">What you can do here</div>
-      <ul className="flex flex-col gap-1">
+    <section aria-label="Procedures" className="flex flex-col gap-2">
+      <div className="cap px-1">Procedures</div>
+      <div className="action-band-list">
         {procs.map((p) => (
-          <li key={p.id}>
-            <button
-              type="button"
-              onClick={() => onLaunch(p.id)}
-              className="group flex w-full items-center gap-3 rounded border border-line bg-surface-elevated px-3 py-2.5 text-left transition hover:border-brand/40 hover:bg-surface-raised"
-            >
-              <ListChecks
-                size={16}
-                strokeWidth={2}
-                className="shrink-0 text-ink-brand"
-              />
-              <span className="flex-1 truncate text-sm font-medium text-ink-primary">
-                {p.title}
-              </span>
-              <Play
-                size={14}
-                strokeWidth={2.25}
-                className="shrink-0 text-ink-tertiary group-hover:text-brand"
-              />
-            </button>
-          </li>
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => onLaunch(p.id)}
+            className="action-row"
+          >
+            <span className="action-row-icon">
+              <ListChecks size={18} strokeWidth={2} />
+            </span>
+            <span className="action-row-body">
+              <span className="action-row-title">{p.title}</span>
+              <span className="action-row-sub">Run procedure</span>
+            </span>
+            <Play size={16} strokeWidth={2.25} className="action-row-play" />
+          </button>
         ))}
-      </ul>
-    </div>
+      </div>
+    </section>
   );
 }
 
-// Nameplate — full milled-aluminum identification panel on the Overview
-// tab; collapses to a thin single-line strip on every other tab so techs
-// keep reading docs/parts/etc. instead of re-reading the asset's name.
-// The strip carries enough identity (LED + model + serial) that a tech
-// glancing up still knows what they're looking at, but adds only ~36px
-// of vertical chrome instead of the full plate's ~140px.
-function Nameplate({
-  hub,
-  compact,
-  openIssueCount,
-}: {
-  hub: AssetHubPayload;
-  compact: boolean;
-  openIssueCount: number;
-}) {
-  const ledClass = openIssueCount > 0 ? 'led-warn' : 'led-ok';
-
-  if (compact) {
-    return (
-      <header className="nameplate-strip" aria-label="Asset identity">
-        <span className={`led ${ledClass}`} />
-        <div className="nameplate-strip-id">
-          {hub.assetModel.imageUrl && (
-            <ImageZoom
-              src={hub.assetModel.imageUrl}
-              alt={hub.assetModel.displayName}
-              triggerLabel={`Enlarge ${hub.assetModel.displayName} photo`}
-            >
-              <img
-                src={hub.assetModel.imageUrl}
-                alt=""
-                className="nameplate-strip-thumb"
-              />
-            </ImageZoom>
-          )}
-          <span className="nameplate-strip-name">{hub.assetModel.displayName}</span>
-          <span className="nameplate-strip-sep">·</span>
-          <span className="nameplate-strip-serial">
-            <span className="cap">S/N</span>
-            <span className="serial">{hub.assetInstance.serialNumber}</span>
-          </span>
-        </div>
-        {openIssueCount > 0 && (
-          <span className="pill pill-warn">{openIssueCount} open</span>
-        )}
-      </header>
-    );
-  }
-
+// Identity band — Overview hero. Full-bleed asset photo with title +
+// model code + serial overlaid on a dark gradient. When no photo is
+// configured, falls back to a plate surface with corner marks so the
+// surface still reads as an ID plate (not an empty box). This
+// replaced the prior multi-row "milled aluminum nameplate" which
+// stacked status LEDs + customer caption + photo + metrics — those
+// pieces live in the topbar and StatusStrip now.
+function IdentityBand({ hub }: { hub: AssetHubPayload }) {
   return (
-    <header className="nameplate">
-      <span className="corner-mark tl" />
-      <span className="corner-mark tr" />
-      <span className="corner-mark bl" />
-      <span className="corner-mark br" />
-
-      <div className="nameplate-top">
-        <span className={`led ${ledClass}`} />
-        <span className="caption">
-          {hub.organization.name} · {hub.site.name}
-        </span>
-      </div>
-
-      {/* Image-prominent hero band: the asset photo fills the full
-          width of the plate, with title + meta overlaid at the bottom
-          on a dark gradient so white text reads on any frame. The
-          industrial framing (corner marks, brand rail, plate gradient)
-          stays around it for brand continuity. */}
-      <div className="nameplate-hero">
-        {hub.assetModel.imageUrl ? (
-          <ImageZoom
+    <header className="identity-band" aria-label="Asset identity">
+      {hub.assetModel.imageUrl ? (
+        <ImageZoom
+          src={hub.assetModel.imageUrl}
+          alt={hub.assetModel.displayName}
+          triggerLabel={`Enlarge ${hub.assetModel.displayName} photo`}
+        >
+          <img
             src={hub.assetModel.imageUrl}
-            alt={hub.assetModel.displayName}
-            triggerLabel={`Enlarge ${hub.assetModel.displayName} photo`}
-          >
-            <img
-              src={hub.assetModel.imageUrl}
-              alt=""
-              className="nameplate-hero-image"
-            />
-          </ImageZoom>
-        ) : (
-          <div className="nameplate-hero-image-placeholder" />
-        )}
-        <div className="nameplate-hero-overlay">
-          <h1 className="nameplate-hero-title">{hub.assetModel.displayName}</h1>
-          <div className="nameplate-hero-meta">
-            <span>{hub.assetModel.modelCode}</span>
-            <span className="sep">·</span>
-            <span>
-              S/N <span className="serial">{hub.assetInstance.serialNumber}</span>
-            </span>
-            {hub.assetModel.category && (
-              <>
-                <span className="sep">·</span>
-                <span style={{ textTransform: 'uppercase' }}>
-                  {hub.assetModel.category}
-                </span>
-              </>
-            )}
-          </div>
+            alt=""
+            className="identity-band-image"
+          />
+        </ImageZoom>
+      ) : (
+        <div className="identity-band-placeholder">
+          <span className="corner-mark tl" />
+          <span className="corner-mark tr" />
+          <span className="corner-mark bl" />
+          <span className="corner-mark br" />
         </div>
-      </div>
-
-      <div className="nameplate-metrics-bar">
-        <div className="nameplate-metric-h">
-          <span className="cap">Open WO</span>
-          <span
-            className="val"
-            style={{
-              color:
-                openIssueCount > 0
-                  ? 'rgb(var(--signal-warn))'
-                  : 'rgb(var(--signal-ok))',
-            }}
-          >
-            {openIssueCount}
-          </span>
-        </div>
-        <div className="nameplate-metric-h">
-          <span className="cap">PM Due</span>
-          <span
-            className="val"
-            style={{
-              color:
-                hub.tabs.pm.needsAction > 0
-                  ? hub.tabs.pm.overdue > 0
-                    ? 'rgb(var(--signal-fault))'
-                    : 'rgb(var(--signal-warn))'
-                  : 'rgb(var(--signal-ok))',
-            }}
-          >
-            {hub.tabs.pm.needsAction}
+      )}
+      <div className="identity-band-overlay">
+        <h1 className="identity-band-title">{hub.assetModel.displayName}</h1>
+        <div className="identity-band-meta">
+          <span>{hub.assetModel.modelCode}</span>
+          <span className="sep">·</span>
+          <span>
+            S/N <span className="serial">{hub.assetInstance.serialNumber}</span>
           </span>
         </div>
       </div>
     </header>
+  );
+}
+
+// Status strip — one-row dashboard readout sitting between the
+// identity band and the action band. Open WO / PM Due / Rev /
+// Installed. Open WO and PM Due are tappable when their counts > 0
+// and route the tech to the appropriate tab.
+function StatusStrip({
+  hub,
+  openIssueCount,
+  onOpenMaintenance,
+}: {
+  hub: AssetHubPayload;
+  openIssueCount: number;
+  onOpenMaintenance: () => void;
+}) {
+  const pmAction = hub.tabs.pm.needsAction;
+  const pmOverdue = hub.tabs.pm.overdue;
+  const woTone =
+    openIssueCount > 0 ? 'warn' : ('ok' as 'warn' | 'ok' | 'fault' | 'muted');
+  const pmTone: 'warn' | 'ok' | 'fault' | 'muted' =
+    pmAction === 0 ? 'ok' : pmOverdue > 0 ? 'fault' : 'warn';
+
+  return (
+    <div className="status-strip" aria-label="Asset status">
+      <StatusCell cap="Open WO" value={String(openIssueCount)} tone={woTone} />
+      <StatusCell
+        cap="PM Due"
+        value={String(pmAction)}
+        tone={pmTone}
+        onClick={pmAction > 0 ? onOpenMaintenance : undefined}
+      />
+      <StatusCell
+        cap="Rev"
+        value={hub.pinnedContentPackVersion?.versionLabel ?? '—'}
+        tone="muted"
+      />
+      <StatusCell
+        cap="Installed"
+        value={formatInstalledAt(hub.assetInstance.installedAt)}
+        tone="muted"
+      />
+    </div>
+  );
+}
+
+function StatusCell({
+  cap,
+  value,
+  tone,
+  onClick,
+}: {
+  cap: string;
+  value: string;
+  tone: 'ok' | 'warn' | 'fault' | 'muted';
+  onClick?: () => void;
+}) {
+  const valClass = `status-strip-val ${tone}`;
+  const inner = (
+    <>
+      <span className="status-strip-cap">{cap}</span>
+      <span className={valClass}>{value}</span>
+    </>
+  );
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className="status-strip-cell">
+        {inner}
+      </button>
+    );
+  }
+  return <div className="status-strip-cell">{inner}</div>;
+}
+
+// Collapsible spec grid. Reference info (model code, site, customer,
+// installed date) lives behind a chevron so the Overview surface
+// stays focused on action — none of these change during a service
+// call. Defaults closed.
+function DetailsDisclosure({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="details-disclosure" data-open={open}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="details-disclosure-summary"
+      >
+        Details
+        <ChevronDown
+          size={12}
+          strokeWidth={2.5}
+          className="details-disclosure-chevron"
+        />
+      </button>
+      {open && <div className="details-disclosure-content">{children}</div>}
+    </div>
   );
 }
 

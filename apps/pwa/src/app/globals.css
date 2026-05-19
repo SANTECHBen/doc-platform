@@ -1039,6 +1039,272 @@
   }
 
   /* ------------------------------------------------------------
+     IDENTITY BAND — Overview hero (replaces nameplate plate)
+     One job: show the tech "this is what you scanned." Full-bleed
+     asset photo with a dark-gradient overlay carrying the title,
+     model code, and serial. Corner marks return only as a fallback
+     when the photo is missing — they're enough to read as a
+     fabricated ID plate without competing with the rest of the
+     surface.
+     ------------------------------------------------------------ */
+  .identity-band {
+    position: relative;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid rgb(var(--line));
+    background: #000;
+    aspect-ratio: 16 / 9;
+  }
+  @media (min-width: 768px) {
+    .identity-band { aspect-ratio: 21 / 9; }
+  }
+  .identity-band-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .identity-band-placeholder {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    background:
+      linear-gradient(180deg,
+        rgb(var(--surface-plate-top)) 0%,
+        rgb(var(--surface-plate-bottom)) 100%);
+  }
+  .identity-band-placeholder .corner-mark {
+    border-color: rgb(var(--line-strong));
+  }
+  .identity-band-overlay {
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 6px;
+    padding: 16px 18px 18px 20px;
+    background: linear-gradient(
+      to top,
+      rgba(0, 0, 0, 0.82) 0%,
+      rgba(0, 0, 0, 0.45) 35%,
+      rgba(0, 0, 0, 0) 65%
+    );
+  }
+  .identity-band-placeholder + .identity-band-overlay {
+    /* No photo means no need for a darkening gradient — render the
+       overlay text on the plate surface directly. */
+    background: none;
+  }
+  .identity-band-placeholder + .identity-band-overlay .identity-band-title {
+    color: rgb(var(--ink-primary));
+    text-shadow: none;
+  }
+  .identity-band-placeholder + .identity-band-overlay .identity-band-meta {
+    color: rgb(var(--ink-secondary));
+    text-shadow: none;
+  }
+  .identity-band-placeholder + .identity-band-overlay .identity-band-meta .serial {
+    color: rgb(var(--ink-brand));
+  }
+  .identity-band-title {
+    margin: 0;
+    color: #fff;
+    font-size: 26px;
+    font-weight: 600;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+  }
+  .identity-band-meta {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: rgba(255, 255, 255, 0.88);
+    letter-spacing: 0.01em;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
+    font-variant-numeric: tabular-nums;
+  }
+  .identity-band-meta .serial {
+    color: rgb(var(--brand-strong));
+    font-weight: 500;
+  }
+  .identity-band-meta .sep {
+    color: rgba(255, 255, 255, 0.55);
+    margin: 0 8px;
+  }
+  @media (max-width: 480px) {
+    .identity-band-title { font-size: 22px; }
+    .identity-band-overlay { padding: 12px 14px 14px 14px; }
+  }
+
+  /* ------------------------------------------------------------
+     STATUS STRIP — single horizontal line of dashboard metrics
+     Sits between the identity band and the action band on the
+     Overview. Mono caps + tabular numerics + signal colors carry
+     the readout feel. Each cell is tappable when there's a
+     drill-down (today: PM Due → Maintenance tab, Open WO → focus
+     issues panel below).
+     ------------------------------------------------------------ */
+  .status-strip {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: rgb(var(--line-subtle));
+    border: 1px solid rgb(var(--line));
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  @media (max-width: 480px) {
+    .status-strip { grid-template-columns: repeat(2, 1fr); }
+  }
+  .status-strip-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px;
+    background: rgb(var(--surface-raised));
+    text-align: left;
+    transition: background 120ms;
+  }
+  button.status-strip-cell { cursor: pointer; border: none; font: inherit; }
+  button.status-strip-cell:hover { background: rgb(var(--surface-elevated)); }
+  .status-strip-cap {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-tertiary));
+  }
+  .status-strip-val {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: rgb(var(--ink-primary));
+    letter-spacing: -0.005em;
+    line-height: 1.05;
+  }
+  .status-strip-val.ok    { color: rgb(var(--signal-ok)); }
+  .status-strip-val.warn  { color: rgb(var(--signal-warn)); }
+  .status-strip-val.fault { color: rgb(var(--signal-fault)); }
+  .status-strip-val.muted { color: rgb(var(--ink-secondary)); font-size: 13px; }
+
+  /* ------------------------------------------------------------
+     ACTION BAND — primary CTAs on the Overview
+     One tap target per authored procedure. Sized for gloved hands,
+     not for visual density. No background fill — border-line only —
+     so the row reads as an instrument control, not a SaaS button.
+     ------------------------------------------------------------ */
+  .action-band-list {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  @media (min-width: 640px) {
+    .action-band-list { grid-template-columns: 1fr 1fr; }
+  }
+  .action-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 64px;
+    padding: 12px 14px;
+    background: rgb(var(--surface-raised));
+    border: 1px solid rgb(var(--line));
+    border-radius: 6px;
+    text-align: left;
+    transition: border-color 120ms, background 120ms;
+    cursor: pointer;
+  }
+  .action-row:hover {
+    border-color: rgb(var(--line-strong));
+    background: rgb(var(--surface-elevated));
+  }
+  .action-row-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 4px;
+    background: rgba(var(--brand-soft-v), var(--brand-soft-a));
+    color: rgb(var(--ink-brand));
+    flex-shrink: 0;
+  }
+  .action-row-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .action-row-title {
+    font-size: 14.5px;
+    font-weight: 500;
+    color: rgb(var(--ink-primary));
+    letter-spacing: -0.01em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .action-row-sub {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-tertiary));
+  }
+  .action-row-play {
+    color: rgb(var(--ink-tertiary));
+    flex-shrink: 0;
+    transition: color 120ms;
+  }
+  .action-row:hover .action-row-play { color: rgb(var(--brand)); }
+
+  /* ------------------------------------------------------------
+     DETAILS DISCLOSURE — collapsible spec grid wrapper
+     Used to tuck reference info (model code, installed date, site
+     etc.) behind a chevron so the Overview surface stays focused
+     on action. Mono-caps summary mirrors the rest of the SCADA
+     vocabulary.
+     ------------------------------------------------------------ */
+  .details-disclosure {
+    background: rgb(var(--surface-raised));
+    border: 1px solid rgb(var(--line));
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .details-disclosure-summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 14px;
+    background: transparent;
+    border: none;
+    width: 100%;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-secondary));
+    transition: color 120ms;
+  }
+  .details-disclosure-summary:hover { color: rgb(var(--ink-primary)); }
+  .details-disclosure-chevron {
+    margin-left: auto;
+    transition: transform 160ms ease;
+  }
+  .details-disclosure[data-open='true'] .details-disclosure-chevron {
+    transform: rotate(180deg);
+  }
+  .details-disclosure-content {
+    padding: 4px 18px 18px;
+    border-top: 1px solid rgb(var(--line-subtle));
+  }
+
+  /* ------------------------------------------------------------
      SEGBAR — segmented tab control
      ------------------------------------------------------------ */
   .segbar {
