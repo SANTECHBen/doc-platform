@@ -16,11 +16,17 @@ import { useEffect, useRef } from 'react';
 //     a real oscilloscope display.
 //   • Center pulse dot — small bright marker that grows with amplitude.
 //
-// State signals via hue + waveform character:
-//   idle       — soft brand glow, very low amplitude line (heartbeat)
-//   listening  — cyan, live waveform from mic analyser
-//   thinking   — violet, rolling sine wave + scanning sweep
-//   speaking   — warm brand color, layered procedural wave
+// All states use the single brand hue. The earlier cyan-listening /
+// violet-thinking palette read as "generic AI assistant" rather than
+// "service instrument" — keeping a single hue and differentiating via
+// the waveform character + sweep arc lines closer to a real scope.
+//
+// State signals via waveform character only:
+//   idle       — visible heartbeat line at a clear amplitude floor
+//                (the prior idle barely drew, leaving a generic blob)
+//   listening  — live waveform from mic analyser
+//   thinking   — rolling sine wave + traveling scan-sweep arc
+//   speaking   — layered procedural wave with speech-cadence harmonics
 
 export type VoiceOrbState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
@@ -154,25 +160,14 @@ export function VoiceOrb({ state, analyser, size = 280, className }: Props) {
       const t = (now - t0) / 1000;
       const s = stateRef.current;
 
-      // Hue selection per state.
-      let hue = brand;
-      switch (s) {
-        case 'idle':
-          hue = brand;
-          break;
-        case 'listening':
-          hue = '60 170 255';
-          break;
-        case 'thinking':
-          hue = '140 90 255';
-          break;
-        case 'speaking':
-          hue = brand;
-          break;
-      }
+      // Single brand hue across all states — see component header for
+      // why we dropped the per-state palette.
+      const hue = brand;
 
       // Amplitude — analyser when available, else a deterministic wave
-      // that gives idle/thinking life without microphone input.
+      // that gives idle/thinking life without microphone input. Idle's
+      // floor was bumped (was 0.13 → 0.30) so the heartbeat is clearly
+      // a waveform, not a featureless glow that read as a generic blob.
       const measured = sampleAmplitude();
       const hasAnalyser = analyserRef.current !== null;
       let target: number;
@@ -185,11 +180,11 @@ export function VoiceOrb({ state, analyser, size = 280, className }: Props) {
           0.22 * Math.abs(Math.sin(t * 5.2)) +
           0.14 * Math.abs(Math.sin(t * 7.1 + 0.7));
       } else if (s === 'listening') {
-        target = 0.2 + 0.08 * Math.sin(t * 1.5);
+        target = 0.28 + 0.10 * Math.sin(t * 1.5);
       } else if (s === 'thinking') {
-        target = 0.25 + 0.08 * Math.sin(t * 1.6);
+        target = 0.30 + 0.08 * Math.sin(t * 1.6);
       } else {
-        target = 0.13 + 0.06 * Math.sin(t * 0.85);
+        target = 0.30 + 0.10 * Math.sin(t * 0.85);
       }
       const k = target > ampRef.current ? 0.35 : 0.08;
       ampRef.current = ampRef.current + (target - ampRef.current) * k;

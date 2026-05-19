@@ -23,6 +23,30 @@ const SECTION_DIRECTIVE_RE =
 const PDFPAGE_DIRECTIVE_RE =
   /\[pdfpage:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):(\d+):(\d+)\]/i;
 
+// Strip every machine-directed marker from a transcript fragment so it
+// reads as plain prose to the tech. Three things are needed beyond a
+// naive replace:
+//   1. global flags so multiple directives in one frame all get caught
+//   2. tail-trimming for partial directives that haven't closed yet
+//      (the model streams token-by-token; without this the open bracket
+//       and partial UUID flicker on screen between deltas — the failure
+//       captured in older screenshots)
+//   3. a separate render-time pass, so even if a leak slips through the
+//      stream-time call, the DOM never shows raw markers.
+function cleanTranscriptForDisplay(text: string): string {
+  let out = text
+    .replace(/\[cite:[a-f0-9-]{8,}\]/gi, '')
+    .replace(/\[pdfpage:[a-f0-9-]{8,}:\d+:\d+\]/gi, '')
+    .replace(/\[section:[a-f0-9-]{8,}\]/gi, '')
+    .replace(/\[procedure:[a-f0-9-]{8,}\]/gi, '');
+  // Partial directive at the tail — opening bracket + recognized kind +
+  // optional UUID-shaped chars, no closing bracket. Chop from the
+  // opening bracket forward.
+  const partial = /\[(cite|pdfpage|section|procedure):[a-f0-9-]*$/i.exec(out);
+  if (partial) out = out.slice(0, partial.index);
+  return out;
+}
+
 // Full-screen voice experience. Opens automatically on QR scan (once per
 // session), and any time the user taps the mic button in the chat composer.
 //
@@ -635,17 +659,7 @@ export function VoiceMode(props: Props): React.ReactElement {
             conversationIdRef.current = event.conversationId;
           } else if (event.type === 'delta') {
             assistantText += event.text;
-            // Strip ALL machine-directed markers so the live transcript
-            // reads as plain prose — the user shouldn't see raw
-            // [cite:…] / [procedure:…] / [section:…] / [pdfpage:…]
-            // strings on screen.
-            setTranscript(
-              assistantText
-                .replace(/\[cite:[a-f0-9-]{8,}\]/gi, '')
-                .replace(PDFPAGE_DIRECTIVE_RE, '')
-                .replace(SECTION_DIRECTIVE_RE, '')
-                .replace(PROCEDURE_DIRECTIVE_RE, ''),
-            );
+            setTranscript(cleanTranscriptForDisplay(assistantText));
           }
         },
         abort.signal,
@@ -921,12 +935,17 @@ export function VoiceMode(props: Props): React.ReactElement {
         {/* Transcript appears only between turns (after the user speaks,
             before the AI starts speaking back). During 'speaking' the audio
             IS the channel — showing a wall of text behind the orb just
-            collides visually. */}
-        {transcript && orbState !== 'speaking' && orbState !== 'thinking' && (
-          <p className="voice-mode-transcript" aria-live="polite">
-            {transcript}
-          </p>
-        )}
+            collides visually. cleanTranscriptForDisplay is also called at
+            stream-time; this second pass is defense-in-depth so a leaked
+            directive never reaches the DOM. */}
+        {(() => {
+          const display = cleanTranscriptForDisplay(transcript).trim();
+          return display && orbState !== 'speaking' && orbState !== 'thinking' ? (
+            <p className="voice-mode-transcript" aria-live="polite">
+              {display}
+            </p>
+          ) : null;
+        })()}
       </div>
 
       <div className="voice-mode-actionbar" role="toolbar" aria-label="Voice controls">

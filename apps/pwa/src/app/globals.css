@@ -2240,25 +2240,18 @@
   }
 
   .voice-mode-state {
-    font-size: 22px;
+    font-size: 18px;
     font-weight: 500;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.005em;
     color: rgb(var(--ink-primary));
-    min-height: 28px;
+    min-height: 24px;
     transition: color 200ms ease;
   }
-  /* State hues — chosen to read on both light and dark surfaces. */
-  .voice-mode-state[data-state='thinking'] {
-    color: rgb(110 70 220);
-  }
-  .voice-mode-state[data-state='listening'] {
-    color: rgb(30 130 220);
-  }
-  .voice-mode-state[data-state='speaking'] {
-    color: rgb(var(--brand));
-  }
+  /* All non-muted states sit on the single brand-aligned palette — the
+     orb's waveform character + sweep arc carry state differentiation
+     so the supporting text doesn't need to. */
   .voice-mode-state[data-muted='true'] {
-    color: rgb(200 60 60);
+    color: rgb(var(--signal-fault));
   }
 
   .voice-mode-transcript {
