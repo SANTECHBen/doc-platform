@@ -530,6 +530,25 @@ export function ChatTab({
         }}
         className="composer"
       >
+        {/* Camera moves to the LEFT as an attach affordance — frees the
+            right side to be a clean two-button cluster (voice + send)
+            sized for gloved hands. */}
+        <label
+          className="composer-icon-btn"
+          title="Attach photo for fault diagnosis"
+          aria-disabled={uploading || pending}
+        >
+          <Camera size={18} strokeWidth={2} />
+          <input
+            ref={cameraRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={onImagePicked}
+            className="hidden"
+            disabled={uploading || pending}
+          />
+        </label>
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -542,40 +561,19 @@ export function ChatTab({
           disabled={pending}
           aria-label="Voice mode"
           title="Voice mode"
-          className="inline-flex h-9 w-9 items-center justify-center rounded text-ink-secondary transition hover:bg-surface-elevated hover:text-ink-primary disabled:opacity-50"
+          className="composer-icon-btn"
         >
-          <AudioLines size={16} strokeWidth={2} />
+          <AudioLines size={18} strokeWidth={2} />
         </button>
-        <label
-          className={`inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded text-ink-secondary transition hover:bg-surface-elevated hover:text-ink-primary ${
-            uploading || pending ? 'opacity-50' : ''
-          }`}
-          title="Attach photo for fault diagnosis"
-        >
-          <Camera size={16} strokeWidth={2} />
-          <input
-            ref={cameraRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={onImagePicked}
-            className="hidden"
-            disabled={uploading || pending}
-          />
-        </label>
         {pending ? (
           <button
             type="button"
             onClick={cancel}
             aria-label="Stop"
             className="send-btn"
-            style={{
-              background: 'rgb(var(--surface-elevated))',
-              color: 'rgb(var(--ink-primary))',
-              boxShadow: 'none',
-            }}
+            data-state="stop"
           >
-            <Square size={12} strokeWidth={2} fill="currentColor" />
+            <Square size={14} strokeWidth={2} fill="currentColor" />
           </button>
         ) : (
           <button
@@ -584,7 +582,7 @@ export function ChatTab({
             aria-label="Ask"
             className="send-btn"
           >
-            <Send size={15} strokeWidth={2.25} />
+            <Send size={16} strokeWidth={2.25} />
           </button>
         )}
       </form>
@@ -697,9 +695,6 @@ function TurnView({
         )}
       </div>
 
-      {!turn.streaming && turn.verify && ordered.length > 0 && (
-        <EvidenceBar verify={turn.verify} sources={ordered} />
-      )}
       {!turn.streaming && turn.verify?.conflict && (
         <ConflictBanner reason={turn.verify.conflict} />
       )}
@@ -832,51 +827,23 @@ function summarizeVerify(verify: VerifyResult): {
   return { total, supported, weak, unsupported, level };
 }
 
+// One-word LED chip. The earlier "Mostly grounded" / "Review needed"
+// labels carried more nuance than a tech in the field can act on —
+// either trust it ("Verified") or look at the sources before relying
+// on it ("Review"). The summary tooltip still carries the breakdown
+// for anyone who wants it.
 function GroundingBadge({ verify }: { verify: VerifyResult }): React.ReactElement {
   const s = summarizeVerify(verify);
-  const label =
-    s.level === 'verified'
-      ? 'Verified'
-      : s.level === 'mostly'
-        ? 'Mostly grounded'
-        : 'Review needed';
+  const trustworthy = s.level === 'verified' || s.level === 'mostly';
+  const label = trustworthy ? 'Verified' : 'Review';
+  const chipLevel = trustworthy ? 'verified' : 'speculative';
   return (
-    <span className={`grounding-badge grounding-${s.level}`} title={`${s.supported}/${s.total} claims supported`}>
+    <span
+      className={`grounding-badge grounding-${chipLevel}`}
+      title={`${s.supported}/${s.total} claims supported`}
+    >
       {label}
     </span>
-  );
-}
-
-// Stacked bar showing per-source contribution. Each segment is keyed to the
-// citation index so [1]/[2]/[3] in prose match the bar at a glance.
-function EvidenceBar({
-  verify,
-  sources,
-}: {
-  verify: VerifyResult;
-  sources: ChatCitation[];
-}): React.ReactElement | null {
-  const total = verify.sources.reduce((acc, s) => acc + Math.max(0, s.weight), 0);
-  if (total <= 0) return null;
-  const indexById = new Map(sources.map((s, i) => [s.chunkId, i + 1]));
-  return (
-    <div className="evidence-bar" aria-label="Source contribution">
-      {verify.sources
-        .filter((s) => s.weight > 0 && indexById.has(s.chunkId))
-        .map((s) => {
-          const pct = (s.weight / total) * 100;
-          const idx = indexById.get(s.chunkId);
-          return (
-            <span
-              key={s.chunkId}
-              className="evidence-bar-seg"
-              style={{ width: `${pct.toFixed(2)}%` }}
-              title={`Source [${idx}] · ${pct.toFixed(0)}%`}
-              data-idx={idx}
-            />
-          );
-        })}
-    </div>
   );
 }
 

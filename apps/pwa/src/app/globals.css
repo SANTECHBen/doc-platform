@@ -1971,8 +1971,8 @@
   .composer {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px 8px 10px 14px;
+    gap: 6px;
+    padding: 8px 6px;
     background: rgb(var(--surface-base));
     border: 0;
     border-top: 1px solid rgb(var(--line));
@@ -1988,13 +1988,43 @@
     border: none;
     outline: none;
     font-family: inherit;
-    font-size: 14px;
+    /* 16px floor so iOS doesn't auto-zoom on focus — small but
+       load-bearing for shop-floor use. */
+    font-size: 16px;
     color: rgb(var(--ink-primary));
     height: 36px;
+    padding: 0 4px;
   }
   .composer input::placeholder { color: rgb(var(--ink-tertiary)); }
+  /* Square icon button used for composer attach / voice. Sized to the
+     gloved-hand 44px floor; sits flat against the composer rather than
+     looking like a floating action. */
+  .composer-icon-btn {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: rgb(var(--ink-secondary));
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .composer-icon-btn:hover:not(:disabled) {
+    color: rgb(var(--ink-primary));
+    background: rgb(var(--surface-elevated));
+  }
+  .composer-icon-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
   .composer .send-btn {
-    width: 40px; height: 40px;
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
     border-radius: 999px;
     background: rgb(var(--brand));
     color: rgb(var(--brand-ink));
@@ -2008,6 +2038,13 @@
   }
   .composer .send-btn:hover { background: rgb(var(--brand-strong)); }
   .composer .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  /* Stop variant — replaces send while a stream is in-flight. Neutral
+     surface so it reads as "interrupt", not "primary action". */
+  .composer .send-btn[data-state='stop'] {
+    background: rgb(var(--surface-elevated));
+    color: rgb(var(--ink-primary));
+    box-shadow: none;
+  }
 
   /* ------------------------------------------------------------
      RICH TEXT EDITOR (TipTap) — body style for the editable surface.
