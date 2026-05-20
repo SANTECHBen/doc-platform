@@ -55,10 +55,14 @@ export async function extractPdf(input: PdfExtractInput): Promise<ExtractionResu
     );
   }
 
+  const path = input.sourceUrl ? 'url' : 'file';
+  console.log(JSON.stringify({ level: 'info', msg: 'llamaparse: uploading', path, sourceUrl: input.sourceUrl ?? null, filePath: input.sourceUrl ? null : input.filePath }));
   const jobId = input.sourceUrl
     ? await uploadJobByUrl(input.sourceUrl, apiKey)
     : await uploadJobByFile(input.filePath, apiKey);
+  console.log(JSON.stringify({ level: 'info', msg: 'llamaparse: job submitted', jobId }));
   await waitForJob(jobId, apiKey);
+  console.log(JSON.stringify({ level: 'info', msg: 'llamaparse: job succeeded', jobId }));
   const { pages, totalPages } = await fetchResult(jobId, apiKey);
 
   // Reassemble into a single markdown string with `<!-- page:N -->` markers
@@ -168,6 +172,7 @@ async function uploadJobByFile(filePath: string, apiKey: string): Promise<string
 
 async function waitForJob(jobId: string, apiKey: string): Promise<void> {
   const start = Date.now();
+  let pollCount = 0;
   while (Date.now() - start < JOB_TIMEOUT_MS) {
     let resp: Response;
     try {
@@ -187,6 +192,18 @@ async function waitForJob(jobId: string, apiKey: string): Promise<void> {
       );
     }
     const body = (await resp.json()) as { status?: string; error_message?: string };
+    pollCount += 1;
+    const elapsedS = Math.round((Date.now() - start) / 1000);
+    console.log(
+      JSON.stringify({
+        level: 'info',
+        msg: 'llamaparse: poll',
+        jobId,
+        status: body.status,
+        pollCount,
+        elapsedS,
+      }),
+    );
     if (body.status === 'SUCCESS') return;
     if (body.status === 'ERROR' || body.status === 'CANCELLED') {
       throw new ExtractionError(
