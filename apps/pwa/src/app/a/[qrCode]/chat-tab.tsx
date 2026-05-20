@@ -404,26 +404,44 @@ export function ChatTab({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="chat-banner">
-        <span className="led" />
-        <span className="font-mono text-[11.5px] text-ink-secondary">
-          {partId && partName
-            ? partName
-            : `${hub.assetModel.displayName} · rev ${hub.pinnedContentPackVersion?.versionLabel ?? 'current'}`}
-        </span>
-        {turns.length > 0 && (
+      {/* Part-scoped chats keep a thin grounding banner so a tech
+          knows the assistant is answering about that specific part
+          (and not the whole asset). Asset-scoped chats no longer need
+          one — the topbar asset chip already carries identity. */}
+      {partId && partName && (
+        <div className="chat-banner">
+          <span className="led" />
+          <span className="font-mono text-[11.5px] text-ink-secondary">
+            {partName}
+          </span>
+          {turns.length > 0 && (
+            <button
+              type="button"
+              onClick={onClearConversation}
+              className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-medium uppercase tracking-[0.08em] text-ink-tertiary transition hover:bg-surface-elevated hover:text-signal-fault"
+              title="Clear conversation"
+              aria-label="Clear conversation"
+            >
+              <Trash2 size={11} strokeWidth={2} />
+              Clear
+            </button>
+          )}
+        </div>
+      )}
+      {!partId && turns.length > 0 && (
+        <div className="flex justify-end">
           <button
             type="button"
             onClick={onClearConversation}
-            className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-medium uppercase tracking-[0.08em] text-ink-tertiary transition hover:bg-surface-elevated hover:text-signal-fault"
+            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-medium uppercase tracking-[0.08em] text-ink-tertiary transition hover:bg-surface-elevated hover:text-signal-fault"
             title="Clear conversation"
             aria-label="Clear conversation"
           >
             <Trash2 size={11} strokeWidth={2} />
             Clear
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       <div
         ref={scrollRef}

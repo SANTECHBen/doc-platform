@@ -1193,6 +1193,19 @@
     color: rgb(var(--ink-brand));
     flex-shrink: 0;
   }
+  /* Thumbnail variant — used by the Parts action band where each row
+     can carry the part's reference photo. Same footprint as the
+     icon slot so layout stays uniform regardless of whether a row
+     has a photo. */
+  .action-row-thumb {
+    width: 36px;
+    height: 36px;
+    border-radius: 4px;
+    object-fit: cover;
+    border: 1px solid rgb(var(--line-subtle));
+    background: rgb(var(--surface-inset));
+    flex-shrink: 0;
+  }
   .action-row-body {
     flex: 1;
     min-width: 0;

@@ -26,12 +26,10 @@ import { VirtualJobAid, type JobAidSource } from '@/components/virtual-job-aid';
 import { ModeChooser, type ChosenMode } from '@/components/mode-chooser';
 import { ImageZoom } from '@/components/image-zoom';
 import {
-  fetchPmPlanStatus,
-  fetchPmStatus,
   fetchPreflight,
-  listDocuments,
+  listParts,
   speak,
-  type DocumentListItem,
+  type BomEntry,
 } from '@/lib/api';
 
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
@@ -44,11 +42,15 @@ type TabKey =
   | 'maintenance'
   | 'chat';
 
+// Order matches a tech's typical workflow on a scan: glance at the
+// asset (Overview), check what's due (Maintenance), look up a part
+// (Parts), read reference material (Library), and ask the assistant
+// last. Bottom tabbar reads left-to-right in priority order.
 const TABS: Array<{ key: TabKey; label: string; icon: LucideIcon }> = [
   { key: 'overview', label: 'Overview', icon: LayoutGrid },
-  { key: 'library', label: 'Library', icon: Library },
-  { key: 'parts', label: 'Parts', icon: Wrench },
   { key: 'maintenance', label: 'Maintenance', icon: CalendarClock },
+  { key: 'parts', label: 'Parts', icon: Wrench },
+  { key: 'library', label: 'Library', icon: Library },
   { key: 'chat', label: 'Assistant', icon: MessageSquare },
 ];
 
@@ -175,23 +177,19 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
         {active === 'overview' ? (
           <div className="flex flex-col gap-4">
             <IdentityBand hub={hub} />
-            <StatusStrip
-              hub={hub}
-              openIssueCount={openIssueCount}
-              onOpenMaintenance={() => changeTab('maintenance')}
-            />
-            <ProceduresQuickActions
-              versionId={hub.pinnedContentPackVersion?.id ?? null}
-              onLaunch={(docId) =>
-                setJobAidRequest({
-                  source: {
-                    kind: 'doc',
-                    docId,
-                    devUserId: DEV_USER_ID,
-                    devOrgId: DEV_ORG_ID,
-                  },
-                })
-              }
+            <PartsQuickActions
+              assetModelId={hub.assetModel.id}
+              onOpenPart={(partId) => {
+                // Route into the Parts tab and ask it to open this
+                // part's detail overlay. The Parts tab listens for
+                // this event and pops its detail surface.
+                window.dispatchEvent(
+                  new CustomEvent('asset-hub:open-part', {
+                    detail: { partId },
+                  }),
+                );
+                changeTab('parts');
+              }}
             />
             <IssuesPanel
               assetInstanceId={hub.assetInstance.id}
@@ -392,65 +390,77 @@ function LibrarySegmentButton({
   );
 }
 
-// Overview action band. Lists the asset's authored procedures as
-// large tap targets so a tech who just scanned the QR has a one-tap
-// entry into "how do I work on this thing right now?" without
-// browsing Library. Rendered as null when there's nothing to show so
-// the Overview tab stays clean for unconfigured assets.
-function ProceduresQuickActions({
-  versionId,
-  onLaunch,
+// Overview action band — top parts list. A tech scanning the QR
+// usually wants to look up a specific part on the equipment (PN
+// match for a sticker, find a sub-assembly to inspect). Surface the
+// BOM here as a one-tap entry instead of authored procedures —
+// procedures live in Maintenance, parts get the prime real estate.
+function PartsQuickActions({
+  assetModelId,
+  onOpenPart,
 }: {
-  versionId: string | null;
-  onLaunch: (docId: string) => void;
+  assetModelId: string;
+  onOpenPart: (partId: string) => void;
 }): React.ReactElement | null {
-  const [procs, setProcs] = useState<DocumentListItem[] | null>(null);
+  const [parts, setParts] = useState<BomEntry[] | null>(null);
 
   useEffect(() => {
-    if (!versionId) {
-      setProcs([]);
-      return;
-    }
     let cancelled = false;
     (async () => {
       try {
-        const docs = await listDocuments(versionId);
+        const rows = await listParts(assetModelId);
         if (cancelled) return;
-        const authored = docs
-          .filter((d) => d.kind === 'structured_procedure')
-          .sort((a, b) =>
-            a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }),
-          )
+        // Surface top-level structural items first (assemblies and
+        // sub-assemblies sort above loose parts); cap at 6 so the
+        // Overview doesn't drown in BOM rows. Full list is one tap
+        // away in the Parts tab.
+        const rank = (r: BomEntry) =>
+          r.role === 'assembly' ? 0 : r.role === 'sub_assembly' ? 1 : 2;
+        const top = rows
+          .slice()
+          .sort((a, b) => {
+            const rd = rank(a) - rank(b);
+            if (rd !== 0) return rd;
+            return a.displayName.localeCompare(b.displayName, undefined, {
+              sensitivity: 'base',
+            });
+          })
           .slice(0, 6);
-        setProcs(authored);
+        setParts(top);
       } catch {
-        if (!cancelled) setProcs([]);
+        if (!cancelled) setParts([]);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [versionId]);
+  }, [assetModelId]);
 
-  if (!procs || procs.length === 0) return null;
+  if (!parts || parts.length === 0) return null;
 
   return (
-    <section aria-label="Procedures" className="flex flex-col gap-2">
-      <div className="cap px-1">Procedures</div>
+    <section aria-label="Parts" className="flex flex-col gap-2">
+      <div className="cap px-1">Parts</div>
       <div className="action-band-list">
-        {procs.map((p) => (
+        {parts.map((p) => (
           <button
-            key={p.id}
+            key={p.partId}
             type="button"
-            onClick={() => onLaunch(p.id)}
+            onClick={() => onOpenPart(p.partId)}
             className="action-row"
           >
-            <span className="action-row-icon">
-              <ListChecks size={18} strokeWidth={2} />
-            </span>
+            {p.imageUrl ? (
+              <img src={p.imageUrl} alt="" className="action-row-thumb" />
+            ) : (
+              <span className="action-row-icon">
+                <Wrench size={18} strokeWidth={2} />
+              </span>
+            )}
             <span className="action-row-body">
-              <span className="action-row-title">{p.title}</span>
-              <span className="action-row-sub">Run procedure</span>
+              <span className="action-row-title">{p.displayName}</span>
+              <span className="action-row-sub">
+                {p.oemPartNumber ?? '— no PN —'}
+              </span>
             </span>
             <Play size={16} strokeWidth={2.25} className="action-row-play" />
           </button>
@@ -502,122 +512,6 @@ function IdentityBand({ hub }: { hub: AssetHubPayload }) {
       </div>
     </header>
   );
-}
-
-// Status strip — one-row dashboard readout sitting between the
-// identity band and the action band. Open WO / PM Due / Rev /
-// Installed. Open WO and PM Due are tappable when their counts > 0
-// and route the tech to the appropriate tab.
-//
-// PM Due reconciles with the Maintenance tab: the server-side
-// hub.tabs.pm.needsAction only counts PmSchedule rows, while
-// Maintenance's "Action" count merges both PmSchedule.needsAction
-// and PmPlanBucket overdue/due statuses. Without this client-side
-// fetch the Overview would show "PM DUE 0" while Maintenance shows
-// several overdue plan-bucket items — bad signal for a tech making
-// a stop/work decision.
-function StatusStrip({
-  hub,
-  openIssueCount,
-  onOpenMaintenance,
-}: {
-  hub: AssetHubPayload;
-  openIssueCount: number;
-  onOpenMaintenance: () => void;
-}) {
-  // Seed from the server payload so first paint shows something
-  // sensible; replace with the merged client count once the
-  // additional plan-status fetch resolves.
-  const [pmAction, setPmAction] = useState<number>(hub.tabs.pm.needsAction);
-  const [pmOverdue, setPmOverdue] = useState<number>(hub.tabs.pm.overdue);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [flat, plans] = await Promise.all([
-          fetchPmStatus(hub.assetInstance.id),
-          fetchPmPlanStatus(hub.assetInstance.id),
-        ]);
-        if (cancelled) return;
-        const scheduleAction = flat.schedules.filter((s) => s.needsAction)
-          .length;
-        const scheduleOverdue = flat.schedules.filter(
-          (s) => s.status === 'overdue',
-        ).length;
-        let bucketAction = 0;
-        let bucketOverdue = 0;
-        for (const p of plans.plans) {
-          for (const b of p.buckets) {
-            if (b.status === 'overdue' || b.status === 'due') bucketAction += 1;
-            if (b.status === 'overdue') bucketOverdue += 1;
-          }
-        }
-        setPmAction(scheduleAction + bucketAction);
-        setPmOverdue(scheduleOverdue + bucketOverdue);
-      } catch {
-        // Fall through to the server-seeded counts — non-fatal.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [hub.assetInstance.id]);
-
-  const woTone =
-    openIssueCount > 0 ? 'warn' : ('ok' as 'warn' | 'ok' | 'fault' | 'muted');
-  const pmTone: 'warn' | 'ok' | 'fault' | 'muted' =
-    pmAction === 0 ? 'ok' : pmOverdue > 0 ? 'fault' : 'warn';
-
-  return (
-    <div className="status-strip" aria-label="Asset status">
-      <StatusCell cap="Open WO" value={String(openIssueCount)} tone={woTone} />
-      <StatusCell
-        cap="PM Due"
-        value={String(pmAction)}
-        tone={pmTone}
-        onClick={pmAction > 0 ? onOpenMaintenance : undefined}
-      />
-      <StatusCell
-        cap="Rev"
-        value={hub.pinnedContentPackVersion?.versionLabel ?? '—'}
-        tone="muted"
-      />
-      <StatusCell
-        cap="Installed"
-        value={formatInstalledAt(hub.assetInstance.installedAt)}
-        tone="muted"
-      />
-    </div>
-  );
-}
-
-function StatusCell({
-  cap,
-  value,
-  tone,
-  onClick,
-}: {
-  cap: string;
-  value: string;
-  tone: 'ok' | 'warn' | 'fault' | 'muted';
-  onClick?: () => void;
-}) {
-  const valClass = `status-strip-val ${tone}`;
-  const inner = (
-    <>
-      <span className="status-strip-cap">{cap}</span>
-      <span className={valClass}>{value}</span>
-    </>
-  );
-  if (onClick) {
-    return (
-      <button type="button" onClick={onClick} className="status-strip-cell">
-        {inner}
-      </button>
-    );
-  }
-  return <div className="status-strip-cell">{inner}</div>;
 }
 
 // Collapsible spec grid. Reference info (model code, site, customer,
