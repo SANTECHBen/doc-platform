@@ -38,7 +38,12 @@ export async function registerAnalyticsRoutes(app: FastifyInstance) {
 
       const q = request.query as z.infer<typeof QuerySchema>;
       const sinceMs = Date.now() - q.days * 24 * 60 * 60 * 1000;
-      const since = new Date(sinceMs);
+      // postgres@3.4.x crashes when a Date is passed as a parameter to
+      // db.execute(sql`...${date}...`) — its Bind step calls
+      // Buffer.byteLength(date) without first coercing to string. Pass
+      // the ISO string explicitly; postgres coerces text → timestamptz
+      // on comparison, so the WHERE semantics are unchanged.
+      const since = new Date(sinceMs).toISOString();
 
       // Compute the effective org filter. Platform admins with no orgId
       // get all orgs; non-platform admins are forced to their scope.
