@@ -131,7 +131,7 @@ async function extractWindow(
 }
 
 async function qpdfPageCount(filePath: string): Promise<number> {
-  const { stdout } = await runCommand('qpdf', ['--show-npages', filePath]);
+  const { stdout } = await runQpdf(['--show-npages', filePath]);
   const n = Number(stdout.trim());
   if (!Number.isFinite(n) || n <= 0) {
     throw new Error(`qpdf returned unexpected page count: "${stdout.trim()}"`);
@@ -148,14 +148,19 @@ async function qpdfExtractRange(
   // qpdf source.pdf --pages . start-end -- out.pdf
   // The lone period means "the same input file"; the range is inclusive
   // and 1-indexed. qpdf streams pages without unpacking the whole doc.
-  await runCommand('qpdf', [
-    source,
-    '--pages',
-    '.',
-    `${startPage}-${endPage}`,
-    '--',
-    outPath,
-  ]);
+  await runQpdf([source, '--pages', '.', `${startPage}-${endPage}`, '--', outPath]);
+}
+
+/**
+ * Run qpdf wrapped in `nice -n 10` so the kernel schedules it BEHIND the
+ * Node process when CPU is contended. qpdf is single-threaded and CPU-bound;
+ * without the nice priority, splitting a large PDF on a shared-CPU box can
+ * starve Node's event loop long enough for Fly's health check to fail. The
+ * nice penalty only matters when both processes compete; with idle CPU it
+ * runs at full speed.
+ */
+function runQpdf(args: string[]): Promise<CommandResult> {
+  return runCommand('nice', ['-n', '10', 'qpdf', ...args]);
 }
 
 interface CommandResult {

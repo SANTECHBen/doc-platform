@@ -37,10 +37,16 @@ primary_region = "ord"
   path = "/health"
 
 [[vm]]
-  # 1GB lets the extraction pipeline buffer typical OEM manuals (5-20 MB
-  # PDFs) without OOM. The PDF parser expands the working set 5-10x of the
-  # file size, then embedding requests run in parallel — 512mb was tight
-  # enough that a single non-trivial PDF would SIGKILL the box.
-  memory = "1gb"
+  # 2 CPUs because the streaming PDF extraction shells out to qpdf, which is
+  # CPU-bound and single-threaded. On a single-CPU box, qpdf saturated the
+  # core and starved Node's event loop long enough to fail the proxy's
+  # health check — the process was alive but unable to respond to /health,
+  # so requests started 502-ing. With 2 cores Node always has cycles for
+  # I/O and health checks while qpdf chews through a chunk.
+  #
+  # 2 GB gives headroom for the largest plausible chunk staying in memory
+  # (~32 MB raw + ~43 MB base64 + Anthropic SDK request body) without GC
+  # pauses long enough to be confused for unresponsiveness.
+  memory = "2gb"
   cpu_kind = "shared"
-  cpus = 1
+  cpus = 2
