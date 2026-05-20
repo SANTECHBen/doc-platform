@@ -75,8 +75,11 @@ CREATE TABLE IF NOT EXISTS "troubleshooting_items" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "pm_service_records" DROP CONSTRAINT "pm_service_records_performed_by_user_id_users_id_fk";
---> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "pm_service_records" DROP CONSTRAINT "pm_service_records_performed_by_user_id_users_id_fk";
+EXCEPTION
+  WHEN undefined_object THEN null;
+END $$;--> statement-breakpoint
 ALTER TABLE "pm_service_records" ALTER COLUMN "performed_by_user_id" DROP NOT NULL;--> statement-breakpoint
 -- Manual addition: drizzle-kit didn't pick up the equivalent change on
 -- pm_plan_service_records because the table also shipped with the same
