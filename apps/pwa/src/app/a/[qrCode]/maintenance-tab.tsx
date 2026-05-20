@@ -423,7 +423,7 @@ export function MaintenanceTab({
     },
     {
       key: 'troubleshoot',
-      label: 'Troubleshoot',
+      label: 'Troubleshooting',
       count: troubleshootingTotal,
       tone: 'idle',
       icon: ShieldAlert,
