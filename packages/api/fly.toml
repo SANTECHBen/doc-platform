@@ -37,11 +37,10 @@ primary_region = "ord"
   path = "/health"
 
 [[vm]]
-  # Back to a small shared-CPU machine now that PDF extraction is delegated
-  # to LlamaParse (https://cloud.llamaindex.ai). The API no longer does any
-  # heavy CPU/memory work — it uploads the PDF, polls a job, and downloads
-  # markdown. No qpdf, no base64 encoding of large buffers, no event-loop
-  # starvation risk.
-  memory = "1gb"
+  # 2 GB so the LlamaParse file-upload path has headroom for a buffered
+  # 100-200 MB PDF (fs.readFile + Blob copy + undici request-body buffer
+  # = ~3-4x file size transient). 1 GB OOM'd on a 120 MB upload even with
+  # the URL path attempted, so we size for the worst-case fallback path.
+  memory = "2gb"
   cpu_kind = "shared"
   cpus = 1
