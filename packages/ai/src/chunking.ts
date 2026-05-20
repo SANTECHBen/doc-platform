@@ -52,8 +52,16 @@ export const DEFAULT_CHUNK_OPTIONS = {
   minChars: 100,
 };
 
+// Safety cap. chunkMarkdown should always run in well under a second; if
+// we hit a minute, something pathological is happening in parseBlocks or
+// splitAtSentenceBoundaries (e.g., a huge table that won't split at
+// sentence boundaries, growing the buffer unboundedly). Bail with a
+// clear error rather than starving the worker forever.
+const CHUNK_TIMEOUT_MS = 60_000;
+
 export function chunkMarkdown(markdown: string, opts: ChunkOptions): Chunk[] {
   const { maxChars, minChars, documentTitle, pages = [] } = opts;
+  const startedAt = Date.now();
 
   // Break the markdown into blocks (headings + paragraphs + list clusters).
   // Headings drive the section path; other blocks accumulate into chunks.
@@ -91,6 +99,13 @@ export function chunkMarkdown(markdown: string, opts: ChunkOptions): Chunk[] {
   };
 
   for (const block of blocks) {
+    if (Date.now() - startedAt > CHUNK_TIMEOUT_MS) {
+      throw new Error(
+        `chunkMarkdown exceeded ${CHUNK_TIMEOUT_MS / 1000}s on a ${markdown.length}-char input — ` +
+          `likely a huge un-splittable block (giant table / code fence). ` +
+          `Investigate parseBlocks or feed a smaller doc.`,
+      );
+    }
     if (block.kind === 'heading') {
       // Headings are chunk boundaries — always flush what we have before
       // adjusting the section path.
