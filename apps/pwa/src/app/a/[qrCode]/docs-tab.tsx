@@ -139,17 +139,17 @@ type KindFilter = 'all' | 'pdf' | 'video' | 'schematic' | 'doc';
 const KIND_FILTERS: KindFilter[] = ['all', 'pdf', 'video', 'schematic', 'doc'];
 
 function entryMatchesKind(entry: DocEntry, filter: KindFilter): boolean {
+  // Slides decks belong in the Training tab, not Documents. Hide them
+  // from every Documents filter regardless of what the admin uploaded
+  // them as.
+  if (entry.kind === 'slides') return false;
   if (filter === 'all') return true;
   if (filter === 'pdf') return entry.kind === 'pdf';
   if (filter === 'video')
     return entry.kind === 'video' || entry.kind === 'external_video';
   if (filter === 'schematic') return entry.kind === 'schematic';
-  // 'doc' is the catch-all for written content (markdown, slides, file).
-  return (
-    entry.kind === 'markdown' ||
-    entry.kind === 'slides' ||
-    entry.kind === 'file'
-  );
+  // 'doc' is the catch-all for written content (markdown + generic file).
+  return entry.kind === 'markdown' || entry.kind === 'file';
 }
 
 function kindFilterLabel(f: KindFilter): string {

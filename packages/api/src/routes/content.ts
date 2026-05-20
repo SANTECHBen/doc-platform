@@ -109,6 +109,11 @@ export async function registerContentRoutes(app: FastifyInstance) {
           originalFilename: d.originalFilename,
           contentType: d.contentType,
           sizeBytes: d.sizeBytes,
+          // Resolved public URL for the underlying file. Lets the PWA
+          // open slide decks via Office Online without an extra fetch
+          // for the document detail; safe to surface since these URLs
+          // are already public (R2 public bucket).
+          fileUrl: d.storageKey ? storage.publicUrl(d.storageKey) : null,
           thumbnailUrl: d.thumbnailStorageKey
             ? storage.publicUrl(d.thumbnailStorageKey)
             : null,

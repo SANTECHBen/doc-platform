@@ -52,6 +52,8 @@ export interface DocumentListItem {
   tags: string[];
   hasBody: boolean;
   storageKey: string | null;
+  /** Resolved public URL for the file. Null when storageKey is null. */
+  fileUrl?: string | null;
   streamPlaybackId: string | null;
   externalUrl?: string | null;
   originalFilename?: string | null;
