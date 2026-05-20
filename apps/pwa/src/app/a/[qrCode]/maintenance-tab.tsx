@@ -376,7 +376,11 @@ export function MaintenanceTab({
       key: 'action',
       label: 'Action',
       count: actionCount,
-      tone: actionCount === 0 ? 'ok' : overdueCount > 0 ? 'fault' : 'warn',
+      // Binary tone — anything actionable reads red, otherwise green.
+      // The earlier 3-way (fault / warn / ok) gave the warn case an
+      // amber/brown tint that didn't pull weight; "needs action" is
+      // already a single-axis signal, no need to split it.
+      tone: actionCount === 0 ? 'ok' : 'fault',
       subtitle:
         actionCount === 0
           ? 'All caught up'

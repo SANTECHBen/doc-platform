@@ -1303,24 +1303,39 @@
     color: rgb(var(--signal-warn));
   }
   .cat-card-head {
-    display: inline-flex;
-    align-items: center;
+    display: flex;
+    align-items: flex-start;
     gap: 8px;
     /* Reserve room for the glyph that's absolutely positioned in the
        corner so the label doesn't slide under it. */
     padding-right: 26px;
-    min-height: 18px;
+    /* Two-line cap — long labels ("Preventive Maintenance", "Removal &
+       Replace") wrap cleanly without truncation. */
+    min-height: 32px;
   }
   .cat-card-label {
     font-family: var(--font-mono);
-    font-size: 10.5px;
-    font-weight: 500;
-    letter-spacing: 0.1em;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: rgb(var(--ink-tertiary));
-    white-space: nowrap;
+    color: rgb(var(--ink-primary));
+    /* Allow up to two lines, then ellipsize. Most labels fit on one,
+       but Preventive Maintenance / Removal & Replace need two. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
+    word-break: break-word;
+    line-height: 1.25;
+  }
+  /* Tone-aware label color — fault/warn cards push the urgency
+     further by tinting the label too, not just the readout bar. */
+  .cat-card[data-tone='fault'] .cat-card-label {
+    color: rgb(var(--signal-fault));
+  }
+  .cat-card[data-active='true'] .cat-card-label {
+    color: rgb(var(--brand));
   }
   .cat-card-readout {
     position: relative;
