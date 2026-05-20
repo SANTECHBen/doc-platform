@@ -1137,14 +1137,20 @@ function DocumentRow({
       )}
       {editable && !editing && (
         <div className="flex items-center gap-1">
-          {(doc.extractionStatus === 'failed' || doc.extractionStatus === 'ready') && (
+          {(doc.extractionStatus === 'failed' ||
+            doc.extractionStatus === 'ready' ||
+            doc.extractionStatus === 'pending') && (
             <button
               type="button"
               onClick={onReprocess}
               className="p-1 text-ink-tertiary hover:text-ink-primary"
               aria-label="Reprocess"
               disabled={busy}
-              title="Re-run extraction + embedding"
+              title={
+                doc.extractionStatus === 'pending'
+                  ? 'Stuck queued? Click to resume extraction'
+                  : 'Re-run extraction + embedding'
+              }
             >
               <RotateCcw size={14} />
             </button>
