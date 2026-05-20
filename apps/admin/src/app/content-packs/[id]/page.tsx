@@ -39,6 +39,7 @@ import {
   createContentPackVersion,
   createDocument,
   createTrainingModule,
+  deleteTrainingModule,
   deleteContentPack,
   deleteContentPackVersion,
   deleteDocument,
@@ -340,7 +341,12 @@ export default function ContentPackDetail({
                 ) : (
                   <ul className="mt-1 flex flex-col gap-1 text-sm">
                     {v.trainingModules.map((m) => (
-                      <TrainingModuleRow key={m.id} module={m} />
+                      <TrainingModuleRow
+                        key={m.id}
+                        module={m}
+                        versionStatus={v.status}
+                        onRefresh={refresh}
+                      />
                     ))}
                   </ul>
                 )}
@@ -1287,8 +1293,36 @@ function ExtractionBadge({ status }: { status: DocRowData['extractionStatus'] })
 // (rename, delete, activities) lives in a separate page; here we just expose
 // the part-linking affordance since that's what binds training to a part
 // on the PWA side.
-function TrainingModuleRow({ module }: { module: { id: string; title: string } }) {
+function TrainingModuleRow({
+  module,
+  versionStatus,
+  onRefresh,
+}: {
+  module: { id: string; title: string };
+  versionStatus: string;
+  onRefresh: () => Promise<void>;
+}) {
   const [open, setOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const toast = useToast();
+  const canDelete = versionStatus === 'draft';
+
+  async function onDelete() {
+    if (!confirm(`Delete training module "${module.title}"?\n\nLessons and activities inside it will also be removed.`)) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      await deleteTrainingModule(module.id);
+      toast.success('Module deleted', module.title);
+      await onRefresh();
+    } catch (err) {
+      toast.error('Delete failed', err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <li className="flex items-center gap-2 rounded border border-line-subtle bg-surface-inset px-2 py-1.5">
       <GraduationCap size={14} strokeWidth={2} className="shrink-0 text-ink-tertiary" />
@@ -1302,6 +1336,18 @@ function TrainingModuleRow({ module }: { module: { id: string; title: string } }
       >
         <Link2 size={14} />
       </button>
+      {canDelete && (
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={deleting}
+          className="p-1 text-ink-tertiary transition hover:text-signal-fault disabled:opacity-50"
+          aria-label="Delete training module"
+          title="Delete this training module"
+        >
+          <Trash2 size={14} />
+        </button>
+      )}
       <Drawer
         title={`Link parts — ${module.title}`}
         open={open}
