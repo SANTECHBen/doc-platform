@@ -23,10 +23,17 @@ export interface PipelineParams {
   db: Database;
   documentId: string;
   /** Open a readable stream for the source file in storage. The pipeline
-   *  pipes it to a temp file on disk so the PDF extractor can split large
-   *  documents via qpdf without buffering them in RAM. The pipeline owns
-   *  the temp file lifecycle (cleaned up on success and failure). */
+   *  pipes it to a temp file on disk so the DOCX/PPTX extractors can read
+   *  it. PDF extraction usually skips this entirely (see publicUrl). The
+   *  pipeline owns the temp file lifecycle. */
   fetchFileStream: (storageKey: string) => Promise<NodeJS.ReadableStream>;
+  /** Optional: compute a publicly reachable URL for a storage key. When
+   *  provided AND non-null, PDF extraction hands the URL to LlamaParse so
+   *  the upstream service can fetch bytes directly from object storage —
+   *  our process never holds the PDF in memory. Without a public URL the
+   *  PDF extractor falls back to a multipart upload, which buffers the
+   *  whole file (OK for small dev files; OOM-prone for big production PDFs). */
+  publicUrl?: (storageKey: string) => string | null;
 }
 
 export interface PipelineResult {
@@ -43,7 +50,7 @@ export interface PipelineResult {
  * many docs without bailing on the first error.
  */
 export async function processDocument(params: PipelineParams): Promise<PipelineResult> {
-  const { db, documentId, fetchFileStream } = params;
+  const { db, documentId, fetchFileStream, publicUrl } = params;
 
   const doc = await db.query.documents.findFirst({
     where: eq(schema.documents.id, documentId),
@@ -74,20 +81,29 @@ export async function processDocument(params: PipelineParams): Promise<PipelineR
   // Mark processing so the UI can poll and a second concurrent call sees state.
   await markStatus(db, documentId, 'processing');
 
-  // Stream the source from object storage into a per-doc temp directory.
-  // The PDF extractor reads pages off this file via qpdf without ever
-  // loading the whole document into JS memory — that's what lets us
-  // process 100MB+ PDFs on a 1GB Fly box. The temp dir is removed in a
-  // finally block so a crash or thrown error doesn't leak disk space.
+  // PDFs go straight to LlamaParse via the public URL when one is
+  // available — our process never holds the bytes. DOCX/PPTX still need
+  // a local file (mammoth + JSZip only accept Buffers), so we stream
+  // those to disk. The temp dir is removed in a finally block so a crash
+  // or thrown error doesn't leak disk space.
+  const sourceUrl = publicUrl?.(doc.storageKey) ?? null;
+  const isPdf =
+    doc.kind === 'pdf' ||
+    (doc.contentType ?? '').toLowerCase() === 'application/pdf';
+  const skipDiskWrite = isPdf && sourceUrl;
+
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pipeline-'));
   const sourceFilename = sanitizeFilename(doc.originalFilename) ?? 'source';
   const sourcePath = path.join(tempDir, sourceFilename);
   try {
-    const readable = await fetchFileStream(doc.storageKey);
-    await streamPipeline(readable, createWriteStream(sourcePath));
+    if (!skipDiskWrite) {
+      const readable = await fetchFileStream(doc.storageKey);
+      await streamPipeline(readable, createWriteStream(sourcePath));
+    }
 
     const extraction = await extract({
       filePath: sourcePath,
+      sourceUrl,
       kind: doc.kind,
       contentType: doc.contentType,
       filename: doc.originalFilename,
@@ -321,9 +337,10 @@ export async function processVersion(params: {
   db: Database;
   contentPackVersionId: string;
   fetchFileStream: (storageKey: string) => Promise<NodeJS.ReadableStream>;
+  publicUrl?: (storageKey: string) => string | null;
   concurrency?: number;
 }): Promise<PipelineResult[]> {
-  const { db, contentPackVersionId, fetchFileStream, concurrency = 3 } = params;
+  const { db, contentPackVersionId, fetchFileStream, publicUrl, concurrency = 3 } = params;
 
   const docs = await db.query.documents.findMany({
     where: eq(schema.documents.contentPackVersionId, contentPackVersionId),
@@ -344,6 +361,7 @@ export async function processVersion(params: {
             db,
             documentId: docs[myIdx]!.id,
             fetchFileStream,
+            publicUrl,
           });
         }
       })(),

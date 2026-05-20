@@ -22,6 +22,19 @@ import path from 'node:path';
 import type { ExtractionResult } from './types.js';
 import { ExtractionError } from './types.js';
 
+export interface PdfExtractInput {
+  /** Local path to the PDF. Used as a fallback when sourceUrl isn't set
+   *  (dev environments without S3_PUBLIC_URL). When sourceUrl IS set we
+   *  ignore this entirely — LlamaParse pulls from R2 directly. */
+  filePath: string;
+  /** Publicly reachable URL for the PDF (R2 public endpoint). Strongly
+   *  preferred: when set, our process never reads the file into memory.
+   *  A 120 MB PDF that would OOM the 1 GB Fly box via multipart upload
+   *  travels straight from R2 → LlamaParse, with our process holding
+   *  zero bytes. */
+  sourceUrl?: string | null;
+}
+
 const LLAMA_BASE_URL = 'https://api.cloud.llamaindex.ai/api/v1';
 
 // Hard timeout for one PDF job. LlamaParse usually returns in 30-180s, but
@@ -32,7 +45,7 @@ const JOB_TIMEOUT_MS = 15 * 60 * 1000; // 15 min
 // How often we poll the job status endpoint.
 const POLL_INTERVAL_MS = 5_000;
 
-export async function extractPdf(filePath: string): Promise<ExtractionResult> {
+export async function extractPdf(input: PdfExtractInput): Promise<ExtractionResult> {
   const apiKey = process.env.LLAMA_CLOUD_API_KEY;
   if (!apiKey) {
     throw new ExtractionError(
@@ -42,7 +55,9 @@ export async function extractPdf(filePath: string): Promise<ExtractionResult> {
     );
   }
 
-  const jobId = await uploadJob(filePath, apiKey);
+  const jobId = input.sourceUrl
+    ? await uploadJobByUrl(input.sourceUrl, apiKey)
+    : await uploadJobByFile(input.filePath, apiKey);
   await waitForJob(jobId, apiKey);
   const { pages, totalPages } = await fetchResult(jobId, apiKey);
 
@@ -78,11 +93,44 @@ interface ParsedPage {
   md: string;
 }
 
-async function uploadJob(filePath: string, apiKey: string): Promise<string> {
-  // Read into a Buffer for the multipart upload. The bytes are released as
-  // soon as the upload promise settles — peak memory is ~2x the file size
-  // (Buffer + Blob copy) for a few seconds. On a 1 GB box that's fine for
-  // PDFs up to ~300 MB, which is well past LlamaParse's hard limits anyway.
+/** Preferred path: hand LlamaParse a URL and let it pull bytes from R2
+ *  directly. Our process never holds the PDF — zero memory cost. */
+async function uploadJobByUrl(sourceUrl: string, apiKey: string): Promise<string> {
+  const form = new FormData();
+  form.append('input_url', sourceUrl);
+
+  let resp: Response;
+  try {
+    resp = await fetch(`${LLAMA_BASE_URL}/parsing/upload`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: form,
+    });
+  } catch (err) {
+    throw new ExtractionError(
+      `LlamaParse URL-upload failed (network): ${err instanceof Error ? err.message : String(err)}`,
+      err,
+    );
+  }
+  if (!resp.ok) {
+    const detail = await safeBody(resp);
+    throw new ExtractionError(
+      `LlamaParse URL-upload rejected (HTTP ${resp.status}): ${detail}. ` +
+        `Verify the URL ${sourceUrl} is publicly reachable.`,
+    );
+  }
+  const body = (await resp.json()) as { id?: string };
+  if (!body.id) {
+    throw new ExtractionError(`LlamaParse URL-upload returned no job id: ${JSON.stringify(body)}`);
+  }
+  return body.id;
+}
+
+/** Fallback path used in dev environments where there's no public URL for
+ *  the storage (e.g., local fs adapter, or S3 bucket configured private).
+ *  Reads the whole file into memory — fine for small dev files, OOM-prone
+ *  for production-scale PDFs. */
+async function uploadJobByFile(filePath: string, apiKey: string): Promise<string> {
   const bytes = await fs.readFile(filePath);
   const form = new FormData();
   form.append(

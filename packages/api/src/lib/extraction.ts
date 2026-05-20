@@ -106,6 +106,12 @@ export function triggerExtraction(app: FastifyInstance, documentId: string): voi
         db,
         documentId,
         fetchFileStream: (k) => openFileStream(storage, k),
+        // For PDFs, the LlamaParse path hands the storage URL directly
+        // to LlamaParse so they fetch from R2 without our process ever
+        // holding the bytes. We pass null when the env doesn't have a
+        // public URL (e.g., dev with the local fs adapter) — extractPdf
+        // then falls back to the buffered upload path.
+        publicUrl: (k) => storage.publicUrl(k),
       });
       const ms = Date.now() - startedAt;
       app.log.info(

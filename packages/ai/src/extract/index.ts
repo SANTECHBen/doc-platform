@@ -35,8 +35,14 @@ const PPTX_MIME = new Set([
 export interface ExtractInput {
   /** Absolute path to the source file on local disk. The orchestrator
    *  upstream streams from object storage into a temp file and passes the
-   *  path here so PDF extraction can split on disk via qpdf. */
+   *  path here for buffered extractors (DOCX, PPTX). */
   filePath: string;
+  /** Publicly reachable URL for the same file (typically the R2 public
+   *  endpoint). When provided, extractors that support remote fetch
+   *  (PDF → LlamaParse) skip the local file entirely and tell the upstream
+   *  service to pull bytes directly. Critical for large PDFs — the API
+   *  process never has to hold 100+ MB of file bytes in memory. */
+  sourceUrl?: string | null;
   /** Document kind from the enum (kind column). Used as a hint. */
   kind?: string | null;
   /** MIME type from upload. Authoritative when present. */
@@ -49,7 +55,7 @@ export async function extract(input: ExtractInput): Promise<ExtractionResult> {
   const format = resolveFormat(input);
   switch (format) {
     case 'pdf':
-      return extractPdf(input.filePath);
+      return extractPdf({ filePath: input.filePath, sourceUrl: input.sourceUrl });
     case 'docx':
       return extractDocx(input.filePath);
     case 'pptx':
