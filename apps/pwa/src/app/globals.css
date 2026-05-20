@@ -1237,6 +1237,158 @@
   .action-row:hover .action-row-play { color: rgb(var(--brand)); }
 
   /* ------------------------------------------------------------
+     CATEGORY CARD — Maintenance tab grid tile
+     A small instrument tile: status LED + label up top, a recessed
+     "readout" panel housing the count, subtitle below. Each tile
+     carries its own kind glyph in the top-right so cards have a
+     distinct silhouette without the label needing to be read first.
+     Active state lifts the tile with a brand-glow ring; tone-tinted
+     top border on the readout signals urgency at a glance.
+     ------------------------------------------------------------ */
+  .cat-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 12px 12px 12px 12px;
+    background: linear-gradient(
+      180deg,
+      rgb(var(--surface-plate-top)) 0%,
+      rgb(var(--surface-plate-bottom)) 100%
+    );
+    border: 1px solid rgb(var(--line));
+    border-radius: 6px;
+    text-align: left;
+    cursor: pointer;
+    transition:
+      border-color 140ms ease,
+      box-shadow 200ms ease,
+      transform 140ms ease;
+    overflow: hidden;
+    /* Subtle inset highlight on the top edge — reads as a milled
+       metal bevel. */
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.5),
+      inset 0 -1px 0 rgba(14, 18, 23, 0.04);
+  }
+  .cat-card:hover {
+    border-color: rgb(var(--line-strong));
+  }
+  .cat-card[data-active='true'] {
+    border-color: rgb(var(--brand));
+    transform: translateY(-1px);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.6),
+      inset 0 -1px 0 rgba(14, 18, 23, 0.05),
+      0 0 0 1px rgba(var(--brand) / 0.45),
+      0 4px 14px rgba(var(--brand-glow) / var(--brand-glow-a));
+  }
+  .cat-card-glyph {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    color: rgb(var(--ink-tertiary));
+    transition: color 200ms ease;
+  }
+  .cat-card[data-active='true'] .cat-card-glyph {
+    color: rgb(var(--brand));
+  }
+  /* Tone-aware glyph color for the urgent states so the card silhouette
+     itself signals attention even when not active. */
+  .cat-card[data-tone='fault'] .cat-card-glyph {
+    color: rgb(var(--signal-fault));
+  }
+  .cat-card[data-tone='warn'] .cat-card-glyph {
+    color: rgb(var(--signal-warn));
+  }
+  .cat-card-head {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    /* Reserve room for the glyph that's absolutely positioned in the
+       corner so the label doesn't slide under it. */
+    padding-right: 26px;
+    min-height: 18px;
+  }
+  .cat-card-label {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-tertiary));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .cat-card-readout {
+    position: relative;
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-start;
+    padding: 8px 12px;
+    background: rgb(var(--surface-inset));
+    border: 1px solid rgb(var(--line-subtle));
+    border-radius: 4px;
+    box-shadow: inset 0 1px 2px rgba(14, 18, 23, 0.06);
+  }
+  /* Tone-aware top accent on the readout — reads as a status bar
+     across the top edge of the display, like the colored title bar
+     on a SCADA instrument. */
+  .cat-card-readout::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: rgb(var(--line));
+  }
+  .cat-card[data-tone='fault'] .cat-card-readout::before {
+    background: rgb(var(--signal-fault));
+  }
+  .cat-card[data-tone='warn'] .cat-card-readout::before {
+    background: rgb(var(--signal-warn));
+  }
+  .cat-card[data-tone='ok'] .cat-card-readout::before {
+    background: rgb(var(--signal-ok));
+  }
+  .cat-card[data-active='true'] .cat-card-readout::before {
+    background: rgb(var(--brand));
+  }
+  .cat-card-count {
+    font-family: var(--font-mono);
+    font-size: 30px;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    color: rgb(var(--ink-primary));
+  }
+  .cat-card[data-tone='fault'] .cat-card-count {
+    color: rgb(var(--signal-fault));
+  }
+  .cat-card[data-tone='warn'] .cat-card-count {
+    color: rgb(var(--signal-warn));
+  }
+  .cat-card-sub {
+    font-size: 11px;
+    color: rgb(var(--ink-tertiary));
+    line-height: 1.3;
+    /* Single-line ellipsis so cards stay uniform height even when
+       subtitles vary in length. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  @media (min-width: 768px) {
+    .cat-card-count {
+      font-size: 36px;
+    }
+  }
+
+  /* ------------------------------------------------------------
      PART RESOURCE ROW — entries inside a PartResourceCard
      Used on the Part page's Procedure tab to list procedures, PMs,
      and troubleshooting items in a consistent row format.

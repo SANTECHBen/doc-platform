@@ -16,7 +16,17 @@
 // service-record posts.
 
 import { useEffect, useMemo, useState } from 'react';
-import { Clock, Play } from 'lucide-react';
+import {
+  AlertTriangle,
+  CalendarClock,
+  Clock,
+  History,
+  ListChecks,
+  Play,
+  RotateCcw,
+  ShieldAlert,
+  type LucideIcon,
+} from 'lucide-react';
 import { useToast } from '@/components/toast';
 import {
   fetchPmStatus,
@@ -376,6 +386,7 @@ export function MaintenanceTab({
             ]
               .filter(Boolean)
               .join(' · '),
+      icon: AlertTriangle,
     },
     {
       key: 'upcoming',
@@ -385,6 +396,7 @@ export function MaintenanceTab({
       subtitle: nextItem
         ? `Next ${formatDaysUntil(nextItem.days)}`
         : 'None scheduled',
+      icon: CalendarClock,
     },
     {
       key: 'walkthroughs',
@@ -395,6 +407,7 @@ export function MaintenanceTab({
         walkthroughCount === 0
           ? 'None authored'
           : `${allBuckets.length} checklist${allBuckets.length === 1 ? '' : 's'} · ${nonRrProcedures.length} procedure${nonRrProcedures.length === 1 ? '' : 's'}`,
+      icon: ListChecks,
     },
     {
       key: 'removal',
@@ -405,6 +418,7 @@ export function MaintenanceTab({
         rrProcedures.length === 0
           ? 'None authored'
           : 'Tap to run',
+      icon: RotateCcw,
     },
     {
       key: 'troubleshoot',
@@ -415,6 +429,7 @@ export function MaintenanceTab({
         troubleshooting.length === 0
           ? 'No guides authored'
           : `${troubleshooting.length} guide${troubleshooting.length === 1 ? '' : 's'}`,
+      icon: ShieldAlert,
     },
     {
       key: 'history',
@@ -425,6 +440,7 @@ export function MaintenanceTab({
         data.history.length === 0
           ? 'No services logged'
           : `Last ${data.history.length} services`,
+      icon: History,
     },
   ];
 
@@ -730,6 +746,10 @@ type CategoryCard = {
   count: number;
   tone: CategoryTone;
   subtitle: string;
+  /** Category glyph rendered in the card's corner. Gives each card
+   *  a distinct silhouette so techs can pattern-match without
+   *  reading the label first. */
+  icon: LucideIcon;
 };
 
 function CategoryGrid({
@@ -764,42 +784,47 @@ function CategoryCardButton({
   active: boolean;
   onClick: () => void;
 }) {
-  const ledClass =
-    card.tone === 'fault'
-      ? 'led led-fault'
-      : card.tone === 'warn'
-        ? 'led led-warn'
-        : card.tone === 'ok'
-          ? 'led led-ok'
-          : 'led led-idle';
+  const Icon = card.icon;
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className="surface-etched flex flex-col items-start gap-1 p-3 text-left"
-      style={
-        active
-          ? {
-              borderColor: 'rgb(var(--brand))',
-              boxShadow:
-                'inset 0 1px 0 rgb(var(--surface-plate-top)), inset 0 -1px 0 rgba(0,0,0,0.18), 0 0 0 1px rgba(var(--brand) / 0.35)',
-            }
-          : undefined
-      }
+      data-tone={card.tone}
+      data-active={active ? 'true' : 'false'}
+      className="cat-card"
     >
-      <span className="flex items-center gap-2">
-        <span className={ledClass} aria-hidden />
-        <span className="cap">{card.label}</span>
-      </span>
-      <span className="font-mono text-2xl font-medium tabular-nums leading-none text-ink-primary">
-        {card.count}
-      </span>
-      <span className="text-[11px] text-ink-tertiary line-clamp-1">
-        {card.subtitle}
-      </span>
+      {/* Category glyph anchored top-right — gives each card a
+          distinct silhouette without competing with the count. */}
+      <Icon
+        size={18}
+        strokeWidth={1.75}
+        className="cat-card-glyph"
+        aria-hidden
+      />
+
+      {/* Top row: LED status + label. LED color is tone-driven. */}
+      <div className="cat-card-head">
+        <span className={`led ${ledClassFor(card.tone)}`} aria-hidden />
+        <span className="cat-card-label">{card.label}</span>
+      </div>
+
+      {/* Readout — recessed framed display panel housing the count.
+          Tone-tinted top border so the urgency reads at a glance. */}
+      <div className="cat-card-readout">
+        <span className="cat-card-count">{card.count}</span>
+      </div>
+
+      <span className="cat-card-sub">{card.subtitle}</span>
     </button>
   );
+}
+
+function ledClassFor(tone: CategoryTone): string {
+  if (tone === 'fault') return 'led-fault';
+  if (tone === 'warn') return 'led-warn';
+  if (tone === 'ok') return 'led-ok';
+  return 'led-idle';
 }
 
 // PM schedule row — etched card, status pill via shared .pill tokens,
