@@ -364,17 +364,34 @@ export function MaintenanceTab({
     return cands.sort((a, b) => a.days - b.days)[0] ?? null;
   })();
 
-  // Page structure: a hero band (always visible, owns the Action
-  // data) + a row of secondary tiles for the other 5 categories. The
-  // hero dominates so the urgent work pulls the eye; tiles are
-  // clearly secondary navigation. The Action tile is no longer in
-  // the grid — it's the hero.
-  //
-  // Walkthroughs holds PM checklists + non-R&R procedures
-  // (inspections / diagnostics / calibrations); R&R has its own card
-  // so a tech replacing a worn part doesn't dig through a mixed list.
+  // Card grid. Six cards arranged 2×3 (phone) or 3×2 (tablet). Action
+  // is back IN the grid (no longer pinned above) per UX feedback —
+  // cards are the navigation, the slice content only reveals on tap.
+  // Walkthroughs holds PM checklists + non-R&R procedures (inspections
+  // / diagnostics / calibrations); R&R has its own card so a tech
+  // replacing a worn part doesn't dig through a mixed list.
   const walkthroughCount = allBuckets.length + nonRrProcedures.length;
   const cards: CategoryCard[] = [
+    {
+      key: 'action',
+      label: 'Action',
+      count: actionCount,
+      // Binary tone — anything actionable reads red, otherwise green.
+      // The earlier 3-way (fault / warn / ok) gave the warn case an
+      // amber/brown tint that didn't pull weight; "needs action" is
+      // already a single-axis signal, no need to split it.
+      tone: actionCount === 0 ? 'ok' : 'fault',
+      subtitle:
+        actionCount === 0
+          ? 'All caught up'
+          : [
+              overdueCount > 0 ? `${overdueCount} overdue` : null,
+              dueTodayCount > 0 ? `${dueTodayCount} due today` : null,
+            ]
+              .filter(Boolean)
+              .join(' · '),
+      icon: AlertTriangle,
+    },
     {
       key: 'upcoming',
       label: 'Upcoming',
@@ -692,41 +709,6 @@ export function MaintenanceTab({
         />
       ) : (
         <>
-          <MaintenanceHero
-            actionCount={actionCount}
-            overdueCount={overdueCount}
-            dueTodayCount={dueTodayCount}
-            dueNow={dueNow}
-            overdueBuckets={overdueBuckets}
-            nextItem={nextItem}
-            actionOpen={active === 'action'}
-            onToggleAction={() =>
-              setActive((cur) => (cur === 'action' ? null : 'action'))
-            }
-            onLaunchSchedule={(s) => {
-              if (!s.schedule.document) {
-                toast.error(
-                  'No procedure attached',
-                  'Attach a procedure to this PM schedule in the admin console.',
-                );
-                return;
-              }
-              launchDoc(s.schedule.document.id, () => void refresh());
-            }}
-            onLaunchBucket={(row) =>
-              launchInline(
-                `${row.plan.name} · ${row.bucket.frequencyLabel}`,
-                planBucketToSteps(row.bucket),
-                () =>
-                  void logPlanPerformed(
-                    row.plan.id,
-                    row.bucket.frequency,
-                    `${row.plan.name} · ${row.bucket.frequencyLabel}`,
-                  ),
-              )
-            }
-          />
-
           <CategoryGrid
             cards={cards}
             active={active}
@@ -736,230 +718,6 @@ export function MaintenanceTab({
           {slice}
         </>
       )}
-    </div>
-  );
-}
-
-// Maintenance hero — the page's primary visual. Owns the Action data
-// (overdue + due-today schedules and plan-bucket items) and is always
-// visible at the top of the Maintenance tab. Two distinct states:
-//
-//   • NEEDS ATTENTION — when there's actionable work, the hero shows
-//     a big count, a status banner with overdue/due-today pills, and
-//     up to three top items inline with a Run button each.
-//   • ALL CAUGHT UP — when nothing's due, the hero collapses to a
-//     calm green-tinted readout with a preview of the next item.
-//
-// Tapping "View all N →" toggles the Action slice below (existing
-// ScheduleCard / PlanBucketCard rendering). Hero stays visible so
-// the count is always in sight.
-function MaintenanceHero({
-  actionCount,
-  overdueCount,
-  dueTodayCount,
-  dueNow,
-  overdueBuckets,
-  nextItem,
-  actionOpen,
-  onToggleAction,
-  onLaunchSchedule,
-  onLaunchBucket,
-}: {
-  actionCount: number;
-  overdueCount: number;
-  dueTodayCount: number;
-  dueNow: PmScheduleStatusItem[];
-  overdueBuckets: Array<{ plan: { id: string; name: string }; bucket: PmPlanBucket }>;
-  nextItem: { label: string; days: number } | null;
-  actionOpen: boolean;
-  onToggleAction: () => void;
-  onLaunchSchedule: (s: PmScheduleStatusItem) => void;
-  onLaunchBucket: (
-    row: { plan: { id: string; name: string }; bucket: PmPlanBucket },
-  ) => void;
-}) {
-  const isClear = actionCount === 0;
-  const tone = isClear ? 'ok' : 'fault';
-
-  // Merge schedule + bucket items into a single prioritized list
-  // (overdue first, then due-today), then take the top 3 for the
-  // inline preview. The remaining items live in the slice below.
-  type Item =
-    | { kind: 'schedule'; key: string; schedule: PmScheduleStatusItem }
-    | { kind: 'bucket'; key: string; row: typeof overdueBuckets[number] };
-  const items: Item[] = [];
-  // Overdue first.
-  for (const s of dueNow) {
-    if (s.status === 'overdue') {
-      items.push({ kind: 'schedule', key: `s:${s.schedule.id}`, schedule: s });
-    }
-  }
-  for (const row of overdueBuckets) {
-    if (row.bucket.status === 'overdue') {
-      items.push({
-        kind: 'bucket',
-        key: `b:${row.plan.id}:${row.bucket.frequency}`,
-        row,
-      });
-    }
-  }
-  // Then due-today.
-  for (const s of dueNow) {
-    if (s.status === 'due') {
-      items.push({ kind: 'schedule', key: `s:${s.schedule.id}`, schedule: s });
-    }
-  }
-  for (const row of overdueBuckets) {
-    if (row.bucket.status === 'due') {
-      items.push({
-        kind: 'bucket',
-        key: `b:${row.plan.id}:${row.bucket.frequency}`,
-        row,
-      });
-    }
-  }
-  const previewItems = items.slice(0, 3);
-  const remaining = items.length - previewItems.length;
-
-  return (
-    <section className="maint-hero" data-tone={tone}>
-      <span className="corner-mark tl" aria-hidden />
-      <span className="corner-mark tr" aria-hidden />
-      <span className="corner-mark bl" aria-hidden />
-      <span className="corner-mark br" aria-hidden />
-
-      <header className="maint-hero-banner">
-        <span
-          className={`led ${isClear ? 'led-ok' : 'led-fault'}`}
-          aria-hidden
-        />
-        <span className="maint-hero-caption">
-          {isClear ? 'All caught up' : 'Needs attention'}
-        </span>
-        {!isClear && (
-          <div className="maint-hero-banner-pills">
-            {overdueCount > 0 && (
-              <span className="pill pill-fault">{overdueCount} overdue</span>
-            )}
-            {dueTodayCount > 0 && (
-              <span className="pill pill-warn">{dueTodayCount} due today</span>
-            )}
-          </div>
-        )}
-      </header>
-
-      <div className="maint-hero-body">
-        {isClear ? (
-          <div className="maint-hero-clear">
-            <div className="maint-hero-clear-title">
-              Nothing due today
-            </div>
-            {nextItem && (
-              <div className="maint-hero-clear-sub">
-                Next: <strong>{nextItem.label}</strong>{' '}
-                {formatDaysUntil(nextItem.days)}
-              </div>
-            )}
-          </div>
-        ) : (
-          <>
-            <div className="maint-hero-readout">
-              <span className="maint-hero-count">
-                {String(actionCount).padStart(2, '0')}
-              </span>
-              <span className="maint-hero-count-label">
-                {actionCount === 1 ? 'Item due' : 'Items due'}
-              </span>
-            </div>
-            <ul className="maint-hero-items">
-              {previewItems.map((it) => (
-                <li key={it.key}>
-                  <HeroActionRow
-                    item={it}
-                    onLaunchSchedule={onLaunchSchedule}
-                    onLaunchBucket={onLaunchBucket}
-                  />
-                </li>
-              ))}
-            </ul>
-            <button
-              type="button"
-              onClick={onToggleAction}
-              className="maint-hero-cta"
-              aria-expanded={actionOpen}
-            >
-              {actionOpen
-                ? 'Hide all'
-                : remaining > 0
-                  ? `View all ${actionCount} →`
-                  : 'Show details →'}
-            </button>
-          </>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function HeroActionRow({
-  item,
-  onLaunchSchedule,
-  onLaunchBucket,
-}: {
-  item:
-    | { kind: 'schedule'; schedule: PmScheduleStatusItem }
-    | { kind: 'bucket'; row: { plan: { id: string; name: string }; bucket: PmPlanBucket } };
-  onLaunchSchedule: (s: PmScheduleStatusItem) => void;
-  onLaunchBucket: (row: { plan: { id: string; name: string }; bucket: PmPlanBucket }) => void;
-}) {
-  if (item.kind === 'schedule') {
-    const s = item.schedule;
-    const dueText =
-      s.status === 'overdue'
-        ? `Overdue ${formatDaysUntil(s.daysUntilDue)}`
-        : 'Due today';
-    const tone = s.status === 'overdue' ? 'fault' : 'warn';
-    return (
-      <div className="maint-hero-item" data-tone={tone}>
-        <div className="maint-hero-item-body">
-          <div className="maint-hero-item-title">{s.schedule.name}</div>
-          <div className="maint-hero-item-sub">{dueText}</div>
-        </div>
-        <button
-          type="button"
-          onClick={() => onLaunchSchedule(s)}
-          className="maint-hero-item-run"
-          aria-label={`Run ${s.schedule.name}`}
-        >
-          <Play size={14} strokeWidth={2.5} fill="currentColor" />
-          <span>Run</span>
-        </button>
-      </div>
-    );
-  }
-  const { row } = item;
-  const dueText =
-    row.bucket.status === 'overdue'
-      ? `Overdue ${formatDaysUntil(row.bucket.daysUntilDue)}`
-      : 'Due today';
-  const tone = row.bucket.status === 'overdue' ? 'fault' : 'warn';
-  return (
-    <div className="maint-hero-item" data-tone={tone}>
-      <div className="maint-hero-item-body">
-        <div className="maint-hero-item-title">
-          {row.plan.name} · {row.bucket.frequencyLabel}
-        </div>
-        <div className="maint-hero-item-sub">{dueText}</div>
-      </div>
-      <button
-        type="button"
-        onClick={() => onLaunchBucket(row)}
-        className="maint-hero-item-run"
-        aria-label={`Start ${row.plan.name} ${row.bucket.frequencyLabel} checklist`}
-      >
-        <Play size={14} strokeWidth={2.5} fill="currentColor" />
-        <span>Run</span>
-      </button>
     </div>
   );
 }
@@ -1007,11 +765,8 @@ function CategoryGrid({
   active: FilterKey | null;
   onSelect: (k: FilterKey) => void;
 }) {
-  // 5 secondary tiles. Phone: 2 cols (rows 2+2+1). Tablet: 5 cols
-  // (single row, balanced). The hero owns the visual weight; tiles
-  // are uniform and quiet.
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
       {cards.map((c) => (
         <CategoryCardButton
           key={c.key}
@@ -1039,21 +794,41 @@ function CategoryCardButton({
       type="button"
       onClick={onClick}
       aria-pressed={active}
+      data-tone={card.tone}
       data-active={active ? 'true' : 'false'}
-      className="maint-tile"
+      className="cat-card"
     >
-      {/* Head row: icon left, count right. Both stay aligned on a
-          single baseline so cards form a clean horizontal rhythm. */}
-      <div className="maint-tile-head">
-        <span className="maint-tile-icon">
-          <Icon size={16} strokeWidth={2} aria-hidden />
-        </span>
-        <span className="maint-tile-count">{card.count}</span>
+      {/* Category glyph anchored top-right — gives each card a
+          distinct silhouette without competing with the count. */}
+      <Icon
+        size={18}
+        strokeWidth={1.75}
+        className="cat-card-glyph"
+        aria-hidden
+      />
+
+      {/* Top row: LED status + label. LED color is tone-driven. */}
+      <div className="cat-card-head">
+        <span className={`led ${ledClassFor(card.tone)}`} aria-hidden />
+        <span className="cat-card-label">{card.label}</span>
       </div>
-      <span className="maint-tile-label">{card.label}</span>
-      <span className="maint-tile-sub">{card.subtitle}</span>
+
+      {/* Readout — recessed framed display panel housing the count.
+          Tone-tinted top border so the urgency reads at a glance. */}
+      <div className="cat-card-readout">
+        <span className="cat-card-count">{card.count}</span>
+      </div>
+
+      <span className="cat-card-sub">{card.subtitle}</span>
     </button>
   );
+}
+
+function ledClassFor(tone: CategoryTone): string {
+  if (tone === 'fault') return 'led-fault';
+  if (tone === 'warn') return 'led-warn';
+  if (tone === 'ok') return 'led-ok';
+  return 'led-idle';
 }
 
 // PM schedule row — etched card, status pill via shared .pill tokens,
