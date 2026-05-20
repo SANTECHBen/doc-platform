@@ -37,16 +37,17 @@ primary_region = "ord"
   path = "/health"
 
 [[vm]]
-  # 2 CPUs because the streaming PDF extraction shells out to qpdf, which is
-  # CPU-bound and single-threaded. On a single-CPU box, qpdf saturated the
-  # core and starved Node's event loop long enough to fail the proxy's
-  # health check — the process was alive but unable to respond to /health,
-  # so requests started 502-ing. With 2 cores Node always has cycles for
-  # I/O and health checks while qpdf chews through a chunk.
+  # performance CPU kind because shared-CPU machines have burst-credit
+  # throttling — once the machine sustains 100% CPU for ~30 seconds (which
+  # large PDF extraction does easily: qpdf splitting + base64 encoding +
+  # 43 MB Anthropic upload + TLS), Fly drops you to the baseline allocation
+  # and the event loop can't keep up with health checks. Performance CPU
+  # has guaranteed full cores with no throttling, so extraction can run as
+  # long as it needs to and the API stays responsive throughout.
   #
-  # 2 GB gives headroom for the largest plausible chunk staying in memory
-  # (~32 MB raw + ~43 MB base64 + Anthropic SDK request body) without GC
-  # pauses long enough to be confused for unresponsiveness.
+  # 2 GB covers the working set: ~120 MB source file on disk, ~32 MB
+  # chunk in RAM, ~43 MB base64 string, ~50 MB Anthropic SDK request body
+  # + Node baseline + Drizzle pool.
   memory = "2gb"
-  cpu_kind = "shared"
-  cpus = 2
+  cpu_kind = "performance"
+  cpus = 1
