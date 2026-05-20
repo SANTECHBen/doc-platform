@@ -11,6 +11,20 @@ export interface RetrievedChunk {
   charEnd: number | null;
   page: number | null;
   score: number;
+  /** Whether the parent document was written by an admin (markdown,
+   *  structured procedure) or extracted from a binary upload (PDF, PPTX,
+   *  schematic). The chat prompt uses this to bias citations toward
+   *  authored content — the business value is curated documentation, so
+   *  authored sources should anchor answers when both are available. */
+  source: 'authored' | 'extracted';
+}
+
+// Doc kinds that count as admin-authored. Anything else with chunks
+// (pdf, slides, schematic, file) is treated as extracted.
+const AUTHORED_KINDS = new Set(['markdown', 'structured_procedure']);
+
+function classifySource(kind: string | null | undefined): 'authored' | 'extracted' {
+  return kind && AUTHORED_KINDS.has(kind) ? 'authored' : 'extracted';
 }
 
 export interface Retriever {
@@ -55,7 +69,7 @@ export function createPgTextSearchRetriever(params: { db: Database }): Retriever
       const rows = docsLiteral
         ? ((await db.execute(
             sql`SELECT c.id, c.document_id, c.content_pack_version_id, c.content,
-                     c.char_start, c.char_end, c.page,
+                     c.char_start, c.char_end, c.page, d.kind,
                      ts_rank(to_tsvector('english', c.content),
                              websearch_to_tsquery('english', ${query})) AS score
                 FROM document_chunks c
@@ -69,7 +83,7 @@ export function createPgTextSearchRetriever(params: { db: Database }): Retriever
           )) as unknown as RawRow[])
         : ((await db.execute(
             sql`SELECT c.id, c.document_id, c.content_pack_version_id, c.content,
-                     c.char_start, c.char_end, c.page,
+                     c.char_start, c.char_end, c.page, d.kind,
                      ts_rank(to_tsvector('english', c.content),
                              websearch_to_tsquery('english', ${query})) AS score
                 FROM document_chunks c
@@ -89,7 +103,7 @@ export function createPgTextSearchRetriever(params: { db: Database }): Retriever
         const fallback = docsLiteral
           ? ((await db.execute(
               sql`SELECT c.id, c.document_id, c.content_pack_version_id, c.content,
-                       c.char_start, c.char_end, c.page, 0::float AS score
+                       c.char_start, c.char_end, c.page, d.kind, 0::float AS score
                   FROM document_chunks c
                   JOIN documents d ON d.id = c.document_id
                   WHERE c.content_pack_version_id = ANY(${versionsLiteral}::uuid[])
@@ -100,7 +114,7 @@ export function createPgTextSearchRetriever(params: { db: Database }): Retriever
             )) as unknown as RawRow[])
           : ((await db.execute(
               sql`SELECT c.id, c.document_id, c.content_pack_version_id, c.content,
-                       c.char_start, c.char_end, c.page, 0::float AS score
+                       c.char_start, c.char_end, c.page, d.kind, 0::float AS score
                   FROM document_chunks c
                   JOIN documents d ON d.id = c.document_id
                   WHERE c.content_pack_version_id = ANY(${versionsLiteral}::uuid[])
@@ -142,7 +156,7 @@ export function createPgVectorRetriever(params: {
       const rows = docsLiteral
         ? ((await db.execute(
             sql`SELECT c.id, c.document_id, c.content_pack_version_id, c.content,
-                     c.char_start, c.char_end, c.page,
+                     c.char_start, c.char_end, c.page, d.kind,
                      (c.embedding <=> ${vectorLiteral}::vector) AS score
                 FROM document_chunks c
                 JOIN documents d ON d.id = c.document_id
@@ -155,7 +169,7 @@ export function createPgVectorRetriever(params: {
           )) as unknown as RawRow[])
         : ((await db.execute(
             sql`SELECT c.id, c.document_id, c.content_pack_version_id, c.content,
-                     c.char_start, c.char_end, c.page,
+                     c.char_start, c.char_end, c.page, d.kind,
                      (c.embedding <=> ${vectorLiteral}::vector) AS score
                 FROM document_chunks c
                 JOIN documents d ON d.id = c.document_id
@@ -275,6 +289,7 @@ interface RawRow {
   char_start: number | null;
   char_end: number | null;
   page: number | null;
+  kind: string | null;
   score: number | string;
 }
 
@@ -288,5 +303,6 @@ function mapRow(r: RawRow): RetrievedChunk {
     charEnd: r.char_end,
     page: r.page,
     score: Number(r.score),
+    source: classifySource(r.kind),
   };
 }

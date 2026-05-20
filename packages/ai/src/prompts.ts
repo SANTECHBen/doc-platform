@@ -49,6 +49,11 @@ export function buildSystemPrompt(ctx: GroundingContext, safetyDirective: string
     '- Ground every factual claim in the retrieved source chunks. If the answer is not',
     '  supported by the chunks, say so — do not guess.',
     '- Cite the source for every claim using the tag [cite:chunkId].',
+    "- **Prefer chunks marked source=\"authored\" over source=\"extracted\".** Authored",
+    '  chunks come from admin-curated procedures, PMs, and troubleshooting guides; extracted',
+    '  chunks come from OEM PDFs that may include outdated, ambiguous, or marketing-flavored',
+    '  text. When BOTH sources answer a question, ground the answer in the authored chunk',
+    '  and cite it. Cite an extracted chunk only when no authored chunk covers the answer.',
     '- Be concise. Operators read on a phone while standing next to running equipment.',
     '- If the user seems to be describing a safety hazard, name the hazard first.',
     '- Never recommend bypassing a safety interlock, guard, or lockout procedure.',
@@ -96,8 +101,23 @@ export function buildSystemPrompt(ctx: GroundingContext, safetyDirective: string
 
   lines.push('## Source chunks', '');
 
-  for (const chunk of ctx.chunks) {
-    lines.push(`<chunk id="${chunk.id}"${chunk.safetyCritical ? ' safety_critical="true"' : ''}>`);
+  // Re-order chunks so authored ones surface first. The model still has all
+  // of them, but stable ordering biases attention toward authored content,
+  // reinforcing the prefer-authored rule above.
+  const sorted = [...ctx.chunks].sort((a, b) => {
+    const aAuth = a.source === 'authored' ? 0 : 1;
+    const bAuth = b.source === 'authored' ? 0 : 1;
+    return aAuth - bAuth;
+  });
+  for (const chunk of sorted) {
+    const attrs = [
+      `id="${chunk.id}"`,
+      `source="${chunk.source}"`,
+      chunk.safetyCritical ? 'safety_critical="true"' : null,
+    ]
+      .filter(Boolean)
+      .join(' ');
+    lines.push(`<chunk ${attrs}>`);
     lines.push(chunk.content);
     lines.push('</chunk>');
     lines.push('');
