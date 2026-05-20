@@ -24,7 +24,7 @@ import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth';
 import { getScope, requireOrgInScope } from '../middleware/scope';
 import { ensureFieldCapturesVersion } from '../lib/field-captures-pack';
-import { triggerExtraction } from '../lib/extraction';
+import { enqueueExtraction } from '../lib/extraction';
 
 // ---------------------------------------------------------------------------
 // Zod schemas
@@ -575,12 +575,10 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
         userAgent: request.headers['user-agent'] ?? null,
       });
 
-      // Kick off chunking + embedding of the captured procedure so the
-      // troubleshooter can retrieve it. triggerExtraction synthesizes a
-      // markdown body from the steps when one isn't on the documents row
-      // yet, then runs processDocument to chunk and embed. Fire-and-forget;
-      // extraction can take a few seconds because of the embedding round-trip.
-      triggerExtraction(app, ctx.document.id);
+      // Mark the doc for the worker process to pick up. The worker
+      // synthesizes a markdown body from procedure_steps and runs
+      // chunking + embedding; the API process returns immediately.
+      await enqueueExtraction(db, ctx.document.id);
 
       return {
         ok: true,

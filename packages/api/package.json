@@ -6,9 +6,11 @@
   "main": "./src/index.ts",
   "scripts": {
     "dev": "tsx watch --env-file=../../.env src/server.ts",
+    "dev:worker": "tsx watch --env-file=../../.env src/worker.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "start:prod": "tsx src/migrate-on-boot.ts && tsx src/server.ts",
+    "start:worker": "tsx src/worker.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

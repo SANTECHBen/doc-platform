@@ -1,5 +1,14 @@
 # Fly.io config — deploy from packages/api or use --config flag.
 # CLI: cd packages/api && flyctl launch --no-deploy, then set secrets, then fly deploy.
+#
+# Two processes share this image:
+#   - app:    Fastify HTTP server (admin + PWA + scan APIs)
+#   - worker: extraction loop (polls documents.extraction_status='pending',
+#             runs the LlamaParse → chunk → embed pipeline)
+#
+# Splitting them means a misbehaving worker (OOM, hung qpdf, slow upload)
+# never takes down the admin UI. Each process group gets its own machine
+# with its own VM size and restart lifecycle.
 
 app = "equipment-hub-api"
 primary_region = "ord"
@@ -13,7 +22,14 @@ primary_region = "ord"
   NODE_ENV = "production"
   API_HOST = "0.0.0.0"
   API_PORT = "3001"
-  # UPLOADS_DIR unused in prod — S3_BUCKET is set, so the S3 adapter is picked.
+
+[processes]
+  # `app` runs migrations on boot, then serves HTTP. Public routes attach
+  # to this process via http_service.processes below.
+  app = "pnpm start:prod"
+  # `worker` runs the extraction loop. No HTTP listener; pulls jobs from
+  # documents.extraction_status = 'pending' via SELECT FOR UPDATE SKIP LOCKED.
+  worker = "pnpm start:worker"
 
 [http_service]
   internal_port = 3001
@@ -21,6 +37,8 @@ primary_region = "ord"
   auto_stop_machines = "stop"
   auto_start_machines = true
   min_machines_running = 1
+  # Only the `app` process exposes HTTP. The worker has no public surface.
+  processes = ["app"]
   # SSE streams can run up to Fly's request cap (~5 min by default, longer on
   # extended-timeout plans). Plenty for a chat turn.
 
@@ -37,10 +55,19 @@ primary_region = "ord"
   path = "/health"
 
 [[vm]]
-  # 2 GB so the LlamaParse file-upload path has headroom for a buffered
-  # 100-200 MB PDF (fs.readFile + Blob copy + undici request-body buffer
-  # = ~3-4x file size transient). 1 GB OOM'd on a 120 MB upload even with
-  # the URL path attempted, so we size for the worst-case fallback path.
+  # App process: keep it lean. It does no extraction work anymore, so 1 GB
+  # is plenty for Fastify + a Drizzle pool + the occasional small upload.
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1
+  processes = ["app"]
+
+[[vm]]
+  # Worker process: sized for the worst-case extraction. The LlamaParse
+  # URL hand-off keeps memory low (file never enters the worker), but the
+  # buffered fallback path needs headroom for fs.readFile + Blob + undici
+  # request body = ~3-4x file size transient. 2 GB covers a ~200 MB PDF.
   memory = "2gb"
   cpu_kind = "shared"
   cpus = 1
+  processes = ["worker"]

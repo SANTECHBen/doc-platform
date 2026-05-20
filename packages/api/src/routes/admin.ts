@@ -17,7 +17,7 @@ import { randomBytes } from 'node:crypto';
 import { schema, type ProcedureDocMetadata } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { isExtractable } from '@platform/ai';
-import { triggerExtraction } from '../lib/extraction';
+import { enqueueExtraction } from '../lib/extraction';
 import { requireAuth } from '../middleware/auth';
 import { getScope, orgIdsLiteral, requireOrgInScope } from '../middleware/scope';
 import { createRateLimiter } from '../middleware/ratelimit';
@@ -2440,9 +2440,9 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
         })
         .returning();
 
-      if (doc && needsExtraction) {
-        triggerExtraction(app, doc.id);
-      }
+      // Doc is already inserted with extractionStatus='pending' when
+      // needsExtraction is true (see initialStatus above), so the worker
+      // process picks it up on its next poll. No fire-and-forget here.
       return doc;
     },
   );
@@ -2469,12 +2469,9 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
       // and the transactional chunk-swap at the end picks a deterministic
       // winner. If the 'processing' status is stale (container restarted),
       // reset is the only way out.
-      await db
-        .update(schema.documents)
-        .set({ extractionStatus: 'pending', extractionError: null })
-        .where(eq(schema.documents.id, doc.id));
-
-      triggerExtraction(app, doc.id);
+      // Marking the doc 'pending' is the entire job — the worker process
+      // polls for pending docs and runs the actual extraction.
+      await enqueueExtraction(db, doc.id);
       return { ok: true, documentId: doc.id };
     },
   );
@@ -2541,11 +2538,7 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
       prior_chunk_count: number;
     }> = [];
     for (const row of rows) {
-      await db
-        .update(schema.documents)
-        .set({ extractionStatus: 'pending', extractionError: null })
-        .where(eq(schema.documents.id, row.id));
-      triggerExtraction(app, row.id);
+      await enqueueExtraction(db, row.id);
       queued.push({
         id: row.id,
         kind: row.kind,
