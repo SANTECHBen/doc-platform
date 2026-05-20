@@ -736,10 +736,6 @@ function TurnView({
           <SourcesList sources={ordered} />
         )}
 
-        {!turn.streaming && turn.verify && (
-          <GroundingPanel verify={turn.verify} />
-        )}
-
         {!turn.streaming && canPromote && turn.messageId && (
           <div className="mt-3 border-t border-line pt-2.5">
             <button
@@ -875,48 +871,6 @@ function ConflictBanner({ reason }: { reason: string }): React.ReactElement {
   );
 }
 
-// Compact grounding panel — only renders when there are weak/unsupported
-// claims worth reviewing. Hidden when everything is fully supported (the
-// badge already says "Verified").
-function GroundingPanel({ verify }: { verify: VerifyResult }): React.ReactElement | null {
-  const [open, setOpen] = useState(false);
-  const flagged = verify.sentences.filter(
-    (s) => s.level === 'weak' || s.level === 'unsupported',
-  );
-  if (flagged.length === 0) return null;
-  return (
-    <div className="grounding-panel">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="grounding-panel-toggle"
-      >
-        <span className="led led-warn" />
-        {flagged.length} claim{flagged.length === 1 ? '' : 's'} need review
-        <ChevronDown
-          size={12}
-          strokeWidth={2.5}
-          style={{ transform: open ? 'rotate(180deg)' : 'none' }}
-          className="transition-transform"
-        />
-      </button>
-      {open && (
-        <ul className="grounding-panel-list">
-          {flagged.map((s, i) => (
-            <li key={i} className={`grounding-panel-item grounding-${s.level}`}>
-              <span className="grounding-panel-tag">
-                {s.level === 'weak' ? 'Weak' : 'Unsupported'}
-              </span>
-              <span>{s.text}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
 // Collapsible source list. Grounding is still emitted by the retriever and
 // cited inline as [1] [2] markers in the prose — the full list is tucked
 // behind a button so casual users aren't buried in quotes. Click to toggle.
@@ -962,20 +916,32 @@ function rewriteCitations(
   text: string,
   citations: ChatCitation[],
 ): { rewritten: string; ordered: ChatCitation[] } {
+  // Strip raw `[pdfpage:DOC:START:END]` directives from rendered chat
+  // text. They're a machine-readable signal for voice mode (which opens
+  // an inline PDF viewer overlay) — in the regular chat surface they
+  // just read as noise. cite/section/procedure get their own handling.
+  const stripPdfPage = (s: string) =>
+    s.replace(/\[pdfpage:[a-f0-9-]{8,}(?::\d+){0,2}\]/gi, '');
+
   if (citations.length === 0) {
-    return { rewritten: text.replace(/\[cite:[a-f0-9-]{8,}\]/gi, ''), ordered: [] };
+    return {
+      rewritten: stripPdfPage(text.replace(/\[cite:[a-f0-9-]{8,}\]/gi, '')),
+      ordered: [],
+    };
   }
   const byChunkId = new Map(citations.map((c) => [c.chunkId, c]));
   const orderMap = new Map<string, number>();
   let nextIndex = 1;
-  const rewritten = text.replace(/\[cite:([a-f0-9-]{8,})\]/gi, (_, id: string) => {
-    if (!byChunkId.has(id)) return '';
-    if (!orderMap.has(id)) {
-      orderMap.set(id, nextIndex);
-      nextIndex += 1;
-    }
-    return ` [${orderMap.get(id)}]`;
-  });
+  const rewritten = stripPdfPage(
+    text.replace(/\[cite:([a-f0-9-]{8,})\]/gi, (_, id: string) => {
+      if (!byChunkId.has(id)) return '';
+      if (!orderMap.has(id)) {
+        orderMap.set(id, nextIndex);
+        nextIndex += 1;
+      }
+      return ` [${orderMap.get(id)}]`;
+    }),
+  );
   const ordered = [...orderMap.entries()]
     .sort((a, b) => a[1] - b[1])
     .map(([id]) => byChunkId.get(id)!)
