@@ -37,6 +37,10 @@ primary_region = "ord"
   path = "/health"
 
 [[vm]]
-  memory = "512mb"
+  # 1GB lets the extraction pipeline buffer typical OEM manuals (5-20 MB
+  # PDFs) without OOM. The PDF parser expands the working set 5-10x of the
+  # file size, then embedding requests run in parallel — 512mb was tight
+  # enough that a single non-trivial PDF would SIGKILL the box.
+  memory = "1gb"
   cpu_kind = "shared"
   cpus = 1
