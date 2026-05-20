@@ -64,7 +64,7 @@ async function claimNextJob(): Promise<string | null> {
     WHERE id = (
       SELECT id FROM documents
       WHERE extraction_status = 'pending'
-      ORDER BY updated_at ASC
+      ORDER BY created_at ASC
       LIMIT 1
       FOR UPDATE SKIP LOCKED
     )
