@@ -111,10 +111,12 @@ export async function registerPmRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      // Writes always need real auth — service records are attributed
-      // evidence of work; we don't accept anonymous scan-session
-      // submissions for them.
-      requireAuth(request);
+      // Accept either authenticated tech OR a valid scan-session.
+      // When the org doesn't require per-tech sign-in (today's default
+      // and only mode), a scan-session cookie is sufficient — the
+      // record is attributed as anonymous (performedByUserId = null)
+      // and renders as "Field tech" in History.
+      requireAuthOrScan(request);
 
       const instance = await db.query.assetInstances.findFirst({
         where: eq(schema.assetInstances.id, request.params.instanceId),
@@ -122,7 +124,7 @@ export async function registerPmRoutes(app: FastifyInstance) {
       });
       if (!instance) return reply.code(404).send({ error: 'not_found' });
 
-      // The user must have scope to the instance's org.
+      // Scope check (same shape for auth + scan sessions).
       const scope = await getEffectiveOrgScope(request, db);
       if (!scope) return reply.code(401).send({ error: 'unauthorized' });
       if (!scope.all && !scope.orgIds.includes(instance.site.organizationId)) {
@@ -152,7 +154,7 @@ export async function registerPmRoutes(app: FastifyInstance) {
             pmScheduleId: request.body.pmScheduleId ?? null,
             documentId: request.body.documentId ?? null,
             procedureRunId: request.body.procedureRunId ?? null,
-            performedByUserId: request.auth!.userId,
+            performedByUserId: request.auth?.userId ?? null,
             performedAt: request.body.performedAt
               ? new Date(request.body.performedAt)
               : new Date(),
@@ -225,7 +227,7 @@ export async function registerPmRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      requireAuth(request);
+      requireAuthOrScan(request);
       const instance = await db.query.assetInstances.findFirst({
         where: eq(schema.assetInstances.id, request.params.instanceId),
         with: { site: true },
@@ -255,7 +257,9 @@ export async function registerPmRoutes(app: FastifyInstance) {
           assetInstanceId: instance.id,
           planId: plan.id,
           frequency: request.body.frequency,
-          performedByUserId: request.auth!.userId,
+          // Anonymous when no auth header — see PM service record
+          // handler for the parallel rationale.
+          performedByUserId: request.auth?.userId ?? null,
           performedAt: request.body.performedAt
             ? new Date(request.body.performedAt)
             : new Date(),

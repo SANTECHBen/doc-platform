@@ -274,7 +274,7 @@ export function IssuesPanel({
                 <div className="workorder-title">{o.title}</div>
                 {o.description && <div className="workorder-desc">{o.description}</div>}
                 <div className="workorder-meta">
-                  {o.openedBy?.displayName ?? 'Unknown'} · {new Date(o.openedAt).toLocaleString()}
+                  {o.openedBy?.displayName ?? 'Field tech'} · {new Date(o.openedAt).toLocaleString()}
                 </div>
                 {o.attachments && o.attachments.length > 0 && (
                   <div className="mt-2 flex gap-1.5">

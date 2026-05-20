@@ -436,13 +436,15 @@ export async function computePmStatusForInstance(
 
   // Merge + sort + cap at 20. Plan records carry a pmPlan field with
   // the bucket frequency so the PWA can render "Cleaning · Daily"
-  // instead of an unlabeled row.
+  // instead of an unlabeled row. `performedBy` is nullable because
+  // anonymous PWA scan-session writes (the default org mode) don't
+  // attribute to a user; the PWA renders those as "Field tech".
   type HistoryItem = {
     id: string;
     pmSchedule: { id: string; name: string } | null;
     pmPlan: { id: string; name: string; frequencyLabel: string } | null;
     document: { id: string; title: string } | null;
-    performedBy: { id: string; displayName: string };
+    performedBy: { id: string; displayName: string } | null;
     performedAt: string;
     notes: string | null;
   };
@@ -457,10 +459,9 @@ export async function computePmStatusForInstance(
         document: h.document
           ? { id: h.document.id, title: h.document.title }
           : null,
-        performedBy: {
-          id: h.performedBy.id,
-          displayName: h.performedBy.displayName,
-        },
+        performedBy: h.performedBy
+          ? { id: h.performedBy.id, displayName: h.performedBy.displayName }
+          : null,
         performedAt: h.performedAt.toISOString(),
         notes: h.notes,
       }),
@@ -477,10 +478,9 @@ export async function computePmStatusForInstance(
             }
           : null,
         document: null,
-        performedBy: {
-          id: h.performedBy.id,
-          displayName: h.performedBy.displayName,
-        },
+        performedBy: h.performedBy
+          ? { id: h.performedBy.id, displayName: h.performedBy.displayName }
+          : null,
         performedAt: h.performedAt.toISOString(),
         notes: h.notes,
       }),

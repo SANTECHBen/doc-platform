@@ -474,7 +474,9 @@ export interface PmServiceRecordItem {
    *  is the friendly bucket name ("Daily" / "Monthly" / ...). */
   pmPlan: { id: string; name: string; frequencyLabel: string } | null;
   document: { id: string; title: string } | null;
-  performedBy: { id: string; displayName: string };
+  /** null when the org allows anonymous PWA writes and no tech was
+   *  signed in — surfaces as "Field tech" in History. */
+  performedBy: { id: string; displayName: string } | null;
   performedAt: string;
   notes: string | null;
 }
@@ -602,6 +604,12 @@ export async function fetchTroubleshooting(
   return (await res.json()) as { guides: TroubleshootingGuide[] };
 }
 
+// PWA field writes intentionally omit the x-dev-user header so the
+// API records them as anonymous (performedByUserId = null). The
+// History card renders these as "Field tech". devUserId/devOrgId
+// params remain on the signature for back-compat with existing
+// callers and a future strict-mode path (OIDC sign-in), but they're
+// not transmitted today.
 export async function createPmPlanServiceRecord(params: {
   assetInstanceId: string;
   planId: string;
@@ -615,9 +623,9 @@ export async function createPmPlanServiceRecord(params: {
     `${CLIENT_API_BASE}/assets/${encodeURIComponent(params.assetInstanceId)}/pm-plan-service-records`,
     {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'content-type': 'application/json',
-        'x-dev-user': `${params.devUserId}:${params.devOrgId}`,
       },
       body: JSON.stringify({
         planId: params.planId,
@@ -645,9 +653,9 @@ export async function createPmServiceRecord(params: {
     `${CLIENT_API_BASE}/assets/${encodeURIComponent(params.assetInstanceId)}/pm-service-records`,
     {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'content-type': 'application/json',
-        'x-dev-user': `${params.devUserId}:${params.devOrgId}`,
       },
       body: JSON.stringify({
         pmScheduleId: params.pmScheduleId ?? null,
@@ -683,11 +691,15 @@ export async function createWorkOrder(params: {
   devUserId: string;
   devOrgId: string;
 }): Promise<WorkOrder> {
+  // Work-order POST is anonymous from the PWA (no x-dev-user). Server
+  // attributes openedByUserId = null when there's no auth header; the
+  // record still ties back to assetInstance + site via the scan
+  // session. Issues panel renders the reporter as "Field tech".
   const res = await fetch(`${CLIENT_API_BASE}/work-orders`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'content-type': 'application/json',
-      'x-dev-user': `${params.devUserId}:${params.devOrgId}`,
     },
     body: JSON.stringify({
       assetInstanceId: params.assetInstanceId,

@@ -278,10 +278,10 @@ export function MaintenanceTab({
   const nothingScheduled = !anyMaintenance;
 
   async function logServicePerformed(s: PmScheduleStatusItem) {
-    if (!DEV_USER_ID || !DEV_ORG_ID) {
-      toast.error('Sign in required', 'Sign in to log service.');
-      return;
-    }
+    // No identity gate — writes go through the scan session and are
+    // attributed as "Field tech" server-side. When strict per-tech
+    // sign-in is wired (admin-toggleable, future), this is where the
+    // AuthPrompt fallback returns.
     setMarking(s.schedule.id);
     try {
       await createPmServiceRecord({
@@ -1203,7 +1203,7 @@ function HistoryRow({ record }: { record: PmServiceRecordItem }) {
         </div>
         <div className="text-right font-mono text-[11px] text-ink-tertiary">
           <div>{formatNextDue(record.performedAt)}</div>
-          <div>{record.performedBy.displayName}</div>
+          <div>{record.performedBy?.displayName ?? 'Field tech'}</div>
         </div>
       </div>
     </div>

@@ -88,8 +88,11 @@ export const pmSchedules = pgTable(
 //    history; record survives as "ad-hoc service".
 //  - documentId set null + procedureRunId set null: links to authoring
 //    artifacts that may rotate; record itself is the system of record.
-//  - performedByUserId cascade: removing a user purges their work history,
-//    consistent with how procedure_runs handle it.
+//  - performedByUserId set null: anonymous PWA scan-session writes
+//    leave this null and render as "Field tech" in History. When a
+//    user is attached and later deleted, we drop the link rather than
+//    purging compliance history — the record itself is the audit
+//    artifact and stays valid without the performer.
 export const pmServiceRecords = pgTable(
   'pm_service_records',
   {
@@ -106,9 +109,9 @@ export const pmServiceRecords = pgTable(
     procedureRunId: uuid('procedure_run_id').references(() => procedureRuns.id, {
       onDelete: 'set null',
     }),
-    performedByUserId: uuid('performed_by_user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
+    performedByUserId: uuid('performed_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
     performedAt: timestamp('performed_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -279,9 +282,11 @@ export const pmPlanServiceRecords = pgTable(
       onDelete: 'set null',
     }),
     frequency: pmPlanFrequencyEnum('frequency').notNull(),
-    performedByUserId: uuid('performed_by_user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
+    // Nullable to support anonymous PWA scan-session writes. See
+    // pmServiceRecords for the same pattern + reasoning.
+    performedByUserId: uuid('performed_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
     performedAt: timestamp('performed_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
