@@ -826,7 +826,7 @@ function DocView({
             <span className="corner-mark br" aria-hidden />
           </>
         )}
-        {doc.safetyCritical && (
+        {doc.safetyCritical && doc.kind !== 'pdf' && (
           <div className="mx-auto mb-4 max-w-3xl rounded-md border border-signal-safety/50 bg-signal-safety/10 p-4">
             <div className="flex items-start gap-3">
               <ShieldAlert size={20} strokeWidth={2} className="mt-0.5 shrink-0 text-signal-safety" />

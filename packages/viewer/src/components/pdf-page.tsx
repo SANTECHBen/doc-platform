@@ -66,30 +66,89 @@ export function PdfPage(props: PdfPageProps): React.ReactElement {
   const [dims, setDims] = useState<PageDimensions | null>(null);
   const [textLayer, setTextLayer] = useState<PageTextLayer | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Lazy-render gate. We always fetch dims so the placeholder reserves
+  // the correct space (no layout jumps as the user scrolls), but the
+  // expensive canvas render only fires when the page enters the
+  // viewport. Without this, a 200-page PDF would render every page on
+  // mount and overrun the browser's canvas memory budget — pages would
+  // silently fail and images would be missing.
+  const [shouldRender, setShouldRender] = useState(false);
 
-  // Render the canvas + capture text layer whenever inputs change.
+  // Resolve dimensions and arm the IntersectionObserver as soon as we
+  // know the page exists. Dims are cheap (just viewport metadata) so
+  // doing them up-front for every page is fine; what we avoid is the
+  // heavy rasterisation until the page is near the viewport.
   useEffect(() => {
     let cancelled = false;
-    let activeRender: ReturnType<typeof renderPageToCanvas> | null = null;
     setError(null);
     setDims(null);
+    (async () => {
+      try {
+        const page = await doc.getPage(pageNumber);
+        if (cancelled) return;
+        const cssDims = getPageDimensions(page, scale);
+        if (cancelled) return;
+        setDims(cssDims);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [doc, pageNumber, scale]);
+
+  // Watch the container's intersection with the viewport. Start
+  // rendering ~600px before the page scrolls into view so the user
+  // rarely sees the placeholder. Once a page has rendered we stop
+  // observing — re-rendering on every scroll-out / scroll-in causes
+  // visible flicker and burns CPU.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    if (shouldRender) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setShouldRender(true);
+      return;
+    }
+    const obs = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) {
+            setShouldRender(true);
+            obs.disconnect();
+            return;
+          }
+        }
+      },
+      { rootMargin: '600px' },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [shouldRender]);
+
+  // Render the canvas + capture text layer once both (a) dimensions are
+  // known and (b) the page has been scrolled into view at least once.
+  useEffect(() => {
+    if (!shouldRender) return;
+    if (!dims) return;
+    let cancelled = false;
+    let activeRender: ReturnType<typeof renderPageToCanvas> | null = null;
     setTextLayer(null);
 
     (async () => {
       try {
         const page = await doc.getPage(pageNumber);
         const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
-        const cssDims = getPageDimensions(page, scale);
         if (cancelled) return;
-        setDims(cssDims);
 
         const canvas = canvasRef.current;
         if (!canvas) return;
         // Backing-store size at devicePixelRatio for crisp rendering.
-        canvas.width = Math.floor(cssDims.width * dpr);
-        canvas.height = Math.floor(cssDims.height * dpr);
-        canvas.style.width = `${cssDims.width}px`;
-        canvas.style.height = `${cssDims.height}px`;
+        canvas.width = Math.floor(dims.width * dpr);
+        canvas.height = Math.floor(dims.height * dpr);
+        canvas.style.width = `${dims.width}px`;
+        canvas.style.height = `${dims.height}px`;
         activeRender = renderPageToCanvas(page, canvas, scale * dpr);
         try {
           await activeRender.promise;
@@ -121,7 +180,7 @@ export function PdfPage(props: PdfPageProps): React.ReactElement {
       // canvas during multiple render operations".
       activeRender?.cancel();
     };
-  }, [doc, pageNumber, scale, enableTextLayer]);
+  }, [doc, pageNumber, scale, enableTextLayer, shouldRender, dims]);
 
   // Selection capture — listen for `mouseup` inside the text layer and
   // resolve the current selection range to character offsets.
