@@ -481,16 +481,21 @@ function PartsQuickActions({
 // stacked status LEDs + customer caption + photo + metrics — those
 // pieces live in the topbar and StatusStrip now.
 function IdentityBand({ hub }: { hub: AssetHubPayload }) {
+  // Prefer the per-instance hero photo when authored — different units
+  // at different sites can look distinct (paint scheme, attached
+  // accessories, surrounding context). Falls back to the model SKU's
+  // canonical photo when no override is set.
+  const heroUrl = hub.assetInstance.imageUrl ?? hub.assetModel.imageUrl;
   return (
     <header className="identity-band" aria-label="Asset identity">
-      {hub.assetModel.imageUrl ? (
+      {heroUrl ? (
         <ImageZoom
-          src={hub.assetModel.imageUrl}
+          src={heroUrl}
           alt={hub.assetModel.displayName}
           triggerLabel={`Enlarge ${hub.assetModel.displayName} photo`}
         >
           <img
-            src={hub.assetModel.imageUrl}
+            src={heroUrl}
             alt=""
             className="identity-band-image"
           />

@@ -686,6 +686,36 @@ export async function registerAdminMutations(app: FastifyInstance) {
     },
   );
 
+  // PATCH asset instance image. Per-instance hero override — when set,
+  // the PWA Overview prefers this over the model's canonical photo.
+  app.patch<{ Params: { id: string }; Body: { imageStorageKey: string | null } }>(
+    '/admin/asset-instances/:id/image',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema }),
+        body: z.object({ imageStorageKey: z.string().max(400).nullable() }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const scope = await getScope(request, db);
+      const instance = await db.query.assetInstances.findFirst({
+        where: eq(schema.assetInstances.id, request.params.id),
+        with: { site: true },
+      });
+      if (!instance) return reply.notFound();
+      requireOrgInScope(scope, instance.site.organizationId);
+      const [updated] = await db
+        .update(schema.assetInstances)
+        .set({ imageStorageKey: request.body.imageStorageKey })
+        .where(eq(schema.assetInstances.id, request.params.id))
+        .returning();
+      if (!updated) return reply.notFound();
+      return updated;
+    },
+  );
+
   // PATCH part image.
   app.patch<{ Params: { id: string }; Body: { imageStorageKey: string | null } }>(
     '/admin/parts/:id/image',
@@ -911,7 +941,7 @@ export async function registerAdminMutations(app: FastifyInstance) {
     '/admin/asset-models/:modelId/instances',
     { schema: { params: z.object({ modelId: UuidSchema }) } },
     async (request) => {
-      const { db } = app.ctx;
+      const { db, storage } = app.ctx;
       requireAuth(request);
       const rows = await db.query.assetInstances.findMany({
         where: eq(schema.assetInstances.assetModelId, request.params.modelId),
@@ -924,6 +954,8 @@ export async function registerAdminMutations(app: FastifyInstance) {
         id: r.id,
         serialNumber: r.serialNumber,
         installedAt: r.installedAt,
+        imageStorageKey: r.imageStorageKey,
+        imageUrl: r.imageStorageKey ? storage.publicUrl(r.imageStorageKey) : null,
         site: {
           id: r.site.id,
           name: r.site.name,

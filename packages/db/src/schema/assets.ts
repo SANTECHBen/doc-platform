@@ -56,6 +56,11 @@ export const assetInstances = pgTable(
       () => contentPackVersions.id,
       { onDelete: 'set null' },
     ),
+    // Optional per-instance hero photo. When set, the PWA Overview shows
+    // this instead of the asset model's canonical image — useful when a
+    // customer's unit looks meaningfully different from the SKU photo
+    // (different finish, surrounding context, attached accessories).
+    imageStorageKey: text('image_storage_key'),
     installedAt: timestamp('installed_at', { withTimezone: true }),
     metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

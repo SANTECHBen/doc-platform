@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   CalendarRange,
   ChevronDown,
+  ImagePlus,
   Info,
   Loader2,
   Package,
@@ -14,6 +15,7 @@ import {
   Plus,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react';
 import { PageHeader, PageShell } from '@/components/page-shell';
 import { PMSchedulesSection } from '@/components/pm-schedules-section';
@@ -43,7 +45,9 @@ import {
   pinLatestVersion,
   removeBomEntry,
   unpinInstance,
+  updateAssetInstanceImage,
   updateAssetModel,
+  uploadFile,
   listAllSites,
   listAdminAssetModels,
   listInstancesForModel,
@@ -431,6 +435,7 @@ export default function AssetModelDetail({
           <table className="data-table">
             <thead className="bg-surface-inset text-left text-xs uppercase tracking-wide text-ink-tertiary">
               <tr>
+                <th className="px-4 py-2" style={{ width: 80 }}>Image</th>
                 <th className="px-4 py-2">Serial</th>
                 <th className="px-4 py-2">Site</th>
                 <th className="px-4 py-2">Customer</th>
@@ -441,7 +446,10 @@ export default function AssetModelDetail({
             </thead>
             <tbody>
               {instances.map((i) => (
-                <tr key={i.id} className="border-t border-line-subtle">
+                <tr key={i.id} className="border-t border-line-subtle align-top">
+                  <td className="px-4 py-3" style={{ width: 80 }}>
+                    <InstanceImageCell instance={i} onRefresh={refresh} />
+                  </td>
                   <td className="px-4 py-3 font-mono text-xs">{i.serialNumber}</td>
                   <td className="px-4 py-3 text-ink-secondary">{i.site.name}</td>
                   <td className="px-4 py-3 text-ink-secondary">{i.site.organization}</td>
@@ -787,6 +795,89 @@ export default function AssetModelDetail({
         </div>
       )}
     </PageShell>
+  );
+}
+
+// Per-instance hero image cell — same pattern as the parts table's
+// image cell: dashed uploader when empty, thumbnail + tiny X to clear
+// when populated. Override falls back to the model's canonical photo
+// in the PWA when null, so leaving it blank is the safe default.
+function InstanceImageCell({
+  instance,
+  onRefresh,
+}: {
+  instance: ModelInstance;
+  onRefresh: () => Promise<void>;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const toast = useToast();
+
+  async function onImagePicked(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const r = await uploadFile(file);
+      await updateAssetInstanceImage(instance.id, r.storageKey);
+      toast.success('Instance image updated', `S/N ${instance.serialNumber}`);
+      await onRefresh();
+    } catch (err) {
+      toast.error('Upload failed', err instanceof Error ? err.message : String(err));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function removeImage() {
+    try {
+      await updateAssetInstanceImage(instance.id, null);
+      await onRefresh();
+    } catch (err) {
+      toast.error('Remove failed', err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  if (instance.imageUrl) {
+    return (
+      <div className="group relative">
+        <img
+          src={instance.imageUrl}
+          alt=""
+          className="h-14 w-14 rounded object-cover"
+          style={{ border: '1px solid rgb(var(--line))' }}
+        />
+        <button
+          type="button"
+          onClick={removeImage}
+          className="absolute -right-1.5 -top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full border border-line bg-surface-raised text-ink-tertiary shadow-sm transition hover:text-signal-fault"
+          aria-label="Remove image"
+        >
+          <X size={11} strokeWidth={2} />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <label
+      className={`flex h-14 w-14 cursor-pointer items-center justify-center rounded border border-dashed border-line bg-surface-inset text-ink-tertiary transition hover:border-line-strong hover:text-ink-primary ${
+        uploading ? 'opacity-50' : ''
+      }`}
+      title="Upload instance image (falls back to model photo when empty)"
+    >
+      {uploading ? (
+        <span className="text-[10px]">…</span>
+      ) : (
+        <ImagePlus size={18} strokeWidth={1.5} />
+      )}
+      <input
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        onChange={onImagePicked}
+        className="hidden"
+        disabled={uploading}
+      />
+    </label>
   );
 }
 

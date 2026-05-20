@@ -1293,8 +1293,25 @@ export interface ModelInstance {
   id: string;
   serialNumber: string;
   installedAt: string | null;
+  imageStorageKey: string | null;
+  imageUrl: string | null;
   site: { id: string; name: string; organization: string };
   pinnedVersion: { id: string; number: number; label: string | null } | null;
+}
+
+export async function updateAssetInstanceImage(
+  id: string,
+  imageStorageKey: string | null,
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/asset-instances/${encodeURIComponent(id)}/image`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ imageStorageKey }),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }
 
 export async function listInstancesForModel(modelId: string): Promise<ModelInstance[]> {

@@ -8,6 +8,10 @@ export const AssetHubPayloadSchema = z.object({
     id: UuidSchema,
     serialNumber: z.string(),
     installedAt: z.string().datetime().nullable(),
+    // Per-instance hero photo. When set, the PWA Overview prefers this
+    // over the asset model's canonical image. null = fall back to
+    // assetModel.imageUrl.
+    imageUrl: z.string().nullable(),
   }),
   assetModel: z.object({
     id: UuidSchema,

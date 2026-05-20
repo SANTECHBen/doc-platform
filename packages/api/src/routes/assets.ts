@@ -150,11 +150,16 @@ export async function registerAssetRoutes(app: FastifyInstance) {
         ? storage.publicUrl(instance.model.imageStorageKey)
         : null;
 
+      const instanceImageUrl = instance.imageStorageKey
+        ? storage.publicUrl(instance.imageStorageKey)
+        : null;
+
       const payload = AssetHubPayloadSchema.parse({
         assetInstance: {
           id: instance.id,
           serialNumber: instance.serialNumber,
           installedAt: instance.installedAt?.toISOString() ?? null,
+          imageUrl: instanceImageUrl,
         },
         assetModel: {
           id: instance.model.id,
