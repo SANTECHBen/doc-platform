@@ -345,6 +345,7 @@ export default function ContentPackDetail({
                         key={m.id}
                         module={m}
                         versionStatus={v.status}
+                        isSuperAdmin={isSuperAdmin}
                         onRefresh={refresh}
                       />
                     ))}
@@ -1296,21 +1297,27 @@ function ExtractionBadge({ status }: { status: DocRowData['extractionStatus'] })
 function TrainingModuleRow({
   module,
   versionStatus,
+  isSuperAdmin,
   onRefresh,
 }: {
   module: { id: string; title: string };
   versionStatus: string;
+  isSuperAdmin: boolean;
   onRefresh: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const toast = useToast();
-  const canDelete = versionStatus === 'draft';
+  // Drafts: anyone in scope can delete. Published: only platform admins
+  // (matches the server-side check in DELETE /admin/training-modules/:id).
+  const canDelete = versionStatus === 'draft' || isSuperAdmin;
 
   async function onDelete() {
-    if (!confirm(`Delete training module "${module.title}"?\n\nLessons and activities inside it will also be removed.`)) {
-      return;
-    }
+    const msg =
+      versionStatus === 'draft'
+        ? `Delete training module "${module.title}"?\n\nLessons and activities inside it will also be removed.`
+        : `Delete training module "${module.title}" from a PUBLISHED version?\n\nThis edits live content. Lessons and activities inside it will be removed.`;
+    if (!confirm(msg)) return;
     setDeleting(true);
     try {
       await deleteTrainingModule(module.id);
