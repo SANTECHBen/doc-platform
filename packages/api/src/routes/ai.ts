@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { schema, type Database } from '@platform/db';
 import { PM_PLAN_FREQUENCY_LABEL } from '@platform/db';
 import {
@@ -113,7 +113,13 @@ export async function registerAIRoutes(app: FastifyInstance) {
                     type: 'text',
                     text: `You are looking at a photo taken by a technician at an industrial site. The equipment is: ${instance.model.displayName} (${instance.model.category}), serial ${instance.serialNumber}.
 
-Extract in 2–3 sentences the key observable facts: any visible fault codes, alarm lights, error messages, nameplate identifiers, or the specific component visible. Do not speculate or advise — just describe what's in the frame. Begin: "Photo shows"`,
+Extract in 2–4 sentences the key observable facts. Cover, in order:
+1. The component visible (motor, sensor, actuator, belt, sprocket, bearing, valve, etc.) — be specific about what kind of part it is and its general role.
+2. Any visible nameplate text, OEM part numbers, model identifiers, or labels — quote them verbatim if legible.
+3. Any visible fault indicators — alarm LEDs, indicator lights, error codes, scorch marks, leaks, wear, broken pieces, missing fasteners.
+4. The overall condition (clean / dusty / oily / damaged / appears normal).
+
+Do not speculate about CAUSE or RECOMMEND action — just describe what's in the frame. The downstream answer pipeline will match this description against the equipment's parts catalog and authored troubleshooting guides. Begin: "Photo shows"`,
                   },
                 ],
               },
@@ -360,6 +366,18 @@ If no authored procedure plausibly matches, do NOT improvise a step list. Answer
       instance.model.id,
     );
 
+    // Live instance-state snapshot — what's overdue right now, what was
+    // performed recently, what work orders are open on THIS asset. The
+    // structured-knowledge block above is per-model (same for every
+    // instance of the same machine); this block is per-instance and is
+    // what lets the AI answer "when was the last belt inspection on
+    // this unit?" or "is anything overdue?" without the user
+    // describing the state to it first.
+    const liveAssetStateBlock = await buildLiveAssetStateBlock(
+      db,
+      instance.id,
+    );
+
     // Build system prompt.
     const safetyDirective = buildSafetyDirective(chunks);
     const systemText =
@@ -378,6 +396,7 @@ If no authored procedure plausibly matches, do NOT improvise a step list. Answer
       ) +
       authoredProcedureCatalog +
       structuredKnowledgeBlock +
+      liveAssetStateBlock +
       stepsDirective;
 
     // Record the user's message now so it survives even if the stream fails later.
@@ -878,11 +897,117 @@ type PairedCause = {
   documentId?: string | null;
 };
 
+// Per-instance live state — open work orders, recent service history,
+// PM status snapshot. Three small lists; total context cost is
+// negligible (~hundreds of tokens) and the answer-quality lift is
+// large (the AI can reason about THIS unit's actual state).
+async function buildLiveAssetStateBlock(
+  db: Database,
+  assetInstanceId: string,
+): Promise<string> {
+  const HISTORY_LIMIT = 8;
+  const WORK_ORDER_LIMIT = 5;
+
+  const [openWOs, scheduleHistory, planHistory] = await Promise.all([
+    db.query.workOrders.findMany({
+      where: and(
+        eq(schema.workOrders.assetInstanceId, assetInstanceId),
+        inArray(schema.workOrders.status, [
+          'open',
+          'acknowledged',
+          'in_progress',
+          'blocked',
+        ]),
+      ),
+      orderBy: [desc(schema.workOrders.openedAt)],
+      limit: WORK_ORDER_LIMIT,
+      columns: {
+        id: true,
+        title: true,
+        description: true,
+        severity: true,
+        status: true,
+        openedAt: true,
+      },
+    }),
+    db.query.pmServiceRecords.findMany({
+      where: eq(schema.pmServiceRecords.assetInstanceId, assetInstanceId),
+      orderBy: [desc(schema.pmServiceRecords.performedAt)],
+      limit: HISTORY_LIMIT,
+      with: {
+        schedule: { columns: { name: true } },
+      },
+    }),
+    db.query.pmPlanServiceRecords.findMany({
+      where: eq(schema.pmPlanServiceRecords.assetInstanceId, assetInstanceId),
+      orderBy: [desc(schema.pmPlanServiceRecords.performedAt)],
+      limit: HISTORY_LIMIT,
+      with: {
+        plan: { columns: { name: true } },
+      },
+    }),
+  ]);
+
+  // Merged + sorted recent service history (schedules + plan buckets).
+  const recentService = [
+    ...scheduleHistory.map((h) => ({
+      when: h.performedAt,
+      label: h.schedule?.name ?? 'Ad-hoc service',
+      kind: 'SCHEDULE' as const,
+    })),
+    ...planHistory.map((h) => ({
+      when: h.performedAt,
+      label: `${h.plan?.name ?? 'PM plan'} · ${PM_PLAN_FREQUENCY_LABEL[h.frequency]}`,
+      kind: 'PM_PLAN' as const,
+    })),
+  ]
+    .sort((a, b) => b.when.getTime() - a.when.getTime())
+    .slice(0, HISTORY_LIMIT);
+
+  if (openWOs.length === 0 && recentService.length === 0) {
+    // Nothing to add — return empty so the prompt doesn't grow with
+    // an empty header that wastes tokens.
+    return '';
+  }
+
+  const sections: string[] = ['\n\n## Live asset state'];
+
+  if (openWOs.length > 0) {
+    sections.push('', 'OPEN WORK ORDERS (on this specific unit):');
+    for (const wo of openWOs) {
+      const opened = wo.openedAt.toISOString().slice(0, 10);
+      const desc = wo.description ? ` — ${wo.description.slice(0, 200)}` : '';
+      sections.push(
+        `- [${wo.severity.toUpperCase()}] ${wo.title} (opened ${opened}, status=${wo.status})${desc}`,
+      );
+    }
+  } else {
+    sections.push('', 'OPEN WORK ORDERS: none.');
+  }
+
+  if (recentService.length > 0) {
+    sections.push('', 'RECENT SERVICE HISTORY (this unit, newest first):');
+    for (const r of recentService) {
+      const when = r.when.toISOString().slice(0, 10);
+      sections.push(`- ${when} · ${r.kind} · ${r.label}`);
+    }
+  } else {
+    sections.push('', 'RECENT SERVICE HISTORY: no records on this unit yet.');
+  }
+
+  sections.push(
+    '',
+    'Use this state to answer questions like "when was X last performed", "is anything overdue", "what work is open on this unit". Cite the appropriate doc/procedure when recommending an action.',
+  );
+
+  return sections.join('\n');
+}
+
 async function buildStructuredKnowledgeBlock(
   db: Database,
   assetModelId: string,
 ): Promise<string> {
-  const [plans, schedules, guides] = await Promise.all([
+  const [plans, schedules, guides, bomEntries] = await Promise.all([
     db.query.pmPlans.findMany({
       where: and(
         eq(schema.pmPlans.assetModelId, assetModelId),
@@ -922,6 +1047,23 @@ async function buildStructuredKnowledgeBlock(
             asc(schema.troubleshootingItems.orderingHint),
             asc(schema.troubleshootingItems.createdAt),
           ],
+        },
+      },
+    }),
+    // BOM (top-level parts on this asset model). Drives "what is
+    // this part?" / "is the X broken?" — the vision flow and the
+    // text chat both rely on having the part catalog inline so
+    // model answers can match against authored part names + PNs.
+    db.query.bomEntries.findMany({
+      where: eq(schema.bomEntries.assetModelId, assetModelId),
+      with: {
+        part: {
+          columns: {
+            id: true,
+            oemPartNumber: true,
+            displayName: true,
+            description: true,
+          },
         },
       },
     }),
@@ -1028,6 +1170,22 @@ async function buildStructuredKnowledgeBlock(
     );
   }
 
+  if (bomEntries.length > 0) {
+    const lines = bomEntries.map((b) => {
+      const p = b.part;
+      if (!p) return null;
+      const pn = p.oemPartNumber ? `[${p.oemPartNumber}] ` : '';
+      const pos = b.positionRef ? ` (pos ${b.positionRef})` : '';
+      const desc = p.description
+        ? ` — ${p.description.replace(/\s+/g, ' ').slice(0, 140)}`
+        : '';
+      return `- ${pn}${p.displayName}${pos}${desc}`;
+    });
+    sections.push(
+      `PART CATALOG (bill of materials for this asset model):\n${lines.filter(Boolean).join('\n')}`,
+    );
+  }
+
   if (sections.length === 0) return '';
 
   return (
@@ -1040,6 +1198,12 @@ async function buildStructuredKnowledgeBlock(
     'source for this asset model. Cite the plan or guide by name in ' +
     'your prose. If the user describes a symptom that matches one in a ' +
     'troubleshooting guide, list the possible causes and their remedy ' +
-    'steps in the order shown.'
+    'steps in the order shown.\n\n' +
+    'When the user uploads a photo of a part and asks "what is this" or ' +
+    '"what does this do", compare what you see against the PART CATALOG ' +
+    'above. If a single entry plausibly matches the visible part, name ' +
+    'it with its OEM number; if multiple plausibly match, list the top ' +
+    'candidates with what would distinguish them. Do not invent a part ' +
+    'name that is not in the catalog.'
   );
 }
