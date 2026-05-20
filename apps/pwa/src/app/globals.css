@@ -1237,176 +1237,18 @@
   .action-row:hover .action-row-play { color: rgb(var(--brand)); }
 
   /* ------------------------------------------------------------
-     CATEGORY CARD — Maintenance tab grid tile
-     A small instrument tile: status LED + label up top, a recessed
-     "readout" panel housing the count, subtitle below. Each tile
-     carries its own kind glyph in the top-right so cards have a
-     distinct silhouette without the label needing to be read first.
-     Active state lifts the tile with a brand-glow ring; tone-tinted
-     top border on the readout signals urgency at a glance.
+     CATEGORY CARD — Maintenance tab grid tile (icon · label · count).
+     Concrete styles live in .maintenance-filter-grid further down;
+     this base only provides shared button chrome.
      ------------------------------------------------------------ */
   .cat-card {
     position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-    padding: 12px 12px 12px 12px;
-    background: linear-gradient(
-      180deg,
-      rgb(var(--surface-plate-top)) 0%,
-      rgb(var(--surface-plate-bottom)) 100%
-    );
-    border: 1px solid rgb(var(--line));
-    border-radius: 6px;
     text-align: left;
     cursor: pointer;
     transition:
       border-color 140ms ease,
-      box-shadow 200ms ease,
-      transform 140ms ease;
+      box-shadow 200ms ease;
     overflow: hidden;
-    /* Subtle inset highlight on the top edge — reads as a milled
-       metal bevel. */
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.5),
-      inset 0 -1px 0 rgba(14, 18, 23, 0.04);
-  }
-  .cat-card:hover {
-    border-color: rgb(var(--line-strong));
-  }
-  .cat-card[data-active='true'] {
-    border-color: rgb(var(--brand));
-    transform: translateY(-1px);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.6),
-      inset 0 -1px 0 rgba(14, 18, 23, 0.05),
-      0 0 0 1px rgba(var(--brand) / 0.45),
-      0 4px 14px rgba(var(--brand-glow) / var(--brand-glow-a));
-  }
-  .cat-card-glyph {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    color: rgb(var(--ink-tertiary));
-    transition: color 200ms ease;
-  }
-  .cat-card[data-active='true'] .cat-card-glyph {
-    color: rgb(var(--brand));
-  }
-  /* Tone-aware glyph color for the urgent states so the card silhouette
-     itself signals attention even when not active. */
-  .cat-card[data-tone='fault'] .cat-card-glyph {
-    color: rgb(var(--signal-fault));
-  }
-  .cat-card[data-tone='warn'] .cat-card-glyph {
-    color: rgb(var(--signal-warn));
-  }
-  .cat-card-head {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    /* Reserve room for the glyph that's absolutely positioned in the
-       corner so the label doesn't slide under it. */
-    padding-right: 26px;
-    /* Two-line cap — long labels ("Preventive Maintenance", "Removal &
-       Replace") wrap cleanly without truncation. */
-    min-height: 32px;
-  }
-  .cat-card-label {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 700;
-    /* Tighter than the default cap tracking so single-word labels
-       ("TROUBLESHOOT") fit on one line in the narrow card width. */
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: rgb(var(--ink-primary));
-    /* Allow up to two lines, then ellipsize. Multi-word labels
-       wrap at spaces; single words stay intact even if it means
-       ellipsizing on very narrow viewports. word-break:normal +
-       overflow-wrap:normal prevents the browser from hyphenating
-       mid-character (which read as "TROUBLESHOO" / "T"). */
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    word-break: normal;
-    overflow-wrap: normal;
-    line-height: 1.25;
-  }
-  /* Tone-aware label color — fault/warn cards push the urgency
-     further by tinting the label too, not just the readout bar. */
-  .cat-card[data-tone='fault'] .cat-card-label {
-    color: rgb(var(--signal-fault));
-  }
-  .cat-card[data-active='true'] .cat-card-label {
-    color: rgb(var(--brand));
-  }
-  .cat-card-readout {
-    position: relative;
-    display: flex;
-    align-items: baseline;
-    justify-content: flex-start;
-    padding: 8px 12px;
-    background: rgb(var(--surface-inset));
-    border: 1px solid rgb(var(--line-subtle));
-    border-radius: 4px;
-    box-shadow: inset 0 1px 2px rgba(14, 18, 23, 0.06);
-  }
-  /* Tone-aware top accent on the readout — reads as a status bar
-     across the top edge of the display, like the colored title bar
-     on a SCADA instrument. */
-  .cat-card-readout::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: rgb(var(--line));
-  }
-  .cat-card[data-tone='fault'] .cat-card-readout::before {
-    background: rgb(var(--signal-fault));
-  }
-  .cat-card[data-tone='warn'] .cat-card-readout::before {
-    background: rgb(var(--signal-warn));
-  }
-  .cat-card[data-tone='ok'] .cat-card-readout::before {
-    background: rgb(var(--signal-ok));
-  }
-  .cat-card[data-active='true'] .cat-card-readout::before {
-    background: rgb(var(--brand));
-  }
-  .cat-card-count {
-    font-family: var(--font-mono);
-    font-size: 30px;
-    font-weight: 500;
-    line-height: 1;
-    letter-spacing: -0.02em;
-    font-variant-numeric: tabular-nums;
-    color: rgb(var(--ink-primary));
-  }
-  .cat-card[data-tone='fault'] .cat-card-count {
-    color: rgb(var(--signal-fault));
-  }
-  .cat-card[data-tone='warn'] .cat-card-count {
-    color: rgb(var(--signal-warn));
-  }
-  .cat-card-sub {
-    font-size: 11px;
-    color: rgb(var(--ink-tertiary));
-    line-height: 1.3;
-    /* Single-line ellipsis so cards stay uniform height even when
-       subtitles vary in length. */
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  @media (min-width: 768px) {
-    .cat-card-count {
-      font-size: 36px;
-    }
   }
 
   /* ------------------------------------------------------------
@@ -4009,141 +3851,10 @@
     flex-direction: column;
     gap: 14px;
   }
-  .maintenance-hero {
-    position: relative;
-    overflow: hidden;
-    border-radius: 8px;
-    border: 1px solid rgb(var(--line));
-    background:
-      linear-gradient(135deg, rgb(var(--brand) / 0.12), transparent 42%),
-      linear-gradient(180deg, rgb(var(--surface-raised)), rgb(var(--surface-elevated)));
-    box-shadow: var(--shadow-md);
-    padding: 16px;
-  }
-  .maintenance-hero::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background-image:
-      linear-gradient(90deg, rgb(var(--line-subtle) / 0.32) 1px, transparent 1px),
-      linear-gradient(180deg, rgb(var(--line-subtle) / 0.28) 1px, transparent 1px);
-    background-size: 24px 24px;
-    mask-image: linear-gradient(90deg, transparent, #000 18%, transparent 78%);
-    opacity: 0.34;
-    pointer-events: none;
-  }
-  .maintenance-hero[data-tone='fault'] {
-    border-color: rgb(var(--signal-fault) / 0.5);
-    background:
-      linear-gradient(135deg, rgb(var(--signal-fault) / 0.12), transparent 42%),
-      linear-gradient(180deg, rgb(var(--surface-raised)), rgb(var(--surface-elevated)));
-  }
-  .maintenance-hero[data-tone='warn'] {
-    border-color: rgb(var(--signal-warn) / 0.5);
-    background:
-      linear-gradient(135deg, rgb(var(--signal-warn) / 0.12), transparent 42%),
-      linear-gradient(180deg, rgb(var(--surface-raised)), rgb(var(--surface-elevated)));
-  }
-  .maintenance-hero-main {
-    position: relative;
-    display: flex;
-    align-items: flex-start;
-    gap: 13px;
-    z-index: 1;
-  }
-  .maintenance-hero-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 44px;
-    height: 44px;
-    border-radius: 8px;
-    flex-shrink: 0;
-    color: rgb(var(--brand));
-    background: rgb(var(--brand) / 0.12);
-    border: 1px solid rgb(var(--brand) / 0.25);
-  }
-  .maintenance-hero[data-tone='fault'] .maintenance-hero-icon {
-    color: rgb(var(--signal-fault));
-    background: rgb(var(--signal-fault) / 0.1);
-    border-color: rgb(var(--signal-fault) / 0.28);
-  }
-  .maintenance-hero[data-tone='warn'] .maintenance-hero-icon {
-    color: rgb(var(--signal-warn));
-    background: rgb(var(--signal-warn) / 0.1);
-    border-color: rgb(var(--signal-warn) / 0.28);
-  }
-  .maintenance-hero[data-tone='ok'] .maintenance-hero-icon {
-    color: rgb(var(--signal-ok));
-    background: rgb(var(--signal-ok) / 0.1);
-    border-color: rgb(var(--signal-ok) / 0.28);
-  }
-  .maintenance-hero-copy {
-    min-width: 0;
-  }
-  .maintenance-hero-kicker {
-    display: block;
-    margin-bottom: 4px;
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    font-weight: 700;
-    letter-spacing: 0;
-    text-transform: uppercase;
-    color: rgb(var(--ink-tertiary));
-  }
-  .maintenance-hero h2 {
-    margin: 0;
-    color: rgb(var(--ink-primary));
-    font-size: 24px;
-    line-height: 1.12;
-    font-weight: 700;
-    letter-spacing: 0;
-  }
-  .maintenance-hero p {
-    margin: 6px 0 0;
-    color: rgb(var(--ink-secondary));
-    font-size: 13.5px;
-    line-height: 1.45;
-  }
-  .maintenance-hero-stats {
-    position: relative;
-    z-index: 1;
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 1px;
-    margin-top: 16px;
-    overflow: hidden;
-    border: 1px solid rgb(var(--line-subtle));
-    border-radius: 8px;
-    background: rgb(var(--line-subtle));
-  }
-  .maintenance-hero-stat {
-    min-width: 0;
-    padding: 10px 8px;
-    background: rgb(var(--surface-raised) / 0.84);
-  }
-  .maintenance-hero-stat span {
-    display: block;
-    color: rgb(var(--ink-tertiary));
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0;
-  }
-  .maintenance-hero-stat strong {
-    display: block;
-    margin-top: 2px;
-    color: rgb(var(--ink-primary));
-    font-family: var(--font-mono);
-    font-size: 21px;
-    line-height: 1;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-  }
-
   .maintenance-filter-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
+    gap: 8px;
   }
   @media (min-width: 700px) {
     .maintenance-filter-grid {
@@ -4152,104 +3863,65 @@
   }
   .maintenance-filter-grid .cat-card {
     display: grid;
-    grid-template-columns: 40px minmax(0, 1fr);
-    grid-template-rows: auto auto auto;
-    column-gap: 12px;
-    row-gap: 4px;
-    min-height: 112px;
-    padding: 12px;
-    border-radius: 8px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: 1fr;
+    align-items: center;
+    column-gap: 10px;
+    row-gap: 0;
+    min-height: 60px;
+    padding: 10px 14px;
     background: rgb(var(--surface-raised));
     border: 1px solid rgb(var(--line));
+    border-radius: 8px;
     box-shadow: var(--shadow-sm);
   }
   .maintenance-filter-grid .cat-card:hover {
     border-color: rgb(var(--line-strong));
-    background: rgb(var(--surface-elevated));
   }
   .maintenance-filter-grid .cat-card[data-active='true'] {
     border-color: rgb(var(--brand));
-    transform: translateY(-1px);
     box-shadow:
       0 0 0 1px rgb(var(--brand) / 0.32),
-      0 10px 20px rgb(var(--brand-glow) / 0.12);
+      var(--shadow-sm);
   }
-  .maintenance-filter-grid .cat-card-glyph {
-    position: static;
-    grid-column: 1;
-    grid-row: 1 / span 3;
-    align-self: center;
-    box-sizing: content-box;
-    width: 18px;
-    height: 18px;
-    padding: 10px;
-    border-radius: 8px;
+  .maintenance-filter-grid .cat-card-icon {
+    flex-shrink: 0;
     color: rgb(var(--ink-secondary));
-    background: rgb(var(--surface-inset));
-    border: 1px solid rgb(var(--line-subtle));
   }
-  .maintenance-filter-grid .cat-card[data-tone='fault'] .cat-card-glyph {
+  .maintenance-filter-grid .cat-card[data-tone='fault'] .cat-card-icon {
     color: rgb(var(--signal-fault));
-    background: rgb(var(--signal-fault) / 0.09);
-    border-color: rgb(var(--signal-fault) / 0.25);
   }
-  .maintenance-filter-grid .cat-card[data-tone='warn'] .cat-card-glyph {
-    color: rgb(var(--signal-warn));
-    background: rgb(var(--signal-warn) / 0.09);
-    border-color: rgb(var(--signal-warn) / 0.25);
-  }
-  .maintenance-filter-grid .cat-card[data-tone='ok'] .cat-card-glyph {
-    color: rgb(var(--signal-ok));
-    background: rgb(var(--signal-ok) / 0.09);
-    border-color: rgb(var(--signal-ok) / 0.25);
-  }
-  .maintenance-filter-grid .cat-card[data-active='true'] .cat-card-glyph {
+  .maintenance-filter-grid .cat-card[data-active='true'] .cat-card-icon {
     color: rgb(var(--brand));
-    background: rgb(var(--brand) / 0.1);
-    border-color: rgb(var(--brand) / 0.3);
-  }
-  .maintenance-filter-grid .cat-card-head {
-    grid-column: 2;
-    min-height: 0;
-    padding-right: 0;
-    align-items: center;
-    gap: 7px;
   }
   .maintenance-filter-grid .cat-card-label {
+    min-width: 0;
     font-family: var(--font-sans);
     font-size: 13px;
-    font-weight: 650;
+    font-weight: 600;
     letter-spacing: 0;
     text-transform: none;
     color: rgb(var(--ink-primary));
     line-height: 1.2;
-  }
-  .maintenance-filter-grid .cat-card[data-tone='fault'] .cat-card-label,
-  .maintenance-filter-grid .cat-card[data-active='true'] .cat-card-label {
-    color: rgb(var(--ink-primary));
-  }
-  .maintenance-filter-grid .cat-card-readout {
-    grid-column: 2;
-    padding: 0;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
-  }
-  .maintenance-filter-grid .cat-card-readout::before {
-    display: none;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: normal;
+    overflow-wrap: normal;
   }
   .maintenance-filter-grid .cat-card-count {
-    font-size: 32px;
-    font-weight: 650;
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 600;
+    line-height: 1;
     letter-spacing: 0;
     color: rgb(var(--ink-primary));
+    font-variant-numeric: tabular-nums;
   }
-  .maintenance-filter-grid .cat-card-sub {
-    grid-column: 2;
-    color: rgb(var(--ink-secondary));
-    font-size: 11.5px;
-    line-height: 1.25;
+  .maintenance-filter-grid .cat-card[data-tone='fault'] .cat-card-count {
+    color: rgb(var(--signal-fault));
   }
 
   .maintenance-panel {
@@ -4264,41 +3936,24 @@
   }
   .maintenance-panel-header {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     justify-content: space-between;
     gap: 12px;
-    padding-bottom: 12px;
+    padding-bottom: 10px;
     border-bottom: 1px solid rgb(var(--line-subtle));
   }
-  .maintenance-panel-title {
-    min-width: 0;
-  }
-  .maintenance-panel-title h3 {
-    margin: 2px 0 0;
+  .maintenance-panel-header h3 {
+    margin: 0;
     color: rgb(var(--ink-primary));
     font-size: 18px;
     line-height: 1.2;
     font-weight: 700;
     letter-spacing: 0;
   }
-  .maintenance-panel-title p {
-    margin: 3px 0 0;
-    color: rgb(var(--ink-secondary));
-    font-size: 12.5px;
-  }
   .maintenance-panel-count {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 42px;
-    height: 42px;
-    padding: 0 10px;
-    border-radius: 8px;
-    background: rgb(var(--surface-inset));
-    border: 1px solid rgb(var(--line-subtle));
     color: rgb(var(--ink-primary));
     font-family: var(--font-mono);
-    font-size: 22px;
+    font-size: 20px;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
   }
@@ -4365,25 +4020,13 @@
     padding: 22px 16px;
   }
   @media (max-width: 520px) {
-    .maintenance-hero {
-      padding: 14px;
-    }
-    .maintenance-hero-stats {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
     .maintenance-filter-grid .cat-card {
-      min-height: 104px;
-      grid-template-columns: 36px minmax(0, 1fr);
-      column-gap: 10px;
-      padding: 10px;
-    }
-    .maintenance-filter-grid .cat-card-glyph {
-      width: 16px;
-      height: 16px;
-      padding: 9px;
+      min-height: 56px;
+      padding: 10px 12px;
+      column-gap: 8px;
     }
     .maintenance-filter-grid .cat-card-count {
-      font-size: 29px;
+      font-size: 20px;
     }
     .maintenance-card-actions .btn {
       flex: 1 1 auto;

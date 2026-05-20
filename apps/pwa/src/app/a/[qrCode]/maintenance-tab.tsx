@@ -2,24 +2,16 @@
 
 // Field-tech preventive maintenance view for an asset instance.
 //
-// Layout follows the rest of the PWA's industrial / SCADA design language:
-//   - A grid of category cards at the top (Action / Upcoming /
-//     Checklists / Troubleshoot / Procedures / History). Each card
-//     carries a small LED indicator + count + subtitle — the LED's
-//     colour (red pulse / amber pulse / idle grey) communicates urgency
-//     so the red reads as a low-key signal, not an alarm.
-//   - Tapping a card selects its slice; the chosen slice renders below.
-//   - Slice rows use the shared .surface-etched and .pill tokens so this
-//     tab matches Parts / Documents / Training.
-//
-// All data flows and actions unchanged — same refresh, launch hook,
-// service-record posts.
+// Compact 2-column grid of category cards (Action / Upcoming /
+// Preventive Maintenance / Removal & Replacement / Troubleshoot /
+// History) — each tile is just icon + label + count. Tapping a card
+// reveals its slice in the panel below and scrolls it into view so the
+// items aren't hiding below the fold.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CalendarClock,
-  CheckCircle2,
   Clock,
   History,
   ListChecks,
@@ -73,10 +65,6 @@ function formatDaysUntil(days: number): string {
 function formatCadenceDays(days: number): string {
   if (days === 1) return 'daily';
   return `every ${days} days`;
-}
-
-function pluralize(count: number, singular: string, plural = `${singular}s`) {
-  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 // Maps PmStatus / PmPlanBucket['status'] to the shared .pill tone classes.
@@ -141,6 +129,10 @@ export function MaintenanceTab({
   // currently in-flight, so the right button can show a spinner.
   // Keyed by schedule.id or `${planId}:${frequency}` for buckets.
   const [marking, setMarking] = useState<string | null>(null);
+  // Scroll the slice panel into view when the tech taps a card — the
+  // items below the grid would otherwise sit off-screen and read as
+  // "nothing happened" on phones.
+  const panelRef = useRef<HTMLElement | null>(null);
   const toast = useToast();
 
   async function refresh() {
@@ -200,6 +192,12 @@ export function MaintenanceTab({
     void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assetInstanceId]);
+
+  useEffect(() => {
+    if (active && panelRef.current) {
+      panelRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [active]);
 
   useEffect(() => {
     let cancelled = false;
@@ -287,12 +285,6 @@ export function MaintenanceTab({
     0,
   );
   const actionCount = dueNow.length + overdueBuckets.length;
-  const overdueCount =
-    dueNow.filter((s) => s.status === 'overdue').length +
-    overdueBuckets.filter((b) => b.bucket.status === 'overdue').length;
-  const dueTodayCount =
-    dueNow.filter((s) => s.status === 'due').length +
-    overdueBuckets.filter((b) => b.bucket.status === 'due').length;
   const anyMaintenance =
     data.schedules.length > 0 ||
     allBuckets.length > 0 ||
@@ -357,8 +349,8 @@ export function MaintenanceTab({
   }
 
   // Next-up preview: pick whichever of (upcoming flat schedule,
-  // upcoming plan bucket) is sooner — populates the third metric in
-  // the strip when nothing is overdue/due.
+  // upcoming plan bucket) is sooner — shown in the Action card's empty
+  // state so a tech who taps Action sees what's coming next.
   const nextItem = (() => {
     const cands: Array<{ label: string; days: number }> = [];
     if (upcoming[0]) {
@@ -399,44 +391,13 @@ export function MaintenanceTab({
                 ? 'history'
                 : 'walkthroughs';
   const activeView = active ?? recommendedKey;
-  const heroTone: MaintenanceTone =
-    actionCount > 0 ? (overdueCount > 0 ? 'fault' : 'warn') : 'ok';
-  const heroTitle =
-    actionCount > 0
-      ? `${pluralize(actionCount, 'item')} ${actionCount === 1 ? 'needs' : 'need'} attention`
-      : 'Maintenance is current';
-  const heroBody =
-    actionCount > 0
-      ? [
-          overdueCount > 0 ? `${pluralize(overdueCount, 'overdue item')}` : null,
-          dueTodayCount > 0 ? `${dueTodayCount} due today` : null,
-        ]
-          .filter(Boolean)
-          .join(' / ') || 'Start with the action list below.'
-      : nextItem
-        ? `Next scheduled: ${nextItem.label} ${formatDaysUntil(nextItem.days)}.`
-        : walkthroughCount > 0
-          ? 'Routine checklists and procedures are ready on demand.'
-          : 'No scheduled work in the planning window.';
   const cards: CategoryCard[] = [
     {
       key: 'action',
       label: 'Action',
       count: actionCount,
       // Binary tone — anything actionable reads red, otherwise green.
-      // The earlier 3-way (fault / warn / ok) gave the warn case an
-      // amber/brown tint that didn't pull weight; "needs action" is
-      // already a single-axis signal, no need to split it.
       tone: actionCount === 0 ? 'ok' : 'fault',
-      subtitle:
-        actionCount === 0
-          ? 'All caught up'
-          : [
-              overdueCount > 0 ? `${overdueCount} overdue` : null,
-              dueTodayCount > 0 ? `${dueTodayCount} due today` : null,
-            ]
-              .filter(Boolean)
-              .join(' · '),
       icon: AlertTriangle,
     },
     {
@@ -444,9 +405,6 @@ export function MaintenanceTab({
       label: 'Upcoming',
       count: upcomingCount,
       tone: 'idle',
-      subtitle: nextItem
-        ? `Next ${formatDaysUntil(nextItem.days)}`
-        : 'None scheduled',
       icon: CalendarClock,
     },
     {
@@ -454,21 +412,13 @@ export function MaintenanceTab({
       label: 'Preventive Maintenance',
       count: walkthroughCount,
       tone: 'idle',
-      subtitle:
-        walkthroughCount === 0
-          ? 'None authored'
-          : `${allBuckets.length} checklist${allBuckets.length === 1 ? '' : 's'} · ${nonRrProcedures.length} procedure${nonRrProcedures.length === 1 ? '' : 's'}`,
       icon: ListChecks,
     },
     {
       key: 'removal',
-      label: 'Removal & Replace',
+      label: 'Removal & Replacement',
       count: rrProcedures.length,
       tone: 'idle',
-      subtitle:
-        rrProcedures.length === 0
-          ? 'None authored'
-          : 'Tap to run',
       icon: RotateCcw,
     },
     {
@@ -476,10 +426,6 @@ export function MaintenanceTab({
       label: 'Troubleshoot',
       count: troubleshootingTotal,
       tone: 'idle',
-      subtitle:
-        troubleshooting.length === 0
-          ? 'No guides authored'
-          : `${troubleshooting.length} guide${troubleshooting.length === 1 ? '' : 's'}`,
       icon: ShieldAlert,
     },
     {
@@ -487,10 +433,6 @@ export function MaintenanceTab({
       label: 'History',
       count: data.history.length,
       tone: 'idle',
-      subtitle:
-        data.history.length === 0
-          ? 'No services logged'
-          : `Last ${data.history.length} services`,
       icon: History,
     },
   ];
@@ -781,16 +723,6 @@ export function MaintenanceTab({
 
   return (
     <div className="maintenance-page">
-      <MaintenanceHero
-        tone={heroTone}
-        title={heroTitle}
-        body={heroBody}
-        actionCount={actionCount}
-        upcomingCount={upcomingCount}
-        checklistCount={walkthroughCount}
-        historyCount={data.history.length}
-      />
-
       {nothingScheduled && libraryProcedures.length === 0 ? (
         <EmptyState
           title="No PM schedules for this model"
@@ -804,13 +736,9 @@ export function MaintenanceTab({
             onSelect={(k) => setActive(k)}
           />
 
-          <section className="maintenance-panel">
+          <section ref={panelRef} className="maintenance-panel">
             <header className="maintenance-panel-header">
-              <div className="maintenance-panel-title">
-                <span className="cap">Workstream</span>
-                <h3>{activeCard.label}</h3>
-                <p>{activeCard.subtitle}</p>
-              </div>
+              <h3>{activeCard.label}</h3>
               <span className="maintenance-panel-count">
                 {activeCard.count}
               </span>
@@ -836,83 +764,17 @@ function statusRank(s: PmPlanBucket['status']): number {
   }
 }
 
-// 2-column grid of category cards — replaces the previous tab row.
-// Each card carries its own LED indicator + count + subtitle, so the
-// dedicated "status strip" is no longer needed. Active card gets a
-// brand-tinted border; status urgency is communicated by the LED dot
-// (.led-fault pulses red, .led-warn pulses amber, .led-idle is static
-// grey) rather than by red text — the red reads as a low-key signal,
-// not an alarm.
-type MaintenanceTone = 'fault' | 'warn' | 'ok' | 'idle';
-
-function MaintenanceHero({
-  tone,
-  title,
-  body,
-  actionCount,
-  upcomingCount,
-  checklistCount,
-  historyCount,
-}: {
-  tone: MaintenanceTone;
-  title: string;
-  body: string;
-  actionCount: number;
-  upcomingCount: number;
-  checklistCount: number;
-  historyCount: number;
-}) {
-  const HeroIcon = tone === 'ok' ? CheckCircle2 : AlertTriangle;
-  return (
-    <header className="maintenance-hero" data-tone={tone}>
-      <div className="maintenance-hero-main">
-        <span className="maintenance-hero-icon">
-          <HeroIcon size={22} strokeWidth={2.25} aria-hidden />
-        </span>
-        <div className="maintenance-hero-copy">
-          <span className="maintenance-hero-kicker">
-            Preventive maintenance
-          </span>
-          <h2>{title}</h2>
-          <p>{body}</p>
-        </div>
-      </div>
-      <div className="maintenance-hero-stats" aria-label="Maintenance summary">
-        <MaintenanceHeroStat label="Action" value={actionCount} />
-        <MaintenanceHeroStat label="Upcoming" value={upcomingCount} />
-        <MaintenanceHeroStat label="Checklists" value={checklistCount} />
-        <MaintenanceHeroStat label="History" value={historyCount} />
-      </div>
-    </header>
-  );
-}
-
-function MaintenanceHeroStat({
-  label,
-  value,
-}: {
-  label: string;
-  value: number;
-}) {
-  return (
-    <div className="maintenance-hero-stat">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-type CategoryTone = MaintenanceTone;
+// 2-column grid of category cards. Active card gets a brand-tinted
+// border; status urgency is communicated by tinting the count digit
+// (red on `fault`) — the rest of the tile stays neutral so the page
+// reads as instruments, not alarms.
+type CategoryTone = 'fault' | 'warn' | 'ok' | 'idle';
 
 type CategoryCard = {
   key: FilterKey;
   label: string;
   count: number;
   tone: CategoryTone;
-  subtitle: string;
-  /** Category glyph rendered in the card's corner. Gives each card
-   *  a distinct silhouette so techs can pattern-match without
-   *  reading the label first. */
   icon: LucideIcon;
 };
 
@@ -958,37 +820,16 @@ function CategoryCardButton({
       data-active={active ? 'true' : 'false'}
       className="cat-card"
     >
-      {/* Category glyph anchored top-right — gives each card a
-          distinct silhouette without competing with the count. */}
       <Icon
         size={18}
         strokeWidth={1.75}
-        className="cat-card-glyph"
+        className="cat-card-icon"
         aria-hidden
       />
-
-      {/* Top row: LED status + label. LED color is tone-driven. */}
-      <div className="cat-card-head">
-        <span className={`led ${ledClassFor(card.tone)}`} aria-hidden />
-        <span className="cat-card-label">{card.label}</span>
-      </div>
-
-      {/* Readout — recessed framed display panel housing the count.
-          Tone-tinted top border so the urgency reads at a glance. */}
-      <div className="cat-card-readout">
-        <span className="cat-card-count">{card.count}</span>
-      </div>
-
-      <span className="cat-card-sub">{card.subtitle}</span>
+      <span className="cat-card-label">{card.label}</span>
+      <span className="cat-card-count">{card.count}</span>
     </button>
   );
-}
-
-function ledClassFor(tone: CategoryTone): string {
-  if (tone === 'fault') return 'led-fault';
-  if (tone === 'warn') return 'led-warn';
-  if (tone === 'ok') return 'led-ok';
-  return 'led-idle';
 }
 
 // PM schedule row — etched card, status pill via shared .pill tokens,
