@@ -91,6 +91,11 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
     DEV_USER_ID && DEV_ORG_ID ? 'choosing' : 'browse',
   );
   const [voiceOpen, setVoiceOpen] = useState(false);
+  // When the Overview parts band asks to open a specific part, stash
+  // the id here and pass it into PartsTab. Cleared once the Parts
+  // tab mounts and consumes it (the tab tracks its own openPartId
+  // after that).
+  const [pendingPartId, setPendingPartId] = useState<string | null>(null);
   // VirtualJobAid mount for procedures launched from the Overview quick
   // actions card OR from the Maintenance tab (PM bucket → inline steps,
   // troubleshooting row → inline steps, scheduled procedure → docId).
@@ -180,14 +185,9 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
             <PartsQuickActions
               assetModelId={hub.assetModel.id}
               onOpenPart={(partId) => {
-                // Route into the Parts tab and ask it to open this
-                // part's detail overlay. The Parts tab listens for
-                // this event and pops its detail surface.
-                window.dispatchEvent(
-                  new CustomEvent('asset-hub:open-part', {
-                    detail: { partId },
-                  }),
-                );
+                // Stash the part id and switch tabs. PartsTab reads
+                // initialOpenPartId on mount and opens the overlay.
+                setPendingPartId(partId);
                 changeTab('parts');
               }}
             />
@@ -211,7 +211,14 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
           />
         ) : (
           <section className="rounded-md border border-line bg-surface-raised p-4 md:p-6">
-            {active === 'parts' && <PartsTab hub={hub} qrCode={qrCode} />}
+            {active === 'parts' && (
+              <PartsTab
+                hub={hub}
+                qrCode={qrCode}
+                initialOpenPartId={pendingPartId}
+                onInitialOpenConsumed={() => setPendingPartId(null)}
+              />
+            )}
             {active === 'maintenance' && (
               <MaintenanceTab
                 assetInstanceId={hub.assetInstance.id}

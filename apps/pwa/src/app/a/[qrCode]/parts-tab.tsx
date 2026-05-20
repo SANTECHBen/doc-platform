@@ -86,9 +86,18 @@ function RoleBadge({ role }: { role: PartRole }) {
 export function PartsTab({
   hub,
   qrCode,
+  initialOpenPartId,
+  onInitialOpenConsumed,
 }: {
   hub: AssetHubPayload;
   qrCode: string;
+  /** When set, opens this part's detail overlay on mount. Used by
+   *  the Overview parts band to deep-link into a specific part. */
+  initialOpenPartId?: string | null;
+  /** Fires once after PartsTab has read initialOpenPartId. The
+   *  parent uses it to clear the pending id so a later remount of
+   *  PartsTab doesn't re-open the same part. */
+  onInitialOpenConsumed?: () => void;
 }) {
   const assetModelId = hub.assetModel.id;
   const assetInstanceId = hub.assetInstance.id;
@@ -147,6 +156,18 @@ export function PartsTab({
       cancelled = true;
     };
   }, [assetModelId]);
+
+  // When the parent routes us here with a target partId (e.g., the
+  // tech tapped a row in the Overview's parts band), open that
+  // part's detail overlay on mount. Only fires once per mount and
+  // notifies the parent so a later remount doesn't re-open.
+  useEffect(() => {
+    if (initialOpenPartId) {
+      setOpenPartId(initialOpenPartId);
+      onInitialOpenConsumed?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const filtered = useMemo(() => {
     if (!rows) return null;
