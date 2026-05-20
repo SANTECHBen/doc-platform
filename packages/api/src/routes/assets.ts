@@ -132,6 +132,7 @@ export async function registerAssetRoutes(app: FastifyInstance) {
                 instanceInstalledAt: instance.installedAt,
                 lastPerformedAt: lastByScheduleId.get(s.id) ?? null,
                 now,
+                timezone: instance.site.timezone,
               });
               if (r.status === 'overdue') counts.overdue += 1;
               else if (r.status === 'due') counts.due += 1;

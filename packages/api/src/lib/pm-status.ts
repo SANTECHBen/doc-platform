@@ -29,6 +29,12 @@ export interface ScheduleStatusInput {
   /** Reference "now" — accepted as a parameter so tests can inject
    *  deterministic timestamps. */
   now: Date;
+  /** IANA timezone the day boundaries are computed in — typically the
+   *  asset's site timezone. Daily / weekly / etc. roll over at the
+   *  site's local midnight, not UTC's, so a 6pm-Chicago "daily check"
+   *  is correctly Due the next Chicago morning instead of waiting a
+   *  full 24 elapsed hours. */
+  timezone: string;
   /** How many days ahead of next-due to flip status from 'upcoming' to
    *  'soon'. Default = 7. */
   soonWindowDays?: number;
@@ -50,6 +56,60 @@ export interface ScheduleStatusOutput {
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+/** Returns the calendar date in `tz` for `d` as a (y, m, d) triplet. */
+function calendarParts(
+  d: Date,
+  tz: string,
+): { year: number; month: number; day: number } {
+  // `en-CA` gives ISO-ish YYYY-MM-DD parts which we extract from
+  // formatToParts. Falls back to UTC if the tz is invalid.
+  let fmt: Intl.DateTimeFormat;
+  try {
+    fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+  } catch {
+    fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+  }
+  const parts = fmt.formatToParts(d);
+  return {
+    year: Number(parts.find((p) => p.type === 'year')!.value),
+    month: Number(parts.find((p) => p.type === 'month')!.value),
+    day: Number(parts.find((p) => p.type === 'day')!.value),
+  };
+}
+
+/** Whole-day difference between two timestamps' calendar days in `tz`.
+ *  Positive when `to` is after `from`. Used so a "daily" PM rolls over
+ *  at site-local midnight regardless of the time-of-day the check was
+ *  last performed. Exported for the per-bucket plan-status route, which
+ *  computes its own anchor / cadence outside of this module. */
+export function calendarDayDiff(from: Date, to: Date, tz: string): number {
+  const a = calendarParts(from, tz);
+  const b = calendarParts(to, tz);
+  return Math.round(
+    (Date.UTC(b.year, b.month - 1, b.day) -
+      Date.UTC(a.year, a.month - 1, a.day)) /
+      MS_PER_DAY,
+  );
+}
+
+/** UTC Date corresponding to the calendar day `daysOffset` after
+ *  `from`'s calendar day in `tz`. Returned as UTC-midnight so the
+ *  PWA's UTC date-formatter renders the correct local calendar day. */
+function calendarDayAfter(from: Date, daysOffset: number, tz: string): Date {
+  const { year, month, day } = calendarParts(from, tz);
+  return new Date(Date.UTC(year, month - 1, day + daysOffset));
+}
+
 export function computeScheduleStatus(
   input: ScheduleStatusInput,
 ): ScheduleStatusOutput {
@@ -62,19 +122,21 @@ export function computeScheduleStatus(
   let nextDueAt: Date;
   switch (input.cadenceKind) {
     case 'days':
-      nextDueAt = new Date(anchor.getTime() + input.cadenceValue * MS_PER_DAY);
+      nextDueAt = calendarDayAfter(anchor, input.cadenceValue, input.timezone);
       break;
   }
 
-  const diffMs = nextDueAt.getTime() - input.now.getTime();
-  // truncate toward zero so a partially-elapsed day reads as "due today"
-  // rather than already 1 day late or 1 day early.
-  const daysUntilDue = Math.trunc(diffMs / MS_PER_DAY);
+  // Calendar-day diff in the site timezone. A daily check performed at
+  // 6pm rolls over at the site's next midnight, not after a literal 24
+  // elapsed hours — that's what techs expect when they look at a "daily
+  // inspection" the next morning.
+  const daysSinceAnchor = calendarDayDiff(anchor, input.now, input.timezone);
+  const daysUntilDue = input.cadenceValue - daysSinceAnchor;
 
   let status: PmStatus;
-  if (diffMs < -input.graceDays * MS_PER_DAY) {
+  if (daysUntilDue < -input.graceDays) {
     status = 'overdue';
-  } else if (diffMs <= 0) {
+  } else if (daysUntilDue <= 0) {
     status = 'due';
   } else if (daysUntilDue <= soonDays) {
     status = 'soon';

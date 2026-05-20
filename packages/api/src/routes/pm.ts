@@ -21,6 +21,7 @@ import {
   requireAuthOrScan,
 } from '../middleware/scan-session';
 import { computePmStatusForInstance } from './admin-pm';
+import { calendarDayDiff } from '../lib/pm-status';
 
 const CreateServiceRecordBody = z.object({
   pmScheduleId: UuidSchema.nullable().optional(),
@@ -43,22 +44,6 @@ const CreatePlanServiceRecordBody = z.object({
   notes: z.string().max(2000).nullable().optional(),
 });
 
-// Calendar-day diff using UTC midnight. Used by the plan-bucket
-// status calc to avoid ms-level floor underflow when (now - anchor)
-// is sub-millisecond. See the call site in computePmPlanStatusForInstance.
-function utcDayDiff(from: Date, to: Date): number {
-  const a = Date.UTC(
-    from.getUTCFullYear(),
-    from.getUTCMonth(),
-    from.getUTCDate(),
-  );
-  const b = Date.UTC(
-    to.getUTCFullYear(),
-    to.getUTCMonth(),
-    to.getUTCDate(),
-  );
-  return Math.floor((b - a) / 86_400_000);
-}
 
 export async function registerPmRoutes(app: FastifyInstance) {
   const { db } = app.ctx;
@@ -204,7 +189,13 @@ export async function registerPmRoutes(app: FastifyInstance) {
         return reply.code(404).send({ error: 'not_found' });
       }
 
-      return computePmPlanStatusForInstance(db, instance.id, instance.assetModelId, instance.installedAt);
+      return computePmPlanStatusForInstance(
+        db,
+        instance.id,
+        instance.assetModelId,
+        instance.installedAt,
+        instance.site.timezone,
+      );
     },
   );
 
@@ -436,6 +427,9 @@ async function computePmPlanStatusForInstance(
   assetInstanceId: string,
   assetModelId: string,
   installedAt: Date | null,
+  /** IANA timezone of the asset's site — Daily / Weekly / etc. roll
+   *  over at this zone's local midnight, not UTC's. */
+  timezone: string,
 ): Promise<{
   plans: Array<{
     plan: {
@@ -541,16 +535,46 @@ async function computePmPlanStatusForInstance(
         // plan creation date. Same pattern as pm-status.ts.
         const anchor =
           last?.performedAt ?? installedAt ?? p.createdAt;
-        const nextDueMs =
-          anchor.getTime() + cadenceDays * 24 * 60 * 60 * 1000;
-        const nextDueAt = new Date(nextDueMs);
-        // Calendar-day diff at UTC midnight, NOT ms-floor. The prior
-        // ms math under-flowed when (now - anchor) was sub-millisecond:
-        // a Daily bucket marked at 10:00:00 returning at 10:00:00.234
-        // gave msUntilDue = 86_399_766 → floor / 86_400_000 = 0 →
-        // status 'due', leaving the just-marked item still reading as
-        // "Due today" on the PWA card. Day-diff gives 1 → status 'soon'.
-        const daysUntilDue = utcDayDiff(now, nextDueAt);
+        // Calendar-day diff in the site timezone. A Daily bucket
+        // performed at 6pm rolls over at the site's next midnight, not
+        // after 24 elapsed hours — matching how a tech thinks about
+        // "the daily check" on the following morning.
+        const daysSinceAnchor = calendarDayDiff(anchor, now, timezone);
+        const daysUntilDue = cadenceDays - daysSinceAnchor;
+        // nextDueAt as UTC-midnight of the next-due calendar day in
+        // site tz — the PWA formats it via a UTC date-only Intl
+        // formatter, so this renders as the right local calendar day.
+        const nextDueParts = (() => {
+          let fmt: Intl.DateTimeFormat;
+          try {
+            fmt = new Intl.DateTimeFormat('en-CA', {
+              timeZone: timezone,
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+            });
+          } catch {
+            fmt = new Intl.DateTimeFormat('en-CA', {
+              timeZone: 'UTC',
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+            });
+          }
+          const parts = fmt.formatToParts(anchor);
+          return {
+            year: Number(parts.find((p) => p.type === 'year')!.value),
+            month: Number(parts.find((p) => p.type === 'month')!.value),
+            day: Number(parts.find((p) => p.type === 'day')!.value),
+          };
+        })();
+        const nextDueAt = new Date(
+          Date.UTC(
+            nextDueParts.year,
+            nextDueParts.month - 1,
+            nextDueParts.day + cadenceDays,
+          ),
+        );
         const status: PmPlanBucketStatus =
           daysUntilDue < 0
             ? 'overdue'

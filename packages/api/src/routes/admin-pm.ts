@@ -338,6 +338,7 @@ export async function computePmStatusForInstance(
   db: Database,
   instance: typeof schema.assetInstances.$inferSelect & {
     model: typeof schema.assetModels.$inferSelect;
+    site: typeof schema.sites.$inferSelect;
   },
 ) {
   // 1. All non-disabled schedules for this asset model.
@@ -385,6 +386,7 @@ export async function computePmStatusForInstance(
       instanceInstalledAt: instance.installedAt,
       lastPerformedAt: last?.performedAt ?? null,
       now,
+      timezone: instance.site.timezone,
     });
     return {
       schedule: {
