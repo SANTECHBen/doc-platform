@@ -8,9 +8,7 @@ import {
   GraduationCap,
   LayoutGrid,
   Library,
-  ListChecks,
   MessageSquare,
-  Play,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
@@ -468,7 +466,6 @@ function PartsQuickActions({
                 {p.oemPartNumber ?? '— no PN —'}
               </span>
             </span>
-            <Play size={16} strokeWidth={2.25} className="action-row-play" />
           </button>
         ))}
       </div>
@@ -508,13 +505,6 @@ function IdentityBand({ hub }: { hub: AssetHubPayload }) {
       )}
       <div className="identity-band-overlay">
         <h1 className="identity-band-title">{hub.assetModel.displayName}</h1>
-        <div className="identity-band-meta">
-          <span>{hub.assetModel.modelCode}</span>
-          <span className="sep">·</span>
-          <span>
-            S/N <span className="serial">{hub.assetInstance.serialNumber}</span>
-          </span>
-        </div>
       </div>
     </header>
   );
