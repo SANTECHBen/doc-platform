@@ -52,114 +52,158 @@ export const DEFAULT_CHUNK_OPTIONS = {
   minChars: 100,
 };
 
-// Safety cap. chunkMarkdown should always run in well under a second; if
-// we hit a minute, something pathological is happening in parseBlocks or
-// splitAtSentenceBoundaries (e.g., a huge table that won't split at
-// sentence boundaries, growing the buffer unboundedly). Bail with a
-// clear error rather than starving the worker forever.
-const CHUNK_TIMEOUT_MS = 60_000;
-
+// Simple paragraph-pack chunker. Guaranteed O(n) on input length —
+// every line is visited once, every regex is anchored, no
+// backtracking-prone patterns, no buffer-growing loops. Previous
+// implementation parsed markdown blocks (lists, tables, code fences) as
+// units and used a lookbehind/lookahead sentence-split regex, both of
+// which deadlocked on certain LlamaParse outputs (probably long unbroken
+// table-like content). This version trades that structural awareness for
+// robustness — the chunker can't hang.
+//
+// Algorithm:
+//   1. Walk the markdown line by line tracking the current heading
+//      section path. Page markers `<!-- page:N -->` update the current
+//      page number but are dropped from chunk content.
+//   2. Emit a paragraph whenever we hit a blank line.
+//   3. Pack paragraphs greedily into chunks ≤ maxChars. A paragraph
+//      larger than maxChars itself gets hard-cut into maxChars slices.
+//   4. Headings flush the current chunk and adjust the section stack.
 export function chunkMarkdown(markdown: string, opts: ChunkOptions): Chunk[] {
-  const { maxChars, minChars, documentTitle, pages = [] } = opts;
-  const startedAt = Date.now();
-
-  // Break the markdown into blocks (headings + paragraphs + list clusters).
-  // Headings drive the section path; other blocks accumulate into chunks.
-  const blocks = parseBlocks(markdown);
+  const { maxChars, minChars, documentTitle, pages: pageHints = [] } = opts;
+  const lines = markdown.split('\n');
 
   const chunks: Chunk[] = [];
-  const sectionPath: string[] = []; // Mutable stack of headings currently in scope.
-  let buffer = '';
-  let bufferStart = 0;
-  let bufferEnd = 0;
+  const sectionPath: string[] = [];
+  let currentPage: number | null = null;
+  let buffer = ''; // packed paragraphs awaiting flush
   let bufferSectionPath: string[] = [];
+  let bufferPage: number | null = null;
+  let bufferStart = 0;
 
-  const flush = () => {
+  // Per-line cursor into the original markdown so chunks can carry
+  // charStart/charEnd offsets for citations.
+  let cursor = 0;
+
+  // Paragraph builder.
+  let para = '';
+  let paraStart = 0;
+
+  const flushBuffer = () => {
     if (buffer.length === 0) return;
     if (buffer.length < minChars && chunks.length > 0) {
-      // Merge tiny tail into the previous chunk if possible.
       const prev = chunks[chunks.length - 1]!;
       prev.rawContent = prev.rawContent + '\n\n' + buffer;
-      prev.charEnd = bufferEnd;
+      prev.charEnd = bufferStart + buffer.length;
       prev.content = buildContextualText(documentTitle, prev.sectionPath, prev.rawContent);
-      buffer = '';
-      return;
+    } else {
+      chunks.push({
+        content: buildContextualText(documentTitle, bufferSectionPath, buffer),
+        rawContent: buffer,
+        charStart: bufferStart,
+        charEnd: bufferStart + buffer.length,
+        page: bufferPage,
+        sectionPath: [...bufferSectionPath],
+      });
     }
-    const content = buildContextualText(documentTitle, bufferSectionPath, buffer);
-    const page = pages.length > 0 ? pageForOffset(pages, bufferStart) : null;
-    chunks.push({
-      content,
-      rawContent: buffer,
-      charStart: bufferStart,
-      charEnd: bufferEnd,
-      page,
-      sectionPath: [...bufferSectionPath],
-    });
     buffer = '';
   };
 
-  for (const block of blocks) {
-    if (Date.now() - startedAt > CHUNK_TIMEOUT_MS) {
-      throw new Error(
-        `chunkMarkdown exceeded ${CHUNK_TIMEOUT_MS / 1000}s on a ${markdown.length}-char input — ` +
-          `likely a huge un-splittable block (giant table / code fence). ` +
-          `Investigate parseBlocks or feed a smaller doc.`,
-      );
+  const addParagraph = (text: string, start: number) => {
+    if (!text.trim()) return;
+
+    // Paragraph larger than maxChars on its own: hard-cut it into
+    // maxChars-sized pieces, flush each as a chunk. No regex tricks, no
+    // unbounded buffers.
+    if (text.length > maxChars) {
+      flushBuffer();
+      for (let i = 0; i < text.length; i += maxChars) {
+        const piece = text.slice(i, i + maxChars);
+        chunks.push({
+          content: buildContextualText(documentTitle, sectionPath, piece),
+          rawContent: piece,
+          charStart: start + i,
+          charEnd: start + i + piece.length,
+          page: currentPage,
+          sectionPath: [...sectionPath],
+        });
+      }
+      return;
     }
-    if (block.kind === 'heading') {
-      // Headings are chunk boundaries — always flush what we have before
-      // adjusting the section path.
-      flush();
-      // Pop any deeper/sibling headings out of scope, then push this one.
-      const level = block.level ?? 1;
-      while (sectionPath.length >= level) sectionPath.pop();
-      sectionPath.push(block.text);
+
+    // Would adding this paragraph exceed the budget? Flush first.
+    if (buffer.length > 0 && buffer.length + text.length + 2 > maxChars) {
+      flushBuffer();
+    }
+    if (buffer.length === 0) {
+      buffer = text;
+      bufferStart = start;
+      bufferSectionPath = [...sectionPath];
+      bufferPage = currentPage;
+    } else {
+      buffer = buffer + '\n\n' + text;
+    }
+  };
+
+  for (const line of lines) {
+    const lineLen = line.length + 1; // include the newline we split on
+
+    // Page marker — update current page, drop the line from content.
+    const pageMatch = /^<!--\s*page:(\d+)\s*-->$/.exec(line.trim());
+    if (pageMatch) {
+      // Close any in-progress paragraph at the page boundary.
+      if (para) {
+        addParagraph(para.trimEnd(), paraStart);
+        para = '';
+      }
+      currentPage = Number(pageMatch[1]);
+      cursor += lineLen;
       continue;
     }
 
-    // Non-heading block. If adding it would blow the budget, flush first.
-    if (buffer.length > 0 && buffer.length + block.text.length + 2 > maxChars) {
-      flush();
-    }
-    if (buffer.length === 0) {
-      buffer = block.text;
-      bufferStart = block.charStart;
-      bufferEnd = block.charEnd;
-      bufferSectionPath = [...sectionPath];
-    } else {
-      buffer = buffer + '\n\n' + block.text;
-      bufferEnd = block.charEnd;
+    // Heading — flush paragraph + buffer, update section stack.
+    const headingMatch = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
+    if (headingMatch) {
+      if (para) {
+        addParagraph(para.trimEnd(), paraStart);
+        para = '';
+      }
+      flushBuffer();
+      const level = headingMatch[1]!.length;
+      while (sectionPath.length >= level) sectionPath.pop();
+      sectionPath.push(headingMatch[2]!.trim());
+      cursor += lineLen;
+      continue;
     }
 
-    // One block larger than maxChars? Split it at sentence boundaries.
-    if (buffer.length > maxChars) {
-      const sentencePieces = splitAtSentenceBoundaries(buffer, maxChars);
-      if (sentencePieces.length > 1) {
-        // Emit all but the last piece as full chunks.
-        let offset = bufferStart;
-        for (let i = 0; i < sentencePieces.length - 1; i += 1) {
-          const piece = sentencePieces[i]!;
-          const content = buildContextualText(documentTitle, bufferSectionPath, piece);
-          const page = pages.length > 0 ? pageForOffset(pages, offset) : null;
-          chunks.push({
-            content,
-            rawContent: piece,
-            charStart: offset,
-            charEnd: offset + piece.length,
-            page,
-            sectionPath: [...bufferSectionPath],
-          });
-          offset += piece.length + 1;
-        }
-        // Keep the tail in the buffer.
-        buffer = sentencePieces[sentencePieces.length - 1] ?? '';
-        bufferStart = offset;
-        bufferEnd = offset + buffer.length;
+    // Blank line — ends the current paragraph.
+    if (line.trim() === '') {
+      if (para) {
+        addParagraph(para.trimEnd(), paraStart);
+        para = '';
       }
+      cursor += lineLen;
+      continue;
     }
+
+    // Regular content line — append to the in-progress paragraph.
+    if (!para) {
+      paraStart = cursor;
+      para = line;
+    } else {
+      para = para + '\n' + line;
+    }
+    cursor += lineLen;
   }
 
-  flush();
+  // Final paragraph / buffer flush.
+  if (para) addParagraph(para.trimEnd(), paraStart);
+  flushBuffer();
+
+  // pageHints is unused in this simpler implementation — page tracking
+  // comes from in-line `<!-- page:N -->` markers instead, which is what
+  // LlamaParse emits anyway. Keep the parameter for compatibility.
+  void pageHints;
 
   return chunks;
 }

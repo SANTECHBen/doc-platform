@@ -118,6 +118,27 @@ export async function processDocument(params: PipelineParams): Promise<PipelineR
       }),
     );
 
+    // Save the markdown immediately. The chunker has been known to hang on
+    // pathological input; if that happens, we still want the extracted
+    // markdown landed in the DB so section authoring works and the user
+    // doesn't lose the LlamaParse output. Embedding can be retried later.
+    await db
+      .update(schema.documents)
+      .set({
+        extractionStatus: 'ready',
+        extractionError: null,
+        extractedText: extraction.markdown,
+        extractedAt: new Date(),
+      })
+      .where(eq(schema.documents.id, documentId));
+    console.log(
+      JSON.stringify({
+        level: 'info',
+        msg: 'pipeline: markdown saved',
+        documentId,
+      }),
+    );
+
     const chunkStart = Date.now();
     const chunks = chunkMarkdown(extraction.markdown, {
       ...DEFAULT_CHUNK_OPTIONS,
@@ -133,21 +154,6 @@ export async function processDocument(params: PipelineParams): Promise<PipelineR
         elapsedMs: Date.now() - chunkStart,
       }),
     );
-
-    // Phase 1: save the extracted markdown immediately. This is the most
-    // valuable artifact — admin section authoring (text-range picker) only
-    // needs this, not embeddings. By committing it before attempting
-    // embeddings, a Voyage rate-limit or transient outage doesn't mark the
-    // doc as failed when the hard work succeeded.
-    await db
-      .update(schema.documents)
-      .set({
-        extractionStatus: 'ready',
-        extractionError: null,
-        extractedText: extraction.markdown,
-        extractedAt: new Date(),
-      })
-      .where(eq(schema.documents.id, documentId));
 
     // Phase 2 (best-effort): embed chunks, swap them in atomically. A failure
     // here leaves the doc in 'ready' state with a soft warning — chat/RAG
