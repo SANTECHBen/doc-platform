@@ -18,12 +18,12 @@ async function openFileStream(
   return result.stream;
 }
 
-// Belt-and-suspenders ceiling on doc size. The PDF extraction pipeline
-// now streams chunks on disk and shouldn't OOM on typical OEM manuals,
-// but a degenerate 5 GB upload would still take a long time and chew
-// disk. 500 MB is plenty of headroom for real-world technical PDFs and
-// short of the danger zone for the 1 GB Fly box.
-const MAX_EXTRACT_BYTES = 500 * 1024 * 1024;
+// Loose ceiling on doc size — PDF extraction is delegated to LlamaParse
+// (which has its own per-plan size limits, currently 50-100 MB), so this
+// cap mostly catches accidentally-uploaded gigabyte files. LlamaParse's
+// own 4xx response gives a clean error for anything within its limits but
+// over the plan size.
+const MAX_EXTRACT_BYTES = 250 * 1024 * 1024;
 
 // Fire-and-forget extraction. We deliberately don't block the HTTP response
 // on processing — extraction can take 5–30s for large PDFs. The admin UI

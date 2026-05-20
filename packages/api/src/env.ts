@@ -23,6 +23,11 @@ const EnvSchema = z.object({
   API_PORT: z.coerce.number().int().default(3001),
   DATABASE_URL: z.string().url(),
   ANTHROPIC_API_KEY: z.string().min(1),
+  // LlamaParse — hosted PDF → markdown service we delegate document
+  // extraction to. Optional at boot so dev environments without an
+  // account still start; extract/pdf.ts throws a clear error if a PDF
+  // upload arrives without this set. Sign up at https://cloud.llamaindex.ai.
+  LLAMA_CLOUD_API_KEY: optionalNonEmptyString,
   // Chat / troubleshooter model. Sonnet 4.6 is the cost/accuracy sweet spot
   // for grounded RAG — Opus 4.7's edge on open-ended reasoning rarely shows
   // up when the LLM is given retrieved context and asked to answer. Roughly

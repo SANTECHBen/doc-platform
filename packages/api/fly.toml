@@ -37,17 +37,11 @@ primary_region = "ord"
   path = "/health"
 
 [[vm]]
-  # performance CPU kind because shared-CPU machines have burst-credit
-  # throttling — once the machine sustains 100% CPU for ~30 seconds (which
-  # large PDF extraction does easily: qpdf splitting + base64 encoding +
-  # 43 MB Anthropic upload + TLS), Fly drops you to the baseline allocation
-  # and the event loop can't keep up with health checks. Performance CPU
-  # has guaranteed full cores with no throttling, so extraction can run as
-  # long as it needs to and the API stays responsive throughout.
-  #
-  # 2 GB covers the working set: ~120 MB source file on disk, ~32 MB
-  # chunk in RAM, ~43 MB base64 string, ~50 MB Anthropic SDK request body
-  # + Node baseline + Drizzle pool.
-  memory = "2gb"
-  cpu_kind = "performance"
+  # Back to a small shared-CPU machine now that PDF extraction is delegated
+  # to LlamaParse (https://cloud.llamaindex.ai). The API no longer does any
+  # heavy CPU/memory work — it uploads the PDF, polls a job, and downloads
+  # markdown. No qpdf, no base64 encoding of large buffers, no event-loop
+  # starvation risk.
+  memory = "1gb"
+  cpu_kind = "shared"
   cpus = 1
