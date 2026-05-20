@@ -19,6 +19,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   CalendarClock,
+  CheckCircle2,
   Clock,
   History,
   ListChecks,
@@ -67,6 +68,15 @@ function formatDaysUntil(days: number): string {
   if (days === -1) return 'yesterday';
   if (days > 0) return `in ${days} days`;
   return `${Math.abs(days)} days ago`;
+}
+
+function formatCadenceDays(days: number): string {
+  if (days === 1) return 'daily';
+  return `every ${days} days`;
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 // Maps PmStatus / PmPlanBucket['status'] to the shared .pill tone classes.
@@ -260,7 +270,9 @@ export function MaintenanceTab({
     return <p className="text-center text-sm text-ink-tertiary">Loading…</p>;
   }
 
-  const dueNow = data.schedules.filter((s) => s.needsAction);
+  const dueNow = data.schedules
+    .filter((s) => s.needsAction)
+    .sort((a, b) => a.daysUntilDue - b.daysUntilDue);
   const upcoming = data.schedules
     .filter((s) => !s.needsAction)
     .sort((a, b) => a.daysUntilDue - b.daysUntilDue);
@@ -371,6 +383,41 @@ export function MaintenanceTab({
   // / diagnostics / calibrations); R&R has its own card so a tech
   // replacing a worn part doesn't dig through a mixed list.
   const walkthroughCount = allBuckets.length + nonRrProcedures.length;
+  const upcomingCount = upcoming.length + upcomingBuckets.length;
+  const recommendedKey: FilterKey =
+    actionCount > 0
+      ? 'action'
+      : upcomingCount > 0
+        ? 'upcoming'
+        : walkthroughCount > 0
+          ? 'walkthroughs'
+          : rrProcedures.length > 0
+            ? 'removal'
+            : troubleshootingTotal > 0
+              ? 'troubleshoot'
+              : data.history.length > 0
+                ? 'history'
+                : 'walkthroughs';
+  const activeView = active ?? recommendedKey;
+  const heroTone: MaintenanceTone =
+    actionCount > 0 ? (overdueCount > 0 ? 'fault' : 'warn') : 'ok';
+  const heroTitle =
+    actionCount > 0
+      ? `${pluralize(actionCount, 'item')} ${actionCount === 1 ? 'needs' : 'need'} attention`
+      : 'Maintenance is current';
+  const heroBody =
+    actionCount > 0
+      ? [
+          overdueCount > 0 ? `${pluralize(overdueCount, 'overdue item')}` : null,
+          dueTodayCount > 0 ? `${dueTodayCount} due today` : null,
+        ]
+          .filter(Boolean)
+          .join(' / ') || 'Start with the action list below.'
+      : nextItem
+        ? `Next scheduled: ${nextItem.label} ${formatDaysUntil(nextItem.days)}.`
+        : walkthroughCount > 0
+          ? 'Routine checklists and procedures are ready on demand.'
+          : 'No scheduled work in the planning window.';
   const cards: CategoryCard[] = [
     {
       key: 'action',
@@ -395,7 +442,7 @@ export function MaintenanceTab({
     {
       key: 'upcoming',
       label: 'Upcoming',
-      count: upcoming.length,
+      count: upcomingCount,
       tone: 'idle',
       subtitle: nextItem
         ? `Next ${formatDaysUntil(nextItem.days)}`
@@ -447,10 +494,10 @@ export function MaintenanceTab({
       icon: History,
     },
   ];
+  const activeCard = cards.find((c) => c.key === activeView) ?? cards[0]!;
 
   const slice = (() => {
-    if (active === null) return null;
-    switch (active) {
+    switch (activeView) {
       case 'action': {
         if (actionCount === 0) {
           return (
@@ -543,7 +590,7 @@ export function MaintenanceTab({
           </ul>
         );
       case 'upcoming':
-        if (upcoming.length === 0) {
+        if (upcomingCount === 0) {
           return (
             <SliceEmpty
               title="Nothing upcoming"
@@ -572,6 +619,38 @@ export function MaintenanceTab({
                 onMarkDone={() => void logServicePerformed(s)}
               />
             ))}
+            {upcomingBuckets
+              .slice()
+              .sort((a, b) => a.bucket.daysUntilDue - b.bucket.daysUntilDue)
+              .map((row) => (
+                <PlanBucketCard
+                  key={`${row.plan.id}:${row.bucket.frequency}`}
+                  planName={row.plan.name}
+                  bucket={row.bucket}
+                  marking={
+                    marking === `${row.plan.id}:${row.bucket.frequency}`
+                  }
+                  onRun={() =>
+                    launchInline(
+                      `${row.plan.name} - ${row.bucket.frequencyLabel}`,
+                      planBucketToSteps(row.bucket),
+                      () =>
+                        void logPlanPerformed(
+                          row.plan.id,
+                          row.bucket.frequency,
+                          `${row.plan.name} - ${row.bucket.frequencyLabel}`,
+                        ),
+                    )
+                  }
+                  onMarkPerformed={() =>
+                    void logPlanPerformed(
+                      row.plan.id,
+                      row.bucket.frequency,
+                      `${row.plan.name} - ${row.bucket.frequencyLabel}`,
+                    )
+                  }
+                />
+              ))}
           </div>
         );
       case 'walkthroughs': {
@@ -701,7 +780,17 @@ export function MaintenanceTab({
   })();
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="maintenance-page">
+      <MaintenanceHero
+        tone={heroTone}
+        title={heroTitle}
+        body={heroBody}
+        actionCount={actionCount}
+        upcomingCount={upcomingCount}
+        checklistCount={walkthroughCount}
+        historyCount={data.history.length}
+      />
+
       {nothingScheduled && libraryProcedures.length === 0 ? (
         <EmptyState
           title="No PM schedules for this model"
@@ -711,11 +800,23 @@ export function MaintenanceTab({
         <>
           <CategoryGrid
             cards={cards}
-            active={active}
-            onSelect={(k) => setActive((cur) => (cur === k ? null : k))}
+            active={activeView}
+            onSelect={(k) => setActive(k)}
           />
 
-          {slice}
+          <section className="maintenance-panel">
+            <header className="maintenance-panel-header">
+              <div className="maintenance-panel-title">
+                <span className="cap">Workstream</span>
+                <h3>{activeCard.label}</h3>
+                <p>{activeCard.subtitle}</p>
+              </div>
+              <span className="maintenance-panel-count">
+                {activeCard.count}
+              </span>
+            </header>
+            {slice}
+          </section>
         </>
       )}
     </div>
@@ -742,7 +843,66 @@ function statusRank(s: PmPlanBucket['status']): number {
 // (.led-fault pulses red, .led-warn pulses amber, .led-idle is static
 // grey) rather than by red text — the red reads as a low-key signal,
 // not an alarm.
-type CategoryTone = 'fault' | 'warn' | 'ok' | 'idle';
+type MaintenanceTone = 'fault' | 'warn' | 'ok' | 'idle';
+
+function MaintenanceHero({
+  tone,
+  title,
+  body,
+  actionCount,
+  upcomingCount,
+  checklistCount,
+  historyCount,
+}: {
+  tone: MaintenanceTone;
+  title: string;
+  body: string;
+  actionCount: number;
+  upcomingCount: number;
+  checklistCount: number;
+  historyCount: number;
+}) {
+  const HeroIcon = tone === 'ok' ? CheckCircle2 : AlertTriangle;
+  return (
+    <header className="maintenance-hero" data-tone={tone}>
+      <div className="maintenance-hero-main">
+        <span className="maintenance-hero-icon">
+          <HeroIcon size={22} strokeWidth={2.25} aria-hidden />
+        </span>
+        <div className="maintenance-hero-copy">
+          <span className="maintenance-hero-kicker">
+            Preventive maintenance
+          </span>
+          <h2>{title}</h2>
+          <p>{body}</p>
+        </div>
+      </div>
+      <div className="maintenance-hero-stats" aria-label="Maintenance summary">
+        <MaintenanceHeroStat label="Action" value={actionCount} />
+        <MaintenanceHeroStat label="Upcoming" value={upcomingCount} />
+        <MaintenanceHeroStat label="Checklists" value={checklistCount} />
+        <MaintenanceHeroStat label="History" value={historyCount} />
+      </div>
+    </header>
+  );
+}
+
+function MaintenanceHeroStat({
+  label,
+  value,
+}: {
+  label: string;
+  value: number;
+}) {
+  return (
+    <div className="maintenance-hero-stat">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+type CategoryTone = MaintenanceTone;
 
 type CategoryCard = {
   key: FilterKey;
@@ -762,11 +922,11 @@ function CategoryGrid({
   onSelect,
 }: {
   cards: CategoryCard[];
-  active: FilterKey | null;
+  active: FilterKey;
   onSelect: (k: FilterKey) => void;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+    <div className="maintenance-filter-grid">
       {cards.map((c) => (
         <CategoryCardButton
           key={c.key}
@@ -855,7 +1015,7 @@ function ScheduleCard({
         : `Due ${formatDaysUntil(schedule.daysUntilDue)} (${formatNextDue(schedule.nextDueAt)})`;
 
   return (
-    <div className="surface-etched flex flex-col gap-3 p-3">
+    <div className="maintenance-task-card" data-status={schedule.status}>
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -873,8 +1033,7 @@ function ScheduleCard({
           <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-ink-tertiary">
             <span className="inline-flex items-center gap-1">
               <Clock size={10} strokeWidth={1.75} />
-              every {schedule.schedule.cadenceValue} day
-              {schedule.schedule.cadenceValue === 1 ? '' : 's'}
+              {formatCadenceDays(schedule.schedule.cadenceValue)}
             </span>
             {schedule.lastPerformedAt && (
               <span>Last {formatNextDue(schedule.lastPerformedAt)}</span>
@@ -882,14 +1041,13 @@ function ScheduleCard({
           </div>
         </div>
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div className="maintenance-card-actions">
         {schedule.schedule.document ? (
           <>
             <button
               type="button"
               onClick={onRunProcedure}
               className="btn btn-primary"
-              style={{ minHeight: 38, padding: '0 14px', fontSize: 13 }}
             >
               <Play size={13} strokeWidth={2.25} />
               Run procedure
@@ -899,7 +1057,6 @@ function ScheduleCard({
               onClick={onMarkDone}
               disabled={marking}
               className={`btn btn-secondary ${marking ? 'btn-loading' : ''}`}
-              style={{ minHeight: 38, padding: '0 12px', fontSize: 12.5 }}
             >
               {marking ? 'Marking…' : 'Mark done'}
             </button>
@@ -910,7 +1067,6 @@ function ScheduleCard({
             onClick={onMarkDone}
             disabled={marking}
             className={`btn btn-primary ${marking ? 'btn-loading' : ''}`}
-            style={{ minHeight: 38, padding: '0 14px', fontSize: 13 }}
           >
             {marking ? 'Marking…' : 'Mark performed'}
           </button>
@@ -950,7 +1106,7 @@ function PlanBucketCard({
         : `Due ${formatDaysUntil(bucket.daysUntilDue)} (${formatNextDue(bucket.nextDueAt)})`;
 
   return (
-    <div className="surface-etched flex flex-col gap-3 p-3">
+    <div className="maintenance-task-card" data-status={bucket.status}>
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -973,12 +1129,11 @@ function PlanBucketCard({
           </div>
         </div>
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div className="maintenance-card-actions">
         <button
           type="button"
           onClick={onRun}
           className="btn btn-primary"
-          style={{ minHeight: 38, padding: '0 14px', fontSize: 13 }}
         >
           <Play size={13} strokeWidth={2.25} />
           Start checklist
@@ -988,7 +1143,6 @@ function PlanBucketCard({
           onClick={onMarkPerformed}
           disabled={marking}
           className={`btn btn-secondary ${marking ? 'btn-loading' : ''}`}
-          style={{ minHeight: 38, padding: '0 12px', fontSize: 12.5 }}
         >
           {marking ? 'Marking…' : 'Mark performed'}
         </button>
@@ -1005,7 +1159,7 @@ function TroubleshootingGuideCard({
   onRunItem: (item: TroubleshootingGuide['items'][number]) => void;
 }) {
   return (
-    <div className="surface-etched">
+    <div className="maintenance-guide-card">
       <header
         className="px-3 py-2.5"
         style={{ borderBottom: '1px solid rgb(var(--line-subtle))' }}
@@ -1210,7 +1364,7 @@ function HistoryRow({ record }: { record: PmServiceRecordItem }) {
       ? `${record.pmPlan.name} · ${record.pmPlan.frequencyLabel}`
       : null);
   return (
-    <div className="surface-etched p-3 text-sm">
+    <div className="maintenance-history-row">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <span className="cap" style={{ color: 'rgb(var(--ink-tertiary))' }}>
@@ -1241,13 +1395,7 @@ function HistoryRow({ record }: { record: PmServiceRecordItem }) {
 
 function SliceEmpty({ title, body }: { title: string; body: string }) {
   return (
-    <div
-      className="flex flex-col items-center gap-1.5 p-6 text-center"
-      style={{
-        border: '1px dashed rgb(var(--line))',
-        borderRadius: 4,
-      }}
-    >
+    <div className="maintenance-empty maintenance-empty-compact">
       <p className="text-sm font-medium text-ink-primary">{title}</p>
       <p className="max-w-sm text-xs text-ink-secondary">{body}</p>
     </div>
@@ -1256,13 +1404,7 @@ function SliceEmpty({ title, body }: { title: string; body: string }) {
 
 function EmptyState({ title, body }: { title: string; body: string }) {
   return (
-    <div
-      className="flex flex-col items-center gap-2 p-6 text-center"
-      style={{
-        border: '1px dashed rgb(var(--line))',
-        borderRadius: 4,
-      }}
-    >
+    <div className="maintenance-empty">
       <p className="text-base font-medium text-ink-primary">{title}</p>
       <p className="max-w-sm text-sm text-ink-secondary">{body}</p>
     </div>

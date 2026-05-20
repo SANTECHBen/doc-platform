@@ -209,6 +209,15 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
             section={librarySection}
             onSectionChange={setLibrarySection}
           />
+        ) : active === 'maintenance' ? (
+          <MaintenanceTab
+            assetInstanceId={hub.assetInstance.id}
+            versionId={hub.pinnedContentPackVersion?.id ?? null}
+            fieldCapturesVersionId={hub.fieldCapturesVersionId ?? null}
+            onLaunchJobAid={(source, onCompleted) =>
+              setJobAidRequest({ source, onCompleted })
+            }
+          />
         ) : (
           <section className="rounded-md border border-line bg-surface-raised p-4 md:p-6">
             {active === 'parts' && (
@@ -217,16 +226,6 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
                 qrCode={qrCode}
                 initialOpenPartId={pendingPartId}
                 onInitialOpenConsumed={() => setPendingPartId(null)}
-              />
-            )}
-            {active === 'maintenance' && (
-              <MaintenanceTab
-                assetInstanceId={hub.assetInstance.id}
-                versionId={hub.pinnedContentPackVersion?.id ?? null}
-                fieldCapturesVersionId={hub.fieldCapturesVersionId ?? null}
-                onLaunchJobAid={(source, onCompleted) =>
-                  setJobAidRequest({ source, onCompleted })
-                }
               />
             )}
             {active === 'chat' && <ChatTab hub={hub} qrCode={qrCode} />}
