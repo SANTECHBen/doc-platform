@@ -230,6 +230,33 @@
   max-height: 28px !important;
 }
 
+/* Platform attribution — "Powered by SANTECH" wordmark on the right
+   side of the topbar. Sits between the OEM brand mark and the action
+   cluster. Small + low-contrast on purpose so it reads as a footer,
+   not a competing identity. */
+.app-topbar-powered-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  color: rgb(var(--ink-tertiary));
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.app-topbar-powered-by-mark {
+  height: 14px;
+  width: auto;
+  display: block;
+  color: rgb(var(--ink-secondary));
+}
+@media (max-width: 360px) {
+  .app-topbar-powered-by > span {
+    display: none;
+  }
+}
+
 /* Right-side action cluster (density, theme). Tight gap so two
    36×36 buttons feel like one control group. */
 .app-topbar-actions {
