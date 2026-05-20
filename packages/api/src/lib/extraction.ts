@@ -18,6 +18,12 @@ async function fetchFileBuffer(storage: Storage, storageKey: string): Promise<Bu
   return Buffer.concat(chunks);
 }
 
+// Above this size, in-process extraction will likely OOM or freeze the
+// event loop long enough that Fly's health check fails and the proxy
+// declares the box unreachable. The doc itself stays viewable — only the
+// AI-indexing pipeline is skipped, with a clear error so the author knows.
+const MAX_EXTRACT_BYTES = 30 * 1024 * 1024;
+
 // Fire-and-forget extraction. We deliberately don't block the HTTP response
 // on processing — extraction can take 5–30s for large PDFs. The admin UI
 // polls documents.extractionStatus to show progress. Errors are captured
@@ -39,9 +45,36 @@ export function triggerExtraction(app: FastifyInstance, documentId: string): voi
       // to do per-page Jaccard comparison.
       const priorDoc = await db.query.documents.findFirst({
         where: eq(schema.documents.id, documentId),
-        columns: { extractedText: true, kind: true, bodyMarkdown: true, title: true },
+        columns: {
+          extractedText: true,
+          kind: true,
+          bodyMarkdown: true,
+          title: true,
+          sizeBytes: true,
+        },
       });
       const oldExtractedText = priorDoc?.extractedText ?? null;
+
+      // Hard size guard. Large PDFs blow up either the parser's working
+      // set (RAM) or the event loop (single-threaded sync work). Either
+      // failure mode takes down the whole API container, so we refuse
+      // up-front instead of waiting for the kernel to SIGKILL us.
+      if (priorDoc?.sizeBytes && priorDoc.sizeBytes > MAX_EXTRACT_BYTES) {
+        const mb = (priorDoc.sizeBytes / 1024 / 1024).toFixed(1);
+        const capMb = (MAX_EXTRACT_BYTES / 1024 / 1024).toFixed(0);
+        await db
+          .update(schema.documents)
+          .set({
+            extractionStatus: 'failed',
+            extractionError: `File too large for in-process extraction (${mb} MB; cap is ${capMb} MB). The document is still viewable, but it isn't AI-indexed. Split the file or shrink it before retrying.`,
+          })
+          .where(eq(schema.documents.id, documentId));
+        app.log.warn(
+          { documentId, sizeBytes: priorDoc.sizeBytes },
+          'extraction skipped: file exceeds size cap',
+        );
+        return;
+      }
 
       // Field-authored procedures store their content in procedure_steps,
       // not in documents.bodyMarkdown. The pipeline's processMarkdownDocument
