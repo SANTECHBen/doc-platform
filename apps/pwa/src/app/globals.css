@@ -1237,6 +1237,345 @@
   .action-row:hover .action-row-play { color: rgb(var(--brand)); }
 
   /* ------------------------------------------------------------
+     MAINTENANCE HERO — page-dominant Action surface
+     A full-width SCADA instrument panel that owns the urgent work.
+     Two distinct states: NEEDS ATTENTION (red top bar, big count,
+     inline top items with Run buttons) and ALL CAUGHT UP (green
+     top bar, calm "nothing due" message with next-item preview).
+     Always visible; tapping "View all" reveals the full Action
+     slice below.
+     ------------------------------------------------------------ */
+  .maint-hero {
+    position: relative;
+    background: linear-gradient(
+      180deg,
+      rgb(var(--surface-plate-top)) 0%,
+      rgb(var(--surface-plate-bottom)) 100%
+    );
+    border: 1px solid rgb(var(--line));
+    border-radius: 8px;
+    padding: 18px 20px 18px 20px;
+    overflow: hidden;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.55),
+      inset 0 -1px 0 rgba(14, 18, 23, 0.04),
+      0 4px 12px rgba(14, 18, 23, 0.04);
+  }
+  /* Tone-tinted top bar — reads as a SCADA status header. */
+  .maint-hero::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: rgb(var(--ink-tertiary));
+    z-index: 1;
+  }
+  .maint-hero[data-tone='fault']::before {
+    background: linear-gradient(
+      90deg,
+      rgb(var(--signal-fault)) 0%,
+      rgba(var(--signal-fault) / 0.5) 100%
+    );
+    box-shadow: 0 0 12px rgba(var(--signal-fault) / 0.4);
+  }
+  .maint-hero[data-tone='ok']::before {
+    background: linear-gradient(
+      90deg,
+      rgb(var(--signal-ok)) 0%,
+      rgba(var(--signal-ok) / 0.5) 100%
+    );
+    box-shadow: 0 0 10px rgba(var(--signal-ok) / 0.35);
+  }
+  /* Corner marks inherit from .corner-mark; widen the inset so they
+     don't sit on top of the top status bar. */
+  .maint-hero > .corner-mark.tl {
+    top: 12px;
+    left: 12px;
+  }
+  .maint-hero > .corner-mark.tr {
+    top: 12px;
+    right: 12px;
+  }
+  .maint-hero > .corner-mark.bl {
+    bottom: 10px;
+    left: 12px;
+  }
+  .maint-hero > .corner-mark.br {
+    bottom: 10px;
+    right: 12px;
+  }
+
+  .maint-hero-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 2px 0 14px;
+    border-bottom: 1px solid rgb(var(--line-subtle));
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+  .maint-hero-caption {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-primary));
+  }
+  .maint-hero[data-tone='fault'] .maint-hero-caption {
+    color: rgb(var(--signal-fault));
+  }
+  .maint-hero[data-tone='ok'] .maint-hero-caption {
+    color: rgb(var(--signal-ok));
+  }
+  .maint-hero-banner-pills {
+    margin-left: auto;
+    display: inline-flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .maint-hero-body {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* CLEAR state — calm centered readout */
+  .maint-hero-clear {
+    text-align: center;
+    padding: 12px 0 8px;
+  }
+  .maint-hero-clear-title {
+    font-size: 22px;
+    font-weight: 600;
+    color: rgb(var(--ink-primary));
+    letter-spacing: -0.018em;
+    line-height: 1.15;
+  }
+  .maint-hero-clear-sub {
+    font-size: 13px;
+    color: rgb(var(--ink-secondary));
+    margin-top: 6px;
+    line-height: 1.4;
+  }
+
+  /* NEEDS ATTENTION state — huge count + items list */
+  .maint-hero-readout {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    padding-bottom: 4px;
+  }
+  .maint-hero-count {
+    font-family: var(--font-mono);
+    font-size: 56px;
+    font-weight: 500;
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+    font-variant-numeric: tabular-nums;
+    color: rgb(var(--signal-fault));
+    text-shadow: 0 0 24px rgba(var(--signal-fault) / 0.18);
+  }
+  .maint-hero-count-label {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: rgb(var(--ink-secondary));
+  }
+  @media (min-width: 640px) {
+    .maint-hero-count {
+      font-size: 72px;
+    }
+  }
+
+  .maint-hero-items {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+  }
+  .maint-hero-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    background: rgb(var(--surface-raised));
+    border: 1px solid rgb(var(--line-subtle));
+    border-left: 3px solid rgb(var(--line));
+    border-radius: 4px;
+    transition: border-color 140ms;
+  }
+  .maint-hero-item[data-tone='fault'] {
+    border-left-color: rgb(var(--signal-fault));
+  }
+  .maint-hero-item[data-tone='warn'] {
+    border-left-color: rgb(var(--signal-warn));
+  }
+  .maint-hero-item-body {
+    flex: 1;
+    min-width: 0;
+  }
+  .maint-hero-item-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: rgb(var(--ink-primary));
+    letter-spacing: -0.005em;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .maint-hero-item-sub {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-tertiary));
+    margin-top: 2px;
+  }
+  .maint-hero-item[data-tone='fault'] .maint-hero-item-sub {
+    color: rgb(var(--signal-fault));
+  }
+  .maint-hero-item-run {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 36px;
+    padding: 0 14px;
+    background: rgb(var(--brand));
+    color: rgb(var(--brand-ink));
+    border: none;
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 140ms;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.15) inset;
+  }
+  .maint-hero-item-run:hover {
+    background: rgb(var(--brand-strong));
+  }
+
+  .maint-hero-cta {
+    align-self: center;
+    background: transparent;
+    border: 1px solid rgb(var(--line));
+    border-radius: 4px;
+    padding: 10px 22px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-secondary));
+    cursor: pointer;
+    transition: color 140ms, border-color 140ms;
+  }
+  .maint-hero-cta:hover {
+    color: rgb(var(--brand));
+    border-color: rgb(var(--brand));
+  }
+
+  /* ------------------------------------------------------------
+     MAINTENANCE TILE — secondary nav (under the hero)
+     Compact category tiles for the non-Action surfaces. The hero
+     owns urgency; tiles are calm reference. Icon + count + label
+     + 1-line subtitle, all on a small surface. Active tile gets a
+     brand ring so the slice below has clear provenance.
+     ------------------------------------------------------------ */
+  .maint-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 12px 10px;
+    background: rgb(var(--surface-raised));
+    border: 1px solid rgb(var(--line));
+    border-radius: 6px;
+    text-align: left;
+    cursor: pointer;
+    transition:
+      border-color 140ms ease,
+      box-shadow 200ms ease,
+      transform 140ms ease;
+  }
+  .maint-tile:hover {
+    border-color: rgb(var(--line-strong));
+  }
+  .maint-tile[data-active='true'] {
+    border-color: rgb(var(--brand));
+    transform: translateY(-1px);
+    box-shadow:
+      0 0 0 1px rgba(var(--brand) / 0.4),
+      0 4px 12px rgba(var(--brand-glow) / var(--brand-glow-a));
+  }
+  .maint-tile-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 28px;
+  }
+  .maint-tile-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    background: rgb(var(--surface-inset));
+    color: rgb(var(--ink-secondary));
+    flex-shrink: 0;
+    transition: background 140ms, color 140ms;
+  }
+  .maint-tile[data-active='true'] .maint-tile-icon {
+    background: rgba(var(--brand-soft-v) / var(--brand-soft-a));
+    color: rgb(var(--ink-brand));
+  }
+  .maint-tile-count {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 500;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: rgb(var(--ink-primary));
+    margin-left: auto;
+    letter-spacing: -0.015em;
+  }
+  .maint-tile-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-primary));
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .maint-tile-sub {
+    font-size: 11px;
+    color: rgb(var(--ink-tertiary));
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ------------------------------------------------------------
+     CATEGORY CARD (DEPRECATED — kept for any non-Maintenance callers
+     of CategoryCardButton; the Maintenance tab uses .maint-tile now).
+     ------------------------------------------------------------ */
+  /* ------------------------------------------------------------
      CATEGORY CARD — Maintenance tab grid tile
      A small instrument tile: status LED + label up top, a recessed
      "readout" panel housing the count, subtitle below. Each tile
