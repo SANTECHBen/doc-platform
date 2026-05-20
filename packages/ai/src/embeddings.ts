@@ -114,12 +114,24 @@ export async function embedBatch(
     batches.push(inputs.slice(i, i + EMBED_BATCH_SIZE));
   }
   const results: VoyageEmbeddingsResponse[] = [];
-  for (const batch of batches) {
+  for (let i = 0; i < batches.length; i += 1) {
+    const batchStart = Date.now();
+    const batch = batches[i]!;
     const r = await voyageFetch<VoyageEmbeddingsResponse>('/embeddings', {
       input: batch,
       model: EMBEDDING_MODEL,
       input_type: inputType,
     });
+    console.log(
+      JSON.stringify({
+        level: 'info',
+        msg: 'voyage: batch done',
+        batch: i + 1,
+        total: batches.length,
+        size: batch.length,
+        elapsedMs: Date.now() - batchStart,
+      }),
+    );
     results.push(r);
   }
 

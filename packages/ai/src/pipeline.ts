@@ -108,12 +108,31 @@ export async function processDocument(params: PipelineParams): Promise<PipelineR
       contentType: doc.contentType,
       filename: doc.originalFilename,
     });
+    console.log(
+      JSON.stringify({
+        level: 'info',
+        msg: 'pipeline: extract done',
+        documentId,
+        markdownLen: extraction.markdown.length,
+        pages: extraction.pages.length,
+      }),
+    );
 
+    const chunkStart = Date.now();
     const chunks = chunkMarkdown(extraction.markdown, {
       ...DEFAULT_CHUNK_OPTIONS,
       documentTitle: doc.title,
       pages: extraction.pages,
     });
+    console.log(
+      JSON.stringify({
+        level: 'info',
+        msg: 'pipeline: chunk done',
+        documentId,
+        chunkCount: chunks.length,
+        elapsedMs: Date.now() - chunkStart,
+      }),
+    );
 
     // Phase 1: save the extracted markdown immediately. This is the most
     // valuable artifact — admin section authoring (text-range picker) only
@@ -137,6 +156,15 @@ export async function processDocument(params: PipelineParams): Promise<PipelineR
     let chunksWritten = 0;
     let embedNotes: string[] = [];
     try {
+      const embedStart = Date.now();
+      console.log(
+        JSON.stringify({
+          level: 'info',
+          msg: 'pipeline: embed start',
+          documentId,
+          chunkCount: chunks.length,
+        }),
+      );
       const embeddings =
         chunks.length > 0
           ? await embedBatch(
@@ -144,6 +172,15 @@ export async function processDocument(params: PipelineParams): Promise<PipelineR
               'document',
             )
           : [];
+      console.log(
+        JSON.stringify({
+          level: 'info',
+          msg: 'pipeline: embed done',
+          documentId,
+          embeddings: embeddings.length,
+          elapsedMs: Date.now() - embedStart,
+        }),
+      );
 
       if (embeddings.length !== chunks.length) {
         throw new Error(
