@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
+  CalendarClock,
   ChevronLeft,
   ChevronRight,
   CircuitBoard,
@@ -17,6 +18,7 @@ import {
   Paperclip,
   Presentation,
   Search,
+  ShieldAlert,
   Video,
   Wrench,
   X,
@@ -25,6 +27,9 @@ import {
 } from 'lucide-react';
 import type { AssetHubPayload } from '@/lib/shared-schema';
 import {
+  fetchPmPlanStatus,
+  fetchPmStatus,
+  fetchTroubleshooting,
   getDocument,
   getPartResources,
   listParts,
@@ -32,7 +37,10 @@ import {
   type DocumentBody,
   type PartResources,
   type PartRole,
+  type PmPlanStatusPayload,
+  type PmStatusPayload,
   type PwaDocumentSection,
+  type TroubleshootingGuide,
 } from '@/lib/api';
 import { formatRefCode } from '@/lib/ref-code';
 import { ChatTab } from './chat-tab';
@@ -393,13 +401,17 @@ function ImageLightbox({
 
 // Full part detail — slides in as a full-viewport overlay and mirrors the
 // asset hub's shell: fixed top bar, scrolling content, bottom tab bar.
-// Tabs: Overview, Documents, Training, Parts (sibling parts for quick jump),
-// Assistant (AI scoped to this part's linked docs via partId).
-type PartTabKey = 'overview' | 'documents' | 'training' | 'components' | 'chat';
+// Tabs: Overview, Procedure (procedures + related PMs + related
+// troubleshooting in one place), Training, Components, Assistant.
+// "Procedure" replaces the older "Documents" tab — for a part,
+// procedures + PM hits + troubleshooting hits are what a tech is
+// actually looking for; loose reference docs live in the asset-wide
+// Library tab.
+type PartTabKey = 'overview' | 'procedure' | 'training' | 'components' | 'chat';
 
 const PART_TABS: Array<{ key: PartTabKey; label: string; icon: LucideIcon }> = [
   { key: 'overview', label: 'Overview', icon: LayoutGrid },
-  { key: 'documents', label: 'Documents', icon: FileText },
+  { key: 'procedure', label: 'Procedure', icon: ListChecks },
   { key: 'training', label: 'Training', icon: GraduationCap },
   { key: 'components', label: 'Components', icon: Wrench },
   { key: 'chat', label: 'Assistant', icon: MessageSquare },
@@ -443,6 +455,14 @@ function PartDetailOverlay({
   const [procedureDocId, setProcedureDocId] = useState<string | null>(null);
   const [authPromptOpen, setAuthPromptOpen] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  // Asset-wide PM + troubleshooting status, fetched once per
+  // overlay-open. The Procedure pane filters these to entries whose
+  // linked document overlaps with this part's documents — that's
+  // how a PM or troubleshooting item gets surfaced as "related to
+  // this part."
+  const [pmStatus, setPmStatus] = useState<PmStatusPayload | null>(null);
+  const [pmPlans, setPmPlans] = useState<PmPlanStatusPayload | null>(null);
+  const [troubleshooting, setTroubleshooting] = useState<TroubleshootingGuide[]>([]);
 
   // Cache part metadata by ID so the breadcrumb can render every ancestor's
   // name without refetching when we pop back. Seed from the BOM for the
@@ -503,6 +523,28 @@ function PartDetailOverlay({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [depth]);
+
+  // Fetch asset-wide PM + troubleshooting once per overlay-open so
+  // the Procedure pane has data to filter against. These don't
+  // change when navigating between parts within the overlay.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      fetchPmStatus(hub.assetInstance.id).catch(() => null),
+      fetchPmPlanStatus(hub.assetInstance.id).catch(() => null),
+      fetchTroubleshooting(hub.assetInstance.id).catch(() => ({
+        guides: [] as TroubleshootingGuide[],
+      })),
+    ]).then(([flat, plans, ts]) => {
+      if (cancelled) return;
+      setPmStatus(flat);
+      setPmPlans(plans);
+      setTroubleshooting(ts.guides);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [hub.assetInstance.id]);
 
   // Refetch resources whenever the selected part changes. Cache the part's
   // display info so the breadcrumb can keep rendering it after we navigate.
@@ -621,8 +663,15 @@ function PartDetailOverlay({
             />
           )}
 
-          {active === 'documents' && (
-            <PartDocumentsPane data={data} onOpenDocument={openDocument} />
+          {active === 'procedure' && (
+            <PartProcedurePane
+              data={data}
+              pmStatus={pmStatus}
+              pmPlans={pmPlans}
+              troubleshooting={troubleshooting}
+              onOpenDocument={openDocument}
+              onOpenJobAid={(docId) => setJobAidDocId(docId)}
+            />
           )}
 
           {active === 'training' && <PartTrainingPane data={data} />}
@@ -971,10 +1020,10 @@ function PartOverviewPane({
         </section>
       )}
 
-      <section className="flex flex-col gap-2">
-        <span className="caption">Documents</span>
-        <PartDocumentsPane data={data} onOpenDocument={onOpenDocument} />
-      </section>
+      {/* Documents + procedures + related PMs/troubleshooting all
+          live on the Procedure tab now — keep Overview focused on
+          part identity, description, components count, and cross-
+          refs only. */}
 
       <div className="spec-panel">
         <div className="spec-grid">
@@ -1030,85 +1079,279 @@ type DocEntry = {
 // procedures instead of one umbrella doc that opens into a long stack.
 // Docs with sections === null (or empty after filtering) fall back to a
 // single whole-doc card.
-function PartDocumentsPane({
+// Procedure pane — three stacked cards: Procedures, related PMs,
+// related Troubleshooting. "Related" means the entry links a
+// document that this part also links to (document overlap is the
+// simplest part⇄PM and part⇄troubleshooting relationship the data
+// model supports today). Empty cards render an inline empty state
+// rather than disappearing so a tech always sees the same three
+// surfaces in the same order.
+function PartProcedurePane({
   data,
+  pmStatus,
+  pmPlans,
+  troubleshooting,
   onOpenDocument,
+  onOpenJobAid,
 }: {
   data: PartResources | null;
+  pmStatus: PmStatusPayload | null;
+  pmPlans: PmPlanStatusPayload | null;
+  troubleshooting: TroubleshootingGuide[];
   onOpenDocument: (id: string, sections: PwaDocumentSection[] | null) => void;
+  onOpenJobAid: (docId: string) => void;
 }) {
   if (!data) return <RowListSkeleton />;
 
-  const entries: DocEntry[] = data.documents.flatMap((d, di) => {
-    if (d.sections == null || d.sections.length === 0) {
-      return [{
-        key: d.id,
-        docId: d.id,
-        title: d.title,
-        subtitle:
-          kindLabel(d.kind) + (d.language !== 'en' ? ` · ${d.language.toUpperCase()}` : ''),
-        kind: d.kind,
-        sections: d.sections,
-        sortKey: [d.orderingHint, 0],
-        refCode: formatRefCode(di + 1, null),
-      }];
+  const partDocIds = new Set(data.documents.map((d) => d.id));
+
+  // Procedures: this part's structured_procedure docs (run as Job
+  // Aid). Other doc kinds (PDF, video, schematic) live on the part
+  // Overview's "Documents" mini-list and on the asset Library tab.
+  const procedures = data.documents.filter(
+    (d) => d.kind === 'structured_procedure',
+  );
+
+  // Other reference docs for this part — kept on the same surface so
+  // a tech doesn't need to bounce to Overview just to find the
+  // schematic. Rendered as a smaller secondary list inside the
+  // Procedures card.
+  const referenceDocs = data.documents.filter(
+    (d) => d.kind !== 'structured_procedure',
+  );
+
+  // PM hits: schedules + plan-bucket items that reference a document
+  // this part also references. Schedules carry a single document FK;
+  // plan items carry their own document FK per check row.
+  type PmHit = {
+    key: string;
+    title: string;
+    subtitle: string;
+    docId: string;
+  };
+  const pmHits: PmHit[] = [];
+  for (const s of pmStatus?.schedules ?? []) {
+    if (s.schedule.document && partDocIds.has(s.schedule.document.id)) {
+      pmHits.push({
+        key: `s:${s.schedule.id}`,
+        title: s.schedule.name,
+        subtitle: `every ${s.schedule.cadenceValue} day${s.schedule.cadenceValue === 1 ? '' : 's'}`,
+        docId: s.schedule.document.id,
+      });
     }
-    return d.sections.map((s, si) => ({
-      key: `${d.id}:${s.id}`,
-      docId: d.id,
-      title: s.title || 'Untitled section',
-      subtitle: d.title,
-      kind: d.kind,
-      sections: [s],
-      sortKey: [d.orderingHint, s.orderingHint] as [number, number],
-      refCode: formatRefCode(si + 1, s),
-    }));
-  });
+  }
+  for (const p of pmPlans?.plans ?? []) {
+    for (const b of p.buckets) {
+      for (const it of b.items) {
+        if (it.document && partDocIds.has(it.document.id)) {
+          pmHits.push({
+            key: `p:${p.plan.id}:${b.frequency}:${it.id}`,
+            title: `${it.component} — ${it.checkText}`,
+            subtitle: `${p.plan.name} · ${b.frequencyLabel}`,
+            docId: it.document.id,
+          });
+        }
+      }
+    }
+  }
 
-  entries.sort((a, b) => a.sortKey[0] - b.sortKey[0] || a.sortKey[1] - b.sortKey[1]);
-
-  if (entries.length === 0) {
-    return (
-      <EmptyState
-        illustration={NoDocuments}
-        title="No part documents"
-        description="No documents are linked to this part yet."
-        tone="neutral"
-      />
-    );
+  // Troubleshooting hits: items whose direct document FK is in this
+  // part's doc set, OR whose paired remedy steps link to one.
+  type TsHit = {
+    key: string;
+    symptom: string;
+    guideName: string;
+    docId: string | null;
+  };
+  const tsHits: TsHit[] = [];
+  for (const g of troubleshooting) {
+    for (const it of g.items) {
+      let docId: string | null = null;
+      if (it.document && partDocIds.has(it.document.id)) {
+        docId = it.document.id;
+      } else {
+        const remedy = it.causes
+          .flatMap((c) => c.remedySteps)
+          .find((s) => s.document && partDocIds.has(s.document.id));
+        if (remedy?.document) docId = remedy.document.id;
+      }
+      if (docId) {
+        tsHits.push({
+          key: it.id,
+          symptom: it.symptom,
+          guideName: g.guide.name,
+          docId,
+        });
+      }
+    }
   }
 
   return (
-    <ul className="flex flex-col gap-1.5">
-      {entries.map((e) => {
-        const Icon = kindIcon(e.kind);
-        return (
-          <li key={e.key}>
-            <button
-              type="button"
-              onClick={() => onOpenDocument(e.docId, e.sections)}
-              className="surface-etched flex w-full items-center gap-3 px-4 py-3 text-left"
-            >
-              <Icon
-                size={18}
-                strokeWidth={1.75}
-                className="shrink-0 text-ink-secondary"
-              />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium text-ink-primary">
-                  {e.title}
-                </div>
-                <div className="flex items-baseline gap-2 truncate text-xs text-ink-tertiary">
-                  <span className="font-mono tnum shrink-0">{e.refCode}</span>
-                  <span className="truncate">· {e.subtitle}</span>
-                </div>
-              </div>
-              <ChevronRight size={16} strokeWidth={2} className="shrink-0 text-ink-tertiary" />
-            </button>
-          </li>
-        );
-      })}
-    </ul>
+    <div className="flex flex-col gap-4">
+      <PartResourceCard
+        title="Procedures"
+        caption={`${procedures.length} procedure${procedures.length === 1 ? '' : 's'} · ${referenceDocs.length} reference doc${referenceDocs.length === 1 ? '' : 's'}`}
+      >
+        {procedures.length === 0 && referenceDocs.length === 0 ? (
+          <PartResourceEmpty
+            body="No procedures or reference docs linked to this part yet."
+          />
+        ) : (
+          <ul className="flex flex-col">
+            {procedures.map((p) => (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  onClick={() => onOpenJobAid(p.id)}
+                  className="part-resource-row"
+                >
+                  <span className="part-resource-row-icon">
+                    <ListChecks size={18} strokeWidth={2} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="part-resource-row-title">{p.title}</div>
+                    <div className="part-resource-row-sub">Run procedure</div>
+                  </div>
+                  <ChevronRight
+                    size={16}
+                    strokeWidth={2}
+                    className="shrink-0 text-ink-tertiary"
+                  />
+                </button>
+              </li>
+            ))}
+            {referenceDocs.map((d) => {
+              const Icon = kindIcon(d.kind);
+              return (
+                <li key={d.id}>
+                  <button
+                    type="button"
+                    onClick={() => onOpenDocument(d.id, d.sections)}
+                    className="part-resource-row"
+                  >
+                    <span className="part-resource-row-icon">
+                      <Icon size={18} strokeWidth={1.75} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="part-resource-row-title">{d.title}</div>
+                      <div className="part-resource-row-sub">
+                        {kindLabel(d.kind)}
+                      </div>
+                    </div>
+                    <ChevronRight
+                      size={16}
+                      strokeWidth={2}
+                      className="shrink-0 text-ink-tertiary"
+                    />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </PartResourceCard>
+
+      <PartResourceCard
+        title="Related PMs"
+        caption={`${pmHits.length} item${pmHits.length === 1 ? '' : 's'}`}
+      >
+        {pmHits.length === 0 ? (
+          <PartResourceEmpty body="No preventive maintenance items reference this part." />
+        ) : (
+          <ul className="flex flex-col">
+            {pmHits.map((h) => (
+              <li key={h.key}>
+                <button
+                  type="button"
+                  onClick={() => onOpenJobAid(h.docId)}
+                  className="part-resource-row"
+                >
+                  <span className="part-resource-row-icon">
+                    <CalendarClock size={18} strokeWidth={2} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="part-resource-row-title">{h.title}</div>
+                    <div className="part-resource-row-sub">{h.subtitle}</div>
+                  </div>
+                  <ChevronRight
+                    size={16}
+                    strokeWidth={2}
+                    className="shrink-0 text-ink-tertiary"
+                  />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </PartResourceCard>
+
+      <PartResourceCard
+        title="Related Troubleshooting"
+        caption={`${tsHits.length} symptom${tsHits.length === 1 ? '' : 's'}`}
+      >
+        {tsHits.length === 0 ? (
+          <PartResourceEmpty body="No troubleshooting symptoms reference this part." />
+        ) : (
+          <ul className="flex flex-col">
+            {tsHits.map((h) => (
+              <li key={h.key}>
+                <button
+                  type="button"
+                  onClick={() => h.docId && onOpenJobAid(h.docId)}
+                  className="part-resource-row"
+                >
+                  <span className="part-resource-row-icon">
+                    <ShieldAlert size={18} strokeWidth={2} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="part-resource-row-title">{h.symptom}</div>
+                    <div className="part-resource-row-sub">{h.guideName}</div>
+                  </div>
+                  <ChevronRight
+                    size={16}
+                    strokeWidth={2}
+                    className="shrink-0 text-ink-tertiary"
+                  />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </PartResourceCard>
+    </div>
+  );
+}
+
+function PartResourceCard({
+  title,
+  caption,
+  children,
+}: {
+  title: string;
+  caption: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="surface-etched">
+      <header
+        className="flex items-baseline justify-between gap-3 px-4 py-3"
+        style={{ borderBottom: '1px solid rgb(var(--line-subtle))' }}
+      >
+        <h3 className="text-sm font-semibold text-ink-primary">{title}</h3>
+        <span className="cap" style={{ color: 'rgb(var(--ink-tertiary))' }}>
+          {caption}
+        </span>
+      </header>
+      {children}
+    </section>
+  );
+}
+
+function PartResourceEmpty({ body }: { body: string }) {
+  return (
+    <p className="px-4 py-5 text-center text-xs italic text-ink-tertiary">
+      {body}
+    </p>
   );
 }
 
