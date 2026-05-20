@@ -9,6 +9,10 @@
 // Storage access is injected as a callback — the ai package stays free of
 // S3 / R2 coupling so it can be reused against any storage backend.
 
+import { createWriteStream, promises as fs } from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { pipeline as streamPipeline } from 'node:stream/promises';
 import { eq, sql } from 'drizzle-orm';
 import { schema, type Database } from '@platform/db';
 import { extract, isExtractable, ExtractionError } from './extract/index.js';
@@ -18,8 +22,11 @@ import { embedBatch } from './embeddings.js';
 export interface PipelineParams {
   db: Database;
   documentId: string;
-  /** Fetch the raw file bytes for a given storage key. Throws on failure. */
-  fetchFile: (storageKey: string) => Promise<Buffer>;
+  /** Open a readable stream for the source file in storage. The pipeline
+   *  pipes it to a temp file on disk so the PDF extractor can split large
+   *  documents via qpdf without buffering them in RAM. The pipeline owns
+   *  the temp file lifecycle (cleaned up on success and failure). */
+  fetchFileStream: (storageKey: string) => Promise<NodeJS.ReadableStream>;
 }
 
 export interface PipelineResult {
@@ -36,7 +43,7 @@ export interface PipelineResult {
  * many docs without bailing on the first error.
  */
 export async function processDocument(params: PipelineParams): Promise<PipelineResult> {
-  const { db, documentId, fetchFile } = params;
+  const { db, documentId, fetchFileStream } = params;
 
   const doc = await db.query.documents.findFirst({
     where: eq(schema.documents.id, documentId),
@@ -67,11 +74,20 @@ export async function processDocument(params: PipelineParams): Promise<PipelineR
   // Mark processing so the UI can poll and a second concurrent call sees state.
   await markStatus(db, documentId, 'processing');
 
+  // Stream the source from object storage into a per-doc temp directory.
+  // The PDF extractor reads pages off this file via qpdf without ever
+  // loading the whole document into JS memory — that's what lets us
+  // process 100MB+ PDFs on a 1GB Fly box. The temp dir is removed in a
+  // finally block so a crash or thrown error doesn't leak disk space.
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pipeline-'));
+  const sourceFilename = sanitizeFilename(doc.originalFilename) ?? 'source';
+  const sourcePath = path.join(tempDir, sourceFilename);
   try {
-    const buffer = await fetchFile(doc.storageKey);
+    const readable = await fetchFileStream(doc.storageKey);
+    await streamPipeline(readable, createWriteStream(sourcePath));
 
     const extraction = await extract({
-      buffer,
+      filePath: sourcePath,
       kind: doc.kind,
       contentType: doc.contentType,
       filename: doc.originalFilename,
@@ -170,7 +186,21 @@ export async function processDocument(params: PipelineParams): Promise<PipelineR
     const msg = err instanceof ExtractionError ? err.message : formatError(err);
     await markFailed(db, documentId, msg);
     return { status: 'failed', chunksWritten: 0, error: msg };
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+/** Strip path separators and weird characters from a user-supplied filename
+ *  before using it as a temp-file name. Returns null when the input has no
+ *  usable characters left — callers fall back to a generic name. */
+function sanitizeFilename(name: string | null | undefined): string | null {
+  if (!name) return null;
+  const cleaned = name
+    .replace(/[/\\]/g, '_')
+    .replace(/[^A-Za-z0-9._-]/g, '_')
+    .slice(0, 100);
+  return cleaned.length > 0 ? cleaned : null;
 }
 
 async function processMarkdownDocument(
@@ -290,10 +320,10 @@ function formatError(err: unknown): string {
 export async function processVersion(params: {
   db: Database;
   contentPackVersionId: string;
-  fetchFile: (storageKey: string) => Promise<Buffer>;
+  fetchFileStream: (storageKey: string) => Promise<NodeJS.ReadableStream>;
   concurrency?: number;
 }): Promise<PipelineResult[]> {
-  const { db, contentPackVersionId, fetchFile, concurrency = 3 } = params;
+  const { db, contentPackVersionId, fetchFileStream, concurrency = 3 } = params;
 
   const docs = await db.query.documents.findMany({
     where: eq(schema.documents.contentPackVersionId, contentPackVersionId),
@@ -313,7 +343,7 @@ export async function processVersion(params: {
           results[myIdx] = await processDocument({
             db,
             documentId: docs[myIdx]!.id,
-            fetchFile,
+            fetchFileStream,
           });
         }
       })(),

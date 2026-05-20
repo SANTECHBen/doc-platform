@@ -1,6 +1,13 @@
-// Orchestrator — dispatch a document buffer to the right extractor.
-// Callers pass the raw buffer and either a document kind or a content-type;
-// we resolve to the concrete extractor and return a normalized ExtractionResult.
+// Orchestrator — dispatch a source file on disk to the right extractor.
+// Callers stream the upload to a temp file and pass the path, plus a kind
+// and/or content-type hint; we resolve to the concrete extractor and return
+// a normalized ExtractionResult.
+//
+// The file-path interface (instead of an in-memory Buffer) is what lets the
+// PDF extractor split huge documents on disk via qpdf without holding the
+// whole PDF structure in JS memory at once. DOCX / PPTX extractors are
+// buffered internally — those formats are small enough in practice and the
+// libraries we use only take Buffers.
 //
 // The kind/content-type combo is deliberately belt-and-suspenders — the admin
 // UI records both, and they sometimes disagree (e.g., a .pptx uploaded as
@@ -26,7 +33,10 @@ const PPTX_MIME = new Set([
 ]);
 
 export interface ExtractInput {
-  buffer: Buffer;
+  /** Absolute path to the source file on local disk. The orchestrator
+   *  upstream streams from object storage into a temp file and passes the
+   *  path here so PDF extraction can split on disk via qpdf. */
+  filePath: string;
   /** Document kind from the enum (kind column). Used as a hint. */
   kind?: string | null;
   /** MIME type from upload. Authoritative when present. */
@@ -39,11 +49,11 @@ export async function extract(input: ExtractInput): Promise<ExtractionResult> {
   const format = resolveFormat(input);
   switch (format) {
     case 'pdf':
-      return extractPdf(input.buffer);
+      return extractPdf(input.filePath);
     case 'docx':
-      return extractDocx(input.buffer);
+      return extractDocx(input.filePath);
     case 'pptx':
-      return extractPptx(input.buffer);
+      return extractPptx(input.filePath);
     default:
       throw new ExtractionError(
         `No extractor for format "${format}" (kind=${input.kind}, contentType=${input.contentType})`,

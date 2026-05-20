@@ -6,6 +6,9 @@
 // classify; it doesn't need the full corpus (the post-execute extraction
 // pipeline handles full text for retrieval).
 
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 import { tool } from 'ai';
 import { z } from 'zod';
 import { parse as parseCsvSync } from 'csv-parse/sync';
@@ -54,9 +57,19 @@ export function extractPdfTextTool(ctx: AgentToolContext) {
           error: `File not yet uploaded: ${relativePath}`,
         };
       }
+      // The extractor takes a file path on disk (PDFs are split via qpdf
+      // there). Agent buffers are in-memory artifacts from the manifest, so
+      // we write to a per-call temp file and clean up after.
+      const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-extract-'));
+      const safeName = (relativePath.split('/').pop() ?? 'file').replace(
+        /[^A-Za-z0-9._-]/g,
+        '_',
+      );
+      const tmpPath = path.join(tmpDir, safeName);
+      await fs.writeFile(tmpPath, buffer);
       try {
         const result = await extractDocument({
-          buffer,
+          filePath: tmpPath,
           contentType: stat.contentType,
           filename: relativePath.split('/').pop() ?? '',
         });
@@ -85,6 +98,8 @@ export function extractPdfTextTool(ctx: AgentToolContext) {
           data: { name: 'extractPdfText', error: message },
         });
         return { ok: false as const, error: message };
+      } finally {
+        await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
       }
     },
   });

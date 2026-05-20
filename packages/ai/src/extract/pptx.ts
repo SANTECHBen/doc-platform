@@ -8,12 +8,24 @@
 // a diagram while the notes explain what to do), and keep each slide as its
 // own logical page so citations can say "slide 4".
 
+import { promises as fs } from 'node:fs';
 import JSZip from 'jszip';
 import { XMLParser } from 'fast-xml-parser';
 import type { ExtractionResult, ExtractedPage } from './types.js';
 import { ExtractionError } from './types.js';
 
-export async function extractPptx(buffer: Buffer): Promise<ExtractionResult> {
+// PPTX is read into a Buffer in one shot — slide decks are rarely >20 MB
+// even with images, and the JSZip API only accepts buffers anyway.
+export async function extractPptx(filePath: string): Promise<ExtractionResult> {
+  let buffer: Buffer;
+  try {
+    buffer = await fs.readFile(filePath);
+  } catch (err) {
+    throw new ExtractionError(
+      `Could not read PPTX file at ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+      err,
+    );
+  }
   const notes: string[] = [];
 
   let zip: JSZip;

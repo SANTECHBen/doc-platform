@@ -11,11 +11,24 @@
 // pagination hints the renderer inserts. So the pages array is empty — the
 // chunker will fall back to section boundaries.
 
+import { promises as fs } from 'node:fs';
 import mammoth from 'mammoth';
 import type { ExtractionResult } from './types.js';
 import { ExtractionError } from './types.js';
 
-export async function extractDocx(buffer: Buffer): Promise<ExtractionResult> {
+// DOCX is read into a Buffer in one shot — these files are typically
+// <5 MB even for long reference docs (no embedded base64 binaries), so
+// the streaming approach the PDF extractor needs would be overkill.
+export async function extractDocx(filePath: string): Promise<ExtractionResult> {
+  let buffer: Buffer;
+  try {
+    buffer = await fs.readFile(filePath);
+  } catch (err) {
+    throw new ExtractionError(
+      `Could not read DOCX file at ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+      err,
+    );
+  }
   const notes: string[] = [];
 
   try {

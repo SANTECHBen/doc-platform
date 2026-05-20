@@ -6,23 +6,24 @@ import { revalidateDocumentSections } from './section-revalidation-hook';
 import { synthesizeProcedureMarkdown } from './synthesize-procedure-md';
 import type { Storage } from '../storage';
 
-// Pull a storage key into a Buffer. The extraction pipeline needs bytes in
-// memory — file sizes are capped at upload (20 MB default) so this is fine.
-async function fetchFileBuffer(storage: Storage, storageKey: string): Promise<Buffer> {
+// Open a readable stream against an object-storage key. The pipeline pipes
+// this into a per-doc temp file so PDF extraction can split on disk via
+// qpdf without holding the whole source PDF in RAM.
+async function openFileStream(
+  storage: Storage,
+  storageKey: string,
+): Promise<NodeJS.ReadableStream> {
   const result = await storage.stream(storageKey);
   if (!result) throw new Error(`File not found in storage: ${storageKey}`);
-  const chunks: Buffer[] = [];
-  for await (const chunk of result.stream as AsyncIterable<Buffer | string>) {
-    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
-  }
-  return Buffer.concat(chunks);
+  return result.stream;
 }
 
-// Above this size, in-process extraction will likely OOM or freeze the
-// event loop long enough that Fly's health check fails and the proxy
-// declares the box unreachable. The doc itself stays viewable — only the
-// AI-indexing pipeline is skipped, with a clear error so the author knows.
-const MAX_EXTRACT_BYTES = 30 * 1024 * 1024;
+// Belt-and-suspenders ceiling on doc size. The PDF extraction pipeline
+// now streams chunks on disk and shouldn't OOM on typical OEM manuals,
+// but a degenerate 5 GB upload would still take a long time and chew
+// disk. 500 MB is plenty of headroom for real-world technical PDFs and
+// short of the danger zone for the 1 GB Fly box.
+const MAX_EXTRACT_BYTES = 500 * 1024 * 1024;
 
 // Fire-and-forget extraction. We deliberately don't block the HTTP response
 // on processing — extraction can take 5–30s for large PDFs. The admin UI
@@ -55,10 +56,9 @@ export function triggerExtraction(app: FastifyInstance, documentId: string): voi
       });
       const oldExtractedText = priorDoc?.extractedText ?? null;
 
-      // Hard size guard. Large PDFs blow up either the parser's working
-      // set (RAM) or the event loop (single-threaded sync work). Either
-      // failure mode takes down the whole API container, so we refuse
-      // up-front instead of waiting for the kernel to SIGKILL us.
+      // Soft ceiling — see MAX_EXTRACT_BYTES comment. Streaming PDF
+      // extraction handles 100MB+ comfortably now, but a 5 GB upload
+      // would still grind. Reject with a clear message above this.
       if (priorDoc?.sizeBytes && priorDoc.sizeBytes > MAX_EXTRACT_BYTES) {
         const mb = (priorDoc.sizeBytes / 1024 / 1024).toFixed(1);
         const capMb = (MAX_EXTRACT_BYTES / 1024 / 1024).toFixed(0);
@@ -105,7 +105,7 @@ export function triggerExtraction(app: FastifyInstance, documentId: string): voi
       const result = await processDocument({
         db,
         documentId,
-        fetchFile: (k) => fetchFileBuffer(storage, k),
+        fetchFileStream: (k) => openFileStream(storage, k),
       });
       const ms = Date.now() - startedAt;
       app.log.info(

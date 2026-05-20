@@ -1,26 +1,30 @@
 // PDF extraction via Claude's native document ingestion.
 //
 // Rather than run a JS text-layer extractor (unpdf / pdfjs-dist) and fall back
-// to an LLM for scanned/complex pages, we just send every PDF to Claude. This
-// is:
+// to an LLM for scanned/complex pages, we send every PDF to Claude. This is:
 //   - Simpler — one code path, no library incompatibilities.
 //   - Higher quality — Claude handles scans, tables, multi-column layouts,
 //     and figures (which it describes in prose, useful for RAG).
 //   - Comparable in cost — haiku at ~$0.25/1M input tokens × a 10-page PDF ≈
 //     $0.001. Well under the budget for the quality lift.
 //
-// Anthropic's API caps PDFs at 100 pages per request. Larger docs are split
-// page-wise here, extracted in parallel-ish chunks, and the resulting
-// markdown concatenated. We rewrite each chunk's `<!-- page:N -->` markers
-// from local (1-indexed within chunk) to global (1-indexed within original
-// doc) so downstream consumers (sections, citations, chunker) all see one
-// continuous numbering.
+// Anthropic's API caps PDFs at 100 pages AND 32 MB per request, so larger
+// docs get split. The split is done via the `qpdf` system binary against the
+// PDF on disk, NOT via pdf-lib in memory — the latter materializes the whole
+// PDF object graph into JS objects (3-5x the file size) which OOMs a small
+// box on 100MB+ inputs. With qpdf, only one ≤32 MB chunk is held in memory at
+// a time, regardless of source size.
 //
-// If ANTHROPIC_API_KEY is missing the function throws, because without it we
-// have no way to extract anything at all.
+// Chunk windowing is adaptive: start with 100 pages, halve on Anthropic's
+// 32 MB request cap (image-heavy chapters). Bottom out at a 1-page request;
+// if a single page alone exceeds 32 MB the doc has a pathological embedded
+// image and the user gets a clear error pointing at that page.
 
+import { spawn } from 'node:child_process';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 import Anthropic from '@anthropic-ai/sdk';
-import { PDFDocument } from 'pdf-lib';
 import type { ExtractionResult } from './types.js';
 import { ExtractionError } from './types.js';
 
@@ -28,107 +32,168 @@ import { ExtractionError } from './types.js';
 // would be overkill and burn budget.
 const EXTRACTION_MODEL = 'claude-haiku-4-5-20251001';
 
-// Anthropic's PDF page limit per request. We split larger PDFs into
-// page-bounded sub-PDFs and extract each independently.
+// Anthropic's per-request page cap. Initial window size before adaptive
+// halving kicks in.
 const PDF_PAGES_PER_REQUEST = 100;
 
-// Max bytes per request — Anthropic's hard cap is 32MB. Same value enforced
-// after splitting; if a single 100-page chunk still exceeds 32MB (image-heavy
-// scans), we surface the error rather than silently dropping pages.
+// Anthropic's per-request byte cap. We measure the on-disk size of each
+// chunk file BEFORE reading it into memory; over this, we halve the window
+// and try again.
 const PDF_MAX_BYTES_PER_REQUEST = 32 * 1024 * 1024;
 
-export async function extractPdf(buffer: Buffer): Promise<ExtractionResult> {
+export async function extractPdf(filePath: string): Promise<ExtractionResult> {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new ExtractionError('ANTHROPIC_API_KEY is not set — cannot extract PDFs');
   }
 
-  // Probe page count first. If <= 100, send as-is (fast path, identical to
-  // the prior single-request flow). If >100, split into page-bounded chunks.
+  // Probe page count via qpdf. Reads the PDF's xref table only; doesn't
+  // load the page tree into memory. O(1) RAM regardless of file size.
   let totalPages: number;
   try {
-    const probe = await PDFDocument.load(buffer, { updateMetadata: false });
-    totalPages = probe.getPageCount();
+    totalPages = await qpdfPageCount(filePath);
   } catch (err) {
     throw new ExtractionError(
-      `Could not parse PDF for page count: ${err instanceof Error ? err.message : String(err)}`,
+      `Could not read PDF page count via qpdf: ${err instanceof Error ? err.message : String(err)}`,
       err,
     );
+  }
+  if (totalPages <= 0) {
+    throw new ExtractionError('PDF reports 0 pages');
   }
 
   const client = new Anthropic();
 
-  if (totalPages <= PDF_PAGES_PER_REQUEST) {
-    if (buffer.length > PDF_MAX_BYTES_PER_REQUEST) {
-      throw new ExtractionError(
-        `PDF is ${Math.round(buffer.length / 1024 / 1024)}MB — over Anthropic's 32MB limit`,
-      );
+  // Per-doc temp dir so concurrent extractions don't collide. mkdtemp adds
+  // a random suffix; finally{} below removes the whole dir whether we
+  // succeeded or threw.
+  const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pdf-extract-'));
+  try {
+    const parts: string[] = [];
+    let cursor = 1;
+    let chunkCount = 0;
+    while (cursor <= totalPages) {
+      const result = await extractWindow(client, filePath, workDir, cursor, totalPages);
+      parts.push(result.markdown);
+      cursor = result.nextPage;
+      chunkCount += 1;
     }
-    const markdown = await extractChunk(client, buffer, 1);
-    return finalize(markdown, totalPages, ['extracted via Claude (single chunk)']);
-  }
-
-  // Multi-chunk path. Split into ≤100-page sub-PDFs, extract each, and
-  // concatenate. Sequential (not parallel) so we don't blow the API rate
-  // limit on a single document — pipelining many docs is the parent's job.
-  const chunks = await splitPdfIntoPageChunks(buffer, PDF_PAGES_PER_REQUEST);
-  const parts: string[] = [];
-  for (const chunk of chunks) {
-    if (chunk.bytes.length > PDF_MAX_BYTES_PER_REQUEST) {
-      throw new ExtractionError(
-        `PDF chunk pages ${chunk.startPage}-${chunk.endPage} is ${Math.round(
-          chunk.bytes.length / 1024 / 1024,
-        )}MB — over Anthropic's 32MB limit. Try splitting this doc upstream.`,
-      );
+    const markdown = parts.join('\n\n').trim();
+    if (markdown.length === 0) {
+      throw new ExtractionError('Claude returned empty markdown across all PDF chunks');
     }
-    const md = await extractChunk(client, chunk.bytes, chunk.startPage);
-    parts.push(md);
+    return finalize(markdown, totalPages, [
+      `extracted via Claude (${chunkCount} chunk${chunkCount === 1 ? '' : 's'}, streamed)`,
+    ]);
+  } finally {
+    await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
   }
-
-  const markdown = parts.join('\n\n').trim();
-  if (markdown.length === 0) {
-    throw new ExtractionError('Claude returned empty markdown across all PDF chunks');
-  }
-
-  return finalize(markdown, totalPages, [
-    `extracted via Claude (${chunks.length} chunks of ≤${PDF_PAGES_PER_REQUEST} pages each)`,
-  ]);
-}
-
-interface PageChunk {
-  startPage: number; // 1-indexed within the original doc
-  endPage: number; // 1-indexed inclusive
-  bytes: Buffer;
-}
-
-async function splitPdfIntoPageChunks(
-  buffer: Buffer,
-  pagesPerChunk: number,
-): Promise<PageChunk[]> {
-  const src = await PDFDocument.load(buffer, { updateMetadata: false });
-  const total = src.getPageCount();
-  const chunks: PageChunk[] = [];
-  for (let start = 0; start < total; start += pagesPerChunk) {
-    const end = Math.min(start + pagesPerChunk, total);
-    const dst = await PDFDocument.create();
-    const pageIndices = Array.from({ length: end - start }, (_, i) => start + i);
-    const copied = await dst.copyPages(src, pageIndices);
-    for (const p of copied) dst.addPage(p);
-    const out = await dst.save({ useObjectStreams: false });
-    chunks.push({
-      startPage: start + 1,
-      endPage: end,
-      bytes: Buffer.from(out),
-    });
-  }
-  return chunks;
 }
 
 /**
- * Extract one ≤100-page chunk. `startPage` is the original-document page
- * number that this chunk's first page corresponds to — used to rewrite the
- * `<!-- page:N -->` markers Claude emits (which are local to the chunk).
+ * Pull one window of pages out of the source PDF, send to Claude, and
+ * return the resulting markdown plus the cursor for the next window. The
+ * window size is adaptive — we try 100 pages first and halve until the
+ * resulting chunk file fits under Anthropic's 32 MB request cap.
  */
-async function extractChunk(
+async function extractWindow(
+  client: Anthropic,
+  sourcePath: string,
+  workDir: string,
+  startPage: number,
+  totalPages: number,
+): Promise<{ markdown: string; nextPage: number }> {
+  let windowSize = Math.min(PDF_PAGES_PER_REQUEST, totalPages - startPage + 1);
+  while (windowSize >= 1) {
+    const endPage = startPage + windowSize - 1;
+    const chunkPath = path.join(workDir, `chunk_${startPage}-${endPage}.pdf`);
+    try {
+      await qpdfExtractRange(sourcePath, startPage, endPage, chunkPath);
+      const stat = await fs.stat(chunkPath);
+      if (stat.size > PDF_MAX_BYTES_PER_REQUEST) {
+        if (windowSize === 1) {
+          const mb = Math.round(stat.size / 1024 / 1024);
+          throw new ExtractionError(
+            `Page ${startPage} alone is ${mb} MB — over Anthropic's 32 MB request cap. This page likely embeds a very large image. Compress or remove that page before retrying.`,
+          );
+        }
+        windowSize = Math.floor(windowSize / 2);
+        continue;
+      }
+      const buffer = await fs.readFile(chunkPath);
+      const md = await extractChunkViaAnthropic(client, buffer, startPage);
+      return { markdown: md, nextPage: endPage + 1 };
+    } finally {
+      await fs.unlink(chunkPath).catch(() => {});
+    }
+  }
+  // Should be unreachable — the loop above either returns or throws.
+  throw new ExtractionError('adaptive window collapsed to 0 pages — internal bug');
+}
+
+async function qpdfPageCount(filePath: string): Promise<number> {
+  const { stdout } = await runCommand('qpdf', ['--show-npages', filePath]);
+  const n = Number(stdout.trim());
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error(`qpdf returned unexpected page count: "${stdout.trim()}"`);
+  }
+  return n;
+}
+
+async function qpdfExtractRange(
+  source: string,
+  startPage: number,
+  endPage: number,
+  outPath: string,
+): Promise<void> {
+  // qpdf source.pdf --pages . start-end -- out.pdf
+  // The lone period means "the same input file"; the range is inclusive
+  // and 1-indexed. qpdf streams pages without unpacking the whole doc.
+  await runCommand('qpdf', [
+    source,
+    '--pages',
+    '.',
+    `${startPage}-${endPage}`,
+    '--',
+    outPath,
+  ]);
+}
+
+interface CommandResult {
+  stdout: string;
+  stderr: string;
+}
+
+/**
+ * Spawn a child process and collect stdout/stderr. qpdf is well-behaved:
+ * exit 0 = success, exit 3 = warnings (e.g., "linearization not
+ * preserved" on lightly-malformed PDFs), exit ≥2 = real error. We accept
+ * exits 0 and 3, reject others.
+ */
+function runCommand(cmd: string, args: string[]): Promise<CommandResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    child.stdout?.on('data', (d) => stdout.push(d));
+    child.stderr?.on('data', (d) => stderr.push(d));
+    child.on('error', (err) => reject(err));
+    child.on('close', (code) => {
+      const result: CommandResult = {
+        stdout: Buffer.concat(stdout).toString('utf8'),
+        stderr: Buffer.concat(stderr).toString('utf8'),
+      };
+      if (code === 0 || code === 3) {
+        resolve(result);
+      } else {
+        const tag = `${cmd} ${args.slice(-2).join(' ')}`;
+        const detail = result.stderr.trim() || result.stdout.trim() || `exit ${code}`;
+        reject(new Error(`${tag} failed (exit ${code}): ${detail}`));
+      }
+    });
+  });
+}
+
+async function extractChunkViaAnthropic(
   client: Anthropic,
   buffer: Buffer,
   startPage: number,
@@ -153,16 +218,7 @@ async function extractChunk(
                 data: base64,
               },
             } as any,
-            {
-              type: 'text',
-              text: [
-                'Extract the full text of this PDF as clean GitHub-flavored Markdown.',
-                'Preserve document structure — headings become #, ##, ###; lists become - or 1.; tables become GFM tables.',
-                'For figures and diagrams, write a one-sentence description in *italics* so retrieval can match questions about them.',
-                'Insert `<!-- page:N -->` at the start of each page so citations can reference specific pages.',
-                'Output the markdown only — no preamble, explanation, or commentary.',
-              ].join(' '),
-            },
+            { type: 'text', text: PROMPT_TEXT },
           ],
         },
       ],
@@ -195,6 +251,14 @@ async function extractChunk(
   }
   return md;
 }
+
+const PROMPT_TEXT = [
+  'Extract the full text of this PDF as clean GitHub-flavored Markdown.',
+  'Preserve document structure — headings become #, ##, ###; lists become - or 1.; tables become GFM tables.',
+  'For figures and diagrams, write a one-sentence description in *italics* so retrieval can match questions about them.',
+  'Insert `<!-- page:N -->` at the start of each page so citations can reference specific pages.',
+  'Output the markdown only — no preamble, explanation, or commentary.',
+].join(' ');
 
 function finalize(
   markdown: string,

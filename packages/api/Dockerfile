@@ -1,6 +1,12 @@
 FROM node:22-slim AS base
 WORKDIR /app
 
+# qpdf — used by the PDF extraction pipeline to split large PDFs on disk
+# without loading the whole structure in memory. ~3 MB installed.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends qpdf \
+  && rm -rf /var/lib/apt/lists/*
+
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 
 # Monorepo manifests first — enables layer caching of the install step.
