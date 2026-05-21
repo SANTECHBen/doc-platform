@@ -641,4 +641,159 @@
   .rte-content .selectedCell {
     background: rgba(var(--brand-soft-v), 0.15);
   }
+
+  /* ------------------------------------------------------------
+     SIGN-IN PAGE — branded landing for /sign-in. Two-tone background
+     band behind a centered card; mirrors the visual language of
+     enterprise SaaS sign-in flows (Notion, Linear, Vercel).
+     ------------------------------------------------------------ */
+  .signin-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background:
+      radial-gradient(
+        ellipse at top,
+        rgba(var(--brand) / 0.08),
+        transparent 60%
+      ),
+      rgb(var(--surface-base));
+    position: relative;
+    overflow: hidden;
+  }
+  .signin-page::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(90deg, rgb(var(--line-subtle) / 0.4) 1px, transparent 1px),
+      linear-gradient(180deg, rgb(var(--line-subtle) / 0.4) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse at center, #000 30%, transparent 70%);
+    opacity: 0.4;
+    pointer-events: none;
+  }
+  .signin-card {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 420px;
+    padding: 36px 32px;
+    border-radius: 12px;
+    border: 1px solid rgb(var(--line));
+    background: rgb(var(--surface-raised));
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.5) inset,
+      0 24px 48px rgba(14, 18, 23, 0.08),
+      0 4px 12px rgba(14, 18, 23, 0.04);
+  }
+  .signin-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .signin-product-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    background: rgb(var(--brand));
+    color: rgb(var(--brand-ink, 255 255 255));
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+  }
+  .signin-product-name {
+    margin: 0;
+    color: rgb(var(--ink-primary));
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+  }
+  .signin-product-tagline {
+    margin: 2px 0 0;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-tertiary));
+  }
+  .signin-notice {
+    margin-bottom: 20px;
+    padding: 12px 14px;
+    border-radius: 6px;
+    border: 1px solid rgb(var(--signal-info) / 0.35);
+    background: rgb(var(--signal-info) / 0.08);
+    color: rgb(var(--ink-secondary));
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .signin-notice p {
+    margin: 0;
+  }
+  .signin-lede {
+    margin: 0 0 24px;
+    color: rgb(var(--ink-secondary));
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .signin-microsoft-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 16px;
+    border-radius: 6px;
+    border: 1px solid #8c8c8c;
+    background: #ffffff;
+    color: #5e5e5e;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0;
+    cursor: pointer;
+    transition: background 140ms ease, border-color 140ms ease;
+  }
+  .signin-microsoft-btn:hover {
+    background: #f3f3f3;
+    border-color: #6b6b6b;
+  }
+  .signin-microsoft-btn:focus-visible {
+    outline: 2px solid rgb(var(--brand));
+    outline-offset: 2px;
+  }
+  .signin-help {
+    margin: 20px 0 0;
+    font-size: 12px;
+    color: rgb(var(--ink-tertiary));
+    text-align: center;
+  }
+  .signin-footer {
+    margin-top: 28px;
+    padding-top: 20px;
+    border-top: 1px solid rgb(var(--line-subtle));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-size: 11px;
+    color: rgb(var(--ink-tertiary));
+    letter-spacing: 0.02em;
+  }
+  .signin-santech-mark {
+    height: 16px;
+    width: auto;
+    color: rgb(var(--ink-secondary));
+  }
 }

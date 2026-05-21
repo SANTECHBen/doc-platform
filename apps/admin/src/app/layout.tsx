@@ -4,6 +4,7 @@ import { auth } from '@/auth';
 import { Sidebar } from '@/components/sidebar';
 import { UserMenu } from '@/components/user-menu';
 import { CommandPalette } from '@/components/command-palette';
+import { InactivityWatcher } from '@/components/inactivity-watcher';
 import { ToastProvider } from '@/components/toast';
 import { themeBootScript } from '@/components/theme-toggle';
 import './globals.css';
@@ -52,6 +53,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 </div>
               </div>
               <CommandPalette />
+              <InactivityWatcher />
             </>
           ) : (
             children
