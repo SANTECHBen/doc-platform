@@ -22,9 +22,11 @@ import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   ArrowRightLeft,
+  Copy,
   Loader2,
   ShieldAlert,
 } from 'lucide-react';
+import { DuplicateProcedureDialog } from '@/components/duplicate-procedure-dialog';
 import { useToast } from '@/components/toast';
 import {
   getAdminDocument,
@@ -62,6 +64,7 @@ export default function ProcedureFullPageEditor({
   // Move-to-version dialog state. Loaded lazily when the user opens the
   // picker so we don't fetch the full pack tree on every page load.
   const [moveOpen, setMoveOpen] = useState(false);
+  const [dupOpen, setDupOpen] = useState(false);
   const [pack, setPack] = useState<AdminContentPackDetail | null>(null);
   const [packLoading, setPackLoading] = useState(false);
   const [moveBusy, setMoveBusy] = useState(false);
@@ -249,6 +252,15 @@ export default function ProcedureFullPageEditor({
 
           <button
             type="button"
+            onClick={() => setDupOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-primary transition hover:border-accent/40 hover:bg-accent/5"
+            title="Copy this procedure into a different content pack draft"
+          >
+            <Copy className="size-3.5" />
+            Duplicate…
+          </button>
+          <button
+            type="button"
             onClick={openMove}
             className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-primary transition hover:border-accent/40 hover:bg-accent/5"
             title="Move this procedure to a different version of the same content pack"
@@ -258,6 +270,15 @@ export default function ProcedureFullPageEditor({
           </button>
         </div>
       </header>
+
+      {dupOpen && (
+        <DuplicateProcedureDialog
+          sourceDocumentId={doc.id}
+          sourceTitle={title}
+          currentVersionId={doc.contentPackVersionId}
+          onClose={() => setDupOpen(false)}
+        />
+      )}
 
       {/* Banner — published versions are immutable. We allow edits via
           the existing additive-overlay model (steps are not frozen by

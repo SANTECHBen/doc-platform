@@ -2289,6 +2289,66 @@ export async function moveDocumentToVersion(params: {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Duplicate an authored structured_procedure into a different content
+// pack draft version. listDuplicateTargets enumerates draft versions
+// the caller can author into for the chooser dialog.
+// ---------------------------------------------------------------------------
+
+export interface DuplicateTarget {
+  packId: string;
+  packName: string;
+  packSlug: string;
+  layerType: 'base' | 'dealer_overlay' | 'site_overlay';
+  assetModel: string;
+  owner: string;
+  versionId: string;
+  versionNumber: number;
+  versionLabel: string | null;
+}
+
+export async function listDuplicateTargets(): Promise<DuplicateTarget[]> {
+  const res = await fetch(`${API_BASE}/admin/duplicate-targets`, {
+    cache: 'no-store',
+    headers: await authHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`List duplicate targets ${res.status}: ${await res.text()}`);
+  }
+  const data = (await res.json()) as { targets: DuplicateTarget[] };
+  return data.targets;
+}
+
+export async function duplicateProcedure(params: {
+  sourceDocumentId: string;
+  targetVersionId: string;
+  title?: string;
+}): Promise<{
+  documentId: string;
+  packVersionId: string;
+  title: string;
+  stepCount: number;
+}> {
+  const res = await fetch(
+    `${API_BASE}/admin/procedures/${encodeURIComponent(params.sourceDocumentId)}/duplicate`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({
+        targetVersionId: params.targetVersionId,
+        ...(params.title ? { title: params.title } : {}),
+      }),
+    },
+  );
+  if (!res.ok) throw new Error(`Duplicate ${res.status}: ${await res.text()}`);
+  return (await res.json()) as {
+    documentId: string;
+    packVersionId: string;
+    title: string;
+    stepCount: number;
+  };
+}
+
 // ---------------------------------------------------------------------
 // Preventive Maintenance — admin authoring
 // ---------------------------------------------------------------------

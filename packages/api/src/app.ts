@@ -36,6 +36,7 @@ import { registerAdminVoiceUsageRoutes } from './routes/admin-voice-usage';
 import { registerAdminProcedureAudioRoutes } from './routes/admin-procedure-audio';
 import { registerAdminPromoteRoutes } from './routes/admin-promote';
 import { registerAdminDocumentMoveRoutes } from './routes/admin-document-move';
+import { registerAdminProcedureDuplicate } from './routes/admin-procedure-duplicate';
 import { registerMeRoutes } from './routes/me';
 import { registerAdminPm } from './routes/admin-pm';
 import { registerAdminPmPlans } from './routes/admin-pm-plans';
@@ -102,6 +103,7 @@ export async function buildApp(ctx: AppContext) {
   await registerAdminProcedureAudioRoutes(app);
   await registerAdminPromoteRoutes(app);
   await registerAdminDocumentMoveRoutes(app);
+  await registerAdminProcedureDuplicate(app);
   await registerMeRoutes(app);
   await registerAdminPm(app);
   await registerAdminPmPlans(app);

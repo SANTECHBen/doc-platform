@@ -8,6 +8,7 @@ import {
   Check,
   CircleCheck,
   CircleDashed,
+  Copy,
   FilePlus2,
   GraduationCap,
   Link2,
@@ -22,6 +23,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import { DuplicateProcedureDialog } from '@/components/duplicate-procedure-dialog';
 import { MetricTile, PageHeader, PageShell, Pill } from '@/components/page-shell';
 import { useToast } from '@/components/toast';
 import {
@@ -476,6 +478,7 @@ export default function ContentPackDetail({
                           <DocumentRow
                             key={d.id}
                             doc={d}
+                            versionId={v.id}
                             editable={editable}
                             onDelete={() => onDeleteDoc(d.id)}
                             onChanged={refresh}
@@ -1151,17 +1154,22 @@ interface DocRowData {
 
 function DocumentRow({
   doc,
+  versionId,
   editable,
   onDelete,
   onChanged,
 }: {
   doc: DocRowData;
+  /** The content pack version this row belongs to. Forwarded into the
+   *  duplicate dialog so it can exclude this version from the target list. */
+  versionId: string;
   editable: boolean;
   onDelete: () => void;
   onChanged: () => Promise<void>;
 }) {
   const toast = useToast();
   const [editing, setEditing] = useState(false);
+  const [dupOpen, setDupOpen] = useState(false);
   const [title, setTitle] = useState(doc.title);
   const [busy, setBusy] = useState(false);
   const [linkPartsOpen, setLinkPartsOpen] = useState(false);
@@ -1330,6 +1338,17 @@ function DocumentRow({
           Edit
         </Link>
       )}
+      {!editing && doc.kind === 'structured_procedure' && (
+        <button
+          type="button"
+          onClick={() => setDupOpen(true)}
+          className="inline-flex items-center gap-1 rounded border border-line bg-surface-raised px-2 py-1 text-xs font-medium text-ink-primary hover:border-brand/40 hover:bg-brand/5"
+          title="Copy this procedure into a different content pack draft"
+        >
+          <Copy size={12} strokeWidth={2} />
+          Duplicate
+        </button>
+      )}
       {!editing && doc.kind !== 'structured_procedure' && (
         <Link
           href={`/documents/${doc.id}?tab=sections`}
@@ -1434,6 +1453,14 @@ function DocumentRow({
           onSaved={() => setLinkPartsOpen(false)}
         />
       </Drawer>
+      {dupOpen && (
+        <DuplicateProcedureDialog
+          sourceDocumentId={doc.id}
+          sourceTitle={doc.title}
+          currentVersionId={versionId}
+          onClose={() => setDupOpen(false)}
+        />
+      )}
     </li>
   );
 }
