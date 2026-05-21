@@ -94,18 +94,14 @@ function RoleBadge({ role }: { role: PartRole }) {
 export function PartsTab({
   hub,
   qrCode,
-  initialOpenPartId,
-  onInitialOpenConsumed,
+  onInspectPart,
 }: {
   hub: AssetHubPayload;
   qrCode: string;
-  /** When set, opens this part's detail overlay on mount. Used by
-   *  the Overview parts band to deep-link into a specific part. */
-  initialOpenPartId?: string | null;
-  /** Fires once after PartsTab has read initialOpenPartId. The
-   *  parent uses it to clear the pending id so a later remount of
-   *  PartsTab doesn't re-open the same part. */
-  onInitialOpenConsumed?: () => void;
+  /** When provided, tapping a part row bubbles up instead of opening
+   *  the legacy in-tab detail overlay. The parent renders PartInspector
+   *  inline so the main TabBar stays visible. */
+  onInspectPart?: (partId: string) => void;
 }) {
   const assetModelId = hub.assetModel.id;
   const assetInstanceId = hub.assetInstance.id;
@@ -149,7 +145,8 @@ export function PartsTab({
     if (match) {
       e.preventDefault();
       setQuery('');
-      setOpenPartId(match.partId);
+      if (onInspectPart) onInspectPart(match.partId);
+      else setOpenPartId(match.partId);
     }
   }
 
@@ -165,17 +162,6 @@ export function PartsTab({
     };
   }, [assetModelId]);
 
-  // When the parent routes us here with a target partId (e.g., the
-  // tech tapped a row in the Overview's parts band), open that
-  // part's detail overlay on mount. Only fires once per mount and
-  // notifies the parent so a later remount doesn't re-open.
-  useEffect(() => {
-    if (initialOpenPartId) {
-      setOpenPartId(initialOpenPartId);
-      onInitialOpenConsumed?.();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const filtered = useMemo(() => {
     if (!rows) return null;
@@ -258,7 +244,10 @@ export function PartsTab({
               />
               <button
                 type="button"
-                onClick={() => setOpenPartId(r.partId)}
+                onClick={() => {
+                  if (onInspectPart) onInspectPart(r.partId);
+                  else setOpenPartId(r.partId);
+                }}
                 aria-label={`Open ${r.displayName} details`}
                 className="flex min-w-0 flex-1 items-start gap-3 text-left"
               >
@@ -781,6 +770,189 @@ function PartDetailOverlay({
         <AuthPrompt
           reason="start a procedure"
           onClose={() => setAuthPromptOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// PartInspector — inline part view that renders inside the main scroll
+// region (NOT as a fixed overlay) so the app's bottom TabBar stays
+// visible. Defaults to the Procedure pane content: the procedures,
+// reference docs, PMs, and troubleshooting items linked to this part —
+// everything a tech needs once they've identified which part they're
+// working on. Sub-component drill-in pushes onto an internal stack;
+// tapping a main bottom tab closes the inspector via onBack.
+export function PartInspector({
+  partId,
+  hub,
+  qrCode,
+  onBack,
+}: {
+  partId: string;
+  hub: AssetHubPayload;
+  qrCode: string;
+  onBack: () => void;
+}) {
+  const [stack, setStack] = useState<string[]>([partId]);
+  const currentPartId = stack[stack.length - 1]!;
+  const depth = stack.length - 1;
+
+  const [data, setData] = useState<PartResources | null>(null);
+  const [pmStatus, setPmStatus] = useState<PmStatusPayload | null>(null);
+  const [pmPlans, setPmPlans] = useState<PmPlanStatusPayload | null>(null);
+  const [troubleshooting, setTroubleshooting] = useState<TroubleshootingGuide[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const [openDoc, setOpenDoc] = useState<{
+    body: DocumentBody;
+    sections: PwaDocumentSection[] | null;
+  } | null>(null);
+  const [jobAidDocId, setJobAidDocId] = useState<string | null>(null);
+
+  // Reset stack when the entry partId changes (e.g., the tech tapped a
+  // different chip on Overview without backing out first).
+  useEffect(() => {
+    setStack([partId]);
+  }, [partId]);
+
+  // Asset-wide PMs + troubleshooting load once per inspector lifetime;
+  // PartProcedurePane filters them down to entries that reference this
+  // part's documents.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      fetchPmStatus(hub.assetInstance.id),
+      fetchPmPlanStatus(hub.assetInstance.id),
+      fetchTroubleshooting(hub.assetInstance.id),
+    ]).then(([pm, plans, ts]) => {
+      if (cancelled) return;
+      setPmStatus(pm);
+      setPmPlans(plans);
+      setTroubleshooting(ts.guides);
+    }).catch((e) => {
+      if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [hub.assetInstance.id]);
+
+  // Part resources refetch whenever the active part on the stack changes.
+  useEffect(() => {
+    let cancelled = false;
+    setData(null);
+    getPartResources(currentPartId, hub.assetInstance.id)
+      .then((r) => {
+        if (!cancelled) setData(r);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentPartId, hub.assetInstance.id]);
+
+  function goBack() {
+    if (depth === 0) {
+      onBack();
+      return;
+    }
+    setStack((s) => s.slice(0, -1));
+  }
+
+  async function openDocument(docId: string, sections: PwaDocumentSection[] | null) {
+    try {
+      const body = await getDocument(docId);
+      if (!body) return;
+      if (body.kind === 'structured_procedure') {
+        setJobAidDocId(body.id);
+        return;
+      }
+      setOpenDoc({ body, sections });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  const hasComponents = (data?.components.length ?? 0) > 0;
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Inline back header — sits at the top of the scroll region. The
+          main TabBar (bottom) remains visible underneath. */}
+      <header className="part-inspector-bar">
+        <button
+          type="button"
+          onClick={goBack}
+          className="app-topbar-btn"
+          aria-label={depth === 0 ? 'Back' : 'Back to parent part'}
+        >
+          <ChevronLeft size={22} strokeWidth={2} />
+        </button>
+        {data?.part.imageUrl ? (
+          <img
+            src={data.part.imageUrl}
+            alt=""
+            className="part-inspector-thumb"
+          />
+        ) : (
+          <span className="part-inspector-thumb part-inspector-thumb-fallback">
+            <Wrench size={18} strokeWidth={2} />
+          </span>
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="caption truncate">
+            {data?.part.oemPartNumber ?? '—'}
+          </p>
+          <h2 className="text-base font-semibold leading-tight truncate">
+            {data?.part.displayName ?? 'Loading…'}
+          </h2>
+        </div>
+      </header>
+
+      {error && (
+        <p className="rounded-md border border-signal-fault/40 bg-signal-fault/10 p-3 text-sm text-signal-fault">
+          {error}
+        </p>
+      )}
+
+      <PartProcedurePane
+        data={data}
+        pmStatus={pmStatus}
+        pmPlans={pmPlans}
+        troubleshooting={troubleshooting}
+        onOpenDocument={openDocument}
+        onOpenJobAid={(docId) => setJobAidDocId(docId)}
+      />
+
+      {/* Sub-components drill-in. Rendered inline below the procedure
+          content so the user can step into a sub-assembly without an
+          internal tab strip. Hidden when this part has no children. */}
+      {hasComponents && data && (
+        <ComponentsPane
+          data={data}
+          onDrillInto={(childId) => setStack((s) => [...s, childId])}
+        />
+      )}
+
+      {openDoc && (
+        <PartDocView
+          doc={openDoc.body}
+          sections={openDoc.sections}
+          onBack={() => setOpenDoc(null)}
+        />
+      )}
+      {jobAidDocId && (
+        <VirtualJobAid
+          source={{
+            kind: 'doc',
+            docId: jobAidDocId,
+            devUserId: PWA_DEV_USER_ID,
+            devOrgId: PWA_DEV_ORG_ID,
+          }}
+          onClose={() => setJobAidDocId(null)}
         />
       )}
     </div>

@@ -16,7 +16,7 @@ import type { AssetHubPayload } from '@/lib/shared-schema';
 import { DocsTab } from './docs-tab';
 import { ChatTab } from './chat-tab';
 import { TrainingTab } from './training-tab';
-import { PartsTab } from './parts-tab';
+import { PartInspector, PartsTab } from './parts-tab';
 import { IssuesPanel } from './issues-panel';
 import { MaintenanceTab } from './maintenance-tab';
 import { VoiceMode, type PrefetchedGreeting } from '@/components/voice-mode';
@@ -89,11 +89,12 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
     DEV_USER_ID && DEV_ORG_ID ? 'choosing' : 'browse',
   );
   const [voiceOpen, setVoiceOpen] = useState(false);
-  // When the Overview parts band asks to open a specific part, stash
-  // the id here and pass it into PartsTab. Cleared once the Parts
-  // tab mounts and consumes it (the tab tracks its own openPartId
-  // after that).
-  const [pendingPartId, setPendingPartId] = useState<string | null>(null);
+  // When a tech taps a part chip (from Overview or the Parts tab list)
+  // we swap the active tab's content with PartInspector — which renders
+  // inline, so the bottom TabBar stays visible and the tech keeps the
+  // same nav as the rest of the app. Tapping any main tab in the bottom
+  // bar clears this and shows the chosen tab normally.
+  const [inspectingPartId, setInspectingPartId] = useState<string | null>(null);
   // VirtualJobAid mount for procedures launched from the Overview quick
   // actions card OR from the Maintenance tab (PM bucket → inline steps,
   // troubleshooting row → inline steps, scheduled procedure → docId).
@@ -170,24 +171,32 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
       window.history.pushState({ tab: next }, '', url.toString());
       return next;
     });
+    // Any explicit tab change dismisses the inline part inspector — the
+    // tech asked to go somewhere else, the part panel was situational.
+    setInspectingPartId(null);
   }, []);
 
   return (
     <>
       <TabBar hub={hub} active={active} setActive={changeTab} position="top" />
 
-      <div key={active} className="tab-pane flex flex-col gap-4">
-        {active === 'overview' ? (
+      <div key={inspectingPartId ?? active} className="tab-pane flex flex-col gap-4">
+        {inspectingPartId ? (
+          // Inline part view — replaces the active tab's body but the
+          // bottom TabBar stays visible. Same nav as the rest of the app;
+          // tapping any bottom tab clears this and shows that tab.
+          <PartInspector
+            partId={inspectingPartId}
+            hub={hub}
+            qrCode={qrCode}
+            onBack={() => setInspectingPartId(null)}
+          />
+        ) : active === 'overview' ? (
           <div className="flex flex-col gap-4">
             <IdentityBand hub={hub} />
             <PartsQuickActions
               assetModelId={hub.assetModel.id}
-              onOpenPart={(partId) => {
-                // Stash the part id and switch tabs. PartsTab reads
-                // initialOpenPartId on mount and opens the overlay.
-                setPendingPartId(partId);
-                changeTab('parts');
-              }}
+              onOpenPart={(partId) => setInspectingPartId(partId)}
             />
             <IssuesPanel
               assetInstanceId={hub.assetInstance.id}
@@ -222,8 +231,7 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
               <PartsTab
                 hub={hub}
                 qrCode={qrCode}
-                initialOpenPartId={pendingPartId}
-                onInitialOpenConsumed={() => setPendingPartId(null)}
+                onInspectPart={(partId) => setInspectingPartId(partId)}
               />
             )}
             {active === 'chat' && <ChatTab hub={hub} qrCode={qrCode} />}

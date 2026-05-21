@@ -446,6 +446,35 @@
 /* =========================================================================
    DOC OVERLAY — opening a document takes over the whole viewport.
    ========================================================================= */
+/* PartInspector header — inline (not fixed). Sits at the top of the
+   scroll region above the procedure pane. Distinct from .doc-overlay-bar
+   because the inspector lives inside the page flow, so the main TabBar
+   stays reachable at the bottom. */
+.part-inspector-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgb(var(--surface-raised));
+  border: 1px solid rgb(var(--line-subtle));
+}
+.part-inspector-thumb {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: rgb(var(--surface-inset));
+  border: 1px solid rgb(var(--line-subtle));
+}
+.part-inspector-thumb-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgb(var(--ink-tertiary));
+}
+
 .doc-overlay {
   position: fixed;
   inset: 0;
