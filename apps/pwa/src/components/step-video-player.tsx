@@ -1,29 +1,34 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Maximize, Play } from 'lucide-react';
+import { Maximize } from 'lucide-react';
 
 // StepVideoPlayer — drop-in replacement for the raw <video> tag in
 // procedure step media galleries (and the hero video on Step 0 / scroll
-// view). Built for hands-free contexts where the procedure runner has
-// TTS narration, but also works fine in plain-read browse mode.
+// view). Built for short technique clips that should behave like an
+// animated GIF: autoplay, loop, muted by default. Native controls let
+// the tech pause/unmute/scrub if they want.
 //
-// Behaviors (per plan):
-//   - Auto-pause when playId changes (next/prev step navigation).
-//   - Muted by default when `muted` prop is true (Job Aid + voice mode).
-//   - 16:9 framed play surface with brand-tinted border + rounded
-//     corners — feels intentional vs. raw native player chrome.
-//   - Custom large play overlay before first interaction; native
-//     controls appear after the user starts playback.
-//   - Tap-to-fullscreen button in the bottom-right corner using the
-//     native Fullscreen API (with webkit fallback for iOS Safari).
+// Behaviors:
+//   - Autoplay + loop on mount. Muted by default so the browser allows
+//     autoplay without a user gesture. Set `muted={false}` to ship with
+//     audio enabled (browsers will still require a tap before unmuting
+//     in most cases, but the file's track is wired up).
+//   - Auto-pause + reset when playId changes (next/prev step nav) so
+//     audio doesn't leak across steps in the Job Aid runner.
+//   - Native controls always available — pause, scrub, unmute, full-
+//     screen — overlaid on the player chrome at the bottom.
+//   - Tap-to-fullscreen button stays in the corner with iOS Safari
+//     webkit fallback for old devices.
 //   - On load error, falls back to a labeled placeholder.
 
 interface Props {
   src: string;
   alt?: string;
   caption?: string | null;
-  /** Start muted (Job Aid view passes true to avoid fighting TTS). */
+  /** Defaults to true — autoplay won't fire on mobile without it.
+   *  Pass false only when you need the video to ship with audio on
+   *  by default (rare; the tech can always unmute via the controls). */
   muted?: boolean;
   /** Stable identifier whose change triggers an auto-pause + reset.
    *  Pass the step id when used per-step; pass "hero" for hero video. */
@@ -35,38 +40,29 @@ export function StepVideoPlayer({
   src,
   alt,
   caption,
-  muted = false,
+  muted = true,
   playId,
   className,
 }: Props): React.ReactElement {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [started, setStarted] = useState(false);
   const [failed, setFailed] = useState(false);
 
-  // Auto-pause + reset whenever the parent's playId changes. Prevents
-  // audio leaking across step transitions in the Job Aid view.
+  // Re-arm autoplay whenever playId changes. The browser pauses videos
+  // that scroll out of view on iOS, and we want the next step's clip to
+  // start fresh — set currentTime to 0 and call play() defensively.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     try {
-      v.pause();
       v.currentTime = 0;
+      void v.play().catch(() => {
+        // Autoplay policy refused — user will see the static frame +
+        // controls and can tap play. Not fatal.
+      });
     } catch {
       // already inert
     }
-    setStarted(false);
   }, [playId]);
-
-  function startPlayback() {
-    const v = videoRef.current;
-    if (!v) return;
-    setStarted(true);
-    void v.play().catch(() => {
-      // Some browsers reject play() if the gesture didn't satisfy
-      // policy. The native controls become visible regardless, so the
-      // user can retry with the native play button.
-    });
-  }
 
   function enterFullscreen(e: React.MouseEvent) {
     e.stopPropagation();
@@ -106,35 +102,21 @@ export function StepVideoPlayer({
         src={src}
         muted={muted}
         playsInline
-        preload="metadata"
-        controls={started}
+        autoPlay
+        loop
+        preload="auto"
+        controls
         onError={() => setFailed(true)}
       />
-      {!started && (
-        <button
-          type="button"
-          className="step-video-overlay"
-          onClick={startPlayback}
-          aria-label={alt ?? 'Play video'}
-        >
-          <span className="step-video-play-circle" aria-hidden>
-            <Play size={28} strokeWidth={2.5} fill="currentColor" />
-          </span>
-        </button>
-      )}
-      {started && (
-        <button
-          type="button"
-          className="step-video-fs-btn"
-          onClick={enterFullscreen}
-          aria-label="Enter fullscreen"
-        >
-          <Maximize size={16} strokeWidth={2} />
-        </button>
-      )}
-      {caption && started && (
-        <figcaption className="step-video-caption">{caption}</figcaption>
-      )}
+      <button
+        type="button"
+        className="step-video-fs-btn"
+        onClick={enterFullscreen}
+        aria-label="Enter fullscreen"
+      >
+        <Maximize size={16} strokeWidth={2} />
+      </button>
+      {caption && <figcaption className="step-video-caption">{caption}</figcaption>}
     </figure>
   );
 }

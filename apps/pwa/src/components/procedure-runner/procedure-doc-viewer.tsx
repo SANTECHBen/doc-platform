@@ -480,7 +480,11 @@ function StepBlock({
                     <video
                       src={m.url ?? ''}
                       controls
-                      preload="metadata"
+                      autoPlay
+                      loop
+                      muted
+                      playsInline
+                      preload="auto"
                       className="h-auto w-full"
                     />
                   )}
