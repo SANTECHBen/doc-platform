@@ -2,11 +2,18 @@
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { FileStack, Plus } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  ChevronRight,
+  FileStack,
+  Layers,
+  Package,
+  Plus,
+  Search,
+} from 'lucide-react';
 import { EmptyState } from '@/components/empty-state';
 import { NextStepHint } from '@/components/next-step-hint';
-import { TableSkeleton } from '@/components/skeleton';
+import { TilesSkeleton } from '@/components/skeleton';
 import { useToast } from '@/components/toast';
 import { PageHeader, PageShell, Pill } from '@/components/page-shell';
 import {
@@ -35,12 +42,20 @@ const LAYER_TONE = {
   site_overlay: 'default',
 } as const;
 
+const LAYER_LABEL = {
+  base: 'Base',
+  dealer_overlay: 'Dealer overlay',
+  site_overlay: 'Site overlay',
+} as const;
+
 const STATUS_TONE = {
   draft: 'default',
   in_review: 'warning',
   published: 'success',
   archived: 'default',
 } as const;
+
+type LayerFilter = 'all' | 'base' | 'dealer_overlay' | 'site_overlay';
 
 export default function ContentPacksPage() {
   const router = useRouter();
@@ -51,6 +66,8 @@ export default function ContentPacksPage() {
   const [continueOrg, setContinueOrg] = useState<AdminOrganization | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [layer, setLayer] = useState<LayerFilter>('all');
 
   async function refresh() {
     try {
@@ -83,6 +100,36 @@ export default function ContentPacksPage() {
     ? models.filter((m) => m.owner.id === continueOrgId)
     : models;
 
+  // Per-layer counts for the filter chips. Computed off the full row set so
+  // the count of each chip is independent of the active filter (a common
+  // expectation for facet filters).
+  const layerCounts = useMemo(() => {
+    const counts = { all: 0, base: 0, dealer_overlay: 0, site_overlay: 0 };
+    for (const r of rows ?? []) {
+      counts.all++;
+      counts[r.layerType]++;
+    }
+    return counts;
+  }, [rows]);
+
+  // Visible rows after applying search + layer chip. Search hits name,
+  // slug, asset model, and owner so the user can locate a pack by any of
+  // the fields shown on the card.
+  const visibleRows = useMemo(() => {
+    if (rows === null) return null;
+    const q = query.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (layer !== 'all' && r.layerType !== layer) return false;
+      if (!q) return true;
+      return (
+        r.name.toLowerCase().includes(q) ||
+        r.slug.toLowerCase().includes(q) ||
+        r.assetModel.displayName.toLowerCase().includes(q) ||
+        r.owner.toLowerCase().includes(q)
+      );
+    });
+  }, [rows, query, layer]);
+
   return (
     <PageShell crumbs={[{ label: 'Content packs' }]}>
       <PageHeader
@@ -97,7 +144,7 @@ export default function ContentPacksPage() {
       <ErrorBanner error={error} />
       <NextStepHint page="content-packs" />
       {rows === null ? (
-        <TableSkeleton cols={6} rows={5} />
+        <TilesSkeleton count={6} />
       ) : rows.length === 0 ? (
         <EmptyState
           icon={FileStack}
@@ -112,62 +159,79 @@ export default function ContentPacksPage() {
           }
         />
       ) : (
-        <div className="overflow-hidden rounded-md border border-line-subtle bg-surface-raised">
-          <table className="data-table">
-            <thead className="bg-surface-inset text-left text-xs uppercase tracking-wide text-ink-tertiary">
-              <tr>
-                <th className="px-4 py-2">Name</th>
-                <th className="px-4 py-2">Layer</th>
-                <th className="px-4 py-2">Asset model</th>
-                <th className="px-4 py-2">Owner</th>
-                <th className="px-4 py-2">Versions</th>
-                <th className="px-4 py-2">Latest</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((p) => (
-                <tr key={p.id} className="border-t border-line-subtle align-top">
-                  <td className="px-4 py-3">
-                    <Link
-                      href={`/content-packs/${p.id}`}
-                      className="font-medium text-ink-primary hover:text-brand"
+        <div className="flex flex-col gap-5">
+          {/* Toolbar — search input on the left, layer-facet chips on
+              the right. Sticks to the top of the listing so the filter
+              state is always visible while scrolling. */}
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <label className="relative block w-full max-w-md">
+              <Search
+                size={14}
+                strokeWidth={2}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-tertiary"
+              />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search packs, models, or owners"
+                className="h-9 w-full rounded-md border border-line bg-surface-raised pl-9 pr-3 text-sm text-ink-primary placeholder:text-ink-tertiary focus:border-brand focus:outline-none"
+              />
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {(['all', 'base', 'dealer_overlay', 'site_overlay'] as LayerFilter[]).map(
+                (key) => {
+                  const active = layer === key;
+                  const label = key === 'all' ? 'All' : LAYER_LABEL[key];
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setLayer(key)}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                        active
+                          ? 'border-brand bg-brand/10 text-brand'
+                          : 'border-line bg-surface-raised text-ink-secondary hover:border-line-strong hover:text-ink-primary'
+                      }`}
                     >
-                      {p.name}
-                    </Link>
-                    <span className="block font-mono text-xs text-ink-tertiary">{p.slug}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <Pill tone={LAYER_TONE[p.layerType]}>
-                      {p.layerType.replace('_', ' ')}
-                    </Pill>
-                  </td>
-                  <td className="px-4 py-3 text-ink-secondary">{p.assetModel.displayName}</td>
-                  <td className="px-4 py-3 text-ink-secondary">{p.owner}</td>
-                  <td className="px-4 py-3">{p.versionCount}</td>
-                  <td className="px-4 py-3">
-                    {p.latestVersion ? (
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs">
-                          v{p.latestVersion.label ?? p.latestVersion.number}
-                        </span>
-                        <Pill
-                          tone={
-                            STATUS_TONE[
-                              p.latestVersion.status as keyof typeof STATUS_TONE
-                            ] ?? 'default'
-                          }
-                        >
-                          {p.latestVersion.status}
-                        </Pill>
-                      </div>
-                    ) : (
-                      <span className="text-ink-tertiary">—</span>
-                    )}
-                  </td>
-                </tr>
+                      <span>{label}</span>
+                      <span
+                        className={`tabular-nums ${
+                          active ? 'text-brand' : 'text-ink-tertiary'
+                        }`}
+                      >
+                        {layerCounts[key]}
+                      </span>
+                    </button>
+                  );
+                },
+              )}
+            </div>
+          </div>
+
+          {visibleRows && visibleRows.length === 0 ? (
+            <div className="rounded-md border border-dashed border-line-subtle bg-surface-raised px-6 py-12 text-center">
+              <p className="text-sm text-ink-secondary">
+                No packs match the current filters.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery('');
+                  setLayer('all');
+                }}
+                className="mt-2 text-xs font-medium text-brand hover:underline"
+              >
+                Clear filters
+              </button>
+            </div>
+          ) : (
+            <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {(visibleRows ?? []).map((p) => (
+                <PackCard key={p.id} pack={p} />
               ))}
-            </tbody>
-          </table>
+            </ul>
+          )}
         </div>
       )}
 
@@ -198,6 +262,79 @@ export default function ContentPacksPage() {
         />
       </Drawer>
     </PageShell>
+  );
+}
+
+// One card per pack in the listing grid. Whole card is the click target
+// (links to the pack detail page); inner chrome is purely visual.
+function PackCard({ pack }: { pack: AdminContentPack }) {
+  const v = pack.latestVersion;
+  const statusTone =
+    v && (STATUS_TONE[v.status as keyof typeof STATUS_TONE] ?? 'default');
+  const isFieldCaptures = pack.kind === 'field_captures';
+  return (
+    <li className="group relative flex flex-col gap-3 rounded-lg border border-line-subtle bg-surface-raised p-4 transition-colors hover:border-brand/40 hover:shadow-[0_8px_24px_-16px_rgb(var(--brand)/0.4)] focus-within:border-brand/40">
+      <Link
+        href={`/content-packs/${pack.id}`}
+        aria-label={`Open ${pack.name}`}
+        className="absolute inset-0 z-0"
+      />
+      <div className="pointer-events-none relative z-10 flex flex-col gap-3">
+        {/* Top row: layer + kind/status pills, plus a chevron hint */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Pill tone={LAYER_TONE[pack.layerType]}>
+              {LAYER_LABEL[pack.layerType]}
+            </Pill>
+            {isFieldCaptures && <Pill tone="warning">Field captures</Pill>}
+          </div>
+          <ChevronRight
+            size={16}
+            strokeWidth={2}
+            className="text-ink-tertiary transition-transform group-hover:translate-x-0.5 group-hover:text-brand"
+          />
+        </div>
+
+        {/* Title + slug */}
+        <div className="flex flex-col gap-0.5">
+          <h3 className="text-[15px] font-semibold leading-snug text-ink-primary group-hover:text-brand">
+            {pack.name}
+          </h3>
+          <p className="font-mono text-[11px] text-ink-tertiary">{pack.slug}</p>
+        </div>
+
+        {/* Meta rows — model + owner */}
+        <dl className="flex flex-col gap-1.5 text-xs">
+          <div className="flex items-center gap-1.5 text-ink-secondary">
+            <Package size={12} strokeWidth={2} className="shrink-0 text-ink-tertiary" />
+            <dt className="sr-only">Asset model</dt>
+            <dd className="truncate">{pack.assetModel.displayName}</dd>
+          </div>
+          <div className="flex items-center gap-1.5 text-ink-secondary">
+            <Layers size={12} strokeWidth={2} className="shrink-0 text-ink-tertiary" />
+            <dt className="sr-only">Owner</dt>
+            <dd className="truncate">{pack.owner}</dd>
+          </div>
+        </dl>
+
+        {/* Footer: latest version + total version count */}
+        <div className="flex items-center justify-between gap-2 border-t border-line-subtle pt-3">
+          {v ? (
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-xs text-ink-secondary">
+                v{v.label ?? v.number}
+              </span>
+              <Pill tone={statusTone || 'default'}>{v.status}</Pill>
+            </div>
+          ) : (
+            <span className="text-xs text-ink-tertiary">No versions yet</span>
+          )}
+          <span className="text-[11px] text-ink-tertiary tabular-nums">
+            {pack.versionCount} {pack.versionCount === 1 ? 'version' : 'versions'}
+          </span>
+        </div>
+      </div>
+    </li>
   );
 }
 
