@@ -929,41 +929,52 @@ export function VirtualJobAid({
                 linked procedure as a nested Job Aid (overlay rendered
                 below this main return). Skipping is just tapping Next —
                 the link is an optional branch ("if necessary"). */}
-            {step.linkedSubProcedure && (
-              <div className="vja-subprocedure-cta">
-                <button
-                  type="button"
-                  className="vja-btn vja-btn-primary"
-                  disabled={breadcrumb.length >= MAX_SUB_PROCEDURE_DEPTH}
-                  onClick={() => {
-                    stopPlayback();
-                    setSubProcedurePush({
-                      docId: step.linkedSubProcedure!.docId,
-                      stepIds: step.linkedSubProcedure!.stepIds,
-                    });
-                  }}
-                  title={
-                    breadcrumb.length >= MAX_SUB_PROCEDURE_DEPTH
-                      ? `Nesting limit reached (${MAX_SUB_PROCEDURE_DEPTH} deep). Finish current sub-procedure first.`
-                      : `Push ${step.linkedSubProcedure.title} as a sub-procedure`
-                  }
-                >
-                  ▸ Run sub-procedure: {step.linkedSubProcedure.title}
-                  {step.linkedSubProcedure.stepIds.length > 0 && (
-                    <span className="vja-subset-chip">
-                      {' · '}
-                      {step.linkedSubProcedure.stepIds.length} step
-                      {step.linkedSubProcedure.stepIds.length === 1 ? '' : 's'}
+            {step.linkedSubProcedure && (() => {
+              const sp = step.linkedSubProcedure;
+              const limitReached = breadcrumb.length >= MAX_SUB_PROCEDURE_DEPTH;
+              const pinnedCount = sp.stepIds.length;
+              return (
+                <div className="vja-subprocedure-cta">
+                  <button
+                    type="button"
+                    className="vja-subproc-card"
+                    disabled={limitReached}
+                    onClick={() => {
+                      stopPlayback();
+                      setSubProcedurePush({
+                        docId: sp.docId,
+                        stepIds: sp.stepIds,
+                      });
+                    }}
+                    title={
+                      limitReached
+                        ? `Nesting limit reached (${MAX_SUB_PROCEDURE_DEPTH} deep). Finish current sub-procedure first.`
+                        : `Open ${sp.title} as a sub-procedure`
+                    }
+                  >
+                    <div className="vja-subproc-card-body">
+                      <div className="vja-subproc-card-kicker">
+                        <span className="vja-subproc-card-tag">Optional</span>
+                        <span className="vja-subproc-card-dot" aria-hidden>·</span>
+                        <span>Sub-procedure</span>
+                      </div>
+                      <div className="vja-subproc-card-title">{sp.title}</div>
+                      <div className="vja-subproc-card-meta">
+                        {pinnedCount > 0
+                          ? `${pinnedCount} pinned step${pinnedCount === 1 ? '' : 's'}`
+                          : 'Plays the full procedure'}
+                      </div>
+                    </div>
+                    <span className="vja-subproc-card-chevron" aria-hidden>
+                      <ChevronRight size={20} strokeWidth={2.25} />
                     </span>
-                  )}
-                </button>
-                <span className="vja-subprocedure-hint">
-                  Optional — tap Next to skip if not needed.
-                  {step.linkedSubProcedure.stepIds.length > 0 &&
-                    ' Plays only the pinned steps from the sub-procedure.'}
-                </span>
-              </div>
-            )}
+                  </button>
+                  <span className="vja-subprocedure-hint">
+                    Tap to run, or Next to skip if not needed.
+                  </span>
+                </div>
+              );
+            })()}
           </article>
         )}
       </main>
