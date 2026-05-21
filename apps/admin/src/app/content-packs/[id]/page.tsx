@@ -22,7 +22,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { PageHeader, PageShell, Pill } from '@/components/page-shell';
+import { MetricTile, PageHeader, PageShell, Pill } from '@/components/page-shell';
 import { useToast } from '@/components/toast';
 import {
   Drawer,
@@ -68,6 +68,18 @@ const STATUS_TONE = {
   archived: 'default',
 } as const;
 
+const LAYER_LABEL = {
+  base: 'Base',
+  dealer_overlay: 'Dealer overlay',
+  site_overlay: 'Site overlay',
+} as const;
+
+const LAYER_TONE = {
+  base: 'info',
+  dealer_overlay: 'warning',
+  site_overlay: 'default',
+} as const;
+
 export default function ContentPackDetail({
   params,
 }: {
@@ -85,6 +97,14 @@ export default function ContentPackDetail({
   // a clear "SUPERADMIN UNLOCK" badge so the user knows they're operating
   // outside the normal draft lifecycle.
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  // Which version is currently in view. null until the first refresh fills
+  // it; subsequent refreshes preserve the user's selection. The default
+  // picks the draft if one exists (most common authoring case), otherwise
+  // the most recent version.
+  const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
+  const [contentTab, setContentTab] = useState<'documents' | 'training'>(
+    'documents',
+  );
   const toast = useToast();
   const router = useRouter();
 
@@ -111,6 +131,15 @@ export default function ContentPackDetail({
     void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Pick a sensible default version once the pack lands. Prefer the draft
+  // (where authoring happens) over the most recent published one. Keep the
+  // user's manual selection across subsequent refreshes.
+  useEffect(() => {
+    if (!pack || activeVersionId) return;
+    const draft = pack.versions.find((v) => v.status === 'draft');
+    setActiveVersionId(draft?.id ?? pack.versions[0]?.id ?? null);
+  }, [pack, activeVersionId]);
 
   // Poll every 3s while any document is mid-extraction. The pipeline typically
   // finishes in 5-30s per doc, so a 3s cadence surfaces state fast without
@@ -215,6 +244,18 @@ export default function ContentPackDetail({
   if (!pack) return <p className="p-6 text-center text-sm text-ink-tertiary">Loading…</p>;
 
   const hasDraft = pack.versions.some((v) => v.status === 'draft');
+  const activeVersion =
+    pack.versions.find((v) => v.id === activeVersionId) ?? pack.versions[0] ?? null;
+  // Aggregate stats across all versions for the hero strip — gives the
+  // author a "what's in this pack" glance before they pick a version.
+  const totalDocs = pack.versions.reduce((n, v) => n + v.documents.length, 0);
+  const totalModules = pack.versions.reduce(
+    (n, v) => n + v.trainingModules.length,
+    0,
+  );
+  const publishedCount = pack.versions.filter(
+    (v) => v.status === 'published',
+  ).length;
 
   return (
     <PageShell
@@ -225,7 +266,7 @@ export default function ContentPackDetail({
     >
       <PageHeader
         title={pack.name}
-        description={`${pack.layerType.replace('_', ' ')} pack for ${pack.assetModel.displayName} (${pack.assetModel.modelCode})`}
+        description={`${LAYER_LABEL[pack.layerType as keyof typeof LAYER_LABEL] ?? pack.layerType} pack for ${pack.assetModel.displayName} (${pack.assetModel.modelCode})`}
         actions={
           <div className="flex items-center gap-2">
             <SecondaryButton onClick={onDeletePack} disabled={busy}>
@@ -241,141 +282,259 @@ export default function ContentPackDetail({
       />
       <ErrorBanner error={error} />
 
-      <div className="flex flex-col gap-4">
-        {pack.versions.map((v) => {
-          // Authoring is normally only allowed on draft versions, but a
-          // PLATFORM_ADMIN_EMAILS super-admin can edit published versions too.
-          // Surface the same action buttons in that case, and badge the row
-          // so it's obvious you're outside the draft lifecycle.
-          const editable = v.status === 'draft' || isSuperAdmin;
-          const isPublishedUnlock = v.status === 'published' && isSuperAdmin;
-          return (
-          <section key={v.id} className="rounded-md border border-line-subtle bg-surface-raised p-4">
-            <header className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-lg font-semibold">
-                  v{v.versionLabel ?? v.versionNumber}
-                </span>
-                <Pill tone={STATUS_TONE[v.status as keyof typeof STATUS_TONE] ?? 'default'}>
-                  {v.status}
-                </Pill>
-                {isPublishedUnlock && (
-                  <Pill tone="warning">
-                    SUPERADMIN UNLOCK
-                  </Pill>
-                )}
-                {v.publishedAt && (
-                  <span className="text-xs text-ink-tertiary">
-                    Published {new Date(v.publishedAt).toLocaleDateString()}
-                  </span>
-                )}
-              </div>
-              {editable && (
-                <div className="flex items-center gap-2">
-                  <SecondaryButton onClick={() => setModuleOpen(v.id)} disabled={busy}>
-                    <GraduationCap size={14} strokeWidth={2} /> Add module
-                  </SecondaryButton>
-                  <PrimaryButton
-                    onClick={() => router.push(`/procedures/new?versionId=${encodeURIComponent(v.id)}`)}
-                    disabled={busy}
-                  >
-                    <ListChecks size={14} strokeWidth={2} /> New procedure
-                  </PrimaryButton>
-                  <SecondaryButton onClick={() => setAddOpen(v.id)} disabled={busy}>
-                    <FilePlus2 size={14} strokeWidth={2} /> Add document
-                  </SecondaryButton>
+      <div className="flex flex-col gap-5">
+        {/* Pack identity strip — layer + asset model + owner pulled out
+            into a quiet card so they live above the version chrome,
+            not buried in the page description. */}
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-line-subtle bg-surface-raised px-4 py-3 text-sm">
+          <Pill tone={LAYER_TONE[pack.layerType as keyof typeof LAYER_TONE] ?? 'default'}>
+            {LAYER_LABEL[pack.layerType as keyof typeof LAYER_LABEL] ?? pack.layerType}
+          </Pill>
+          <span className="flex items-center gap-1.5 text-ink-secondary">
+            <Package size={14} strokeWidth={2} className="text-ink-tertiary" />
+            {pack.assetModel.displayName}
+            <span className="font-mono text-xs text-ink-tertiary">
+              · {pack.assetModel.modelCode}
+            </span>
+          </span>
+        </div>
+
+        {/* At-a-glance metrics — counts that span all versions so the
+            author knows what's in the pack without scanning rows. */}
+        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+          <MetricTile
+            label="Versions"
+            value={pack.versions.length}
+            sub={
+              publishedCount > 0
+                ? `${publishedCount} published`
+                : hasDraft
+                ? 'Draft in progress'
+                : 'No versions yet'
+            }
+          />
+          <MetricTile
+            label="Documents"
+            value={totalDocs}
+            sub="Across all versions"
+          />
+          <MetricTile
+            label="Training modules"
+            value={totalModules}
+            sub="Across all versions"
+          />
+          <MetricTile
+            label="Field captures"
+            value={pack.fieldCaptures.length}
+            sub="Tech-authored"
+            tone={pack.fieldCaptures.length > 0 ? 'warning' : 'default'}
+          />
+        </div>
+
+        {/* Version selector — one chip per version, click to switch the
+            content panel below. Keeps only the active version's documents
+            and training modules in view so the page doesn't scroll into
+            a stack of repeated section chrome. */}
+        {pack.versions.length > 0 && (
+          <div className="flex flex-col gap-3 rounded-lg border border-line-subtle bg-surface-raised">
+            <div className="flex flex-wrap items-center gap-1.5 border-b border-line-subtle px-3 py-2.5">
+              <span className="mr-1 text-xs font-medium uppercase tracking-wide text-ink-tertiary">
+                Version
+              </span>
+              {pack.versions.map((v) => {
+                const active = v.id === activeVersion?.id;
+                return (
                   <button
+                    key={v.id}
                     type="button"
-                    className="btn btn-secondary text-signal-fault"
-                    onClick={() =>
-                      onDeleteVersion(v.id, `v${v.versionLabel ?? v.versionNumber}`)
-                    }
-                    disabled={busy}
+                    onClick={() => setActiveVersionId(v.id)}
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                      active
+                        ? 'border-brand bg-brand/10 text-brand'
+                        : 'border-line bg-surface text-ink-secondary hover:border-line-strong hover:text-ink-primary'
+                    }`}
                   >
-                    <Trash2 size={14} strokeWidth={2} /> {v.status === 'draft' ? 'Delete draft' : 'Delete version'}
+                    <span className="font-mono">
+                      v{v.versionLabel ?? v.versionNumber}
+                    </span>
+                    <Pill tone={STATUS_TONE[v.status as keyof typeof STATUS_TONE] ?? 'default'}>
+                      {v.status}
+                    </Pill>
                   </button>
-                  {v.status === 'draft' && (
-                    <PrimaryButton
-                      onClick={() => onPublish(v.id)}
-                      disabled={busy || v.documents.length === 0}
-                    >
-                      <Send size={14} strokeWidth={2} /> Publish
-                    </PrimaryButton>
+                );
+              })}
+            </div>
+
+            {activeVersion && (() => {
+              const v = activeVersion;
+              const editable = v.status === 'draft' || isSuperAdmin;
+              const isPublishedUnlock = v.status === 'published' && isSuperAdmin;
+              return (
+                <div className="flex flex-col gap-4 px-4 pb-4">
+                  {/* Active version meta + action bar */}
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-lg font-semibold">
+                        v{v.versionLabel ?? v.versionNumber}
+                      </h2>
+                      <Pill tone={STATUS_TONE[v.status as keyof typeof STATUS_TONE] ?? 'default'}>
+                        {v.status}
+                      </Pill>
+                      {isPublishedUnlock && (
+                        <Pill tone="warning">SUPERADMIN UNLOCK</Pill>
+                      )}
+                      {v.publishedAt && (
+                        <span className="text-xs text-ink-tertiary">
+                          Published {new Date(v.publishedAt).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+                    {editable && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <SecondaryButton onClick={() => setModuleOpen(v.id)} disabled={busy}>
+                          <GraduationCap size={14} strokeWidth={2} /> Add module
+                        </SecondaryButton>
+                        <SecondaryButton onClick={() => setAddOpen(v.id)} disabled={busy}>
+                          <FilePlus2 size={14} strokeWidth={2} /> Add document
+                        </SecondaryButton>
+                        <PrimaryButton
+                          onClick={() =>
+                            router.push(
+                              `/procedures/new?versionId=${encodeURIComponent(v.id)}`,
+                            )
+                          }
+                          disabled={busy}
+                        >
+                          <ListChecks size={14} strokeWidth={2} /> New procedure
+                        </PrimaryButton>
+                        <button
+                          type="button"
+                          className="btn btn-secondary text-signal-fault"
+                          onClick={() =>
+                            onDeleteVersion(
+                              v.id,
+                              `v${v.versionLabel ?? v.versionNumber}`,
+                            )
+                          }
+                          disabled={busy}
+                        >
+                          <Trash2 size={14} strokeWidth={2} />{' '}
+                          {v.status === 'draft' ? 'Delete draft' : 'Delete version'}
+                        </button>
+                        {v.status === 'draft' && (
+                          <PrimaryButton
+                            onClick={() => onPublish(v.id)}
+                            disabled={busy || v.documents.length === 0}
+                          >
+                            <Send size={14} strokeWidth={2} /> Publish
+                          </PrimaryButton>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {v.changelog && (
+                    <p className="text-sm text-ink-secondary">{v.changelog}</p>
+                  )}
+
+                  {/* Content tabs — Documents | Training. Mutually
+                      exclusive so the active panel can use the full
+                      width and rows stay readable. */}
+                  <div className="flex items-center gap-1 border-b border-line-subtle">
+                    <TabButton
+                      active={contentTab === 'documents'}
+                      onClick={() => setContentTab('documents')}
+                      label="Documents"
+                      count={v.documents.length}
+                    />
+                    <TabButton
+                      active={contentTab === 'training'}
+                      onClick={() => setContentTab('training')}
+                      label="Training modules"
+                      count={v.trainingModules.length}
+                    />
+                  </div>
+
+                  {contentTab === 'documents' ? (
+                    v.documents.length === 0 ? (
+                      <EmptyTabState
+                        message={
+                          v.status === 'draft'
+                            ? 'No documents yet. Add one to be able to publish this version.'
+                            : 'No documents in this version.'
+                        }
+                        action={
+                          editable ? (
+                            <SecondaryButton onClick={() => setAddOpen(v.id)} disabled={busy}>
+                              <FilePlus2 size={14} strokeWidth={2} /> Add document
+                            </SecondaryButton>
+                          ) : null
+                        }
+                      />
+                    ) : (
+                      <ul className="flex flex-col gap-1.5 text-sm">
+                        {v.documents.map((d) => (
+                          <DocumentRow
+                            key={d.id}
+                            doc={d}
+                            editable={editable}
+                            onDelete={() => onDeleteDoc(d.id)}
+                            onChanged={refresh}
+                          />
+                        ))}
+                      </ul>
+                    )
+                  ) : v.trainingModules.length === 0 ? (
+                    <EmptyTabState
+                      message="No training modules yet."
+                      action={
+                        editable ? (
+                          <SecondaryButton onClick={() => setModuleOpen(v.id)} disabled={busy}>
+                            <GraduationCap size={14} strokeWidth={2} /> Add module
+                          </SecondaryButton>
+                        ) : null
+                      }
+                    />
+                  ) : (
+                    <ul className="flex flex-col gap-1 text-sm">
+                      {v.trainingModules.map((m) => (
+                        <TrainingModuleRow
+                          key={m.id}
+                          module={m}
+                          versionStatus={v.status}
+                          isSuperAdmin={isSuperAdmin}
+                          onRefresh={refresh}
+                        />
+                      ))}
+                    </ul>
                   )}
                 </div>
-              )}
-            </header>
-            {v.changelog && (
-              <p className="mt-2 text-sm text-ink-secondary">{v.changelog}</p>
-            )}
-
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-ink-tertiary">
-                  Documents ({v.documents.length})
-                </p>
-                {v.documents.length === 0 ? (
-                  <p className="mt-1 text-sm text-ink-tertiary">
-                    {v.status === 'draft' ? 'None yet. Add one to publish.' : 'None.'}
-                  </p>
-                ) : (
-                  <ul className="mt-1 flex flex-col gap-1.5 text-sm">
-                    {v.documents.map((d) => (
-                      <DocumentRow
-                        key={d.id}
-                        doc={d}
-                        editable={editable}
-                        onDelete={() => onDeleteDoc(d.id)}
-                        onChanged={refresh}
-                      />
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-ink-tertiary">
-                  Training modules ({v.trainingModules.length})
-                </p>
-                {v.trainingModules.length === 0 ? (
-                  <p className="mt-1 text-sm text-ink-tertiary">None.</p>
-                ) : (
-                  <ul className="mt-1 flex flex-col gap-1 text-sm">
-                    {v.trainingModules.map((m) => (
-                      <TrainingModuleRow
-                        key={m.id}
-                        module={m}
-                        versionStatus={v.status}
-                        isSuperAdmin={isSuperAdmin}
-                        onRefresh={refresh}
-                      />
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-          </section>
-          );
-        })}
+              );
+            })()}
+          </div>
+        )}
 
         {pack.fieldCaptures.length > 0 && (
-          <section className="rounded-md border border-line-subtle bg-surface-raised p-4">
-            <header className="mb-3 flex items-center justify-between">
+          <section className="rounded-lg border border-line-subtle bg-surface-raised">
+            <header className="flex items-start justify-between gap-4 border-b border-line-subtle px-4 py-3">
               <div>
                 <h3 className="text-sm font-semibold uppercase tracking-wide text-ink-primary">
-                  Field captures ({pack.fieldCaptures.length})
+                  Field captures
+                  <span className="ml-2 font-mono text-xs font-normal text-ink-tertiary">
+                    {pack.fieldCaptures.length}
+                  </span>
                 </h3>
                 <p className="mt-0.5 text-xs text-ink-tertiary">
-                  Tech-authored procedures captured on this asset model
-                  via the PWA. Edit, promote, or delete from each
-                  procedure&apos;s detail page.
+                  Tech-authored procedures captured on this asset model via the
+                  PWA. Edit, promote, or delete from each procedure&apos;s
+                  detail page.
                 </p>
               </div>
             </header>
-            <ul className="flex flex-col gap-1.5">
+            <ul className="flex flex-col gap-1.5 p-3">
               {pack.fieldCaptures.map((fc) => (
                 <li
                   key={fc.id}
-                  className="flex items-center justify-between gap-3 rounded border border-line-subtle bg-surface px-3 py-2 text-sm"
+                  className="flex items-center justify-between gap-3 rounded-md border border-line-subtle bg-surface px-3 py-2 text-sm"
                 >
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <Link
@@ -434,6 +593,58 @@ export default function ContentPackDetail({
         )}
       </Drawer>
     </PageShell>
+  );
+}
+
+// Small tab-button used for the Documents / Training switch inside a version.
+function TabButton({
+  active,
+  onClick,
+  label,
+  count,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  count: number;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
+        active
+          ? 'border-brand text-ink-primary'
+          : 'border-transparent text-ink-secondary hover:text-ink-primary'
+      }`}
+    >
+      <span>{label}</span>
+      <span
+        className={`tabular-nums text-xs ${
+          active ? 'text-brand' : 'text-ink-tertiary'
+        }`}
+      >
+        {count}
+      </span>
+    </button>
+  );
+}
+
+// Quiet empty state shown inside a tab body when the active version has
+// no rows of that kind. Optional action surfaces the same "Add" button
+// from the version action bar so the user doesn't have to scroll back up.
+function EmptyTabState({
+  message,
+  action,
+}: {
+  message: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-3 rounded-md border border-dashed border-line-subtle bg-surface px-6 py-10 text-center">
+      <p className="text-sm text-ink-secondary">{message}</p>
+      {action}
+    </div>
   );
 }
 
