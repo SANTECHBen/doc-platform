@@ -1333,7 +1333,13 @@ function TrainingModuleRow({
   return (
     <li className="flex items-center gap-2 rounded border border-line-subtle bg-surface-inset px-2 py-1.5">
       <GraduationCap size={14} strokeWidth={2} className="shrink-0 text-ink-tertiary" />
-      <span className="flex-1 truncate text-ink-primary">{module.title}</span>
+      <Link
+        href={`/training/${module.id}`}
+        className="flex-1 truncate text-ink-primary hover:text-ink-brand hover:underline"
+        title="Open module — edit lessons & quiz activities"
+      >
+        {module.title}
+      </Link>
       <button
         type="button"
         onClick={() => setOpen(true)}
