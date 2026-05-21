@@ -3017,37 +3017,91 @@
     color: rgb(var(--signal-safety));
   }
 
-  /* Breadcrumb shown in the topbar when this VJA instance is rendered
-     as a nested sub-procedure. Sits between the "VIRTUAL JOB AID"
-     caption and the doc title. */
-  .vja-breadcrumb {
-    margin: 0;
+  /* Sub-procedure banner — full-width strip above the topbar that
+     appears only when this VJA instance is nested. Brand-colored so
+     the tech can't miss "you're inside a sub-procedure"; the ← Back
+     button is the primary return affordance (X still closes too). */
+  .vja-subproc-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: rgb(var(--brand));
+    color: rgb(var(--ink-on-brand, 255 255 255));
+    border-bottom: 1px solid rgb(0 0 0 / 0.12);
+  }
+  .vja-subproc-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px 6px 6px;
+    border-radius: 999px;
+    background: rgb(0 0 0 / 0.18);
+    color: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    border: 0;
+    cursor: pointer;
+    transition: background-color 120ms ease;
+  }
+  .vja-subproc-back:hover,
+  .vja-subproc-back:focus-visible {
+    background: rgb(0 0 0 / 0.28);
+    outline: none;
+  }
+  .vja-subproc-banner-text {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+  }
+  .vja-subproc-banner-kicker {
     font-size: 11px;
-    color: rgb(var(--ink-tertiary));
-    letter-spacing: 0.02em;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    opacity: 0.85;
   }
-  .vja-breadcrumb-crumb {
-    color: rgb(var(--ink-secondary));
+  .vja-subproc-banner-parent {
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0.92;
   }
-  .vja-breadcrumb-sep {
-    color: rgb(var(--ink-tertiary));
-    margin: 0 2px;
+  .vja-subproc-banner-parent strong {
+    font-weight: 600;
   }
 
-  /* Linked sub-procedure call-to-action rendered below the step body. */
+  /* Linked sub-procedure call-to-action rendered below the step body.
+     Modernized: borderless card with a strong primary button, clear
+     hierarchy (label → button → hint). */
   .vja-subprocedure-cta {
-    margin-top: 16px;
+    margin-top: 18px;
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 12px;
-    border: 1px solid rgb(var(--brand) / 0.3);
-    background: rgb(var(--brand) / 0.06);
-    border-radius: 8px;
+    gap: 8px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    background:
+      linear-gradient(
+        180deg,
+        rgb(var(--brand) / 0.08) 0%,
+        rgb(var(--brand) / 0.04) 100%
+      );
+    border: 1px solid rgb(var(--brand) / 0.25);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+  }
+  .vja-subprocedure-cta .vja-btn-primary {
+    height: 48px;
+    border-radius: 10px;
+    font-size: 15px;
   }
   .vja-subprocedure-hint {
-    font-size: 11px;
+    font-size: 12px;
     color: rgb(var(--ink-tertiary));
+    line-height: 1.4;
   }
   /* Inline chip showing how many steps got pinned ("· 3 steps"). */
   .vja-subset-chip {
@@ -3547,33 +3601,57 @@
     margin: 0;
   }
 
+  /* Substeps within a step (5a, 5b, 5c…). Modernized: clean card list
+     with a circular index badge instead of the left rail + mono numerals.
+     Each row is its own surface so substeps read as discrete actions, not
+     bullet points. */
   .vja-substeps {
     list-style: none;
     padding: 0;
-    margin: 6px 0 0 0;
+    margin: 10px 0 0 0;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    border-left: 2px solid rgb(var(--brand) / 0.4);
-    padding-left: 16px;
+    counter-reset: vja-substep;
+  }
+  .vja-substeps > li {
+    counter-increment: vja-substep;
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    column-gap: 12px;
+    align-items: start;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: rgb(var(--surface-raised) / 0.6);
+    border: 1px solid rgb(var(--line) / 0.6);
   }
   .vja-substep-num {
-    display: inline-block;
-    margin-right: 8px;
-    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    background: rgb(var(--brand) / 0.14);
+    color: rgb(var(--brand));
     font-size: 12px;
-    color: rgb(var(--ink-tertiary));
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    line-height: 1;
+    margin: 0;
   }
   .vja-substep-title {
     font-size: 15px;
-    font-weight: 500;
+    font-weight: 600;
     color: rgb(var(--ink-primary));
+    line-height: 1.35;
   }
   .vja-substep-body {
-    margin-left: 26px;
-    margin-top: 4px;
+    margin: 4px 0 0 0;
     font-size: 14px;
     color: rgb(var(--ink-secondary));
+    line-height: 1.5;
+    grid-column: 2;
   }
 
   .vja-controls {

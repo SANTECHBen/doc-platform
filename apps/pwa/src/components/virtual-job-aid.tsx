@@ -310,10 +310,12 @@ export function VirtualJobAid({
   const [muted, setMuted] = useState(false);
   // When the procedure has a hero video, we show a "Step 0" intro panel
   // before the first real step. true = on the intro, false = stepIdx
-  // governs. We initialize true unconditionally and let an effect drop
-  // it once we know the resolved doc has no hero (so inline-source
-  // walks skip straight to step 0).
-  const [showHeroIntro, setShowHeroIntro] = useState(true);
+  // governs. We initialize true at top level and drop it once we know
+  // the resolved doc has no hero. Nested sub-procedure pushes always
+  // start at step 0 — the tech just chose to "Run sub-procedure" and
+  // expects to be working immediately, not to watch another intro.
+  const isNested = breadcrumb.length > 0;
+  const [showHeroIntro, setShowHeroIntro] = useState(!isNested);
   useEffect(() => {
     if (resolved && !resolved.intro) setShowHeroIntro(false);
   }, [resolved]);
@@ -623,30 +625,45 @@ export function VirtualJobAid({
   const isLast = stepIdx === resolved.steps.length - 1;
   const totalSteps = resolved.steps.length;
 
+  const parentTitle = breadcrumb.length > 0 ? breadcrumb[breadcrumb.length - 1] : null;
+
   return (
-    <div className="vja-root" role="dialog" aria-label={resolved.title}>
+    <div
+      className="vja-root"
+      role="dialog"
+      aria-label={resolved.title}
+      data-nested={isNested ? 'true' : undefined}
+    >
+      {/* Sub-procedure banner — only when nested. Spans full width above the
+          topbar so it's the first thing the tech sees. Tapping ← closes this
+          nested instance and lands back on the parent step. */}
+      {isNested && (
+        <div className="vja-subproc-banner" role="region" aria-label="Sub-procedure">
+          <button
+            type="button"
+            className="vja-subproc-back"
+            onClick={close}
+            aria-label={parentTitle ? `Back to ${parentTitle}` : 'Back to parent procedure'}
+          >
+            <ChevronLeft size={18} strokeWidth={2.5} />
+            <span>Back</span>
+          </button>
+          <div className="vja-subproc-banner-text">
+            <span className="vja-subproc-banner-kicker">SUB-PROCEDURE</span>
+            {parentTitle && (
+              <span className="vja-subproc-banner-parent">
+                of <strong>{parentTitle}</strong>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
       <header className="vja-topbar">
         <div className="vja-topbar-meta">
           <span className="caption inline-flex items-center gap-1.5">
             <ListChecks size={12} strokeWidth={1.75} />
             VIRTUAL JOB AID
           </span>
-          {/* Breadcrumb — only rendered when this instance is nested
-              inside a parent procedure. Shows the call stack so the
-              tech always knows "where am I" inside the push/pop journey. */}
-          {breadcrumb.length > 0 && (
-            <p className="vja-breadcrumb">
-              {breadcrumb.map((c, i) => (
-                <span key={i}>
-                  {i > 0 && (
-                    <span className="vja-breadcrumb-sep">{' › '}</span>
-                  )}
-                  <span className="vja-breadcrumb-crumb">{c}</span>
-                </span>
-              ))}
-              <span className="vja-breadcrumb-sep">{' › '}</span>
-            </p>
-          )}
           <h2 className="vja-doc-title">
             {resolved.title}
             {/* "subset" pill — tech-visible cue that this instance was
@@ -893,8 +910,8 @@ export function VirtualJobAid({
               <ol className="vja-substeps">
                 {step.substeps.map((ss, i) => (
                   <li key={ss.id ?? i}>
-                    <span className="vja-substep-num">
-                      {String(stepIdx + 1).padStart(2, '0')}.{String(i + 1).padStart(2, '0')}
+                    <span className="vja-substep-num" aria-hidden>
+                      {i + 1}
                     </span>
                     <span className="vja-substep-title">{ss.title}</span>
                     {ss.bodyMarkdown && (

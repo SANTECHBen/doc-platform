@@ -498,16 +498,23 @@ function StepBlock({
             </ul>
           )}
           {step.substeps.length > 0 && (
-            <ol className="flex flex-col gap-2 border-l-2 border-line pl-4">
+            <ol className="mt-2 flex flex-col gap-2">
               {step.substeps.map((ss, si) => (
-                <li key={ss.id ?? si} className="text-sm">
-                  <span className="mr-2 font-mono tabular-nums text-xs text-ink-tertiary">
-                    {String(index).padStart(2, '0')}.
-                    {String(si + 1).padStart(2, '0')}
+                <li
+                  key={ss.id ?? si}
+                  className="grid grid-cols-[28px_1fr] items-start gap-x-3 rounded-[10px] border border-line/60 bg-surface-raised/60 px-3.5 py-3"
+                >
+                  <span
+                    aria-hidden
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-brand/15 text-xs font-bold text-brand"
+                  >
+                    {si + 1}
                   </span>
-                  <span className="font-medium text-ink-primary">{ss.title}</span>
+                  <span className="text-[15px] font-semibold leading-snug text-ink-primary">
+                    {ss.title}
+                  </span>
                   {ss.bodyMarkdown && (
-                    <div className="ml-7 mt-1 text-ink-secondary markdown-body text-sm">
+                    <div className="col-start-2 mt-1 text-sm leading-relaxed text-ink-secondary markdown-body">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
                         {ss.bodyMarkdown}
                       </ReactMarkdown>
