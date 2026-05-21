@@ -65,15 +65,14 @@ export function DuplicateProcedureDialog({
   const filtered = useMemo(() => {
     if (!targets) return null;
     const q = query.trim().toLowerCase();
-    const rows = targets.filter((t) => t.versionId !== currentVersionId);
-    if (!q) return rows;
-    return rows.filter((t) =>
+    if (!q) return targets;
+    return targets.filter((t) =>
       [t.packName, t.packSlug, t.assetModel, t.owner]
         .join(' ')
         .toLowerCase()
         .includes(q),
     );
-  }, [targets, query, currentVersionId]);
+  }, [targets, query]);
 
   async function pick(target: DuplicateTarget) {
     if (busy) return;
@@ -188,34 +187,42 @@ export function DuplicateProcedureDialog({
             </div>
           ) : (
             <ul className="flex flex-col gap-1 p-2">
-              {(filtered ?? []).map((t) => (
-                <li key={t.versionId}>
-                  <button
-                    type="button"
-                    onClick={() => pick(t)}
-                    disabled={busy}
-                    className="flex w-full flex-col gap-1 rounded-md border border-line bg-surface px-3 py-2 text-left text-sm transition hover:border-brand/40 hover:bg-brand/5 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <div className="flex flex-wrap items-baseline gap-2">
-                      <span className="font-medium text-ink-primary">
-                        {t.packName}
-                      </span>
-                      <span className="font-mono text-xs tabular-nums text-ink-tertiary">
-                        v{t.versionLabel ?? t.versionNumber}
-                      </span>
-                      <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-brand">
-                        {LAYER_LABEL[t.layerType]}
-                      </span>
-                      <span className="rounded-full bg-signal-info/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-signal-info">
-                        draft
-                      </span>
-                    </div>
-                    <div className="text-xs text-ink-tertiary">
-                      {t.assetModel} · {t.owner}
-                    </div>
-                  </button>
-                </li>
-              ))}
+              {(filtered ?? []).map((t) => {
+                const isSourceVersion = t.versionId === currentVersionId;
+                return (
+                  <li key={t.versionId}>
+                    <button
+                      type="button"
+                      onClick={() => pick(t)}
+                      disabled={busy}
+                      className="flex w-full flex-col gap-1 rounded-md border border-line bg-surface px-3 py-2 text-left text-sm transition hover:border-brand/40 hover:bg-brand/5 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <div className="flex flex-wrap items-baseline gap-2">
+                        <span className="font-medium text-ink-primary">
+                          {t.packName}
+                        </span>
+                        <span className="font-mono text-xs tabular-nums text-ink-tertiary">
+                          v{t.versionLabel ?? t.versionNumber}
+                        </span>
+                        <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-brand">
+                          {LAYER_LABEL[t.layerType]}
+                        </span>
+                        <span className="rounded-full bg-signal-info/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-signal-info">
+                          draft
+                        </span>
+                        {isSourceVersion && (
+                          <span className="rounded-full bg-ink-tertiary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-ink-tertiary">
+                            same draft
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-ink-tertiary">
+                        {t.assetModel} · {t.owner}
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
