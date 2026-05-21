@@ -50,12 +50,17 @@ export function HeroVideoEmbed({
     );
   }
 
+  // Hero video gets tap-to-play behavior (autoplay={false}) — the
+  // procedure-level intro is something the author wants the tech to
+  // engage with on purpose, not background motion. Per-step clips
+  // inside virtual-job-aid still autoplay (their default).
   return (
     <StepVideoPlayer
       src={url}
       alt={alt}
       caption={caption}
       muted={muted}
+      autoplay={false}
       playId={playId}
       className={className}
     />
