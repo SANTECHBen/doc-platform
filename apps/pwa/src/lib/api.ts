@@ -64,6 +64,17 @@ export interface DocumentListItem {
    *  legacy doc with no authored sections (render full doc); array =
    *  authored sections, post-revalidation filter, sorted. */
   sections?: PwaDocumentSection[] | null;
+  /** Server-resolved Maintenance-tab bucket. Set on structured_procedure
+   *  docs only; non-procedure docs return null. Pulled from the doc's
+   *  procedureMetadata.category when set; otherwise inferred server-side
+   *  from the title (legacy fallback so older content keeps bucketing
+   *  the same way until an author opts in to the explicit picker). */
+  procedureCategory?:
+    | 'preventive_maintenance'
+    | 'removal_replacement'
+    | 'troubleshooting'
+    | 'walkthrough'
+    | null;
   // ---- Procedure mode v2 — field-authored documents ----
   /** 'oem' = doc lives in an authored content pack. 'field' = captured
    *  by a tech via the PWA on site. Drives the UNVERIFIED chip. */

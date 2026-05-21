@@ -2656,6 +2656,17 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
                   .enum(['basic', 'intermediate', 'advanced'])
                   .nullable()
                   .optional(),
+                // Explicit Maintenance-tab category. Null = let the PWA
+                // fall back to the title-keyword heuristic.
+                category: z
+                  .enum([
+                    'preventive_maintenance',
+                    'removal_replacement',
+                    'troubleshooting',
+                    'walkthrough',
+                  ])
+                  .nullable()
+                  .optional(),
               })
               .nullable()
               .optional(),

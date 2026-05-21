@@ -62,12 +62,26 @@ export function normalizeRequiredTools(raw: unknown): RequiredTools {
   return { common: [], special: [], consumables: [] };
 }
 
+/** Author-controlled bucket on the PWA Maintenance tab. Drives which
+ *  card a procedure surfaces under (Preventive Maintenance vs Removal
+ *  & Replacement vs Troubleshooting vs general walkthrough). When
+ *  omitted on legacy rows, the PWA falls back to a title-keyword
+ *  heuristic — but new authoring should set this explicitly so the
+ *  classification stops depending on title wording. */
+export type ProcedureCategory =
+  | 'preventive_maintenance'
+  | 'removal_replacement'
+  | 'troubleshooting'
+  | 'walkthrough';
+
 export type ProcedureDocMetadata = {
   /** Free-text tool buckets. See RequiredTools above for shape +
    *  migration notes. */
   toolsRequired: RequiredTools;
   safety: { enabled: boolean; notes: string | null };
   verification: { enabled: boolean; notes: string | null };
+  /** Explicit category. See ProcedureCategory above. */
+  category?: ProcedureCategory | null;
   /** Author-controlled overview fields rendered on the procedure intro
    *  screen (Job Aid "Step 0" panel + scroll-view top). All optional —
    *  legacy procedures without any of these show only the existing

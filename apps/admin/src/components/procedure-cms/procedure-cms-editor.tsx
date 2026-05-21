@@ -1177,6 +1177,9 @@ function OverviewSection({
   const [skillLevel, setSkillLevel] = useState<
     'basic' | 'intermediate' | 'advanced' | ''
   >(meta?.skillLevel ?? '');
+  const [category, setCategory] = useState<
+    'preventive_maintenance' | 'removal_replacement' | 'troubleshooting' | 'walkthrough' | ''
+  >(meta?.category ?? '');
 
   const summaryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const minutesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1195,6 +1198,7 @@ function OverviewSection({
     setSpecialTools(t.special);
     setConsumables(t.consumables);
     setSkillLevel(meta?.skillLevel ?? '');
+    setCategory(meta?.category ?? '');
   }, [doc.id]);
 
   // Always send the full metadata shape so a single-field PATCH doesn't
@@ -1289,6 +1293,19 @@ function OverviewSection({
     void save({ skillLevel: v === '' ? null : v });
   }
 
+  function onCategoryChange(next: string) {
+    const v =
+      next === ''
+        ? ''
+        : (next as
+            | 'preventive_maintenance'
+            | 'removal_replacement'
+            | 'troubleshooting'
+            | 'walkthrough');
+    setCategory(v);
+    void save({ category: v === '' ? null : v });
+  }
+
   return (
     <div className="rounded-lg border border-line-subtle bg-surface-raised p-4">
       <div className="mb-3 flex items-center gap-2">
@@ -1340,6 +1357,28 @@ function OverviewSection({
               <option value="basic">Basic</option>
               <option value="intermediate">Intermediate</option>
               <option value="advanced">Advanced</option>
+            </select>
+          </label>
+
+          {/* Category drives the PWA Maintenance tab bucket. Explicit
+              picker so the categorization stops depending on the title
+              matching a keyword regex (a duplicate or renamed procedure
+              used to silently land in the wrong card). */}
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-ink-secondary">
+              Category
+            </span>
+            <select
+              value={category}
+              onChange={(e) => onCategoryChange(e.target.value)}
+              className="w-56 rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink-primary focus:border-accent focus:outline-none"
+              title="Which Maintenance tab card this procedure surfaces under"
+            >
+              <option value="">— Auto (infer from title) —</option>
+              <option value="preventive_maintenance">Preventive Maintenance</option>
+              <option value="removal_replacement">Removal &amp; Replacement</option>
+              <option value="troubleshooting">Troubleshooting</option>
+              <option value="walkthrough">Walkthrough / other</option>
             </select>
           </label>
         </div>

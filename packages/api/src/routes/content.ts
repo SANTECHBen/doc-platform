@@ -13,6 +13,33 @@ import {
   type PwaSection,
 } from '../lib/pwa-sections';
 
+// Title-keyword fallback for legacy procedures with no explicit
+// procedureMetadata.category. Kept narrow on purpose: R&R if the title
+// names a removal/replacement action; troubleshooting if it names
+// symptoms; preventive_maintenance for inspections/PM verbs; otherwise
+// null (the PWA renders these under "Preventive Maintenance" as the
+// default bucket). New authoring should set category explicitly so we
+// can eventually drop this heuristic.
+const RR_TITLE_RE =
+  /\b(removal|replacement|replace|remove|r&r|swap|rebuild)\b/i;
+const TS_TITLE_RE =
+  /\b(troubleshoot|diagnos|fault|error code|alarm|fix|repair)\b/i;
+const PM_TITLE_RE =
+  /\b(inspect|inspection|preventive|preventative|pm|service|calibrat|lubricat|grease|clean)\b/i;
+function inferCategoryFromTitle(
+  title: string,
+):
+  | 'preventive_maintenance'
+  | 'removal_replacement'
+  | 'troubleshooting'
+  | 'walkthrough'
+  | null {
+  if (RR_TITLE_RE.test(title)) return 'removal_replacement';
+  if (TS_TITLE_RE.test(title)) return 'troubleshooting';
+  if (PM_TITLE_RE.test(title)) return 'preventive_maintenance';
+  return null;
+}
+
 export async function registerContentRoutes(app: FastifyInstance) {
   // List documents in a pinned ContentPackVersion. Gated on auth-or-scan:
   // a user can see docs for versions whose owning content_pack belongs to
@@ -95,6 +122,13 @@ export async function registerContentRoutes(app: FastifyInstance) {
       return sortedRows.map((d) => {
         const verified = d.fieldVerifiedAt !== null;
         const capture = captureIdentities.get(d.id) ?? null;
+        // Explicit category from metadata wins; legacy procedures fall
+        // back to a title-keyword heuristic so existing content doesn't
+        // shift on deploy. Non-procedure docs return null.
+        const procedureCategory =
+          d.kind === 'structured_procedure'
+            ? d.procedureMetadata?.category ?? inferCategoryFromTitle(d.title)
+            : null;
         const base = {
           id: d.id,
           kind: d.kind,
@@ -109,6 +143,7 @@ export async function registerContentRoutes(app: FastifyInstance) {
           originalFilename: d.originalFilename,
           contentType: d.contentType,
           sizeBytes: d.sizeBytes,
+          procedureCategory,
           // Resolved public URL for the underlying file. Lets the PWA
           // open slide decks via Office Online without an extra fetch
           // for the document detail; safe to surface since these URLs

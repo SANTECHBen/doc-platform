@@ -1545,6 +1545,15 @@ export interface AdminProcedureDocMetadata {
   toolsRequired: RequiredTools;
   safety: { enabled: boolean; notes: string | null };
   verification: { enabled: boolean; notes: string | null };
+  /** Explicit Maintenance-tab bucket. When null, the PWA falls back to a
+   *  title-keyword heuristic. Set this from the procedure editor so the
+   *  categorization survives renames and duplicates. */
+  category?:
+    | 'preventive_maintenance'
+    | 'removal_replacement'
+    | 'troubleshooting'
+    | 'walkthrough'
+    | null;
   /** Author-controlled overview fields. Rendered on the PWA intro
    *  screen — all optional, legacy procedures show only hero/tools. */
   summary?: string | null;

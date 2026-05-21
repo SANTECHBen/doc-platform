@@ -88,13 +88,19 @@ type FilterKey =
   | 'troubleshoot'
   | 'history';
 
-// R&R heuristic — a procedure is treated as "Removal & Replacement"
-// when its title contains any of these tokens (case-insensitive).
-// Authoring doesn't (yet) categorize procedures explicitly; this is
-// the pragmatic shortcut until it does. Keep the regex deliberately
-// narrow so a "Daily inspection" doesn't accidentally match "replace
-// the safety guards" prose.
+// R&R fallback — title-keyword heuristic for legacy procedures with no
+// explicit `procedureCategory` set. New procedures get an author-
+// controlled Category picker in the admin editor; the server normalizes
+// missing categories via the same family of regexes (see
+// inferCategoryFromTitle in packages/api/src/routes/content.ts), so this
+// client-side fallback only matters when the server's enrichment hasn't
+// reached this client (e.g., stale cached payload during a deploy).
 const RR_TITLE_RE = /\b(removal|replacement|replace|remove|r&r|swap|rebuild)\b/i;
+
+function isRrProcedure(doc: { title: string; procedureCategory?: string | null }) {
+  if (doc.procedureCategory) return doc.procedureCategory === 'removal_replacement';
+  return RR_TITLE_RE.test(doc.title);
+}
 
 export function MaintenanceTab({
   assetInstanceId,
@@ -243,11 +249,11 @@ export function MaintenanceTab({
   // a mixed Walkthroughs list; the remainder (inspections, diagnostics,
   // calibrations etc.) stays in Walkthroughs.
   const rrProcedures = useMemo(
-    () => libraryProcedures.filter((p) => RR_TITLE_RE.test(p.title)),
+    () => libraryProcedures.filter((p) => isRrProcedure(p)),
     [libraryProcedures],
   );
   const nonRrProcedures = useMemo(
-    () => libraryProcedures.filter((p) => !RR_TITLE_RE.test(p.title)),
+    () => libraryProcedures.filter((p) => !isRrProcedure(p)),
     [libraryProcedures],
   );
 
