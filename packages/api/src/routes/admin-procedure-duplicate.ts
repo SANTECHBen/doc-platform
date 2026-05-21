@@ -56,42 +56,55 @@ interface TargetRow {
   version_id: string;
   version_number: number;
   version_label: string | null;
+  version_status: string;
 }
 
 export async function registerAdminProcedureDuplicate(app: FastifyInstance) {
-  // GET — list draft versions the caller can target. Used to populate
-  // the duplicate chooser dialog in the admin UI.
+  // GET — enumerate versions the caller can target. Drafts for everyone;
+  // published versions also surface for platform admins (mirrors the
+  // existing edit-published-version super-admin bypass elsewhere in the
+  // admin UI). The chooser tags published rows so the admin knows they're
+  // editing live content.
   app.get('/admin/duplicate-targets', async (request, reply) => {
     const { db } = app.ctx;
-    requireAuth(request);
+    const auth = requireAuth(request);
     const scope = await getScope(request, db);
     const scopeLiteral = orgIdsLiteral(scope);
+    const statusFilter = auth.platformAdmin
+      ? sql`v.status IN ('draft', 'published')`
+      : sql`v.status = 'draft'`;
 
     const rows = (await db.execute(
       scope.all
         ? sql`SELECT p.id AS pack_id, p.name AS pack_name, p.slug AS pack_slug,
                      p.layer_type, am.display_name AS asset_model_name,
                      o.name AS owner_name,
-                     v.id AS version_id, v.version_number, v.version_label
+                     v.id AS version_id, v.version_number, v.version_label,
+                     v.status::text AS version_status
               FROM content_pack_versions v
               JOIN content_packs p ON p.id = v.content_pack_id
               JOIN asset_models am ON am.id = p.asset_model_id
               JOIN organizations o ON o.id = p.owner_organization_id
-              WHERE v.status = 'draft'
+              WHERE ${statusFilter}
                 AND p.kind = 'authored'
-              ORDER BY am.display_name, p.name, v.version_number DESC`
+              ORDER BY am.display_name, p.name,
+                       CASE v.status WHEN 'draft' THEN 0 ELSE 1 END,
+                       v.version_number DESC`
         : sql`SELECT p.id AS pack_id, p.name AS pack_name, p.slug AS pack_slug,
                      p.layer_type, am.display_name AS asset_model_name,
                      o.name AS owner_name,
-                     v.id AS version_id, v.version_number, v.version_label
+                     v.id AS version_id, v.version_number, v.version_label,
+                     v.status::text AS version_status
               FROM content_pack_versions v
               JOIN content_packs p ON p.id = v.content_pack_id
               JOIN asset_models am ON am.id = p.asset_model_id
               JOIN organizations o ON o.id = p.owner_organization_id
-              WHERE v.status = 'draft'
+              WHERE ${statusFilter}
                 AND p.kind = 'authored'
                 AND p.owner_organization_id = ANY(${scopeLiteral}::uuid[])
-              ORDER BY am.display_name, p.name, v.version_number DESC`,
+              ORDER BY am.display_name, p.name,
+                       CASE v.status WHEN 'draft' THEN 0 ELSE 1 END,
+                       v.version_number DESC`,
     )) as unknown as TargetRow[];
 
     return reply.send({
@@ -105,6 +118,7 @@ export async function registerAdminProcedureDuplicate(app: FastifyInstance) {
         versionId: r.version_id,
         versionNumber: r.version_number,
         versionLabel: r.version_label,
+        versionStatus: r.version_status,
       })),
     });
   });
@@ -139,9 +153,16 @@ export async function registerAdminProcedureDuplicate(app: FastifyInstance) {
         with: { pack: true },
       });
       if (!target) return reply.notFound('Target version not found.');
-      if (target.status !== 'draft') {
+      // Drafts: anyone in scope. Published: platform admins only (matches
+      // the existing edit-published-version bypass — same pattern the
+      // training-module-delete and content-pack-detail UIs use). Archived
+      // is always rejected.
+      if (target.status === 'archived') {
+        return reply.badRequest('Cannot duplicate into an archived version.');
+      }
+      if (target.status === 'published' && !auth.platformAdmin) {
         return reply.badRequest(
-          'Duplicates must land in a draft version. Create a draft on the target pack first.',
+          'Duplicates into a published version require platform-admin access. Create a draft on the target pack first.',
         );
       }
       requireOrgInScope(scope, target.pack.ownerOrganizationId);

@@ -2305,6 +2305,10 @@ export interface DuplicateTarget {
   versionId: string;
   versionNumber: number;
   versionLabel: string | null;
+  /** 'draft' for anyone in scope; 'published' only surfaces for platform
+   *  admins (the server applies the bypass). Archived versions are
+   *  excluded entirely. */
+  versionStatus: 'draft' | 'published';
 }
 
 export async function listDuplicateTargets(): Promise<DuplicateTarget[]> {

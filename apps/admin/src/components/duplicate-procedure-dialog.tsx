@@ -168,8 +168,8 @@ export function DuplicateProcedureDialog({
             <div className="px-4 py-10 text-center">
               <p className="text-sm text-ink-secondary">
                 {query
-                  ? 'No draft versions match the search.'
-                  : 'No draft versions available to duplicate into.'}
+                  ? 'No versions match the search.'
+                  : 'No versions available to duplicate into.'}
               </p>
               {!query && (
                 <p className="mt-1 text-xs text-ink-tertiary">
@@ -207,12 +207,18 @@ export function DuplicateProcedureDialog({
                         <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-brand">
                           {LAYER_LABEL[t.layerType]}
                         </span>
-                        <span className="rounded-full bg-signal-info/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-signal-info">
-                          draft
-                        </span>
+                        {t.versionStatus === 'published' ? (
+                          <span className="rounded-full bg-signal-warn/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-signal-warn">
+                            published — edits live content
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-signal-info/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-signal-info">
+                            draft
+                          </span>
+                        )}
                         {isSourceVersion && (
                           <span className="rounded-full bg-ink-tertiary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-ink-tertiary">
-                            same draft
+                            same version
                           </span>
                         )}
                       </div>
