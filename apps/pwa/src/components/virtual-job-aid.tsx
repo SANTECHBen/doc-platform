@@ -954,15 +954,13 @@ export function VirtualJobAid({
                   >
                     <div className="vja-subproc-card-body">
                       <div className="vja-subproc-card-kicker">
-                        <span className="vja-subproc-card-tag">Optional</span>
-                        <span className="vja-subproc-card-dot" aria-hidden>·</span>
-                        <span>Sub-procedure</span>
+                        <span className="vja-subproc-card-tag">Sub-procedure</span>
                       </div>
                       <div className="vja-subproc-card-title">{sp.title}</div>
                       <div className="vja-subproc-card-meta">
                         {pinnedCount > 0
-                          ? `${pinnedCount} pinned step${pinnedCount === 1 ? '' : 's'}`
-                          : 'Plays the full procedure'}
+                          ? `${pinnedCount} step${pinnedCount === 1 ? '' : 's'} · tap to view`
+                          : 'Tap to view the full procedure'}
                       </div>
                     </div>
                     <span className="vja-subproc-card-chevron" aria-hidden>
@@ -970,7 +968,7 @@ export function VirtualJobAid({
                     </span>
                   </button>
                   <span className="vja-subprocedure-hint">
-                    Tap to run, or Next to skip if not needed.
+                    Open to walk through the detailed steps, or tap Next to continue.
                   </span>
                 </div>
               );
