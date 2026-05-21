@@ -1,0 +1,60 @@
+name: Deploy API to Fly
+
+# Deploys the Fastify API (apps + worker) to Fly.io.
+#
+# Triggers:
+#   - Push to main that touches the API or any workspace package it
+#     depends on (db, ai, shared, viewer). The Vercel-side apps deploy
+#     themselves; this workflow only handles Fly.
+#   - Manual via the Actions tab (workflow_dispatch). Use this when you
+#     want to redeploy without a code change — e.g., after a secrets
+#     rotation or to rebuild on a base-image update.
+#
+# Auth: a FLY_API_TOKEN repo secret. Create one with
+#   flyctl tokens create deploy -a equipment-hub-api
+# from a machine that can still run flyctl, then add it under
+# Settings → Secrets and variables → Actions → New repository secret.
+#
+# Build context: monorepo root. The Dockerfile pulls workspace packages
+# via pnpm so it needs the whole tree, not just packages/api/.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/api/**'
+      - 'packages/db/**'
+      - 'packages/ai/**'
+      - 'packages/shared/**'
+      - 'packages/viewer/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/fly-deploy.yml'
+  workflow_dispatch: {}
+
+# Only one deploy at a time. Queueing (not cancel-in-progress) so an
+# in-flight build finishes cleanly before the next one starts.
+concurrency:
+  group: fly-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: flyctl deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        run: >
+          flyctl deploy
+          --remote-only
+          --config packages/api/fly.toml
+          --dockerfile packages/api/Dockerfile
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
