@@ -19,7 +19,12 @@
 import type { FastifyInstance } from 'fastify';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { schema, type Database, normalizeRequiredTools } from '@platform/db';
+import {
+  schema,
+  type Database,
+  type ProcedureDocMetadata,
+  normalizeRequiredTools,
+} from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth';
 import { getScope, requireOrgInScope } from '../middleware/scope';
@@ -94,6 +99,18 @@ const AuthoringFinalizeBody = z.object({
   title: z.string().min(1).max(200),
   scopeAssetInstanceOnly: z.boolean(),
   linkedPartIds: z.array(UuidSchema).max(20).default([]),
+  /** Procedure category — drives the Maintenance tab's bucket assignment
+   *  (PM card, R&R card, Troubleshooting card). Optional for backwards
+   *  compatibility; absent values fall through to the title-keyword
+   *  heuristic on read. New PWA authoring should always set this. */
+  procedureCategory: z
+    .enum([
+      'preventive_maintenance',
+      'removal_replacement',
+      'troubleshooting',
+      'walkthrough',
+    ])
+    .optional(),
 });
 
 // Step media — author-attached photos and videos (vs run-time evidence).
@@ -520,11 +537,31 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
         }
       }
 
+      // Merge the explicit category into the doc's procedureMetadata.
+      // Existing metadata (tools, safety, verification, etc.) must be
+      // preserved — only the category field is touched here. We need to
+      // re-read the row to merge so we don't blow away any concurrent
+      // changes to other metadata fields. The default shape mirrors what
+      // /procedures-author/start writes so we stay schema-consistent if
+      // the document was created without metadata (legacy field captures).
+      const defaultMetadata: ProcedureDocMetadata = {
+        toolsRequired: { common: [], special: [], consumables: [] },
+        safety: { enabled: false, notes: null },
+        verification: { enabled: false, notes: null },
+      };
+      const nextMetadata: ProcedureDocMetadata | null = body.procedureCategory
+        ? {
+            ...(ctx.document.procedureMetadata ?? defaultMetadata),
+            category: body.procedureCategory,
+          }
+        : ctx.document.procedureMetadata;
+
       const [updated] = await db
         .update(schema.documents)
         .set({
           title: body.title,
           scopeAssetInstanceId,
+          procedureMetadata: nextMetadata,
         })
         .where(eq(schema.documents.id, ctx.document.id))
         .returning();
@@ -570,6 +607,7 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
           title: body.title,
           scopeAssetInstanceOnly: body.scopeAssetInstanceOnly,
           partCount: body.linkedPartIds.length,
+          procedureCategory: body.procedureCategory ?? null,
         },
         ipAddress: request.ip,
         userAgent: request.headers['user-agent'] ?? null,

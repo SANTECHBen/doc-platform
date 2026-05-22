@@ -16,6 +16,7 @@ import {
   History,
   ListChecks,
   Play,
+  Plus,
   RotateCcw,
   ShieldAlert,
   type LucideIcon,
@@ -38,6 +39,8 @@ import {
   type TroubleshootingGuide,
 } from '@/lib/api';
 import type { JobAidSource } from '@/components/virtual-job-aid';
+import { ProcedureDocWizard } from '@/components/procedure-runner/procedure-doc-wizard';
+import { AuthPrompt } from '@/components/auth-prompt';
 
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
 const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
@@ -146,6 +149,12 @@ export function MaintenanceTab({
   // currently in-flight, so the right button can show a spinner.
   // Keyed by schedule.id or `${planId}:${frequency}` for buckets.
   const [marking, setMarking] = useState<string | null>(null);
+  // Document-a-procedure authoring — replaces what used to live on the
+  // Library tab. Maintenance is the right home: the saved procedure
+  // ends up in one of these category buckets, so authoring belongs
+  // alongside the work it produces.
+  const [authoringActive, setAuthoringActive] = useState(false);
+  const [authPromptOpen, setAuthPromptOpen] = useState(false);
   // Scroll the slice panel into view when the tech taps a card — the
   // items below the grid would otherwise sit off-screen and read as
   // "nothing happened" on phones.
@@ -738,8 +747,47 @@ export function MaintenanceTab({
     }
   })();
 
+  function openAuthoring() {
+    if (!DEV_USER_ID || !DEV_ORG_ID) {
+      setAuthPromptOpen(true);
+      return;
+    }
+    setAuthoringActive(true);
+  }
+
+  // Authoring wizard takes over the tab while it's open — same pattern
+  // it used to use on Library. Refresh on close so a newly captured
+  // procedure shows up in whichever bucket it was categorized into.
+  if (authoringActive) {
+    return (
+      <ProcedureDocWizard
+        assetInstanceId={assetInstanceId}
+        devUserId={DEV_USER_ID}
+        devOrgId={DEV_ORG_ID}
+        onClose={() => {
+          setAuthoringActive(false);
+          void refresh();
+        }}
+      />
+    );
+  }
+
   return (
     <div className="maintenance-page">
+      {/* Document-a-procedure CTA — lives here (not Library) because the
+          saved output is a Maintenance artifact: it shows up in one of
+          the PM / R&R / Troubleshooting buckets below. The wizard's
+          first step is a category picker that picks which bucket. */}
+      <div className="maintenance-author-row">
+        <button
+          type="button"
+          onClick={openAuthoring}
+          className="btn btn-secondary"
+        >
+          <Plus size={15} strokeWidth={2} />
+          Document a procedure
+        </button>
+      </div>
       {nothingScheduled && libraryProcedures.length === 0 ? (
         <EmptyState
           title="No PM schedules for this model"
@@ -763,6 +811,13 @@ export function MaintenanceTab({
             {slice}
           </section>
         </>
+      )}
+
+      {authPromptOpen && (
+        <AuthPrompt
+          reason="document a procedure"
+          onClose={() => setAuthPromptOpen(false)}
+        />
       )}
     </div>
   );

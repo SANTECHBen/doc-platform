@@ -33,12 +33,10 @@ import NoSearchResults from '@/components/illustrations/no-search-results';
 import { SectionRenderer } from '@/components/section-renderer';
 import { FramedPdf } from '@/components/framed-pdf';
 import { ProcedureRunner } from '@/components/procedure-runner/procedure-runner';
-import { ProcedureDocWizard } from '@/components/procedure-runner/procedure-doc-wizard';
 import { ProcedureDocViewer } from '@/components/procedure-runner/procedure-doc-viewer';
 import { VirtualJobAid } from '@/components/virtual-job-aid';
 import { AuthPrompt } from '@/components/auth-prompt';
 import { FEATURE_PROCEDURE_RUN_ENABLED } from '@/lib/feature-flags';
-import { Plus } from 'lucide-react';
 import {
   listDocuments,
   getDocument,
@@ -200,8 +198,10 @@ export function DocsTab({
   // VirtualJobAid for the step-at-a-time format with voiceover playback.
   // Closing the job aid returns to the doc viewer at the same docId.
   const [jobAidDocId, setJobAidDocId] = useState<string | null>(null);
-  // Authoring mode — launched from the "+ Document a procedure" CTA.
-  const [authoringActive, setAuthoringActive] = useState(false);
+  // Authoring mode was previously launched from this tab via a
+  // "+ Document a procedure" CTA. That CTA moved to the Maintenance
+  // tab — it's a maintenance task (the saved procedure shows up in
+  // the PM / R&R / Troubleshooting bucket), not a library task.
   const [authPromptOpen, setAuthPromptOpen] = useState(false);
   const [query, setQuery] = useState('');
   // Kind filter — narrows the visible doc list by media type. The
@@ -299,28 +299,6 @@ export function DocsTab({
   if (error) return <ErrorState text={error} />;
   if (docs === null) return <DocListSkeleton />;
 
-  function onTapDocumentProcedure() {
-    if (!DEV_USER_ID) {
-      setAuthPromptOpen(true);
-      return;
-    }
-    setAuthoringActive(true);
-  }
-
-  if (authoringActive) {
-    return (
-      <ProcedureDocWizard
-        assetInstanceId={assetInstanceId}
-        devUserId={DEV_USER_ID}
-        devOrgId={DEV_ORG_ID}
-        onClose={() => {
-          setAuthoringActive(false);
-          // Re-fetch so the just-authored procedure appears in the list.
-          setRefetchKey((k) => k + 1);
-        }}
-      />
-    );
-  }
 
   if (procedureDocId) {
     return (
@@ -438,14 +416,12 @@ export function DocsTab({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={onTapDocumentProcedure}
-          className="btn btn-primary"
-        >
-          <Plus size={16} strokeWidth={2} /> Document a procedure
-        </button>
+      {/* Document-a-procedure CTA moved to the Maintenance tab.
+          Authoring a procedure is a Maintenance task (it produces
+          something that lives under PM / R&R / Troubleshooting), not a
+          Library task (Library is reference reading). The view toggle
+          stays here on its own row. */}
+      <div className="flex items-center justify-end gap-2">
         <div
           role="group"
           aria-label="View mode"
@@ -526,7 +502,7 @@ export function DocsTab({
         <EmptyState
           illustration={NoDocuments}
           title="No documents yet"
-          description="Either nothing has been published in this revision, or no procedures have been captured here yet. Tap “Document a procedure” to capture the first one."
+          description="Either nothing has been published in this revision, or no procedures have been captured here yet. Open the Maintenance tab to document one."
           tone="neutral"
         />
       ) : filtered.length === 0 ? (

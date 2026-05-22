@@ -1383,11 +1383,20 @@ export async function cloneFromTemplate(params: {
   return (await res.json()) as { ok: true; stepCount: number; steps: ProcedureStepDto[] };
 }
 
+/** Procedure category — matches the server's ProcedureCategory enum and
+ *  drives the Maintenance tab bucket the procedure shows up under. */
+export type AuthoredProcedureCategory =
+  | 'preventive_maintenance'
+  | 'removal_replacement'
+  | 'troubleshooting'
+  | 'walkthrough';
+
 export async function finalizeAuthoring(params: {
   runId: string;
   title: string;
   scopeAssetInstanceOnly: boolean;
   linkedPartIds: string[];
+  procedureCategory?: AuthoredProcedureCategory;
   devUserId: string;
   devOrgId: string;
 }): Promise<{
@@ -1408,6 +1417,9 @@ export async function finalizeAuthoring(params: {
         title: params.title,
         scopeAssetInstanceOnly: params.scopeAssetInstanceOnly,
         linkedPartIds: params.linkedPartIds,
+        ...(params.procedureCategory
+          ? { procedureCategory: params.procedureCategory }
+          : {}),
       }),
     },
   );

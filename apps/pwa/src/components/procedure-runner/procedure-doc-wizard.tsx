@@ -2,12 +2,16 @@
 
 // ProcedureDocWizard — radically simplified field-authoring UX for the
 // PWA. Designed for technicians on equipment, in noisy environments,
-// possibly with gloves on. Three screens, full-bleed, big tap targets,
+// possibly with gloves on. Four screens, full-bleed, big tap targets,
 // voice on every text input.
 //
-//   1. TITLE — what procedure are you documenting?
-//   2. STEP  — what did you do? + photo/video. Repeats per step.
-//   3. REVIEW — see captured steps + Save procedure.
+//   1. CATEGORY — what kind of procedure? PM / Troubleshooting / R&R /
+//                 Walkthrough. Drives which Maintenance bucket the
+//                 saved procedure shows up in. Must come first so the
+//                 tech sets context before naming anything.
+//   2. TITLE — what procedure are you documenting?
+//   3. STEP  — what did you do? + photo/video. Repeats per step.
+//   4. REVIEW — see captured steps + Save procedure.
 //
 // Advanced authoring (kind picker, body markdown, substeps, safety
 // flag, measurement spec, tools required, verification notes) is
@@ -21,11 +25,16 @@ import {
   ChevronLeft,
   ChevronRight,
   ImagePlus,
+  ListChecks,
   Pencil,
   Plus,
+  RotateCcw,
+  ShieldAlert,
   Trash2,
   Video,
+  Wrench,
   X,
+  type LucideIcon,
 } from 'lucide-react';
 import {
   abandonProcedureRun,
@@ -35,13 +44,49 @@ import {
   startFieldProcedure,
   updateAuthoringStep,
   uploadStepMedia,
+  type AuthoredProcedureCategory,
   type ProcedureBundle,
   type ProcedureStepMedia,
 } from '@/lib/api';
 import { MicButton } from '@/components/voice-input';
 import { PhotoEditor } from '@/components/photo-editor';
 
-type WizardMode = 'title' | 'step' | 'review';
+type WizardMode = 'category' | 'title' | 'step' | 'review';
+
+// Order, label, description, and icon for each pickable category. The
+// 4-tile picker grid renders in this order; the wizard refuses to
+// advance past mode='category' until one is selected.
+const CATEGORY_OPTIONS: Array<{
+  key: AuthoredProcedureCategory;
+  label: string;
+  description: string;
+  icon: LucideIcon;
+}> = [
+  {
+    key: 'preventive_maintenance',
+    label: 'Preventive maintenance',
+    description: 'Inspections, lube, calibration, scheduled checks.',
+    icon: ListChecks,
+  },
+  {
+    key: 'troubleshooting',
+    label: 'Troubleshooting',
+    description: 'Diagnosing a symptom, fault, or alarm.',
+    icon: ShieldAlert,
+  },
+  {
+    key: 'removal_replacement',
+    label: 'Removal & Replacement',
+    description: 'Swapping a part or assembly out.',
+    icon: RotateCcw,
+  },
+  {
+    key: 'walkthrough',
+    label: 'Walkthrough',
+    description: 'Anything else — orientation, demos, one-offs.',
+    icon: Wrench,
+  },
+];
 
 interface CapturedStep {
   // null until the step is saved server-side (first media upload OR Next tap).
@@ -68,9 +113,11 @@ export function ProcedureDocWizard({
 }) {
   const [bundle, setBundle] = useState<ProcedureBundle | null>(null);
   const [procedureTitle, setProcedureTitle] = useState('');
+  const [procedureCategory, setProcedureCategory] =
+    useState<AuthoredProcedureCategory | null>(null);
   const [steps, setSteps] = useState<CapturedStep[]>([freshStep()]);
   const [currentIdx, setCurrentIdx] = useState(0);
-  const [mode, setMode] = useState<WizardMode>('title');
+  const [mode, setMode] = useState<WizardMode>('category');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Bottom-sheet picker: null = closed, otherwise the user is choosing
@@ -321,6 +368,13 @@ export function ProcedureDocWizard({
 
   async function onFinishProcedure() {
     if (!bundle) return;
+    if (!procedureCategory) {
+      // Should be impossible — the category step is the first wizard
+      // mode and we never advance without picking. Defensive only.
+      setError('Pick a procedure type first.');
+      setMode('category');
+      return;
+    }
     if (!procedureTitle.trim()) {
       setError('Add a title for the procedure first.');
       setMode('title');
@@ -341,6 +395,7 @@ export function ProcedureDocWizard({
         title: procedureTitle.trim(),
         scopeAssetInstanceOnly: false,
         linkedPartIds: [],
+        procedureCategory,
         devUserId,
         devOrgId,
       });
@@ -358,7 +413,10 @@ export function ProcedureDocWizard({
       onClose();
       return;
     }
-    const hasContent = procedureTitle.trim() || steps.some((s) => s.title.trim() || s.id);
+    const hasContent =
+      procedureCategory !== null ||
+      procedureTitle.trim() ||
+      steps.some((s) => s.title.trim() || s.id);
     if (hasContent && !confirm('Discard this draft procedure? Your captured steps will be lost.')) {
       return;
     }
@@ -404,15 +462,93 @@ export function ProcedureDocWizard({
     );
   }
 
+  // ---- CATEGORY screen ----------------------------------------------
+  // Picked first — drives which Maintenance bucket the saved procedure
+  // appears under (PM card, R&R card, Troubleshooting card). The same
+  // categories admin authoring uses, so field-captured procedures route
+  // through the same Maintenance UI as OEM-authored ones.
+  if (mode === 'category') {
+    return (
+      <FullScreenShell
+        title="Document a procedure"
+        onClose={onCancelAll}
+        rightActionLabel="Cancel"
+      >
+        <div className="flex flex-1 flex-col items-center gap-6 px-6 pb-8 pt-2">
+          <div className="w-full max-w-md text-center">
+            <p className="caption mb-2">Step 1 of 3</p>
+            <h2 className="text-2xl font-bold text-ink-primary">
+              What kind of procedure?
+            </h2>
+            <p className="mt-2 text-sm text-ink-tertiary">
+              This decides where the procedure shows up in Maintenance.
+            </p>
+          </div>
+          <div className="w-full max-w-md flex flex-col gap-2.5">
+            {CATEGORY_OPTIONS.map((opt) => {
+              const Icon = opt.icon;
+              const active = procedureCategory === opt.key;
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => setProcedureCategory(opt.key)}
+                  aria-pressed={active}
+                  className="category-pick-card"
+                  data-active={active}
+                >
+                  <span className="category-pick-icon" aria-hidden>
+                    <Icon size={22} strokeWidth={2} />
+                  </span>
+                  <span className="category-pick-text">
+                    <span className="category-pick-label">{opt.label}</span>
+                    <span className="category-pick-description">
+                      {opt.description}
+                    </span>
+                  </span>
+                  <span className="category-pick-check" aria-hidden>
+                    {active && <Check size={18} strokeWidth={2.5} />}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {error && <p className="text-sm text-signal-fault">{error}</p>}
+          <button
+            type="button"
+            onClick={() => setMode('title')}
+            disabled={!procedureCategory || busy}
+            className="btn btn-primary btn-lg w-full max-w-md"
+          >
+            Next <ChevronRight size={18} strokeWidth={2} />
+          </button>
+        </div>
+      </FullScreenShell>
+    );
+  }
+
   // ---- TITLE screen -------------------------------------------------
 
   if (mode === 'title') {
     const canAdvance = procedureTitle.trim().length > 0;
+    const categoryLabel = procedureCategory
+      ? CATEGORY_OPTIONS.find((c) => c.key === procedureCategory)?.label ?? null
+      : null;
     return (
-      <FullScreenShell title="Document a procedure" onClose={onCancelAll} rightActionLabel="Cancel">
+      <FullScreenShell
+        title="Document a procedure"
+        // The title screen is now reachable FROM the category screen,
+        // so back goes there instead of to the implicit close.
+        onBack={() => setMode('category')}
+        onClose={onCancelAll}
+        rightActionLabel="Cancel"
+      >
         <div className="flex flex-1 flex-col items-center justify-center gap-8 px-6 pb-12">
           <div className="w-full max-w-md">
-            <p className="caption mb-3 text-center">Field procedure</p>
+            <p className="caption mb-3 text-center">
+              Step 2 of 3
+              {categoryLabel ? ` · ${categoryLabel}` : ''}
+            </p>
             <h2 className="text-center text-2xl font-bold text-ink-primary">
               What procedure are you documenting?
             </h2>
@@ -547,9 +683,9 @@ export function ProcedureDocWizard({
       <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-6 pb-6 pt-4">
         <div>
           <p className="caption">
-            STEP {String(stepNum).padStart(2, '0')}
+            Step {String(stepNum).padStart(2, '0')}
             {totalDraftedOrSaved > stepNum
-              ? ` OF ${String(totalDraftedOrSaved).padStart(2, '0')}`
+              ? ` of ${String(totalDraftedOrSaved).padStart(2, '0')}`
               : ''}
           </p>
           <h2 className="mt-1 text-xl font-semibold text-ink-primary">

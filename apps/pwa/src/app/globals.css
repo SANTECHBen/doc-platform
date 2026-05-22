@@ -905,6 +905,78 @@
   }
 
   /* Caption — small tracked label */
+  /* Category-pick card — used in the Document-a-procedure wizard's
+     first step. List of 4 tappable rows: PM, Troubleshooting, R&R,
+     Walkthrough. Inactive cards read as quiet content cards; active
+     gets the brand-tint treatment plus a check glyph so the choice
+     is unambiguous. */
+  .category-pick-card {
+    appearance: none;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    border: 1px solid rgb(var(--line));
+    border-radius: 12px;
+    background: rgb(var(--surface-raised));
+    text-align: left;
+    cursor: pointer;
+    transition:
+      background 140ms ease,
+      border-color 140ms ease;
+  }
+  .category-pick-card:hover {
+    border-color: rgb(var(--line-strong));
+    background: rgb(var(--surface-elevated));
+  }
+  .category-pick-card[data-active='true'] {
+    border-color: rgb(var(--brand));
+    background: rgb(var(--brand) / 0.06);
+    box-shadow: 0 0 0 1px rgb(var(--brand) / 0.35) inset;
+  }
+  .category-pick-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    flex-shrink: 0;
+    background: rgb(var(--surface-inset));
+    color: rgb(var(--ink-secondary));
+  }
+  .category-pick-card[data-active='true'] .category-pick-icon {
+    background: rgb(var(--brand) / 0.16);
+    color: rgb(var(--brand));
+  }
+  .category-pick-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+  }
+  .category-pick-label {
+    font-size: 15px;
+    font-weight: 600;
+    color: rgb(var(--ink-primary));
+    letter-spacing: -0.005em;
+  }
+  .category-pick-description {
+    font-size: 12.5px;
+    color: rgb(var(--ink-tertiary));
+    line-height: 1.35;
+  }
+  .category-pick-check {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    color: rgb(var(--brand));
+  }
+
   /* Library/instructional callout — was previously mid-gray on light-
      gray and near-invisible. Brand-tinted background + icon makes it
      read as a real "note" without being so loud it competes with the
@@ -4523,6 +4595,32 @@
   .step-video-fs-btn:hover {
     background: rgb(0 0 0 / 0.75);
   }
+  /* Discrete looping-video progress bar. Sits flush at the bottom of
+     the video frame, above the caption stripe. 2px tall track at low
+     opacity; fill is brand-tinted so it reads against most footage
+     without being a control distraction. transform: scaleX gives a
+     GPU-accelerated update that's smoother than width animation. */
+  .step-video-progress {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    background: rgb(255 255 255 / 0.18);
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .step-video-progress-fill {
+    height: 100%;
+    background: rgb(var(--brand));
+    transform-origin: left center;
+    transform: scaleX(0);
+    /* Subtle smoothing — the timeupdate event itself fires at ~4Hz on
+       most engines, so we lerp visually between updates for a less
+       steppy look. */
+    transition: transform 120ms linear;
+    box-shadow: 0 0 6px rgb(var(--brand) / 0.6);
+  }
   .step-video-caption {
     position: absolute;
     left: 10px;
@@ -5228,6 +5326,15 @@
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
   }
+  /* Document-a-procedure CTA row above the Maintenance grid. Right-
+     aligned so the cards below are the visual anchor; this is a
+     supporting affordance, not a header. */
+  .maintenance-author-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 4px;
+  }
+
   /* Nav cards — tinted surface, no border. Visually distinct from
      content cards (white + border) and list rows (divider-only) so
      the user's brain can sort "this is navigation" without reading.

@@ -51,6 +51,10 @@ export function StepVideoPlayer({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [started, setStarted] = useState(autoplay);
   const [failed, setFailed] = useState(false);
+  // Progress in [0..1] — drives the discrete bottom bar so techs can see
+  // playback position even on muted autoplay loops where native controls
+  // aren't immediately visible. Reset to 0 when playId changes.
+  const [progress, setProgress] = useState(0);
 
   // Re-arm playback whenever playId changes. In autoplay mode this
   // restarts the loop for the next step's clip; in tap-to-play mode it
@@ -64,6 +68,7 @@ export function StepVideoPlayer({
     } catch {
       // already inert
     }
+    setProgress(0);
     if (autoplay) {
       setStarted(true);
       void v.play().catch(() => {
@@ -75,6 +80,37 @@ export function StepVideoPlayer({
       setStarted(false);
     }
   }, [playId, autoplay]);
+
+  // Track playback position for the bottom progress bar. timeupdate
+  // fires ~4×/sec which is plenty for a visual indicator; no extra
+  // RAF loop needed. Resets to 0 each time the loop wraps.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    function onTime() {
+      const el = videoRef.current;
+      if (!el || !isFinite(el.duration) || el.duration <= 0) {
+        setProgress(0);
+        return;
+      }
+      setProgress(Math.min(1, Math.max(0, el.currentTime / el.duration)));
+    }
+    function onReset() {
+      setProgress(0);
+    }
+    v.addEventListener('timeupdate', onTime);
+    v.addEventListener('seeked', onTime);
+    v.addEventListener('loadedmetadata', onTime);
+    // Loop wraparound fires 'seeked' to time 0 on most engines, but
+    // 'ended' fires once when loop is OFF; cover both for safety.
+    v.addEventListener('ended', onReset);
+    return () => {
+      v.removeEventListener('timeupdate', onTime);
+      v.removeEventListener('seeked', onTime);
+      v.removeEventListener('loadedmetadata', onTime);
+      v.removeEventListener('ended', onReset);
+    };
+  }, [src]);
 
   function startPlayback() {
     const v = videoRef.current;
@@ -150,6 +186,18 @@ export function StepVideoPlayer({
         >
           <Maximize size={16} strokeWidth={2} />
         </button>
+      )}
+      {/* Discrete progress bar — thin brand-tinted line at the bottom of
+          the frame so a tech can see where in the loop they are without
+          unmuting or scrubbing. Hidden until playback has actually
+          started; vanishes on the fallback (failed/no-src) above. */}
+      {started && (
+        <div className="step-video-progress" aria-hidden>
+          <div
+            className="step-video-progress-fill"
+            style={{ transform: `scaleX(${progress})` }}
+          />
+        </div>
       )}
       {caption && started && (
         <figcaption className="step-video-caption">{caption}</figcaption>
