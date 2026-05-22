@@ -49,7 +49,9 @@ export default async function AssetHubPage({
   // (where QR codes point). Anyone sharing a /a/<code> URL out-of-band
   // lacks the cookie and sees a scan-wall instead of the hub. Blocked
   // attempts are audit-logged so customers can see URL-sharing attempts.
-  if (hub.organization.requireScanAccess) {
+  // TEMP: scan-gate bypassed for partner demo — flip SCAN_GATE_ENABLED back to true to restore.
+  const SCAN_GATE_ENABLED = false;
+  if (SCAN_GATE_ENABLED && hub.organization.requireScanAccess) {
     const cookieStore = await cookies();
     const session = cookieStore.get(SCAN_COOKIE_NAME)?.value;
     if (!session || !verifyScanSessionValue(session, qrCode)) {
