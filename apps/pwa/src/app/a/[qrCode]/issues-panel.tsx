@@ -64,9 +64,11 @@ export function IssuesPanel({
     try {
       const rows = await listWorkOrders(assetInstanceId, 'open');
       setOrders(rows);
+      setError(null);
       onCountChange?.(rows.length);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+    } catch {
+      setOrders(null);
+      setError('Work orders are unavailable right now.');
     }
   }
 
@@ -75,8 +77,19 @@ export function IssuesPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assetInstanceId]);
 
+  const canSubmit = title.trim().length > 0 && description.trim().length > 0;
+
+  useEffect(() => {
+    if (!showForm) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [showForm]);
+
   async function submit() {
-    if (!title.trim() || submitting) return;
+    if (!canSubmit || submitting) return;
     if (!DEV_USER_ID || !DEV_ORG_ID) {
       setError('Dev user required to open a work order.');
       return;
@@ -120,9 +133,7 @@ export function IssuesPanel({
       <div className="mb-4 flex items-center gap-3">
         <span className="caption">Work orders</span>
         <span className="h-px flex-1 bg-line-subtle" />
-        <span className="font-mono text-[11px] text-ink-tertiary tabular-nums">
-          {count} open
-        </span>
+        <span className="font-mono text-[11px] text-ink-tertiary tabular-nums">{count} open</span>
         {!showForm && (
           <button onClick={() => setShowForm(true)} className="btn btn-secondary btn-sm">
             <Plus size={14} strokeWidth={2} />
@@ -145,120 +156,159 @@ export function IssuesPanel({
       )}
 
       {showForm && (
-        <div className="mb-3 flex flex-col gap-3 rounded-md border border-line bg-surface-inset p-4">
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Short title — e.g., Fault E-217 on shuttle 12"
-            className="rounded border border-line bg-surface-raised px-3 py-2.5 text-sm text-ink-primary placeholder:text-ink-tertiary focus:border-brand focus:outline-none"
-          />
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="What happened, what you tried, any error codes…"
-            rows={3}
-            className="rounded border border-line bg-surface-raised px-3 py-2.5 text-sm text-ink-primary placeholder:text-ink-tertiary focus:border-brand focus:outline-none"
-          />
-          <div className="flex flex-col gap-1.5">
-            <span className="caption">Severity</span>
-            <div className="grid w-full grid-cols-5 gap-0.5 rounded border border-line bg-surface-raised p-0.5">
-              {SEVERITIES.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setSeverity(s)}
-                  className={`min-w-0 rounded-sm px-1 py-1.5 text-center text-xs font-medium capitalize transition ${
-                    severity === s
-                      ? severityActiveClass(s)
-                      : 'text-ink-tertiary hover:text-ink-secondary'
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
+        <div
+          className="issue-sheet-backdrop"
+          role="presentation"
+          onClick={() => {
+            if (!submitting) setShowForm(false);
+          }}
+        >
+          <div
+            className="issue-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="issue-sheet-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="issue-sheet-header">
+              <div>
+                <p className="cap">Work order</p>
+                <h2 id="issue-sheet-title">Report an issue</h2>
+              </div>
+              <button
+                type="button"
+                className="issue-sheet-close"
+                onClick={() => {
+                  if (!submitting) setShowForm(false);
+                }}
+                aria-label="Close issue form"
+              >
+                <X size={18} strokeWidth={2} />
+              </button>
             </div>
-          </div>
-
-          {/* Photo attachments — camera capture on mobile, file picker on desktop */}
-          <div className="flex flex-col gap-2">
-            <span className="caption">Photos</span>
-            {attachments.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {attachments.map((a) => (
-                  <div key={a.storageKey} className="relative">
-                    <img
-                      src={a.url}
-                      alt=""
-                      className="h-16 w-16 rounded object-cover"
-                      style={{ border: '1px solid rgb(var(--line))' }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeAttachment(a.storageKey)}
-                      className="absolute -right-1.5 -top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full border border-line bg-surface-raised text-ink-tertiary shadow-sm hover:text-signal-fault"
-                      aria-label="Remove"
-                    >
-                      <X size={11} strokeWidth={2} />
-                    </button>
-                  </div>
+            <label className="issue-field" htmlFor="issue-title">
+              <span>Issue title</span>
+              <input
+                id="issue-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Fault E-217 on shuttle 12"
+                className="rounded border border-line bg-surface-raised px-3 py-2.5 text-sm text-ink-primary placeholder:text-ink-tertiary focus:border-brand focus:outline-none"
+              />
+            </label>
+            <label className="issue-field" htmlFor="issue-description">
+              <span>What happened?</span>
+              <textarea
+                id="issue-description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="What you saw, what you tried, and any error codes"
+                rows={3}
+                className="rounded border border-line bg-surface-raised px-3 py-2.5 text-sm text-ink-primary placeholder:text-ink-tertiary focus:border-brand focus:outline-none"
+              />
+            </label>
+            <div className="flex flex-col gap-1.5">
+              <span className="caption">Severity</span>
+              <div className="grid w-full grid-cols-5 gap-0.5 rounded border border-line bg-surface-raised p-0.5">
+                {SEVERITIES.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setSeverity(s)}
+                    aria-pressed={severity === s}
+                    className={`min-w-0 rounded-sm px-1 py-1.5 text-center text-xs font-medium capitalize transition ${
+                      severity === s
+                        ? severityActiveClass(s)
+                        : 'text-ink-tertiary hover:text-ink-secondary'
+                    }`}
+                  >
+                    {s}
+                  </button>
                 ))}
               </div>
-            )}
-            <div className="flex flex-wrap gap-2">
-              <label
-                className={`touch inline-flex cursor-pointer items-center gap-2 rounded border border-line bg-surface-raised px-3 text-sm text-ink-primary transition hover:bg-surface-elevated ${
-                  uploading ? 'opacity-50' : ''
-                }`}
-              >
-                <Camera size={14} strokeWidth={2} />
-                {uploading ? 'Uploading…' : 'Take photo'}
-                <input
-                  ref={cameraRef}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  multiple
-                  onChange={onFilesPicked}
-                  className="hidden"
-                  disabled={uploading}
-                />
-              </label>
-              <label
-                className={`touch inline-flex cursor-pointer items-center gap-2 rounded border border-line bg-surface-raised px-3 text-sm text-ink-secondary transition hover:bg-surface-elevated hover:text-ink-primary ${
-                  uploading ? 'opacity-50' : ''
-                }`}
-              >
-                <Paperclip size={14} strokeWidth={2} />
-                Attach file
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="image/*,video/*,application/pdf"
-                  multiple
-                  onChange={onFilesPicked}
-                  className="hidden"
-                  disabled={uploading}
-                />
-              </label>
             </div>
-          </div>
-          <div className="flex justify-end gap-2">
-            <button
-              onClick={() => {
-                setShowForm(false);
-                setError(null);
-              }}
-              className="btn btn-secondary btn-sm"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={submit}
-              disabled={submitting || !title.trim()}
-              className="btn btn-primary btn-sm"
-            >
-              {submitting ? 'Opening…' : 'Open work order'}
-            </button>
+
+            {/* Photo attachments — camera capture on mobile, file picker on desktop */}
+            <div className="flex flex-col gap-2">
+              <span className="caption">Photos</span>
+              {attachments.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {attachments.map((a) => (
+                    <div key={a.storageKey} className="relative">
+                      <img
+                        src={a.url}
+                        alt=""
+                        className="h-16 w-16 rounded object-cover"
+                        style={{ border: '1px solid rgb(var(--line))' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeAttachment(a.storageKey)}
+                        className="absolute -right-1.5 -top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full border border-line bg-surface-raised text-ink-tertiary shadow-sm hover:text-signal-fault"
+                        aria-label="Remove"
+                      >
+                        <X size={11} strokeWidth={2} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <label
+                  className={`touch inline-flex cursor-pointer items-center gap-2 rounded border border-line bg-surface-raised px-3 text-sm text-ink-primary transition hover:bg-surface-elevated ${
+                    uploading ? 'opacity-50' : ''
+                  }`}
+                >
+                  <Camera size={14} strokeWidth={2} />
+                  {uploading ? 'Uploading…' : 'Take photo'}
+                  <input
+                    ref={cameraRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    multiple
+                    onChange={onFilesPicked}
+                    className="hidden"
+                    disabled={uploading}
+                  />
+                </label>
+                <label
+                  className={`touch inline-flex cursor-pointer items-center gap-2 rounded border border-line bg-surface-raised px-3 text-sm text-ink-secondary transition hover:bg-surface-elevated hover:text-ink-primary ${
+                    uploading ? 'opacity-50' : ''
+                  }`}
+                >
+                  <Paperclip size={14} strokeWidth={2} />
+                  Attach file
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="image/*,video/*,application/pdf"
+                    multiple
+                    onChange={onFilesPicked}
+                    className="hidden"
+                    disabled={uploading}
+                  />
+                </label>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setShowForm(false);
+                  setError(null);
+                }}
+                className="btn btn-secondary btn-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submit}
+                disabled={submitting || !canSubmit}
+                className="btn btn-primary btn-sm"
+              >
+                {submitting ? 'Opening…' : 'Open work order'}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -274,7 +324,8 @@ export function IssuesPanel({
                 <div className="workorder-title">{o.title}</div>
                 {o.description && <div className="workorder-desc">{o.description}</div>}
                 <div className="workorder-meta">
-                  {o.openedBy?.displayName ?? 'Field tech'} · {new Date(o.openedAt).toLocaleString()}
+                  {o.openedBy?.displayName ?? 'Field tech'} ·{' '}
+                  {new Date(o.openedAt).toLocaleString()}
                 </div>
                 {o.attachments && o.attachments.length > 0 && (
                   <div className="mt-2 flex gap-1.5">

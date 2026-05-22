@@ -23,22 +23,12 @@ import { VoiceMode, type PrefetchedGreeting } from '@/components/voice-mode';
 import { VirtualJobAid, type JobAidSource } from '@/components/virtual-job-aid';
 import { ModeChooser, type ChosenMode } from '@/components/mode-chooser';
 import { ImageZoom } from '@/components/image-zoom';
-import {
-  fetchPreflight,
-  listParts,
-  speak,
-  type BomEntry,
-} from '@/lib/api';
+import { fetchPreflight, listParts, speak, type BomEntry } from '@/lib/api';
 
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
 const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
 
-type TabKey =
-  | 'overview'
-  | 'library'
-  | 'parts'
-  | 'maintenance'
-  | 'chat';
+type TabKey = 'overview' | 'library' | 'parts' | 'maintenance' | 'chat';
 
 // Order matches a tech's typical workflow on a scan: glance at the
 // asset (Overview), check what's due (Maintenance), look up a part
@@ -80,14 +70,9 @@ type Mode = 'choosing' | 'voice' | 'browse';
 
 export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: string }) {
   const [active, setActive] = useState<TabKey>('overview');
-  const [librarySection, setLibrarySection] =
-    useState<LibrarySection>('documents');
-  const [openIssueCount, setOpenIssueCount] = useState<number>(
-    hub.tabs.openWorkOrders.count,
-  );
-  const [mode, setMode] = useState<Mode>(
-    DEV_USER_ID && DEV_ORG_ID ? 'choosing' : 'browse',
-  );
+  const [librarySection, setLibrarySection] = useState<LibrarySection>('documents');
+  const [openIssueCount, setOpenIssueCount] = useState<number>(hub.tabs.openWorkOrders.count);
+  const [mode, setMode] = useState<Mode>(DEV_USER_ID && DEV_ORG_ID ? 'choosing' : 'browse');
   const [voiceOpen, setVoiceOpen] = useState(false);
   // When a tech taps a part chip (from Overview or the Parts tab list)
   // we swap the active tab's content with PartInspector — which renders
@@ -110,9 +95,7 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
   // chooser displays will end up picking Browse and discarding the audio
   // — the per-greeting cost is ~$0.003 and the perceived-latency win is
   // significant. Stored as a promise so VoiceMode can await it.
-  const greetingPrefetchRef = useRef<Promise<PrefetchedGreeting | null> | null>(
-    null,
-  );
+  const greetingPrefetchRef = useRef<Promise<PrefetchedGreeting | null> | null>(null);
 
   useEffect(() => {
     if (mode !== 'choosing') return;
@@ -176,6 +159,16 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
     setInspectingPartId(null);
   }, []);
 
+  if (mode === 'choosing' && DEV_USER_ID && DEV_ORG_ID) {
+    return (
+      <ModeChooser
+        assetName={hub.assetModel.displayName}
+        serialNumber={hub.assetInstance.serialNumber}
+        onPick={pickMode}
+      />
+    );
+  }
+
   return (
     <>
       <TabBar hub={hub} active={active} setActive={changeTab} position="top" />
@@ -194,13 +187,11 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
         ) : active === 'overview' ? (
           <div className="flex flex-col gap-4">
             <IdentityBand hub={hub} />
+            <OverviewActionSummary hub={hub} openIssueCount={openIssueCount} />
+            <IssuesPanel assetInstanceId={hub.assetInstance.id} onCountChange={setOpenIssueCount} />
             <PartsQuickActions
               assetModelId={hub.assetModel.id}
               onOpenPart={(partId) => setInspectingPartId(partId)}
-            />
-            <IssuesPanel
-              assetInstanceId={hub.assetInstance.id}
-              onCountChange={setOpenIssueCount}
             />
             <DetailsDisclosure>
               <OverviewSpecs hub={hub} openIssueCount={openIssueCount} />
@@ -211,19 +202,13 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
              segmented control + filter chips + list rows already carry
              their own structure and don't need a surrounding raised
              panel. */
-          <LibraryTab
-            hub={hub}
-            section={librarySection}
-            onSectionChange={setLibrarySection}
-          />
+          <LibraryTab hub={hub} section={librarySection} onSectionChange={setLibrarySection} />
         ) : active === 'maintenance' ? (
           <MaintenanceTab
             assetInstanceId={hub.assetInstance.id}
             versionId={hub.pinnedContentPackVersion?.id ?? null}
             fieldCapturesVersionId={hub.fieldCapturesVersionId ?? null}
-            onLaunchJobAid={(source, onCompleted) =>
-              setJobAidRequest({ source, onCompleted })
-            }
+            onLaunchJobAid={(source, onCompleted) => setJobAidRequest({ source, onCompleted })}
           />
         ) : (
           <section className="rounded-md border border-line bg-surface-raised p-4 md:p-6">
@@ -240,14 +225,6 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
       </div>
 
       <TabBar hub={hub} active={active} setActive={changeTab} position="bottom" />
-
-      {mode === 'choosing' && DEV_USER_ID && DEV_ORG_ID && (
-        <ModeChooser
-          assetName={hub.assetModel.displayName}
-          serialNumber={hub.assetInstance.serialNumber}
-          onPick={pickMode}
-        />
-      )}
 
       {voiceOpen && DEV_USER_ID && DEV_ORG_ID && (
         <VoiceMode
@@ -272,8 +249,7 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
                 const existingRaw = window.localStorage.getItem(key);
                 const existing = existingRaw ? JSON.parse(existingRaw) : null;
                 const merged = {
-                  conversationId:
-                    conversationId ?? existing?.conversationId,
+                  conversationId: conversationId ?? existing?.conversationId,
                   turns: [
                     ...(existing?.turns ?? []),
                     ...turns.map((t) =>
@@ -407,6 +383,46 @@ function LibrarySegmentButton({
 // match for a sticker, find a sub-assembly to inspect). Surface the
 // BOM here as a one-tap entry instead of authored procedures —
 // procedures live in Maintenance, parts get the prime real estate.
+function OverviewActionSummary({
+  hub,
+  openIssueCount,
+}: {
+  hub: AssetHubPayload;
+  openIssueCount: number;
+}) {
+  const pmNeedsAction = hub.tabs.pm.needsAction;
+  const docCount = hub.tabs.docs.count + hub.tabs.training.count;
+  return (
+    <section className="overview-action-summary" aria-label="Asset status">
+      <div className="overview-action-summary-head">
+        <span className="cap">Today</span>
+        <span className="overview-action-summary-site">{hub.site.name}</span>
+      </div>
+      <div className="overview-action-summary-grid">
+        <div
+          className="overview-action-summary-item"
+          data-tone={openIssueCount > 0 ? 'warn' : 'ok'}
+        >
+          <span className="overview-action-summary-value">{openIssueCount}</span>
+          <span className="overview-action-summary-label">
+            {openIssueCount === 1 ? 'Open work order' : 'Open work orders'}
+          </span>
+        </div>
+        <div className="overview-action-summary-item" data-tone={pmNeedsAction > 0 ? 'warn' : 'ok'}>
+          <span className="overview-action-summary-value">{pmNeedsAction}</span>
+          <span className="overview-action-summary-label">
+            {pmNeedsAction === 1 ? 'PM due now' : 'PM actions due'}
+          </span>
+        </div>
+        <div className="overview-action-summary-item">
+          <span className="overview-action-summary-value">{docCount}</span>
+          <span className="overview-action-summary-label">Docs and training</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function PartsQuickActions({
   assetModelId,
   onOpenPart,
@@ -454,31 +470,43 @@ function PartsQuickActions({
     <section aria-label="Parts" className="flex flex-col gap-2">
       <div className="cap px-1">Parts</div>
       <div className="action-band-list">
-        {parts.map((p) => (
-          <button
-            key={p.partId}
-            type="button"
-            onClick={() => onOpenPart(p.partId)}
-            className="action-row"
-          >
-            {p.imageUrl ? (
-              <img src={p.imageUrl} alt="" className="action-row-thumb" />
-            ) : (
-              <span className="action-row-icon">
-                <Wrench size={18} strokeWidth={2} />
+        {parts.map((p) => {
+          const partNumber = p.oemPartNumber?.trim();
+          const showPartNumber =
+            partNumber && partNumber.toLowerCase() !== p.displayName.trim().toLowerCase();
+          return (
+            <button
+              key={p.partId}
+              type="button"
+              onClick={() => onOpenPart(p.partId)}
+              className="action-row"
+              aria-label={`Open ${p.displayName} part details`}
+            >
+              {p.imageUrl ? (
+                <img src={p.imageUrl} alt="" className="action-row-thumb" />
+              ) : (
+                <span className="action-row-icon">
+                  <Wrench size={18} strokeWidth={2} />
+                </span>
+              )}
+              <span className="action-row-body">
+                <span className="action-row-title">{p.displayName}</span>
+                <span className="action-row-sub">
+                  {showPartNumber ? `PN ${partNumber}` : formatRoleLabel(p.role)}
+                </span>
               </span>
-            )}
-            <span className="action-row-body">
-              <span className="action-row-title">{p.displayName}</span>
-              <span className="action-row-sub">
-                {p.oemPartNumber ?? '— no PN —'}
-              </span>
-            </span>
-          </button>
-        ))}
+            </button>
+          );
+        })}
       </div>
     </section>
   );
+}
+
+function formatRoleLabel(role: BomEntry['role']): string {
+  if (role === 'assembly') return 'Assembly';
+  if (role === 'sub_assembly') return 'Sub-assembly';
+  return 'Part';
 }
 
 // Identity band — Overview hero. Full-bleed asset photo with title +
@@ -502,11 +530,7 @@ function IdentityBand({ hub }: { hub: AssetHubPayload }) {
           alt={hub.assetModel.displayName}
           triggerLabel={`Enlarge ${hub.assetModel.displayName} photo`}
         >
-          <img
-            src={heroUrl}
-            alt=""
-            className="identity-band-image"
-          />
+          <img src={heroUrl} alt="" className="identity-band-image" />
         </ImageZoom>
       ) : (
         <div className="identity-band-placeholder">
@@ -518,6 +542,11 @@ function IdentityBand({ hub }: { hub: AssetHubPayload }) {
       )}
       <div className="identity-band-overlay">
         <h1 className="identity-band-title">{hub.assetModel.displayName}</h1>
+        <div className="identity-band-meta">
+          <span>{hub.assetModel.modelCode}</span>
+          <span className="sep">/</span>
+          <span className="serial">S/N {hub.assetInstance.serialNumber}</span>
+        </div>
       </div>
     </header>
   );
@@ -538,11 +567,7 @@ function DetailsDisclosure({ children }: { children: React.ReactNode }) {
         className="details-disclosure-summary"
       >
         Details
-        <ChevronDown
-          size={12}
-          strokeWidth={2.5}
-          className="details-disclosure-chevron"
-        />
+        <ChevronDown size={12} strokeWidth={2.5} className="details-disclosure-chevron" />
       </button>
       {open && <div className="details-disclosure-content">{children}</div>}
     </div>
@@ -560,7 +585,7 @@ function TabBar({
   setActive: (k: TabKey) => void;
   position: 'top' | 'bottom';
 }) {
-  const className = `app-tabbar${position === 'top' ? ' app-tabbar-top' : ''}`;
+  const className = `app-tabbar ${position === 'top' ? 'app-tabbar-top' : 'app-tabbar-bottom'}`;
   return (
     <nav className={className} role="tablist" aria-label="Sections">
       {TABS.map((t) => {
@@ -571,6 +596,7 @@ function TabBar({
             key={t.key}
             role="tab"
             aria-selected={isActive}
+            aria-current={isActive ? 'page' : undefined}
             data-active={isActive}
             onClick={() => setActive(t.key)}
             className="app-tabbar-item"
@@ -600,13 +626,7 @@ function formatInstalledAt(iso: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? '—' : INSTALLED_FMT.format(d);
 }
 
-function OverviewSpecs({
-  hub,
-  openIssueCount,
-}: {
-  hub: AssetHubPayload;
-  openIssueCount: number;
-}) {
+function OverviewSpecs({ hub, openIssueCount }: { hub: AssetHubPayload; openIssueCount: number }) {
   return (
     <div className="spec-grid">
       <SpecField label="Model code" value={hub.assetModel.modelCode} mono />
@@ -619,10 +639,7 @@ function OverviewSpecs({
         mono
         tone={openIssueCount > 0 ? 'warn' : 'ok'}
       />
-      <SpecField
-        label="Installed"
-        value={formatInstalledAt(hub.assetInstance.installedAt)}
-      />
+      <SpecField label="Installed" value={formatInstalledAt(hub.assetInstance.installedAt)} />
     </div>
   );
 }

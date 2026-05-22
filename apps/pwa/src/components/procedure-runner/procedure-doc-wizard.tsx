@@ -119,9 +119,7 @@ export function ProcedureDocWizard({
   const currentStep = steps[currentIdx]!;
 
   function updateCurrent(partial: Partial<CapturedStep>) {
-    setSteps((prev) =>
-      prev.map((s, i) => (i === currentIdx ? { ...s, ...partial } : s)),
-    );
+    setSteps((prev) => prev.map((s, i) => (i === currentIdx ? { ...s, ...partial } : s)));
   }
 
   // Persist the current step server-side. POSTs a new step or PATCHes an
@@ -160,9 +158,7 @@ export function ProcedureDocWizard({
       devUserId,
       devOrgId,
     });
-    setSteps((prev) =>
-      prev.map((s, i) => (i === currentIdx ? { ...s, id: dto.id } : s)),
-    );
+    setSteps((prev) => prev.map((s, i) => (i === currentIdx ? { ...s, id: dto.id } : s)));
     return dto.id;
   }
 
@@ -362,12 +358,8 @@ export function ProcedureDocWizard({
       onClose();
       return;
     }
-    const hasContent =
-      procedureTitle.trim() || steps.some((s) => s.title.trim() || s.id);
-    if (
-      hasContent &&
-      !confirm('Discard this draft procedure? Your captured steps will be lost.')
-    ) {
+    const hasContent = procedureTitle.trim() || steps.some((s) => s.title.trim() || s.id);
+    if (hasContent && !confirm('Discard this draft procedure? Your captured steps will be lost.')) {
       return;
     }
     try {
@@ -417,14 +409,10 @@ export function ProcedureDocWizard({
   if (mode === 'title') {
     const canAdvance = procedureTitle.trim().length > 0;
     return (
-      <FullScreenShell
-        title="Document a procedure"
-        onClose={onCancelAll}
-        rightActionLabel="Cancel"
-      >
+      <FullScreenShell title="Document a procedure" onClose={onCancelAll} rightActionLabel="Cancel">
         <div className="flex flex-1 flex-col items-center justify-center gap-8 px-6 pb-12">
           <div className="w-full max-w-md">
-            <p className="caption mb-3 text-center">STEP 0 OF MANY</p>
+            <p className="caption mb-3 text-center">Field procedure</p>
             <h2 className="text-center text-2xl font-bold text-ink-primary">
               What procedure are you documenting?
             </h2>
@@ -440,15 +428,9 @@ export function ProcedureDocWizard({
                 className="flex-1 rounded-md border border-line bg-surface-raised p-4 text-lg font-medium"
                 autoFocus
               />
-              <MicButton
-                size="md"
-                appendMode={false}
-                onTranscript={(t) => setProcedureTitle(t)}
-              />
+              <MicButton size="md" appendMode={false} onTranscript={(t) => setProcedureTitle(t)} />
             </div>
-            {error && (
-              <p className="mt-3 text-sm text-signal-fault">{error}</p>
-            )}
+            {error && <p className="mt-3 text-sm text-signal-fault">{error}</p>}
           </div>
           <button
             type="button"
@@ -502,15 +484,11 @@ export function ProcedureDocWizard({
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-base font-medium text-ink-primary">
-                        {s.title || (
-                          <em className="text-ink-tertiary">Untitled step</em>
-                        )}
+                        {s.title || <em className="text-ink-tertiary">Untitled step</em>}
                       </p>
                       <p className="mt-0.5 font-mono text-[11px] text-ink-tertiary">
                         {s.media.length > 0
-                          ? `${s.media.length} attachment${
-                              s.media.length === 1 ? '' : 's'
-                            }`
+                          ? `${s.media.length} attachment${s.media.length === 1 ? '' : 's'}`
                           : 'No attachments'}
                       </p>
                     </div>
@@ -549,8 +527,7 @@ export function ProcedureDocWizard({
 
   // ---- STEP screen --------------------------------------------------
 
-  const totalDraftedOrSaved = steps.filter((s, i) => s.id || i === currentIdx)
-    .length;
+  const totalDraftedOrSaved = steps.filter((s, i) => s.id || i === currentIdx).length;
   const stepNum = currentIdx + 1;
   const canAdvance = currentStep.title.trim().length > 0;
 
@@ -614,9 +591,7 @@ export function ProcedureDocWizard({
               appendMode
               onTranscript={(t) =>
                 updateCurrent({
-                  body: currentStep.body
-                    ? currentStep.body + ' ' + t
-                    : t,
+                  body: currentStep.body ? currentStep.body + ' ' + t : t,
                 })
               }
             />
@@ -631,11 +606,7 @@ export function ProcedureDocWizard({
               onClick={openMediaPicker}
               className="btn btn-secondary btn-sm"
               disabled={busy || !currentStep.title.trim()}
-              title={
-                currentStep.title.trim()
-                  ? 'Add photo or video'
-                  : 'Add a step title first'
-              }
+              title={currentStep.title.trim() ? 'Add photo or video' : 'Add a step title first'}
             >
               <Camera size={14} strokeWidth={2} /> Add photo / video
             </button>
@@ -690,11 +661,7 @@ export function ProcedureDocWizard({
                   className="relative aspect-square overflow-hidden rounded border border-line-subtle"
                 >
                   {m.kind === 'image' ? (
-                    <img
-                      src={m.url ?? ''}
-                      alt=""
-                      className="h-full w-full object-cover"
-                    />
+                    <img src={m.url ?? ''} alt="" className="h-full w-full object-cover" />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center bg-surface-inset text-ink-tertiary">
                       <Video size={20} strokeWidth={1.75} />
@@ -736,12 +703,7 @@ export function ProcedureDocWizard({
           Next step <ChevronRight size={16} strokeWidth={2} />
         </button>
       </footer>
-      {pickerOpen && (
-        <MediaSourceSheet
-          onPick={pickFrom}
-          onCancel={() => setPickerOpen(false)}
-        />
-      )}
+      {pickerOpen && <MediaSourceSheet onPick={pickFrom} onCancel={() => setPickerOpen(false)} />}
       {editingPhoto && (
         <PhotoEditor
           file={editingPhoto}
@@ -798,11 +760,7 @@ function MediaSourceSheet({
           onClick={() => onPick('library')}
           className="flex w-full items-center gap-3 rounded-md p-4 text-left text-base hover:bg-surface-elevated"
         >
-          <ImagePlus
-            size={22}
-            strokeWidth={1.75}
-            className="text-ink-secondary"
-          />
+          <ImagePlus size={22} strokeWidth={1.75} className="text-ink-secondary" />
           <span className="font-medium">Choose from library</span>
         </button>
         <button

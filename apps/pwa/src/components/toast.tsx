@@ -55,7 +55,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={api}>
       {children}
-      <div className="pointer-events-none fixed bottom-6 left-1/2 z-[100] flex -translate-x-1/2 flex-col gap-2 md:left-auto md:right-6 md:translate-x-0">
+      <div className="toast-stack">
         {toasts.map((t) => (
           <ToastItem key={t.id} toast={t} onDismiss={() => remove(t.id)} />
         ))}
@@ -79,10 +79,20 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
 
   const tone =
     toast.variant === 'success'
-      ? { border: 'border-signal-ok/40', bar: 'bg-signal-ok', text: 'text-signal-ok', Icon: CheckCircle2 }
+      ? {
+          border: 'border-signal-ok/40',
+          bar: 'bg-signal-ok',
+          text: 'text-signal-ok',
+          Icon: CheckCircle2,
+        }
       : toast.variant === 'error'
-      ? { border: 'border-signal-fault/50', bar: 'bg-signal-fault', text: 'text-signal-fault', Icon: AlertCircle }
-      : { border: 'border-brand/40', bar: 'bg-brand', text: 'text-brand', Icon: Info };
+        ? {
+            border: 'border-signal-fault/50',
+            bar: 'bg-signal-fault',
+            text: 'text-signal-fault',
+            Icon: AlertCircle,
+          }
+        : { border: 'border-brand/40', bar: 'bg-brand', text: 'text-brand', Icon: Info };
 
   return (
     <div

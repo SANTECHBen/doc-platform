@@ -14,12 +14,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, Maximize2, Minimize2 } from 'lucide-react';
-import {
-  getPageDimensions,
-  loadDocument,
-  PdfPage,
-  type PDFDocumentProxy,
-} from '@platform/viewer';
+import { getPageDimensions, loadDocument, PdfPage, type PDFDocumentProxy } from '@platform/viewer';
 
 export function FramedPdf({
   url,
@@ -166,12 +161,7 @@ export function FramedPdf({
                 key={n}
                 className="overflow-hidden rounded border border-line bg-white shadow-sm"
               >
-                <PdfPage
-                  doc={pdf}
-                  pageNumber={n}
-                  scale={targetScale}
-                  enableTextLayer={false}
-                />
+                <PdfPage doc={pdf} pageNumber={n} scale={targetScale} enableTextLayer={false} />
               </div>
             ))}
           </div>
@@ -195,17 +185,17 @@ export function FramedPdf({
         </button>
       </div>
 
-      <div className="flex shrink-0 items-center justify-between border-t border-line-subtle bg-surface-raised px-3 py-2 text-xs text-ink-tertiary">
-        <span className="truncate">{title}</span>
+      <div className="framed-pdf-footer">
+        <span className="framed-pdf-title">{title}</span>
         <a
           href={url}
           download={filename ?? undefined}
           target="_blank"
           rel="noreferrer"
-          className="ml-3 inline-flex shrink-0 items-center gap-1.5 rounded px-2 py-1 transition hover:bg-surface-elevated hover:text-ink-primary"
+          className="framed-pdf-download"
         >
           <Download size={12} strokeWidth={2} />
-          Download {filename ?? 'PDF'}
+          <span>Download</span>
         </a>
       </div>
     </div>

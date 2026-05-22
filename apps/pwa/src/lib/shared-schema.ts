@@ -7,7 +7,7 @@ export const AssetHubPayloadSchema = z.object({
     id: UuidSchema,
     serialNumber: z.string(),
     installedAt: z.string().datetime().nullable(),
-    imageUrl: z.string().nullable(),
+    imageUrl: z.string().nullable().optional().default(null),
   }),
   assetModel: z.object({
     id: UuidSchema,

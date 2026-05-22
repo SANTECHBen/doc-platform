@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -79,8 +79,8 @@ function RoleBadge({ role }: { role: PartRole }) {
     role === 'assembly'
       ? { glyph: '■', label: 'ASSEMBLY' }
       : role === 'sub_assembly'
-      ? { glyph: '◧', label: 'SUB-ASSY' }
-      : { glyph: '▪', label: 'COMPONENT' };
+        ? { glyph: '◧', label: 'SUB-ASSY' }
+        : { glyph: '▪', label: 'COMPONENT' };
   return (
     <span className="role-tag">
       <span className="role-tag-glyph" aria-hidden>
@@ -110,23 +110,6 @@ export function PartsTab({
   const [query, setQuery] = useState('');
   const [lightbox, setLightbox] = useState<LightboxTarget | null>(null);
   const [openPartId, setOpenPartId] = useState<string | null>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
-
-  // Auto-focus the search input once the BOM is loaded — Parts is the
-  // surface a tech reaches for when they're holding a sticker and need
-  // a PN match in <2 seconds. The keyboard rises automatically; if the
-  // tech wants to scroll the list instead, dismissing the keyboard is
-  // one tap. Only fires on the first load so re-renders don't steal
-  // focus from the detail overlay.
-  const focusedOnceRef = useRef(false);
-  useEffect(() => {
-    if (focusedOnceRef.current) return;
-    if (!rows || rows.length === 0) return;
-    focusedOnceRef.current = true;
-    // Defer so the input is mounted by the time we focus.
-    const id = setTimeout(() => searchRef.current?.focus(), 0);
-    return () => clearTimeout(id);
-  }, [rows]);
 
   // Paste-to-open. If the pasted text matches a part's OEM number or a
   // cross-reference exactly (case-insensitive), open that part directly
@@ -161,7 +144,6 @@ export function PartsTab({
       cancelled = true;
     };
   }, [assetModelId]);
-
 
   const filtered = useMemo(() => {
     if (!rows) return null;
@@ -211,7 +193,6 @@ export function PartsTab({
       <label className="scan-input">
         <Search size={18} strokeWidth={2} className="text-ink-tertiary" />
         <input
-          ref={searchRef}
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -224,79 +205,90 @@ export function PartsTab({
       </label>
 
       <ul className="flex flex-col gap-2">
-        {(filtered ?? []).map((r) => (
-          <li
-            key={r.bomEntryId}
-            className={`surface-etched part-row ${r.discontinued ? 'opacity-70' : ''}`}
-          >
-            <div className="flex items-start gap-3">
-              <PartThumb
-                imageUrl={r.imageUrl ?? null}
-                displayName={r.displayName}
-                oemPartNumber={r.oemPartNumber ?? ''}
-                onOpen={(src) =>
-                  setLightbox({
-                    src,
-                    title: r.displayName,
-                    oemPartNumber: r.oemPartNumber ?? '',
-                  })
-                }
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  if (onInspectPart) onInspectPart(r.partId);
-                  else setOpenPartId(r.partId);
-                }}
-                aria-label={`Open ${r.displayName} details`}
-                className="flex min-w-0 flex-1 items-start gap-3 text-left"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="mb-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-                    <span className="part-num">{r.oemPartNumber}</span>
-                    <span className="part-name">{r.displayName}</span>
-                  </div>
-                  {r.description && <p className="part-desc mb-2 line-clamp-2">{r.description}</p>}
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px]">
-                    {r.positionRef && (
-                      <span className="flex items-center gap-1.5">
-                        <span className="cap" style={{ letterSpacing: '0.08em' }}>Pos</span>
-                        <span className="text-ink-primary">{r.positionRef}</span>
-                      </span>
+        {(filtered ?? []).map((r) => {
+          const partNumber = r.oemPartNumber?.trim();
+          const showPartNumber =
+            partNumber && partNumber.toLowerCase() !== r.displayName.trim().toLowerCase();
+          return (
+            <li
+              key={r.bomEntryId}
+              className={`surface-etched part-row ${r.discontinued ? 'opacity-70' : ''}`}
+            >
+              <div className="flex items-start gap-3">
+                <PartThumb
+                  imageUrl={r.imageUrl ?? null}
+                  displayName={r.displayName}
+                  oemPartNumber={r.oemPartNumber ?? ''}
+                  onOpen={(src) =>
+                    setLightbox({
+                      src,
+                      title: r.displayName,
+                      oemPartNumber: r.oemPartNumber ?? '',
+                    })
+                  }
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onInspectPart) onInspectPart(r.partId);
+                    else setOpenPartId(r.partId);
+                  }}
+                  aria-label={`Open ${r.displayName} details`}
+                  className="flex min-w-0 flex-1 items-start gap-3 text-left"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                      {showPartNumber && <span className="part-num">{partNumber}</span>}
+                      <span className="part-name">{r.displayName}</span>
+                    </div>
+                    {r.description && (
+                      <p className="part-desc mb-2 line-clamp-2">{r.description}</p>
                     )}
-                    <span className="flex items-center gap-1.5">
-                      <span className="cap" style={{ letterSpacing: '0.08em' }}>Qty</span>
-                      <span className="text-ink-primary tabular-nums">{r.quantity}</span>
-                    </span>
-                    {r.crossReferences.length > 0 && (
-                      <span className="flex items-center gap-1.5">
-                        <span className="cap" style={{ letterSpacing: '0.08em' }}>Xref</span>
-                        {r.crossReferences.map((xr) => (
-                          <span key={xr} className="part-xref">
-                            {xr}
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px]">
+                      {r.positionRef && (
+                        <span className="flex items-center gap-1.5">
+                          <span className="cap" style={{ letterSpacing: '0.08em' }}>
+                            Pos
                           </span>
-                        ))}
+                          <span className="text-ink-primary">{r.positionRef}</span>
+                        </span>
+                      )}
+                      <span className="flex items-center gap-1.5">
+                        <span className="cap" style={{ letterSpacing: '0.08em' }}>
+                          Qty
+                        </span>
+                        <span className="text-ink-primary tabular-nums">{r.quantity}</span>
                       </span>
-                    )}
-                  </div>
-                  {(r.role !== 'part' || r.discontinued) && (
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <RoleBadge role={r.role} />
-                      {r.discontinued && (
-                        <span className="pill pill-warn">Discontinued</span>
+                      {r.crossReferences.length > 0 && (
+                        <span className="flex items-center gap-1.5">
+                          <span className="cap" style={{ letterSpacing: '0.08em' }}>
+                            Xref
+                          </span>
+                          {r.crossReferences.map((xr) => (
+                            <span key={xr} className="part-xref">
+                              {xr}
+                            </span>
+                          ))}
+                        </span>
                       )}
                     </div>
-                  )}
-                </div>
-                <ChevronRight
-                  size={18}
-                  strokeWidth={2}
-                  className="mt-0.5 shrink-0 text-ink-tertiary"
-                />
-              </button>
-            </div>
-          </li>
-        ))}
+                    {(r.role !== 'part' || r.discontinued) && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <RoleBadge role={r.role} />
+                        {r.discontinued && <span className="pill pill-warn">Discontinued</span>}
+                      </div>
+                    )}
+                  </div>
+                  <ChevronRight
+                    size={18}
+                    strokeWidth={2}
+                    className="mt-0.5 shrink-0 text-ink-tertiary"
+                  />
+                </button>
+              </div>
+            </li>
+          );
+        })}
       </ul>
 
       {filtered && filtered.length === 0 && (
@@ -327,13 +319,7 @@ export function PartsTab({
 // mobile (touch-action: pinch-zoom), Escape / backdrop tap / X to close.
 // Uses object-contain on the image itself so the whole part is visible at
 // its natural aspect ratio regardless of how the PWA window is sized.
-function ImageLightbox({
-  target,
-  onClose,
-}: {
-  target: LightboxTarget;
-  onClose: () => void;
-}) {
+function ImageLightbox({ target, onClose }: { target: LightboxTarget; onClose: () => void }) {
   // Lock body scroll and wire Escape so the overlay behaves like a modal.
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -358,17 +344,10 @@ function ImageLightbox({
     >
       <header className="doc-overlay-bar">
         <div className="doc-overlay-title">
-          {target.oemPartNumber && (
-            <span className="caption">{target.oemPartNumber}</span>
-          )}
+          {target.oemPartNumber && <span className="caption">{target.oemPartNumber}</span>}
           <h2 className="truncate text-base font-semibold">{target.title}</h2>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="app-topbar-btn"
-          aria-label="Close image"
-        >
+        <button type="button" onClick={onClose} className="app-topbar-btn" aria-label="Close image">
           <X size={20} strokeWidth={2} />
         </button>
       </header>
@@ -612,12 +591,7 @@ function PartDetailOverlay({
             {data?.part.displayName ?? 'Loading…'}
           </h2>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="app-topbar-btn"
-          aria-label="Close"
-        >
+        <button type="button" onClick={onClose} className="app-topbar-btn" aria-label="Close">
           <X size={20} strokeWidth={2} />
         </button>
       </header>
@@ -665,9 +639,7 @@ function PartDetailOverlay({
 
           {active === 'training' && <PartTrainingPane data={data} />}
 
-          {active === 'components' && (
-            <ComponentsPane data={data} onDrillInto={drillInto} />
-          )}
+          {active === 'components' && <ComponentsPane data={data} onDrillInto={drillInto} />}
 
           {active === 'chat' && (
             <ChatTab
@@ -767,10 +739,7 @@ function PartDetailOverlay({
         />
       )}
       {authPromptOpen && (
-        <AuthPrompt
-          reason="start a procedure"
-          onClose={() => setAuthPromptOpen(false)}
-        />
+        <AuthPrompt reason="start a procedure" onClose={() => setAuthPromptOpen(false)} />
       )}
     </div>
   );
@@ -825,14 +794,16 @@ export function PartInspector({
       fetchPmStatus(hub.assetInstance.id),
       fetchPmPlanStatus(hub.assetInstance.id),
       fetchTroubleshooting(hub.assetInstance.id),
-    ]).then(([pm, plans, ts]) => {
-      if (cancelled) return;
-      setPmStatus(pm);
-      setPmPlans(plans);
-      setTroubleshooting(ts.guides);
-    }).catch((e) => {
-      if (!cancelled) setError(e instanceof Error ? e.message : String(e));
-    });
+    ])
+      .then(([pm, plans, ts]) => {
+        if (cancelled) return;
+        setPmStatus(pm);
+        setPmPlans(plans);
+        setTroubleshooting(ts.guides);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      });
     return () => {
       cancelled = true;
     };
@@ -892,20 +863,14 @@ export function PartInspector({
           <ChevronLeft size={22} strokeWidth={2} />
         </button>
         {data?.part.imageUrl ? (
-          <img
-            src={data.part.imageUrl}
-            alt=""
-            className="part-inspector-thumb"
-          />
+          <img src={data.part.imageUrl} alt="" className="part-inspector-thumb" />
         ) : (
           <span className="part-inspector-thumb part-inspector-thumb-fallback">
             <Wrench size={18} strokeWidth={2} />
           </span>
         )}
         <div className="min-w-0 flex-1">
-          <p className="caption truncate">
-            {data?.part.oemPartNumber ?? '—'}
-          </p>
+          <p className="caption truncate">{data?.part.oemPartNumber ?? '—'}</p>
           <h2 className="text-base font-semibold leading-tight truncate">
             {data?.part.displayName ?? 'Loading…'}
           </h2>
@@ -931,10 +896,7 @@ export function PartInspector({
           content so the user can step into a sub-assembly without an
           internal tab strip. Hidden when this part has no children. */}
       {hasComponents && data && (
-        <ComponentsPane
-          data={data}
-          onDrillInto={(childId) => setStack((s) => [...s, childId])}
-        />
+        <ComponentsPane data={data} onDrillInto={(childId) => setStack((s) => [...s, childId])} />
       )}
 
       {openDoc && (
@@ -1116,9 +1078,7 @@ function PartNameplate({
           </div>
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="nameplate-title">
-            {part?.displayName ?? 'Loading…'}
-          </div>
+          <div className="nameplate-title">{part?.displayName ?? 'Loading…'}</div>
           <div className="nameplate-meta">
             <span>{part?.oemPartNumber ?? '—'}</span>
             {bomRow?.positionRef && (
@@ -1280,17 +1240,13 @@ function PartProcedurePane({
   // Procedures: this part's structured_procedure docs (run as Job
   // Aid). Other doc kinds (PDF, video, schematic) live on the part
   // Overview's "Documents" mini-list and on the asset Library tab.
-  const procedures = data.documents.filter(
-    (d) => d.kind === 'structured_procedure',
-  );
+  const procedures = data.documents.filter((d) => d.kind === 'structured_procedure');
 
   // Other reference docs for this part — kept on the same surface so
   // a tech doesn't need to bounce to Overview just to find the
   // schematic. Rendered as a smaller secondary list inside the
   // Procedures card.
-  const referenceDocs = data.documents.filter(
-    (d) => d.kind !== 'structured_procedure',
-  );
+  const referenceDocs = data.documents.filter((d) => d.kind !== 'structured_procedure');
 
   // PM hits: schedules + plan-bucket items that reference a document
   // this part also references. Schedules carry a single document FK;
@@ -1365,9 +1321,7 @@ function PartProcedurePane({
         caption={`${procedures.length} procedure${procedures.length === 1 ? '' : 's'} · ${referenceDocs.length} reference doc${referenceDocs.length === 1 ? '' : 's'}`}
       >
         {procedures.length === 0 && referenceDocs.length === 0 ? (
-          <PartResourceEmpty
-            body="No procedures or reference docs linked to this part yet."
-          />
+          <PartResourceEmpty body="No procedures or reference docs linked to this part yet." />
         ) : (
           <ul className="flex flex-col">
             {procedures.map((p) => (
@@ -1384,11 +1338,7 @@ function PartProcedurePane({
                     <div className="part-resource-row-title">{p.title}</div>
                     <div className="part-resource-row-sub">Run procedure</div>
                   </div>
-                  <ChevronRight
-                    size={16}
-                    strokeWidth={2}
-                    className="shrink-0 text-ink-tertiary"
-                  />
+                  <ChevronRight size={16} strokeWidth={2} className="shrink-0 text-ink-tertiary" />
                 </button>
               </li>
             ))}
@@ -1406,9 +1356,7 @@ function PartProcedurePane({
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="part-resource-row-title">{d.title}</div>
-                      <div className="part-resource-row-sub">
-                        {kindLabel(d.kind)}
-                      </div>
+                      <div className="part-resource-row-sub">{kindLabel(d.kind)}</div>
                     </div>
                     <ChevronRight
                       size={16}
@@ -1445,11 +1393,7 @@ function PartProcedurePane({
                     <div className="part-resource-row-title">{h.title}</div>
                     <div className="part-resource-row-sub">{h.subtitle}</div>
                   </div>
-                  <ChevronRight
-                    size={16}
-                    strokeWidth={2}
-                    className="shrink-0 text-ink-tertiary"
-                  />
+                  <ChevronRight size={16} strokeWidth={2} className="shrink-0 text-ink-tertiary" />
                 </button>
               </li>
             ))}
@@ -1479,11 +1423,7 @@ function PartProcedurePane({
                     <div className="part-resource-row-title">{h.symptom}</div>
                     <div className="part-resource-row-sub">{h.guideName}</div>
                   </div>
-                  <ChevronRight
-                    size={16}
-                    strokeWidth={2}
-                    className="shrink-0 text-ink-tertiary"
-                  />
+                  <ChevronRight size={16} strokeWidth={2} className="shrink-0 text-ink-tertiary" />
                 </button>
               </li>
             ))}
@@ -1520,11 +1460,7 @@ function PartResourceCard({
 }
 
 function PartResourceEmpty({ body }: { body: string }) {
-  return (
-    <p className="px-4 py-5 text-center text-xs italic text-ink-tertiary">
-      {body}
-    </p>
-  );
+  return <p className="px-4 py-5 text-center text-xs italic text-ink-tertiary">{body}</p>;
 }
 
 function PartTrainingPane({ data }: { data: PartResources | null }) {
@@ -1539,15 +1475,8 @@ function PartTrainingPane({ data }: { data: PartResources | null }) {
   return (
     <ul className="flex flex-col gap-1.5">
       {data.trainingModules.map((m) => (
-        <li
-          key={m.id}
-          className="surface-etched flex items-center gap-3 px-4 py-3"
-        >
-          <GraduationCap
-            size={18}
-            strokeWidth={1.75}
-            className="shrink-0 text-ink-secondary"
-          />
+        <li key={m.id} className="surface-etched flex items-center gap-3 px-4 py-3">
+          <GraduationCap size={18} strokeWidth={1.75} className="shrink-0 text-ink-secondary" />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium text-ink-primary">{m.title}</div>
             {m.description && (
@@ -1603,11 +1532,7 @@ function ComponentsPane({
                   border: '1px solid rgb(var(--line-subtle))',
                 }}
               >
-                <img
-                  src={c.imageUrl}
-                  alt=""
-                  className="max-h-full max-w-full object-contain"
-                />
+                <img src={c.imageUrl} alt="" className="max-h-full max-w-full object-contain" />
               </div>
             ) : (
               <div
@@ -1623,9 +1548,7 @@ function ComponentsPane({
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline gap-2">
                 <span className="part-num truncate">{c.oemPartNumber}</span>
-                <span className="truncate text-sm text-ink-primary">
-                  {c.displayName}
-                </span>
+                <span className="truncate text-sm text-ink-primary">{c.displayName}</span>
               </div>
               <div className="flex gap-3 font-mono text-[11px] text-ink-tertiary">
                 {c.positionRef && <span>Pos {c.positionRef}</span>}
@@ -1672,12 +1595,7 @@ function PartDocView({
       style={{ zIndex: 70 }}
     >
       <header className="doc-overlay-bar">
-        <button
-          type="button"
-          onClick={onBack}
-          className="app-topbar-btn"
-          aria-label="Back to part"
-        >
+        <button type="button" onClick={onBack} className="app-topbar-btn" aria-label="Back to part">
           <ChevronLeft size={22} strokeWidth={2} />
         </button>
         <div className="doc-overlay-title">
@@ -1711,49 +1629,49 @@ function PartDocView({
         )}
         {!sectionMode && (
           <>
-        {(doc.kind === 'markdown' || doc.kind === 'structured_procedure') &&
-          doc.bodyMarkdown && (
-            <div className="markdown-body text-base">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{doc.bodyMarkdown}</ReactMarkdown>
-            </div>
-          )}
-        {doc.kind === 'pdf' && doc.fileUrl && (
-          <FramedPdf url={doc.fileUrl} filename={doc.originalFilename} title={doc.title} />
-        )}
-        {doc.kind === 'schematic' && doc.fileUrl && (
-          <img
-            src={doc.fileUrl}
-            alt={doc.title}
-            className="h-full w-full object-contain"
-            style={{ background: 'rgb(var(--surface-elevated))' }}
-          />
-        )}
-        {doc.kind === 'external_video' && doc.externalUrl && (
-          <iframe
-            src={toEmbed(doc.externalUrl)}
-            title={doc.title}
-            className="h-full w-full border-0 bg-black"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            allowFullScreen
-          />
-        )}
-        {doc.kind === 'video' && doc.fileUrl && (
-          <video src={doc.fileUrl} controls className="h-full w-full bg-black" />
-        )}
-        {doc.kind === 'file' && doc.fileUrl && (
-          <div className="mx-auto flex max-w-xl flex-col gap-3 p-4">
-            <p className="font-mono text-sm text-ink-primary">
-              {doc.originalFilename ?? 'Attached file'}
-            </p>
-            <a
-              href={doc.fileUrl}
-              download={doc.originalFilename ?? undefined}
-              className="touch self-start rounded bg-brand px-5 py-2.5 text-sm font-semibold text-brand-ink"
-            >
-              Download
-            </a>
-          </div>
-        )}
+            {(doc.kind === 'markdown' || doc.kind === 'structured_procedure') &&
+              doc.bodyMarkdown && (
+                <div className="markdown-body text-base">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{doc.bodyMarkdown}</ReactMarkdown>
+                </div>
+              )}
+            {doc.kind === 'pdf' && doc.fileUrl && (
+              <FramedPdf url={doc.fileUrl} filename={doc.originalFilename} title={doc.title} />
+            )}
+            {doc.kind === 'schematic' && doc.fileUrl && (
+              <img
+                src={doc.fileUrl}
+                alt={doc.title}
+                className="h-full w-full object-contain"
+                style={{ background: 'rgb(var(--surface-elevated))' }}
+              />
+            )}
+            {doc.kind === 'external_video' && doc.externalUrl && (
+              <iframe
+                src={toEmbed(doc.externalUrl)}
+                title={doc.title}
+                className="h-full w-full border-0 bg-black"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+              />
+            )}
+            {doc.kind === 'video' && doc.fileUrl && (
+              <video src={doc.fileUrl} controls className="h-full w-full bg-black" />
+            )}
+            {doc.kind === 'file' && doc.fileUrl && (
+              <div className="mx-auto flex max-w-xl flex-col gap-3 p-4">
+                <p className="font-mono text-sm text-ink-primary">
+                  {doc.originalFilename ?? 'Attached file'}
+                </p>
+                <a
+                  href={doc.fileUrl}
+                  download={doc.originalFilename ?? undefined}
+                  className="touch self-start rounded bg-brand px-5 py-2.5 text-sm font-semibold text-brand-ink"
+                >
+                  Download
+                </a>
+              </div>
+            )}
           </>
         )}
       </div>

@@ -20,12 +20,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import {
-  getProcedureDoc,
-  speak,
-  type ProcedureDocFullDto,
-  type StepBlock,
-} from '@/lib/api';
+import { getProcedureDoc, speak, type ProcedureDocFullDto, type StepBlock } from '@/lib/api';
 import { StepVideoPlayer } from './step-video-player';
 import { HeroVideoEmbed } from './hero-video-embed';
 import { capitalize, formatDuration } from '@/lib/format';
@@ -95,7 +90,12 @@ interface ResolvedJobAid {
     bodyMarkdown: string | null;
     blocks: StepBlock[];
     safetyCritical: boolean;
-    media: Array<{ kind: 'image' | 'video'; url?: string | null; caption?: string; storageKey: string }>;
+    media: Array<{
+      kind: 'image' | 'video';
+      url?: string | null;
+      caption?: string;
+      storageKey: string;
+    }>;
     substeps: Array<{ id?: string; title: string; bodyMarkdown?: string | null }>;
     /** When the author attached or generated a voiceover, this URL plays
      *  instead of synthesizing TTS at run time. */
@@ -125,10 +125,7 @@ interface ResolvedJobAid {
   }>;
 }
 
-function normalizeFromDoc(
-  doc: ProcedureDocFullDto,
-  stepIdsFilter?: string[],
-): ResolvedJobAid {
+function normalizeFromDoc(doc: ProcedureDocFullDto, stepIdsFilter?: string[]): ResolvedJobAid {
   const meta = doc.metadata;
   const hero = meta?.heroVideo ?? null;
   const safety = meta?.safety;
@@ -145,13 +142,9 @@ function normalizeFromDoc(
         consumables: rawTools?.consumables ?? [],
       };
   const anyTools =
-    tools.common.length > 0 ||
-    tools.special.length > 0 ||
-    tools.consumables.length > 0;
+    tools.common.length > 0 || tools.special.length > 0 || tools.consumables.length > 0;
   const safetyNotes =
-    safety?.enabled && safety.notes && safety.notes.trim().length > 0
-      ? safety.notes
-      : null;
+    safety?.enabled && safety.notes && safety.notes.trim().length > 0 ? safety.notes : null;
   // The intro panel renders when there's *anything* meaningful to show —
   // hero video, overview text, or any chip list. Otherwise techs go
   // straight to Step 1.
@@ -191,12 +184,8 @@ function buildSectionedSteps(
   stepIdsFilter?: string[],
 ): ResolvedJobAid['steps'] {
   const sections = doc.sections ?? [];
-  const orderById = new Map<string, number>(
-    sections.map((sec) => [sec.id, sec.orderingHint]),
-  );
-  const titleById = new Map<string, string>(
-    sections.map((sec) => [sec.id, sec.title]),
-  );
+  const orderById = new Map<string, number>(sections.map((sec) => [sec.id, sec.orderingHint]));
+  const titleById = new Map<string, string>(sections.map((sec) => [sec.id, sec.title]));
   // Apply the optional subset filter before sorting + numbering so the
   // per-section indices reflect what the tech actually sees. The filter
   // preserves the linked doc's natural order — we just skip non-selected
@@ -206,10 +195,8 @@ function buildSectionedSteps(
       ? doc.steps.filter((s) => stepIdsFilter.includes(s.id))
       : doc.steps;
   const sorted = [...baseSteps].sort((a, b) => {
-    const sa =
-      a.sectionId == null ? -1 : orderById.get(a.sectionId) ?? Infinity;
-    const sb =
-      b.sectionId == null ? -1 : orderById.get(b.sectionId) ?? Infinity;
+    const sa = a.sectionId == null ? -1 : (orderById.get(a.sectionId) ?? Infinity);
+    const sb = b.sectionId == null ? -1 : (orderById.get(b.sectionId) ?? Infinity);
     if (sa !== sb) return sa - sb;
     return a.orderingHint - b.orderingHint;
   });
@@ -239,8 +226,7 @@ function buildSectionedSteps(
       media: s.media,
       substeps: s.substeps,
       audioUrl: augmented.audioUrl ?? null,
-      sectionLabel:
-        s.sectionId == null ? null : titleById.get(s.sectionId) ?? null,
+      sectionLabel: s.sectionId == null ? null : (titleById.get(s.sectionId) ?? null),
       sectionStepIndex: nextIdx,
       sectionStepTotal: totalsBySection.get(sectionKey) ?? 1,
       linkedSubProcedure: augmented.linkedProcedureDoc
@@ -254,9 +240,7 @@ function buildSectionedSteps(
   });
 }
 
-function normalizeFromInline(
-  inline: Extract<JobAidSource, { kind: 'inline' }>,
-): ResolvedJobAid {
+function normalizeFromInline(inline: Extract<JobAidSource, { kind: 'inline' }>): ResolvedJobAid {
   return {
     title: inline.title,
     // Inline source (AI-emitted steps) never carries a hero video.
@@ -319,6 +303,12 @@ export function VirtualJobAid({
   useEffect(() => {
     if (resolved && !resolved.intro) setShowHeroIntro(false);
   }, [resolved]);
+  // Completion summary panel shown after the tech finishes the last step,
+  // before this instance closes. Replaces the prior behavior of closing
+  // immediately on Finish — techs reported they wanted a moment to
+  // acknowledge they finished (and the option to step back if they
+  // tapped Next by accident).
+  const [showCompletion, setShowCompletion] = useState(false);
   // Imperative refs for audio so React state changes don't restart playback.
   // Two playback paths coexist:
   //   - audio element  → plays an authored mp3 from a URL (preferred when
@@ -559,9 +549,11 @@ export function VirtualJobAid({
       setShowHeroIntro(false);
       return;
     }
+    // Last step → completion summary (NOT immediate close). The summary
+    // is a thin acknowledgement screen with a 'Mark complete' button.
     if (stepIdx >= resolved.steps.length - 1) {
       stopPlayback();
-      onClose({ completed: true });
+      setShowCompletion(true);
       return;
     }
     stopPlayback();
@@ -575,6 +567,11 @@ export function VirtualJobAid({
     }
   }
   function prev() {
+    // Completion screen → back to last step.
+    if (showCompletion) {
+      setShowCompletion(false);
+      return;
+    }
     // First real step → hero intro (if present).
     if (stepIdx === 0) {
       if (resolved?.intro && !showHeroIntro) {
@@ -670,7 +667,7 @@ export function VirtualJobAid({
                 pushed with a step-ID filter, not the whole procedure. */}
             {stepIdsFilter && stepIdsFilter.length > 0 && (
               <span className="vja-subset-pill">
-                subset · {resolved.steps.length} step
+                subset / {resolved.steps.length} step
                 {resolved.steps.length === 1 ? '' : 's'}
               </span>
             )}
@@ -691,14 +688,17 @@ export function VirtualJobAid({
       </header>
 
       {/* Progress strip — one segment per step, current pulses. Hidden
-          on the hero intro panel since no step is "active" yet. */}
+          on the hero intro panel since no step is "active" yet, and on
+          the completion screen where every segment renders 'done'. */}
       {!showHeroIntro && (
         <div className="vja-progress" aria-hidden>
           {resolved.steps.map((_, i) => (
             <span
               key={i}
               className="vja-progress-seg"
-              data-state={i < stepIdx ? 'done' : i === stepIdx ? 'active' : 'pending'}
+              data-state={
+                showCompletion || i < stepIdx ? 'done' : i === stepIdx ? 'active' : 'pending'
+              }
             />
           ))}
         </div>
@@ -721,11 +721,24 @@ export function VirtualJobAid({
       )}
 
       <main className="vja-main">
-        {showHeroIntro && resolved.intro && (
+        {showCompletion && (
+          <section className="vja-completion" aria-label="Procedure complete">
+            <div className="vja-completion-mark" aria-hidden>
+              <ListChecks size={36} strokeWidth={2} />
+            </div>
+            <h1 className="vja-completion-title">All steps complete</h1>
+            <p className="vja-completion-sub">
+              {resolved.title} — {totalSteps} step{totalSteps === 1 ? '' : 's'} reviewed.
+            </p>
+            <p className="vja-completion-hint">
+              Tap Mark complete to close, or step back to revisit a step.
+            </p>
+          </section>
+        )}
+        {!showCompletion && showHeroIntro && resolved.intro && (
           <section className="vja-hero-intro" aria-label="Procedure intro">
             <h1 className="vja-hero-intro-title">{resolved.title}</h1>
-            {(resolved.intro.estimatedMinutes != null ||
-              resolved.intro.skillLevel != null) && (
+            {(resolved.intro.estimatedMinutes != null || resolved.intro.skillLevel != null) && (
               <div className="vja-hero-intro-chips">
                 {resolved.intro.estimatedMinutes != null && (
                   <span className="vja-hero-intro-chip">
@@ -753,13 +766,8 @@ export function VirtualJobAid({
                 i.toolsConsumables.length > 0;
               if (!i.summary && !anyTools && !i.safetyNotes) return null;
               return (
-                <section
-                  className="vja-hero-intro-card"
-                  aria-label="General information"
-                >
-                  <h2 className="vja-hero-intro-card-header">
-                    General information
-                  </h2>
+                <section className="vja-hero-intro-card" aria-label="General information">
+                  <h2 className="vja-hero-intro-card-header">General information</h2>
                   {anyTools && (
                     <div className="vja-hero-intro-block">
                       <h3 className="vja-hero-intro-subhead">
@@ -794,9 +802,7 @@ export function VirtualJobAid({
                         </span>
                         Safety
                       </h3>
-                      <div className="vja-hero-intro-safety">
-                        {i.safetyNotes}
-                      </div>
+                      <div className="vja-hero-intro-safety">{i.safetyNotes}</div>
                     </div>
                   )}
                 </section>
@@ -804,7 +810,7 @@ export function VirtualJobAid({
             })()}
           </section>
         )}
-        {!showHeroIntro && step && (
+        {!showCompletion && !showHeroIntro && step && (
           <article
             key={stepIdx}
             className={`vja-step ${step.safetyCritical ? 'vja-step-safety' : ''}`}
@@ -812,21 +818,20 @@ export function VirtualJobAid({
           >
             <div className="vja-step-header">
               {step.sectionLabel && (
-                <span
-                  className="vja-section-label"
-                  title={`Section: ${step.sectionLabel}`}
-                >
+                <span className="vja-section-label" title={`Section: ${step.sectionLabel}`}>
                   {step.sectionLabel}
                 </span>
               )}
               <span className="vja-step-num">
                 {String(step.sectionStepIndex).padStart(2, '0')}
                 <span className="vja-step-of">
-                  {' '}/ {String(step.sectionStepTotal).padStart(2, '0')}
+                  {' '}
+                  / {String(step.sectionStepTotal).padStart(2, '0')}
                 </span>
                 {step.sectionLabel && step.sectionStepTotal !== totalSteps && (
                   <span className="vja-step-overall">
-                    {' '}· {stepIdx + 1}/{totalSteps} overall
+                    {' '}
+                    / {stepIdx + 1}/{totalSteps} overall
                   </span>
                 )}
               </span>
@@ -844,11 +849,7 @@ export function VirtualJobAid({
             {step.blocks.length > 0 ? (
               <div className="vja-blocks">
                 {step.blocks.map((b, i) => (
-                  <BlockRenderer
-                    key={i}
-                    block={b}
-                    media={step.media}
-                  />
+                  <BlockRenderer key={i} block={b} media={step.media} />
                 ))}
               </div>
             ) : step.bodyMarkdown ? (
@@ -869,9 +870,7 @@ export function VirtualJobAid({
                   )
                   .map((b) => b.storageKey),
               );
-              const galleryMedia = step.media.filter(
-                (m) => !inlineKeys.has(m.storageKey),
-              );
+              const galleryMedia = step.media.filter((m) => !inlineKeys.has(m.storageKey));
               if (galleryMedia.length === 0) return null;
               return (
                 <ul className="vja-step-media">
@@ -916,9 +915,7 @@ export function VirtualJobAid({
                     <span className="vja-substep-title">{ss.title}</span>
                     {ss.bodyMarkdown && (
                       <div className="markdown-body vja-substep-body">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {ss.bodyMarkdown}
-                        </ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{ss.bodyMarkdown}</ReactMarkdown>
                       </div>
                     )}
                   </li>
@@ -929,56 +926,81 @@ export function VirtualJobAid({
                 linked procedure as a nested Job Aid (overlay rendered
                 below this main return). Skipping is just tapping Next —
                 the link is an optional branch ("if necessary"). */}
-            {step.linkedSubProcedure && (() => {
-              const sp = step.linkedSubProcedure;
-              const limitReached = breadcrumb.length >= MAX_SUB_PROCEDURE_DEPTH;
-              const pinnedCount = sp.stepIds.length;
-              return (
-                <div className="vja-subprocedure-cta">
-                  <button
-                    type="button"
-                    className="vja-subproc-card"
-                    disabled={limitReached}
-                    onClick={() => {
-                      stopPlayback();
-                      setSubProcedurePush({
-                        docId: sp.docId,
-                        stepIds: sp.stepIds,
-                      });
-                    }}
-                    title={
-                      limitReached
-                        ? `Nesting limit reached (${MAX_SUB_PROCEDURE_DEPTH} deep). Finish current sub-procedure first.`
-                        : `Open ${sp.title} as a sub-procedure`
-                    }
-                  >
-                    <div className="vja-subproc-card-body">
-                      <div className="vja-subproc-card-kicker">
-                        <span className="vja-subproc-card-tag">Sub-procedure</span>
+            {step.linkedSubProcedure &&
+              (() => {
+                const sp = step.linkedSubProcedure;
+                const limitReached = breadcrumb.length >= MAX_SUB_PROCEDURE_DEPTH;
+                const pinnedCount = sp.stepIds.length;
+                return (
+                  <div className="vja-subprocedure-cta">
+                    <button
+                      type="button"
+                      className="vja-subproc-card"
+                      disabled={limitReached}
+                      onClick={() => {
+                        stopPlayback();
+                        setSubProcedurePush({
+                          docId: sp.docId,
+                          stepIds: sp.stepIds,
+                        });
+                      }}
+                      title={
+                        limitReached
+                          ? `Nesting limit reached (${MAX_SUB_PROCEDURE_DEPTH} deep). Finish current sub-procedure first.`
+                          : `Open ${sp.title} as a sub-procedure`
+                      }
+                    >
+                      <div className="vja-subproc-card-body">
+                        <div className="vja-subproc-card-kicker">
+                          <span className="vja-subproc-card-tag">Sub-procedure</span>
+                        </div>
+                        <div className="vja-subproc-card-title">{sp.title}</div>
+                        <div className="vja-subproc-card-meta">
+                          {pinnedCount > 0
+                            ? `${pinnedCount} step${pinnedCount === 1 ? '' : 's'} · tap to view`
+                            : 'Tap to view the full procedure'}
+                        </div>
                       </div>
-                      <div className="vja-subproc-card-title">{sp.title}</div>
-                      <div className="vja-subproc-card-meta">
-                        {pinnedCount > 0
-                          ? `${pinnedCount} step${pinnedCount === 1 ? '' : 's'} · tap to view`
-                          : 'Tap to view the full procedure'}
-                      </div>
-                    </div>
-                    <span className="vja-subproc-card-chevron" aria-hidden>
-                      <ChevronRight size={20} strokeWidth={2.25} />
+                      <span className="vja-subproc-card-chevron" aria-hidden>
+                        <ChevronRight size={20} strokeWidth={2.25} />
+                      </span>
+                    </button>
+                    <span className="vja-subprocedure-hint">
+                      Open to walk through the detailed steps, or tap Next to continue.
                     </span>
-                  </button>
-                  <span className="vja-subprocedure-hint">
-                    Open to walk through the detailed steps, or tap Next to continue.
-                  </span>
-                </div>
-              );
-            })()}
+                  </div>
+                );
+              })()}
           </article>
         )}
       </main>
 
       <footer className="vja-controls">
-        {showHeroIntro ? (
+        {showCompletion ? (
+          <>
+            <button
+              type="button"
+              className="vja-btn vja-btn-ghost"
+              onClick={prev}
+              aria-label="Back to last step"
+            >
+              <ChevronLeft size={18} strokeWidth={2.25} />
+              <span>Back</span>
+            </button>
+            <span aria-hidden />
+            <button
+              type="button"
+              className="vja-btn vja-btn-primary"
+              onClick={() => {
+                stopPlayback();
+                onClose({ completed: true });
+              }}
+              aria-label="Mark procedure complete and close"
+            >
+              <span>Mark complete</span>
+            </button>
+          </>
+        ) : showHeroIntro ? (
           <>
             <button
               type="button"
@@ -1019,11 +1041,7 @@ export function VirtualJobAid({
               aria-label="Replay step"
               title="Replay this step"
             >
-              <RefreshCw
-                size={18}
-                strokeWidth={2.25}
-                className={speaking ? 'vja-spin' : ''}
-              />
+              <RefreshCw size={18} strokeWidth={2.25} className={speaking ? 'vja-spin' : ''} />
               <span>Replay</span>
             </button>
             <button
@@ -1054,11 +1072,7 @@ export function VirtualJobAid({
             devOrgId: source.devOrgId,
           }}
           breadcrumb={[...breadcrumb, resolved.title]}
-          stepIdsFilter={
-            subProcedurePush.stepIds.length > 0
-              ? subProcedurePush.stepIds
-              : undefined
-          }
+          stepIdsFilter={subProcedurePush.stepIds.length > 0 ? subProcedurePush.stepIds : undefined}
           autoSpeak={autoSpeak}
           onClose={() => setSubProcedurePush(null)}
         />
@@ -1079,7 +1093,12 @@ function BlockRenderer({
   media,
 }: {
   block: StepBlock;
-  media: Array<{ kind: 'image' | 'video'; url?: string | null; caption?: string; storageKey: string }>;
+  media: Array<{
+    kind: 'image' | 'video';
+    url?: string | null;
+    caption?: string;
+    storageKey: string;
+  }>;
 }): React.ReactElement | null {
   switch (block.kind) {
     case 'paragraph':
@@ -1188,25 +1207,12 @@ function FallbackImage({
       </div>
     );
   }
-  return (
-    <img
-      src={src}
-      alt={alt}
-      loading="lazy"
-      onError={() => setFailed(true)}
-    />
-  );
+  return <img src={src} alt={alt} loading="lazy" onError={() => setFailed(true)} />;
 }
 
 // Video sibling of FallbackImage. <video onError> fires for codec /
 // network / 404 failures; we swap to the same placeholder pattern.
-function FallbackVideo({
-  src,
-  label,
-}: {
-  src: string;
-  label: string;
-}): React.ReactElement {
+function FallbackVideo({ src, label }: { src: string; label: string }): React.ReactElement {
   const [failed, setFailed] = useState(false);
   if (failed || !src) {
     return (
@@ -1216,14 +1222,7 @@ function FallbackVideo({
       </div>
     );
   }
-  return (
-    <video
-      src={src}
-      controls
-      preload="metadata"
-      onError={() => setFailed(true)}
-    />
-  );
+  return <video src={src} controls preload="metadata" onError={() => setFailed(true)} />;
 }
 
 // Lightweight linkify — detects http(s):// URLs in text and wraps them

@@ -17,40 +17,39 @@ interface Props {
 
 export function ModeChooser({ assetName, serialNumber, onPick }: Props) {
   return (
-    <div className="mode-chooser-root" role="dialog" aria-label="Choose how to work">
+    <div
+      className="mode-chooser-root"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Choose how to work"
+    >
       <div className="mode-chooser-asset">
         <div className="mode-chooser-asset-name">{assetName}</div>
         <div className="mode-chooser-asset-serial">S/N {serialNumber}</div>
       </div>
 
-      <h1 className="mode-chooser-title">How would you like to work?</h1>
+      <h1 className="mode-chooser-title">Choose a work mode</h1>
 
       <div className="mode-chooser-options">
-        <button
-          type="button"
-          className="mode-chooser-card"
-          onClick={() => onPick('voice')}
-        >
+        <button type="button" className="mode-chooser-card" onClick={() => onPick('voice')}>
           <span className="mode-chooser-card-icon" data-tone="brand">
             <Mic size={26} strokeWidth={2} />
           </span>
           <span className="mode-chooser-card-text">
-            <span className="mode-chooser-card-title">Hands-Free</span>
-            <span className="mode-chooser-card-sub">Talk to the assistant</span>
+            <span className="mode-chooser-card-title">Voice assistant</span>
+            <span className="mode-chooser-card-sub">
+              Hands-free troubleshooting and walkthroughs
+            </span>
           </span>
         </button>
 
-        <button
-          type="button"
-          className="mode-chooser-card"
-          onClick={() => onPick('browse')}
-        >
+        <button type="button" className="mode-chooser-card" onClick={() => onPick('browse')}>
           <span className="mode-chooser-card-icon">
             <LayoutGrid size={26} strokeWidth={2} />
           </span>
           <span className="mode-chooser-card-text">
-            <span className="mode-chooser-card-title">Browse</span>
-            <span className="mode-chooser-card-sub">Tap through docs &amp; parts</span>
+            <span className="mode-chooser-card-title">Equipment dashboard</span>
+            <span className="mode-chooser-card-sub">Work orders, PMs, parts, and documents</span>
           </span>
         </button>
       </div>

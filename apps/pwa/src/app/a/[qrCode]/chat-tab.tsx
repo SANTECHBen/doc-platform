@@ -3,7 +3,19 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { AudioLines, BookPlus, Camera, ChevronDown, FileText, ListChecks, Play, Send, Square, Trash2, X } from 'lucide-react';
+import {
+  AudioLines,
+  BookPlus,
+  Camera,
+  ChevronDown,
+  FileText,
+  ListChecks,
+  Play,
+  Send,
+  Square,
+  Trash2,
+  X,
+} from 'lucide-react';
 import type { AssetHubPayload } from '@/lib/shared-schema';
 import {
   fetchMe,
@@ -28,7 +40,8 @@ import { useToast } from '@/components/toast';
 // would commoditize that. Procedural answers without an authored match
 // render as normal prose with a "Promote to procedure" affordance for
 // admins.
-const PROCEDURE_DIRECTIVE_RE = /\[procedure:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/i;
+const PROCEDURE_DIRECTIVE_RE =
+  /\[procedure:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/i;
 
 function extractProcedureId(text: string): string | null {
   const m = PROCEDURE_DIRECTIVE_RE.exec(text);
@@ -154,7 +167,9 @@ export function ChatTab({
   // auth on the actual promote call — this is purely UI gating.
   useEffect(() => {
     if (!DEV_USER_ID || !DEV_ORG_ID) return;
-    void fetchMe(DEV_USER_ID, DEV_ORG_ID).then(setMe).catch(() => setMe(null));
+    void fetchMe(DEV_USER_ID, DEV_ORG_ID)
+      .then(setMe)
+      .catch(() => setMe(null));
   }, []);
 
   // Build empty-state suggestions from this asset's actual content.
@@ -171,13 +186,9 @@ export function ChatTab({
       try {
         const docs = await listDocuments(versionId);
         if (cancelled) return;
-        const procedures = docs.filter(
-          (d: DocumentListItem) => d.kind === 'structured_procedure',
-        );
+        const procedures = docs.filter((d: DocumentListItem) => d.kind === 'structured_procedure');
         const otherDocs = docs.filter(
-          (d: DocumentListItem) =>
-            d.kind !== 'structured_procedure' &&
-            d.title.trim().length > 0,
+          (d: DocumentListItem) => d.kind !== 'structured_procedure' && d.title.trim().length > 0,
         );
         const prompts: string[] = [];
         for (const p of procedures.slice(0, 3)) {
@@ -221,10 +232,7 @@ export function ChatTab({
         window.open(editorUrl, '_blank', 'noopener,noreferrer');
       }
     } catch (err) {
-      toast.error(
-        'Could not promote answer',
-        err instanceof Error ? err.message : String(err),
-      );
+      toast.error('Could not promote answer', err instanceof Error ? err.message : String(err));
     } finally {
       setPromoting(null);
     }
@@ -286,8 +294,8 @@ export function ChatTab({
       >
         <p className="font-semibold">Assistant needs a dev user.</p>
         <p className="text-ink-secondary">
-          Run <code className="rounded-sm bg-surface-inset px-1">pnpm db:prepare-ai</code>, then
-          add the printed IDs to <code>apps/pwa/.env.local</code> and restart dev.
+          Run <code className="rounded-sm bg-surface-inset px-1">pnpm db:prepare-ai</code>, then add
+          the printed IDs to <code>apps/pwa/.env.local</code> and restart dev.
         </p>
       </div>
     );
@@ -378,9 +386,7 @@ export function ChatTab({
               })),
             );
           } else if (event.type === 'verify') {
-            setTurns((t) =>
-              updateLastAssistant(t, (a) => ({ ...a, verify: event.verify })),
-            );
+            setTurns((t) => updateLastAssistant(t, (a) => ({ ...a, verify: event.verify })));
           } else if (event.type === 'error') {
             setError(event.message);
             setTurns((t) => updateLastAssistant(t, (a) => ({ ...a, streaming: false })));
@@ -411,9 +417,7 @@ export function ChatTab({
       {partId && partName && (
         <div className="chat-banner">
           <span className="led" />
-          <span className="font-mono text-[11.5px] text-ink-secondary">
-            {partName}
-          </span>
+          <span className="font-mono text-[11.5px] text-ink-secondary">{partName}</span>
           {turns.length > 0 && (
             <button
               type="button"
@@ -449,6 +453,14 @@ export function ChatTab({
       >
         {turns.length === 0 && (
           <div className="chat-empty">
+            <div className="chat-empty-intro">
+              <h2>
+                {partName ? `Ask about ${partName}` : `Ask about ${hub.assetModel.displayName}`}
+              </h2>
+              <p>
+                Answers are grounded in this asset's procedures, documents, work orders, and parts.
+              </p>
+            </div>
             <div className="chat-empty-prompts">
               <span className="chat-empty-cap">Try asking</span>
               {(suggestions && suggestions.length > 0
@@ -570,7 +582,11 @@ export function ChatTab({
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={attachment ? 'Describe what to do with the photo…' : 'What does fault E-217 mean?'}
+          placeholder={
+            attachment
+              ? 'Describe what to do with the photo...'
+              : `Ask about ${partName ?? hub.assetModel.displayName}...`
+          }
           disabled={pending}
         />
         <button
@@ -682,9 +698,7 @@ function TurnView({
             style={{ border: '1px solid rgb(var(--line))' }}
           />
         )}
-        {turn.text && turn.text !== '[photo]' && (
-          <div className="user-msg">{turn.text}</div>
-        )}
+        {turn.text && turn.text !== '[photo]' && <div className="user-msg">{turn.text}</div>}
       </div>
     );
   }
@@ -708,14 +722,10 @@ function TurnView({
         <span className="caption" style={{ color: 'rgb(var(--ink-brand))' }}>
           Assistant
         </span>
-        {!turn.streaming && turn.verify && (
-          <GroundingBadge verify={turn.verify} />
-        )}
+        {!turn.streaming && turn.verify && <GroundingBadge verify={turn.verify} />}
       </div>
 
-      {!turn.streaming && turn.verify?.conflict && (
-        <ConflictBanner reason={turn.verify.conflict} />
-      )}
+      {!turn.streaming && turn.verify?.conflict && <ConflictBanner reason={turn.verify.conflict} />}
 
       <div className="assistant-msg">
         <div className="markdown-body">
@@ -732,9 +742,7 @@ function TurnView({
           )}
         </div>
 
-        {!turn.streaming && ordered.length > 0 && (
-          <SourcesList sources={ordered} />
-        )}
+        {!turn.streaming && ordered.length > 0 && <SourcesList sources={ordered} />}
 
         {!turn.streaming && canPromote && turn.messageId && (
           <div className="mt-3 border-t border-line pt-2.5">
@@ -746,9 +754,7 @@ function TurnView({
               title="Promote this answer to an authored procedure"
             >
               <BookPlus size={12} strokeWidth={2} />
-              {promotingMessageId === turn.messageId
-                ? 'Promoting…'
-                : 'Author this as a procedure'}
+              {promotingMessageId === turn.messageId ? 'Promoting…' : 'Author this as a procedure'}
             </button>
           </div>
         )}
@@ -799,7 +805,7 @@ function ProcedureLauncherCard({ procedureId }: { procedureId: string }): React.
         type="button"
         onClick={open}
         className="procedure-launcher"
-        aria-label="Open procedure walkthrough"
+        aria-label={`Open ${title ?? 'procedure'} walkthrough`}
       >
         <span className="procedure-launcher-icon">
           <ListChecks size={20} strokeWidth={2} />
@@ -899,9 +905,7 @@ function SourcesList({ sources }: { sources: ChatCitation[] }) {
             <li key={c.chunkId} className="source-item">
               <span className="source-num">[{idx + 1}]</span>
               <div className="flex-1">
-                <div className="source-title">
-                  {c.documentTitle}
-                </div>
+                <div className="source-title">{c.documentTitle}</div>
                 <div className="source-quote">“{c.quote}”</div>
               </div>
             </li>
@@ -920,8 +924,7 @@ function rewriteCitations(
   // text. They're a machine-readable signal for voice mode (which opens
   // an inline PDF viewer overlay) — in the regular chat surface they
   // just read as noise. cite/section/procedure get their own handling.
-  const stripPdfPage = (s: string) =>
-    s.replace(/\[pdfpage:[a-f0-9-]{8,}(?::\d+){0,2}\]/gi, '');
+  const stripPdfPage = (s: string) => s.replace(/\[pdfpage:[a-f0-9-]{8,}(?::\d+){0,2}\]/gi, '');
 
   if (citations.length === 0) {
     return {

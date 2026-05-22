@@ -11,7 +11,7 @@ export const AssetHubPayloadSchema = z.object({
     // Per-instance hero photo. When set, the PWA Overview prefers this
     // over the asset model's canonical image. null = fall back to
     // assetModel.imageUrl.
-    imageUrl: z.string().nullable(),
+    imageUrl: z.string().nullable().optional().default(null),
   }),
   assetModel: z.object({
     id: UuidSchema,
@@ -67,10 +67,10 @@ export const AssetHubPayloadSchema = z.object({
   // OEM's identity, not ours.
   brand: z.object({
     displayName: z.string(),
-    primary: z.string().nullable(),       // hex, e.g. "#F77531"
-    onPrimary: z.string().nullable(),     // hex, text on primary
-    logoUrl: z.string().nullable(),       // served via /files/<key>
-    initials: z.string(),                 // fallback when no logo uploaded
+    primary: z.string().nullable(), // hex, e.g. "#F77531"
+    onPrimary: z.string().nullable(), // hex, text on primary
+    logoUrl: z.string().nullable(), // served via /files/<key>
+    initials: z.string(), // fallback when no logo uploaded
   }),
 });
 

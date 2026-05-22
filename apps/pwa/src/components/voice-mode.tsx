@@ -4,17 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Keyboard, Mic, MicOff, X } from 'lucide-react';
 import { VoiceOrb, type VoiceOrbState } from './voice-orb';
 import { VirtualJobAid } from './virtual-job-aid';
-import {
-  SectionViewerOverlay,
-  type SectionViewerSource,
-} from './section-viewer-overlay';
-import {
-  fetchPreflight,
-  speak,
-  streamChat,
-  transcribeAudio,
-  type PreflightBrief,
-} from '@/lib/api';
+import { SectionViewerOverlay, type SectionViewerSource } from './section-viewer-overlay';
+import { fetchPreflight, speak, streamChat, transcribeAudio, type PreflightBrief } from '@/lib/api';
 
 const PROCEDURE_DIRECTIVE_RE =
   /\[procedure:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/i;
@@ -106,7 +97,7 @@ const MIN_UTTERANCE_MS = 350; // ignore micro-clicks shorter than this
 export function VoiceMode(props: Props): React.ReactElement {
   const [orbState, setOrbState] = useState<VoiceOrbState>('idle');
   const [transcript, setTranscript] = useState<string>('');
-  const [statusLine, setStatusLine] = useState<string>('Tap to begin');
+  const [statusLine, setStatusLine] = useState<string>('Tap to start voice assistant');
   const [error, setError] = useState<string | null>(null);
   const [turns, setTurns] = useState<VoiceTurn[]>([]);
   const [needsGesture, setNeedsGesture] = useState(true);
@@ -305,21 +296,28 @@ export function VoiceMode(props: Props): React.ReactElement {
   async function unlock() {
     if (!needsGesture) return;
     setNeedsGesture(false);
-    setStatusLine('Listening for your voice…');
+    setError(null);
+    setStatusLine('Requesting microphone…');
 
     // Source of truth for the preflight brief + optional pre-rendered
     // greeting audio. Prefer the parent's prefetch (kicked off while the
     // mode chooser was visible); fall back to a fresh fetchPreflight that
-    // races audio setup if no prefetch was provided.
-    const briefAndAudioPromise: Promise<PrefetchedGreeting | null> =
-      props.prefetched
-        ? props.prefetched.catch(() => null)
-        : fetchPreflight(props.assetInstanceId)
-            .then((brief): PrefetchedGreeting => ({ brief, blob: null }))
-            .catch((e) => {
-              console.warn('[voice] preflight failed', e);
-              return null;
-            });
+    // races audio setup if no prefetch was provided. preflightOk tracks
+    // success vs. failure so we can surface a 'Connection failed' state
+    // distinct from mic-permission failures.
+    let preflightOk = true;
+    const briefAndAudioPromise: Promise<PrefetchedGreeting | null> = props.prefetched
+      ? props.prefetched.catch(() => {
+          preflightOk = false;
+          return null;
+        })
+      : fetchPreflight(props.assetInstanceId)
+          .then((brief): PrefetchedGreeting => ({ brief, blob: null }))
+          .catch((e) => {
+            console.warn('[voice] preflight failed', e);
+            preflightOk = false;
+            return null;
+          });
 
     // Prime the iOS audio session with a silent looping <audio> element
     // BEFORE creating the AudioContext. Without this, Web Audio output
@@ -345,7 +343,8 @@ export function VoiceMode(props: Props): React.ReactElement {
     let ctx: AudioContext;
     try {
       const Ctx =
-        window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        window.AudioContext ??
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       ctx = new Ctx();
       audioCtxRef.current = ctx;
       if (ctx.state === 'suspended') await ctx.resume();
@@ -388,6 +387,16 @@ export function VoiceMode(props: Props): React.ReactElement {
     const result = await briefAndAudioPromise;
     if (closedRef.current) return;
     setPreflight(result?.brief ?? null);
+
+    // Preflight failed → 'Connection failed' state. The user still gets
+    // the Keyboard action in the bottom bar to recover; the orb returns
+    // to idle so a tap retries unlock.
+    if (!preflightOk) {
+      setError('Connection failed — try again, or use the keyboard.');
+      setOrbState('idle');
+      setNeedsGesture(true);
+      return;
+    }
 
     if (result?.blob) {
       await playAudioBlob(result.blob);
@@ -684,8 +693,7 @@ export function VoiceMode(props: Props): React.ReactElement {
     //   3. [procedure:UUID] — authored procedure walkthrough
     const pdfPageMatch = PDFPAGE_DIRECTIVE_RE.exec(cleaned);
     const sectionMatch = !pdfPageMatch ? SECTION_DIRECTIVE_RE.exec(cleaned) : null;
-    const procMatch =
-      !pdfPageMatch && !sectionMatch ? PROCEDURE_DIRECTIVE_RE.exec(cleaned) : null;
+    const procMatch = !pdfPageMatch && !sectionMatch ? PROCEDURE_DIRECTIVE_RE.exec(cleaned) : null;
 
     // Procedure handoff — the AI signaled an authored procedure walkthrough
     // is the right answer. Skip TTS-of-the-directive and mount VirtualJobAid
@@ -697,10 +705,7 @@ export function VoiceMode(props: Props): React.ReactElement {
       setStatusLine('Walking you through the procedure');
       setTranscript('');
       setJobAidSource({ docId: procMatch[1] });
-      setTurns((t) => [
-        ...t,
-        { role: 'assistant', text: `Opened procedure walkthrough.` },
-      ]);
+      setTurns((t) => [...t, { role: 'assistant', text: `Opened procedure walkthrough.` }]);
       return;
     }
 
@@ -865,11 +870,7 @@ export function VoiceMode(props: Props): React.ReactElement {
 
   // Show "Muted" instead of the live state when the mic is off — clearer
   // signal to the tech that the assistant isn't ignoring them.
-  const stateLabel = error
-    ? error
-    : muted && orbState === 'listening'
-      ? 'Muted'
-      : statusLine;
+  const stateLabel = error ? error : muted && orbState === 'listening' ? 'Muted' : statusLine;
 
   return (
     <div
@@ -883,16 +884,12 @@ export function VoiceMode(props: Props): React.ReactElement {
         <div className="voice-mode-asset">
           {preflight ? (
             <>
-              <span className="voice-mode-asset-name">
-                {preflight.assetModelDisplayName}
-              </span>
+              <span className="voice-mode-asset-name">{preflight.assetModelDisplayName}</span>
               <span className="voice-mode-asset-sep">·</span>
-              <span className="voice-mode-asset-serial">
-                S/N {preflight.serialNumber}
-              </span>
+              <span className="voice-mode-asset-serial">S/N {preflight.serialNumber}</span>
             </>
           ) : (
-            <span className="voice-mode-asset-name">Connecting…</span>
+            <span className="voice-mode-asset-name">Voice assistant</span>
           )}
         </div>
         <button
@@ -912,7 +909,7 @@ export function VoiceMode(props: Props): React.ReactElement {
           onClick={onOrbTap}
           aria-label={
             needsGesture
-              ? 'Tap to begin'
+              ? 'Tap to start voice assistant'
               : orbState === 'listening'
                 ? 'Stop listening'
                 : orbState === 'speaking'
@@ -928,9 +925,26 @@ export function VoiceMode(props: Props): React.ReactElement {
           aria-live="polite"
           data-state={orbState}
           data-muted={muted ? 'true' : 'false'}
+          data-error={error ? 'true' : 'false'}
         >
           {stateLabel}
         </div>
+
+        {/* Inline "Use keyboard instead" recovery — surfaces only when
+            something has gone wrong (mic denied, connection failed).
+            The same action lives in the bottom action bar; this is the
+            same affordance, just visible at the point of failure where
+            the user is reading the error. */}
+        {error && (
+          <button
+            type="button"
+            className="voice-mode-keyboard-fallback"
+            onClick={() => close({ switchToChat: true })}
+          >
+            <Keyboard size={14} strokeWidth={2} />
+            Use keyboard instead
+          </button>
+        )}
 
         {/* Transcript appears only between turns (after the user speaks,
             before the AI starts speaking back). During 'speaking' the audio
@@ -954,7 +968,13 @@ export function VoiceMode(props: Props): React.ReactElement {
           className="voice-mode-action"
           onClick={toggleMute}
           disabled={needsGesture}
-          aria-label={muted ? 'Unmute microphone' : 'Mute microphone'}
+          aria-label={
+            needsGesture
+              ? 'Start voice assistant before muting microphone'
+              : muted
+                ? 'Unmute microphone'
+                : 'Mute microphone'
+          }
           aria-pressed={muted}
           data-active={muted ? 'true' : 'false'}
         >

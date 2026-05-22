@@ -35,11 +35,12 @@ function contrast(a: [number, number, number], b: [number, number, number]): num
   return (hi + 0.05) / (lo + 0.05);
 }
 
-export default async function AssetHubPage({
-  params,
-}: {
-  params: Promise<{ qrCode: string }>;
-}) {
+function looksLikeOperationalSignal(rgb: [number, number, number]): boolean {
+  const [r, g, b] = rgb;
+  return r >= 150 && g <= 140 && b <= 130;
+}
+
+export default async function AssetHubPage({ params }: { params: Promise<{ qrCode: string }> }) {
   const { qrCode } = await params;
   const hub = await resolveAssetHub(qrCode);
   if (!hub) notFound();
@@ -77,12 +78,13 @@ export default async function AssetHubPage({
   // and pills become illegible; better to fall back to the platform brand.
   const effectiveOnBrand: [number, number, number] = onBrandRgb ?? [255, 255, 255];
   const brandIsUsable =
-    brandRgb !== null && contrast(brandRgb, effectiveOnBrand) >= 3.0;
+    brandRgb !== null &&
+    contrast(brandRgb, effectiveOnBrand) >= 3.0 &&
+    !looksLikeOperationalSignal(brandRgb);
 
   // A very light brand can't stand in for --ink-brand (used for text on light
   // surfaces). Demand 3.0:1 against the light-mode surface (≈#F5F6F8).
-  const inkBrandIsUsable =
-    brandRgb !== null && contrast(brandRgb, [245, 246, 248]) >= 3.0;
+  const inkBrandIsUsable = brandRgb !== null && contrast(brandRgb, [245, 246, 248]) >= 3.0;
 
   const brandStyle: React.CSSProperties | undefined = brandIsUsable
     ? ({
@@ -90,9 +92,7 @@ export default async function AssetHubPage({
         ['--brand-strong' as any]: rgbToTriplet(brandRgb!),
         ['--brand-glow' as any]: rgbToTriplet(brandRgb!),
         ['--signal-info' as any]: rgbToTriplet(brandRgb!),
-        ...(inkBrandIsUsable
-          ? { ['--ink-brand' as any]: rgbToTriplet(brandRgb!) }
-          : {}),
+        ...(inkBrandIsUsable ? { ['--ink-brand' as any]: rgbToTriplet(brandRgb!) } : {}),
         ...(onBrandRgb ? { ['--brand-ink' as any]: rgbToTriplet(onBrandRgb) } : {}),
       } as React.CSSProperties)
     : undefined;
