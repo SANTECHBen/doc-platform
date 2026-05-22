@@ -68,8 +68,11 @@ function formatCadenceDays(days: number): string {
 }
 
 // Maps PmStatus / PmPlanBucket['status'] to the shared .pill tone classes.
+// Overdue gets the solid-red .pill-alarm variant because it represents
+// active, unresolved escalation — a tech should be able to see it from
+// across the shop floor. Due/Soon/Upcoming are informational.
 const STATUS_PILL: Record<PmStatus, { label: string; className: string }> = {
-  overdue: { label: 'Overdue', className: 'pill pill-fault' },
+  overdue: { label: 'Overdue', className: 'pill pill-alarm' },
   due: { label: 'Due', className: 'pill pill-warn' },
   soon: { label: 'Soon', className: 'pill pill-info' },
   upcoming: { label: 'Upcoming', className: 'pill' },
@@ -871,31 +874,30 @@ function ScheduleCard({
 
   return (
     <div className="maintenance-task-card" data-status={schedule.status}>
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={pill.className}>{pill.label}</span>
-            <span className="text-[11px] text-ink-tertiary">{dueText}</span>
-          </div>
-          <div className="mt-1.5 text-[15px] font-medium text-ink-primary">
-            {schedule.schedule.name}
-          </div>
-          {!compact && schedule.schedule.description && (
-            <p className="mt-1 text-xs text-ink-secondary">
-              {schedule.schedule.description}
-            </p>
+      {/* Block 1 — STATUS */}
+      <div className="task-card-status">
+        <span className={pill.className}>{pill.label}</span>
+        <span className="text-[12px] text-ink-tertiary">{dueText}</span>
+      </div>
+      {/* Block 2 — TITLE */}
+      <div className="task-card-title-block">
+        <div className="task-card-name">{schedule.schedule.name}</div>
+        {!compact && schedule.schedule.description && (
+          <p className="task-card-description">
+            {schedule.schedule.description}
+          </p>
+        )}
+        <div className="task-card-cadence">
+          <span className="inline-flex items-center gap-1">
+            <Clock size={11} strokeWidth={1.75} />
+            {formatCadenceDays(schedule.schedule.cadenceValue)}
+          </span>
+          {schedule.lastPerformedAt && (
+            <span>Last {formatNextDue(schedule.lastPerformedAt)}</span>
           )}
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-ink-tertiary">
-            <span className="inline-flex items-center gap-1">
-              <Clock size={10} strokeWidth={1.75} />
-              {formatCadenceDays(schedule.schedule.cadenceValue)}
-            </span>
-            {schedule.lastPerformedAt && (
-              <span>Last {formatNextDue(schedule.lastPerformedAt)}</span>
-            )}
-          </div>
         </div>
       </div>
+      {/* Block 3 — ACTIONS */}
       <div className="maintenance-card-actions">
         {schedule.schedule.document ? (
           <>
@@ -962,28 +964,24 @@ function PlanBucketCard({
 
   return (
     <div className="maintenance-task-card" data-status={bucket.status}>
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={pill.className}>{pill.label}</span>
-            <span className="text-[11px] text-ink-tertiary">{dueText}</span>
-          </div>
-          {/* Frequency is the heading — Daily / Monthly / Quarterly /
-              Yearly. The plan name (e.g., "Cleaning and Inspection
-              Schedule") sits above as a small caption since a tech
-              looking at three rows of the same plan name learned
-              nothing from the repetition. */}
-          <div className="mt-1.5 text-[11px] uppercase tracking-[0.1em] text-ink-tertiary">
-            {planName}
-          </div>
-          <div className="mt-0.5 text-[15px] font-medium text-ink-primary">
-            {bucket.frequencyLabel}
-          </div>
-          <div className="mt-0.5 font-mono text-[11px] text-ink-tertiary">
-            {bucket.itemCount} item{bucket.itemCount === 1 ? '' : 's'}
-          </div>
+      {/* Block 1 — STATUS. Pill (Overdue/Due/etc) + relative time. The
+          "when is this" answer. */}
+      <div className="task-card-status">
+        <span className={pill.className}>{pill.label}</span>
+        <span className="text-[12px] text-ink-tertiary">{dueText}</span>
+      </div>
+      {/* Block 2 — TITLE. Plan name (small caption), frequency (heading),
+          item count. The "what is this" answer. Separated from Block 1
+          by the card's flex-gap so the eye reads three distinct groups
+          per the audit's proximity recommendation. */}
+      <div className="task-card-title-block">
+        <div className="task-card-plan">{planName}</div>
+        <div className="task-card-frequency">{bucket.frequencyLabel}</div>
+        <div className="task-card-itemcount">
+          {bucket.itemCount} item{bucket.itemCount === 1 ? '' : 's'}
         </div>
       </div>
+      {/* Block 3 — ACTIONS. Primary CTA + secondary acknowledge. */}
       <div className="maintenance-card-actions">
         <button
           type="button"

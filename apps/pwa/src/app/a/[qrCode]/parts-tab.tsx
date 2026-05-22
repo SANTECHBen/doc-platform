@@ -204,7 +204,12 @@ export function PartsTab({
         />
       </label>
 
-      <ul className="flex flex-col gap-2">
+      {/* Parts list — divider-only rows (no card chrome). Per design
+          audit: list items get a single divider rule between rows, no
+          per-row border or background. The visual category "this is a
+          list" is then unambiguous next to the card-styled nav grid in
+          Maintenance and the white-bordered content card in Library. */}
+      <ul className="parts-list">
         {(filtered ?? []).map((r) => {
           const partNumber = r.oemPartNumber?.trim();
           const showPartNumber =
@@ -212,7 +217,7 @@ export function PartsTab({
           return (
             <li
               key={r.bomEntryId}
-              className={`surface-etched part-row ${r.discontinued ? 'opacity-70' : ''}`}
+              className={`parts-list-row ${r.discontinued ? 'opacity-70' : ''}`}
             >
               <div className="flex items-start gap-3">
                 <PartThumb
@@ -244,34 +249,44 @@ export function PartsTab({
                     {r.description && (
                       <p className="part-desc mb-2 line-clamp-2">{r.description}</p>
                     )}
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px]">
-                      {r.positionRef && (
-                        <span className="flex items-center gap-1.5">
-                          <span className="cap" style={{ letterSpacing: '0.08em' }}>
-                            Pos
-                          </span>
-                          <span className="text-ink-primary">{r.positionRef}</span>
-                        </span>
-                      )}
-                      <span className="flex items-center gap-1.5">
-                        <span className="cap" style={{ letterSpacing: '0.08em' }}>
-                          Qty
-                        </span>
-                        <span className="text-ink-primary tabular-nums">{r.quantity}</span>
-                      </span>
-                      {r.crossReferences.length > 0 && (
-                        <span className="flex items-center gap-1.5">
-                          <span className="cap" style={{ letterSpacing: '0.08em' }}>
-                            Xref
-                          </span>
-                          {r.crossReferences.map((xr) => (
-                            <span key={xr} className="part-xref">
-                              {xr}
+                    {/* Pos / Qty / Xref meta row — only rendered when at
+                        least one piece of meta is non-default. Qty=1 is
+                        the BOM default and provides zero new info, so we
+                        suppress it; only show Qty when it's > 1. Cuts
+                        the visual noise the audit flagged (every row
+                        repeating "QTY 1"). */}
+                    {(r.positionRef ||
+                      r.quantity > 1 ||
+                      r.crossReferences.length > 0) && (
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11.5px]">
+                        {r.positionRef && (
+                          <span className="flex items-center gap-1.5">
+                            <span className="text-ink-tertiary">Pos</span>
+                            <span className="font-mono text-ink-primary tabular-nums">
+                              {r.positionRef}
                             </span>
-                          ))}
-                        </span>
-                      )}
-                    </div>
+                          </span>
+                        )}
+                        {r.quantity > 1 && (
+                          <span className="flex items-center gap-1.5">
+                            <span className="text-ink-tertiary">Qty</span>
+                            <span className="font-mono text-ink-primary tabular-nums">
+                              {r.quantity}
+                            </span>
+                          </span>
+                        )}
+                        {r.crossReferences.length > 0 && (
+                          <span className="flex items-center gap-1.5">
+                            <span className="text-ink-tertiary">Xref</span>
+                            {r.crossReferences.map((xr) => (
+                              <span key={xr} className="part-xref">
+                                {xr}
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {(r.role !== 'part' || r.discontinued) && (
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         <RoleBadge role={r.role} />

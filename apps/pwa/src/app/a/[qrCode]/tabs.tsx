@@ -446,12 +446,14 @@ function OverviewActionSummary({
   return (
     <section className="overview-action-summary" aria-label="Asset status">
       <div className="overview-action-summary-head">
-        <span className="cap">Today</span>
+        <span className="overview-action-summary-head-label">Today at</span>
         <span className="overview-action-summary-site">{hub.site.name}</span>
       </div>
       <div className="overview-action-summary-grid">
         <div
           className="overview-action-summary-item"
+          // 'ok' = idle/safe (renders muted), 'warn' = needs attention now.
+          // Only one color per surface — see overview-action-summary CSS.
           data-tone={openIssueCount > 0 ? 'warn' : 'ok'}
         >
           <span className="overview-action-summary-value">{openIssueCount}</span>
@@ -479,6 +481,8 @@ function OverviewActionSummary({
           type="button"
           onClick={onOpenLibrary}
           className="overview-action-summary-item overview-action-summary-item-button"
+          // Reference data — never urgent. Render as neutral primary ink
+          // (no data-tone), so it doesn't compete with the urgency cells.
           aria-label={`Open Library — ${docCount} docs and training`}
         >
           <span className="overview-action-summary-value">{docCount}</span>
@@ -534,7 +538,11 @@ function PartsQuickActions({
 
   return (
     <section aria-label="Parts" className="flex flex-col gap-2">
-      <div className="cap px-1">Parts</div>
+      {/* Section header — sentence-case sans-serif, sits visually with
+          the card below it. Tighter spacing (gap-2) groups header to
+          content; the previous tiny-caption treatment read as a label
+          orphan with too much daylight above the list. */}
+      <h2 className="section-heading">Parts</h2>
       <div className="action-band-list">
         {parts.map((p) => {
           const partNumber = p.oemPartNumber?.trim();

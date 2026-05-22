@@ -422,7 +422,7 @@ export function ChatTab({
             <button
               type="button"
               onClick={onClearConversation}
-              className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-medium uppercase tracking-[0.08em] text-ink-tertiary transition hover:bg-surface-elevated hover:text-signal-fault"
+              className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11.5px] font-medium text-ink-tertiary transition hover:bg-surface-elevated hover:text-signal-fault"
               title="Clear conversation"
               aria-label="Clear conversation"
             >
@@ -437,7 +437,7 @@ export function ChatTab({
           <button
             type="button"
             onClick={onClearConversation}
-            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-medium uppercase tracking-[0.08em] text-ink-tertiary transition hover:bg-surface-elevated hover:text-signal-fault"
+            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11.5px] font-medium text-ink-tertiary transition hover:bg-surface-elevated hover:text-signal-fault"
             title="Clear conversation"
             aria-label="Clear conversation"
           >
@@ -811,7 +811,7 @@ function ProcedureLauncherCard({ procedureId }: { procedureId: string }): React.
           <ListChecks size={20} strokeWidth={2} />
         </span>
         <span className="procedure-launcher-text">
-          <span className="procedure-launcher-eyebrow">Walk me through this</span>
+          <span className="procedure-launcher-eyebrow">Walk me through</span>
           <span className="procedure-launcher-title">{title ?? 'Loading procedure…'}</span>
         </span>
         <span className="procedure-launcher-cta">

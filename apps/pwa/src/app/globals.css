@@ -905,11 +905,69 @@
   }
 
   /* Caption — small tracked label */
+  /* Library/instructional callout — was previously mid-gray on light-
+     gray and near-invisible. Brand-tinted background + icon makes it
+     read as a real "note" without being so loud it competes with the
+     list below. */
+  .library-callout {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid rgb(var(--brand) / 0.28);
+    background: rgb(var(--brand) / 0.06);
+    border-radius: 8px;
+    font-size: 12.5px;
+    line-height: 1.4;
+    color: rgb(var(--ink-secondary));
+  }
+  .library-callout strong {
+    color: rgb(var(--ink-primary));
+    font-weight: 600;
+  }
+  .library-callout-icon {
+    display: inline-flex;
+    color: rgb(var(--ink-brand));
+    margin-top: 1px;
+    flex-shrink: 0;
+  }
+
+  /* Section heading — used between content surfaces on Overview etc.
+     to label what's coming next ("Parts", "Work orders", "Today").
+     Sentence-case sans-serif, mid-weight; sized between body and h1
+     so it reads as a real heading without dominating the surface. */
+  .section-heading {
+    margin: 0;
+    padding: 0 2px;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0;
+    color: rgb(var(--ink-secondary));
+  }
+
+  /* Generic small label — supporting copy above a value or beside a
+     control. Sentence-case sans-serif so it reads as prose, not SCADA
+     data. Authors should still write the string in sentence case; the
+     uppercase treatment was an over-application of the instrumented
+     aesthetic. Reserve mono + caps for true machine values (PN,
+     serials, ref codes) via .part-num / .serial / .mono. */
   .caption,
   .cap {
+    font-family: var(--font-sans);
+    font-size: 11.5px;
+    letter-spacing: 0;
+    text-transform: none;
+    font-weight: 500;
+    color: rgb(var(--ink-tertiary));
+  }
+  /* Opt-in classic SCADA caption — kept available for data-adjacent
+     labels (e.g., next to a PN field) where the uppercase mono
+     treatment carries actual semantic weight. */
+  .cap-mono {
     font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.055em;
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
     text-transform: uppercase;
     font-weight: 500;
     color: rgb(var(--ink-tertiary));
@@ -987,6 +1045,23 @@
   .pill-fault {
     color: rgb(var(--signal-fault));
     border-color: rgba(var(--signal-fault) / 0.45);
+  }
+  /* Alarm — solid red chip with white text. Reserved for active,
+     unresolved escalation: OVERDUE PM and CRITICAL work orders. Used
+     where the visual semantically means "you need to deal with this
+     NOW", as distinct from the outlined .pill-fault which is fine for
+     non-urgent fault metadata. */
+  .pill-alarm {
+    color: #fff;
+    background: rgb(var(--signal-fault));
+    border-color: rgb(var(--signal-fault));
+    font-weight: 600;
+    /* Slightly louder than the default .pill so the alarm doesn't get
+       lost next to neutral chrome of equal size. */
+    height: 24px;
+    padding: 0 10px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
   }
   .pill-info {
     color: rgb(var(--ink-brand));
@@ -1562,11 +1637,18 @@
   }
   .overview-action-summary-head {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 12px 14px;
+    align-items: baseline;
+    gap: 6px;
+    padding: 10px 14px 8px;
     border-bottom: 1px solid rgb(var(--line-subtle));
+  }
+  /* "Today at" reads as a context phrase, not a SCADA label — sentence-
+     case sans-serif, ink-tertiary. It belongs with the site name as one
+     prose-y fragment. */
+  .overview-action-summary-head-label {
+    color: rgb(var(--ink-tertiary));
+    font-size: 12px;
+    font-weight: 500;
   }
   .overview-action-summary-site {
     min-width: 0;
@@ -1574,7 +1656,8 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     color: rgb(var(--ink-secondary));
-    font-size: 12.5px;
+    font-size: 12px;
+    font-weight: 500;
   }
   .overview-action-summary-grid {
     display: grid;
@@ -1584,30 +1667,51 @@
     display: flex;
     min-width: 0;
     flex-direction: column;
-    gap: 4px;
+    justify-content: flex-start;
+    gap: 6px;
     padding: 14px 12px;
+    /* Fixed-baseline alignment — labels wrap to 1 or 2 lines; reserving
+       a 2-line min-height for the label slot keeps the three numeric
+       values on a shared baseline regardless of wrap. */
+    min-height: 78px;
   }
   .overview-action-summary-item + .overview-action-summary-item {
     border-left: 1px solid rgb(var(--line-subtle));
   }
   .overview-action-summary-value {
-    font-family: var(--font-mono);
-    font-size: 24px;
+    font-family: var(--font-sans);
+    font-size: 26px;
     font-weight: 600;
     line-height: 1;
+    /* Default (idle) — values read as neutral data so the urgent count
+       dominates by contrast, not by being one of three colored numbers
+       competing for attention. */
     color: rgb(var(--ink-primary));
     font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
   }
   .overview-action-summary-label {
-    color: rgb(var(--ink-tertiary));
-    font-size: 11.5px;
-    line-height: 1.25;
+    color: rgb(var(--ink-secondary));
+    font-size: 12px;
+    line-height: 1.3;
+    /* Always reserve 2 lines of label so wrapping labels don't push the
+       parent's height around and break the row's baseline grid. */
+    min-height: calc(12px * 1.3 * 2);
   }
-  .overview-action-summary-item[data-tone='ok'] .overview-action-summary-value {
-    color: rgb(var(--signal-ok));
-  }
+  /* Only the URGENT state colors the number — "needs your attention now".
+     Resting/safe states keep the neutral primary ink. Cold-state ok-green
+     and idle "0 open" both render plain so the eye anchors on whatever
+     is non-neutral. */
   .overview-action-summary-item[data-tone='warn'] .overview-action-summary-value {
     color: rgb(var(--signal-warn));
+  }
+  .overview-action-summary-item[data-tone='fault'] .overview-action-summary-value {
+    color: rgb(var(--signal-fault));
+  }
+  /* Zero/idle gets dimmer than primary — explicitly says "nothing to do
+     here" without competing for attention. */
+  .overview-action-summary-item[data-tone='ok'] .overview-action-summary-value {
+    color: rgb(var(--ink-tertiary));
   }
   /* Tappable variant — PM-due and Docs tiles route into Maintenance and
      Library respectively. Keep the visual identical to the static tile
@@ -1641,33 +1745,35 @@
      not for visual density. No background fill — border-line only —
      so the row reads as an instrument control, not a SaaS button.
      ------------------------------------------------------------ */
+  /* Overview's parts list — same divider-row treatment as the Parts
+     tab so a tech reads "this is a list" the same way wherever they
+     encounter parts. Single container card; rows separated by hairline. */
   .action-band-list {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
-  @media (min-width: 640px) {
-    .action-band-list {
-      grid-template-columns: 1fr 1fr;
-    }
+    display: flex;
+    flex-direction: column;
+    background: rgb(var(--surface-raised));
+    border: 1px solid rgb(var(--line));
+    border-radius: 10px;
+    overflow: hidden;
   }
   .action-row {
     display: flex;
     align-items: center;
     gap: 12px;
-    min-height: 64px;
-    padding: 12px 14px;
-    background: rgb(var(--surface-raised));
-    border: 1px solid rgb(var(--line));
-    border-radius: 6px;
+    min-height: 56px;
+    padding: 10px 14px;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
     text-align: left;
-    transition:
-      border-color 120ms,
-      background 120ms;
+    transition: background 120ms;
     cursor: pointer;
+    width: 100%;
+  }
+  .action-row + .action-row {
+    border-top: 1px solid rgb(var(--line-subtle));
   }
   .action-row:hover {
-    border-color: rgb(var(--line-strong));
     background: rgb(var(--surface-elevated));
   }
   .action-row-icon {
@@ -2753,6 +2859,27 @@
   .part-row {
     padding: 14px 18px;
   }
+  /* Parts list — divider-only rows. Contained inside the card-bounded
+     content surface in the Parts tab, so the divider lines render the
+     "this is a list" Gestalt without per-row border noise. */
+  .parts-list {
+    display: flex;
+    flex-direction: column;
+    background: rgb(var(--surface-raised));
+    border: 1px solid rgb(var(--line));
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .parts-list-row {
+    padding: 14px 16px;
+    transition: background 120ms ease;
+  }
+  .parts-list-row + .parts-list-row {
+    border-top: 1px solid rgb(var(--line-subtle));
+  }
+  .parts-list-row:hover {
+    background: rgb(var(--surface-elevated));
+  }
   .part-num {
     font-family: var(--font-mono);
     font-size: 12.5px;
@@ -3510,9 +3637,14 @@
     z-index: 95;
     display: flex;
     flex-direction: column;
-    justify-content: center;
-    gap: 24px;
-    padding: max(32px, calc(env(safe-area-inset-top) + 24px)) max(20px, env(safe-area-inset-right))
+    /* Stack the identity + title + cards in the upper half of the
+       viewport instead of dead-centering. Per audit: dead-center caused
+       the asset identity to float orphan with massive air below the
+       cards. Top-aligned (with a comfy header offset) keeps the page
+       feeling intentional. */
+    justify-content: flex-start;
+    gap: 18px;
+    padding: max(56px, calc(env(safe-area-inset-top) + 48px)) max(20px, env(safe-area-inset-right))
       max(32px, calc(env(safe-area-inset-bottom) + 24px)) max(20px, env(safe-area-inset-left));
     background: rgb(var(--surface-base));
     color: rgb(var(--ink-primary));
@@ -3522,15 +3654,19 @@
   .mode-chooser-asset {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
     max-width: 520px;
     width: 100%;
     margin: 0 auto;
   }
+  /* Asset identity dominates the page header — this is what the tech
+     scanned the QR for. Sized as a real h1 so it anchors the screen,
+     not a small label floating above the prompt. */
   .mode-chooser-asset-name {
-    font-size: 18px;
-    font-weight: 500;
-    letter-spacing: -0.01em;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
     color: rgb(var(--ink-primary));
   }
   .mode-chooser-asset-serial {
@@ -3543,11 +3679,13 @@
     max-width: 520px;
     width: 100%;
     margin: 0 auto;
-    font-size: 28px;
+    /* Smaller than the asset identity — the asset is the page hero;
+       the prompt is supporting copy ("now choose how to work with it"). */
+    font-size: 19px;
     font-weight: 600;
-    letter-spacing: -0.015em;
-    line-height: 1.2;
-    color: rgb(var(--ink-primary));
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+    color: rgb(var(--ink-secondary));
   }
 
   .mode-chooser-options {
@@ -3908,7 +4046,10 @@
   .vja-main {
     flex: 1;
     overflow-y: auto;
-    padding: 18px 18px 14px 18px;
+    /* Reduced outer padding — the .vja-step frame now provides the
+       inner content gutter, so doubling padding was making sparse
+       steps feel like they were drowning in negative space. */
+    padding: 12px 12px 14px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -3918,8 +4059,25 @@
     max-width: 720px;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 16px;
+    /* Figure-ground frame for the step content — without this the
+       step text floats on the page surface and sparse text-only
+       steps look like the app froze mid-render. The frame gives the
+       eye a visible "this is the workspace" boundary. */
+    padding: 22px 22px 26px;
+    background: rgb(var(--surface-raised));
+    border: 1px solid rgb(var(--line));
+    border-radius: 14px;
+    box-shadow: var(--shadow-sm);
     animation: vjaStepIn 320ms cubic-bezier(0.34, 1.42, 0.64, 1);
+  }
+  /* Tighten the step's main padding so the frame sits flush against
+     the topbar/progress, not floating in the middle of generous
+     padding. The .vja-step container above handles internal spacing. */
+  @media (min-width: 768px) {
+    .vja-step {
+      padding: 28px 28px 32px;
+    }
   }
   @keyframes vjaStepIn {
     0% {
@@ -4609,12 +4767,15 @@
     color: rgb(var(--ink-secondary));
   }
   .vja-hero-intro-card-header {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: rgb(var(--ink-tertiary));
+    /* Section header — was uppercase mono-tracked, which read as a
+       SCADA panel banner. Sentence-case sans-serif at a real h2 weight
+       so it reads as a real heading, not a label. */
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    color: rgb(var(--ink-secondary));
     padding-bottom: 8px;
     border-bottom: 1px solid rgb(var(--line));
     margin: 0;
@@ -5017,11 +5178,16 @@
     gap: 2px;
   }
   .procedure-launcher-eyebrow {
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: rgb(var(--ink-brand));
+    /* Eyebrow is a label, not a heading. Demoted from uppercase mono
+       caps to sentence-case sans so it doesn't compete with the title
+       for primary attention. The blue play button on the right already
+       signals "tap to play" — the eyebrow only needs to read as
+       supporting context, not as a banner. */
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+    color: rgb(var(--ink-tertiary));
   }
   .procedure-launcher-title {
     font-size: 15px;
@@ -5062,6 +5228,10 @@
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
   }
+  /* Nav cards — tinted surface, no border. Visually distinct from
+     content cards (white + border) and list rows (divider-only) so
+     the user's brain can sort "this is navigation" without reading.
+     Active state gets brand border + soft tint for clear focus. */
   .maintenance-filter-grid .cat-card {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
@@ -5069,21 +5239,32 @@
     align-items: center;
     column-gap: 10px;
     row-gap: 0;
-    min-height: 60px;
-    padding: 10px 14px;
-    background: rgb(var(--surface-raised));
-    border: 1px solid rgb(var(--line));
-    border-radius: 8px;
-    box-shadow: var(--shadow-sm);
+    min-height: 62px;
+    padding: 12px 14px;
+    background: rgb(var(--surface-inset));
+    border: 1px solid transparent;
+    border-radius: 10px;
+    box-shadow: none;
+    transition:
+      background 140ms ease,
+      border-color 140ms ease;
   }
   .maintenance-filter-grid .cat-card:hover {
-    border-color: rgb(var(--line-strong));
+    background: rgb(var(--surface-elevated));
   }
   .maintenance-filter-grid .cat-card[data-active='true'] {
-    border-color: rgb(var(--brand));
-    box-shadow:
-      0 0 0 1px rgb(var(--brand) / 0.32),
-      var(--shadow-sm);
+    background: rgb(var(--brand) / 0.06);
+    border-color: rgb(var(--brand) / 0.45);
+  }
+  /* Urgent (action with count > 0) gets a faint red tint so the eye
+     finds the alarm card before the user even reads the label. */
+  .maintenance-filter-grid .cat-card[data-tone='fault'] {
+    background: rgb(var(--signal-fault) / 0.07);
+    border-color: rgb(var(--signal-fault) / 0.3);
+  }
+  .maintenance-filter-grid .cat-card[data-tone='fault'][data-active='true'] {
+    background: rgb(var(--signal-fault) / 0.1);
+    border-color: rgb(var(--signal-fault) / 0.55);
   }
   .maintenance-filter-grid .cat-card-icon {
     flex-shrink: 0;
@@ -5113,16 +5294,27 @@
   }
   .maintenance-filter-grid .cat-card-count {
     flex-shrink: 0;
-    font-family: var(--font-mono);
+    font-family: var(--font-sans);
     font-size: 22px;
     font-weight: 600;
     line-height: 1;
-    letter-spacing: 0;
+    letter-spacing: -0.02em;
     color: rgb(var(--ink-primary));
     font-variant-numeric: tabular-nums;
   }
+  /* Urgent card dominates by BOTH color AND scale — the "1 thing
+     overdue (now)" needs to read louder than "11 things to do later"
+     even when the magnitude is smaller. */
   .maintenance-filter-grid .cat-card[data-tone='fault'] .cat-card-count {
     color: rgb(var(--signal-fault));
+    font-size: 28px;
+    font-weight: 700;
+  }
+  /* Zero/idle counts dim down so they don't compete with whichever
+     card is non-zero. */
+  .maintenance-filter-grid .cat-card[data-tone='ok'] .cat-card-count {
+    color: rgb(var(--ink-tertiary));
+    font-weight: 500;
   }
 
   .maintenance-panel {
@@ -5169,9 +5361,66 @@
   .maintenance-task-card {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 14px;
+    /* 14px between groups — large enough to read as three distinct
+       blocks (status / title / actions), tight enough that the card
+       still reads as one unit. Internal block items use tighter
+       spacing so the proximity hierarchy is unambiguous. */
+    gap: 14px;
+    padding: 16px;
     border-left: 4px solid rgb(var(--line-strong));
+  }
+  /* Block 1 — status row. Pill + relative time on one line. */
+  .task-card-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  /* Block 2 — title block. Plan name (label), frequency (heading),
+     item count (caption). 2px gap between lines keeps the group
+     visually fused. */
+  .task-card-title-block {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .task-card-plan {
+    font-size: 12px;
+    font-weight: 500;
+    color: rgb(var(--ink-tertiary));
+  }
+  .task-card-frequency {
+    font-size: 17px;
+    font-weight: 600;
+    color: rgb(var(--ink-primary));
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+  }
+  .task-card-itemcount {
+    font-size: 12px;
+    color: rgb(var(--ink-tertiary));
+  }
+  .task-card-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: rgb(var(--ink-primary));
+    letter-spacing: -0.005em;
+    line-height: 1.25;
+  }
+  .task-card-description {
+    margin: 4px 0 0;
+    font-size: 13px;
+    line-height: 1.4;
+    color: rgb(var(--ink-secondary));
+  }
+  .task-card-cadence {
+    margin-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    color: rgb(var(--ink-tertiary));
   }
   .maintenance-task-card[data-status='overdue'] {
     border-left-color: rgb(var(--signal-fault));

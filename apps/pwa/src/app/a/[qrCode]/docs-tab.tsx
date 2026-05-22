@@ -10,6 +10,7 @@ import {
   Download,
   FileText,
   FileType2,
+  Info,
   LayoutGrid,
   List,
   ListChecks,
@@ -511,9 +512,14 @@ export function DocsTab({
           authored" knows where to look. Only renders when the unfiltered
           set actually contained procedures — otherwise it's noise. */}
       {hadProcedures && (
-        <div className="rounded-md border border-line-subtle bg-surface-inset px-3 py-2 text-xs text-ink-tertiary">
-          Procedures live in the <strong>Maintenance</strong> tab now —
-          tap to run a Job Aid for any procedure attached to this asset.
+        <div className="library-callout">
+          <span className="library-callout-icon" aria-hidden>
+            <Info size={14} strokeWidth={2.25} />
+          </span>
+          <span>
+            Procedures live in the <strong>Maintenance</strong> tab — tap any
+            procedure there to run a Job Aid.
+          </span>
         </div>
       )}
       {entries.length === 0 ? (

@@ -659,7 +659,7 @@ export function VirtualJobAid({
         <div className="vja-topbar-meta">
           <span className="caption inline-flex items-center gap-1.5">
             <ListChecks size={12} strokeWidth={1.75} />
-            VIRTUAL JOB AID
+            Virtual job aid
           </span>
           <h2 className="vja-doc-title">
             {resolved.title}

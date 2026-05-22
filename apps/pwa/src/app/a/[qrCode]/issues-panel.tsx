@@ -130,17 +130,24 @@ export function IssuesPanel({
 
   return (
     <section>
-      <div className="mb-4 flex items-center gap-3">
-        <span className="caption">Work orders</span>
-        <span className="h-px flex-1 bg-line-subtle" />
-        <span className="font-mono text-[11px] text-ink-tertiary tabular-nums">{count} open</span>
+      {/* Section header — heading, count, and CTA grouped tightly on
+          one line per the audit's proximity recommendation. The "N open"
+          chip lives next to the heading (status metadata for the
+          group) rather than floating between the heading and CTA. */}
+      <header className="mb-3 flex items-baseline justify-between gap-3">
+        <div className="flex items-baseline gap-2">
+          <h2 className="section-heading">Work orders</h2>
+          <span className="text-[12px] text-ink-tertiary tabular-nums">
+            {count} open
+          </span>
+        </div>
         {!showForm && (
           <button onClick={() => setShowForm(true)} className="btn btn-secondary btn-sm">
             <Plus size={14} strokeWidth={2} />
             Report issue
           </button>
         )}
-      </div>
+      </header>
 
       {error && (
         <div
@@ -364,8 +371,11 @@ export function IssuesPanel({
 
 function severityPillClass(s: WorkOrderSeverity): string {
   switch (s) {
+    // Critical is a true alarm — solid red chip, white text. Same
+    // treatment as OVERDUE PMs in Maintenance for visual consistency
+    // across all "you need to deal with this now" affordances.
     case 'critical':
-      return 'pill pill-fault';
+      return 'pill pill-alarm';
     case 'high':
       return 'pill pill-warn';
     case 'medium':
