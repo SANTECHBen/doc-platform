@@ -1493,10 +1493,17 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
     async (request) => {
       const { db, storage } = app.ctx;
       requireAuth(request);
-      const rows = request.query.ownerId
-        ? await db.query.parts.findMany({
-            where: eq(schema.parts.ownerOrganizationId, request.query.ownerId),
-          })
+      const scope = await getScope(request, db);
+      if (request.query.ownerId) {
+        requireOrgInScope(scope, request.query.ownerId);
+      }
+      const ownerFilter = request.query.ownerId
+        ? eq(schema.parts.ownerOrganizationId, request.query.ownerId)
+        : scope.all
+          ? undefined
+          : inArray(schema.parts.ownerOrganizationId, scope.orgIds);
+      const rows = ownerFilter
+        ? await db.query.parts.findMany({ where: ownerFilter })
         : await db.query.parts.findMany();
       return rows.map((p) => ({
         id: p.id,
