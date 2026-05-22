@@ -127,27 +127,42 @@ export function IssuesPanel({
   }
 
   const count = orders?.length ?? 0;
+  const isEmpty = orders !== null && count === 0;
 
   return (
     <section>
-      {/* Section header — heading, count, and CTA grouped tightly on
-          one line per the audit's proximity recommendation. The "N open"
-          chip lives next to the heading (status metadata for the
-          group) rather than floating between the heading and CTA. */}
-      <header className="mb-3 flex items-baseline justify-between gap-3">
-        <div className="flex items-baseline gap-2">
-          <h2 className="section-heading">Work orders</h2>
-          <span className="text-[12px] text-ink-tertiary tabular-nums">
-            {count} open
-          </span>
-        </div>
-        {!showForm && (
-          <button onClick={() => setShowForm(true)} className="btn btn-secondary btn-sm">
-            <Plus size={14} strokeWidth={2} />
-            Report issue
-          </button>
-        )}
-      </header>
+      {/* Empty state collapses to a slim one-line row so it doesn't push
+          the Parts list below the fold on assets with no open issues.
+          Once any work order exists, the full section header returns. */}
+      {isEmpty ? (
+        <header className="flex items-center justify-between gap-3 py-1.5">
+          <div className="flex items-baseline gap-2">
+            <h2 className="section-heading">Work orders</h2>
+            <span className="text-[12px] text-ink-tertiary">No open issues</span>
+          </div>
+          {!showForm && (
+            <button onClick={() => setShowForm(true)} className="btn btn-ghost btn-sm">
+              <Plus size={14} strokeWidth={2} />
+              Report issue
+            </button>
+          )}
+        </header>
+      ) : (
+        <header className="mb-3 flex items-baseline justify-between gap-3">
+          <div className="flex items-baseline gap-2">
+            <h2 className="section-heading">Work orders</h2>
+            <span className="text-[12px] text-ink-tertiary tabular-nums">
+              {count} open
+            </span>
+          </div>
+          {!showForm && (
+            <button onClick={() => setShowForm(true)} className="btn btn-secondary btn-sm">
+              <Plus size={14} strokeWidth={2} />
+              Report issue
+            </button>
+          )}
+        </header>
+      )}
 
       {error && (
         <div
@@ -320,9 +335,7 @@ export function IssuesPanel({
         </div>
       )}
 
-      {!orders ? null : orders.length === 0 ? (
-        <div className="empty-row">No open issues on this asset.</div>
-      ) : (
+      {!orders || orders.length === 0 ? null : (
         <ul className="mt-3 flex flex-col gap-2">
           {orders.map((o) => (
             <li key={o.id} className="workorder">
