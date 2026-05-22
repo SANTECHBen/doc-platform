@@ -68,10 +68,21 @@ function readTabFromHash(): { tab: TabKey; library?: LibrarySection } | null {
 // scan / refresh starts in 'choosing'.
 type Mode = 'choosing' | 'voice' | 'browse';
 
+// Filter keys the Maintenance tab understands. Kept in sync with its
+// internal FilterKey union — when Overview deep-links into Maintenance
+// (PM-due tile → 'action'), we seed the tab's initial selection.
+type MaintenanceFilter = 'action' | 'upcoming' | 'walkthroughs' | 'removal' | 'troubleshoot' | 'history';
+
 export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: string }) {
   const [active, setActive] = useState<TabKey>('overview');
   const [librarySection, setLibrarySection] = useState<LibrarySection>('documents');
   const [openIssueCount, setOpenIssueCount] = useState<number>(hub.tabs.openWorkOrders.count);
+  // One-shot preselect for the Maintenance tab. Consumed on the next
+  // MaintenanceTab mount (the tab pane is keyed on `active`, so it
+  // remounts on every tab switch). Cleared after consumption so a
+  // subsequent return to Maintenance opens with no slice selected.
+  const [pendingMaintenanceFilter, setPendingMaintenanceFilter] =
+    useState<MaintenanceFilter | null>(null);
   const [mode, setMode] = useState<Mode>(DEV_USER_ID && DEV_ORG_ID ? 'choosing' : 'browse');
   const [voiceOpen, setVoiceOpen] = useState(false);
   // When a tech taps a part chip (from Overview or the Parts tab list)
@@ -141,7 +152,14 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
       if (fromHash?.library) setLibrarySection(fromHash.library);
     }
     window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
+    // Topbar fires this when the brand mark is tapped (goHome). Re-read
+    // the hash so we sync to Overview without requiring the user to use
+    // the phone's back button.
+    window.addEventListener('asset-hub:tab', onPop);
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      window.removeEventListener('asset-hub:tab', onPop);
+    };
   }, []);
 
   const changeTab = useCallback((next: TabKey) => {
@@ -152,11 +170,20 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
       const url = new URL(window.location.href);
       url.hash = next === 'overview' ? '' : next;
       window.history.pushState({ tab: next }, '', url.toString());
+      // history.pushState() does NOT fire popstate/hashchange. The topbar
+      // listens for this custom event so its brand/asset-chip swap stays
+      // in sync without each consumer hand-rolling a polling check.
+      window.dispatchEvent(new Event('asset-hub:tab'));
       return next;
     });
     // Any explicit tab change dismisses the inline part inspector — the
     // tech asked to go somewhere else, the part panel was situational.
     setInspectingPartId(null);
+    // Clear the one-shot Maintenance preselect once the tech navigates
+    // away from Maintenance — a manual re-tap of the Maintenance tab
+    // should land on the empty-card grid, not whatever Overview pushed
+    // last time.
+    if (next !== 'maintenance') setPendingMaintenanceFilter(null);
   }, []);
 
   if (mode === 'choosing' && DEV_USER_ID && DEV_ORG_ID) {
@@ -187,7 +214,18 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
         ) : active === 'overview' ? (
           <div className="flex flex-col gap-4">
             <IdentityBand hub={hub} />
-            <OverviewActionSummary hub={hub} openIssueCount={openIssueCount} />
+            <OverviewActionSummary
+              hub={hub}
+              openIssueCount={openIssueCount}
+              onOpenMaintenanceAction={() => {
+                setPendingMaintenanceFilter('action');
+                changeTab('maintenance');
+              }}
+              onOpenLibrary={() => {
+                setLibrarySection('documents');
+                changeTab('library');
+              }}
+            />
             <IssuesPanel assetInstanceId={hub.assetInstance.id} onCountChange={setOpenIssueCount} />
             <PartsQuickActions
               assetModelId={hub.assetModel.id}
@@ -209,6 +247,9 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
             versionId={hub.pinnedContentPackVersion?.id ?? null}
             fieldCapturesVersionId={hub.fieldCapturesVersionId ?? null}
             onLaunchJobAid={(source, onCompleted) => setJobAidRequest({ source, onCompleted })}
+            {...(pendingMaintenanceFilter
+              ? { initialFilter: pendingMaintenanceFilter }
+              : {})}
           />
         ) : (
           <section className="rounded-md border border-line bg-surface-raised p-4 md:p-6">
@@ -383,12 +424,22 @@ function LibrarySegmentButton({
 // match for a sticker, find a sub-assembly to inspect). Surface the
 // BOM here as a one-tap entry instead of authored procedures —
 // procedures live in Maintenance, parts get the prime real estate.
+//
+// The PM-due and Docs tiles are tappable shortcuts into the
+// Maintenance/Action slice and Library tab respectively. The Open
+// work orders tile stays non-interactive because the WO list itself
+// renders right below the summary on the same Overview page — there's
+// nowhere meaningful to navigate to.
 function OverviewActionSummary({
   hub,
   openIssueCount,
+  onOpenMaintenanceAction,
+  onOpenLibrary,
 }: {
   hub: AssetHubPayload;
   openIssueCount: number;
+  onOpenMaintenanceAction: () => void;
+  onOpenLibrary: () => void;
 }) {
   const pmNeedsAction = hub.tabs.pm.needsAction;
   const docCount = hub.tabs.docs.count + hub.tabs.training.count;
@@ -408,16 +459,31 @@ function OverviewActionSummary({
             {openIssueCount === 1 ? 'Open work order' : 'Open work orders'}
           </span>
         </div>
-        <div className="overview-action-summary-item" data-tone={pmNeedsAction > 0 ? 'warn' : 'ok'}>
+        <button
+          type="button"
+          onClick={onOpenMaintenanceAction}
+          className="overview-action-summary-item overview-action-summary-item-button"
+          data-tone={pmNeedsAction > 0 ? 'warn' : 'ok'}
+          aria-label={
+            pmNeedsAction === 1
+              ? 'Open Maintenance — 1 PM due now'
+              : `Open Maintenance — ${pmNeedsAction} PM actions due`
+          }
+        >
           <span className="overview-action-summary-value">{pmNeedsAction}</span>
           <span className="overview-action-summary-label">
             {pmNeedsAction === 1 ? 'PM due now' : 'PM actions due'}
           </span>
-        </div>
-        <div className="overview-action-summary-item">
+        </button>
+        <button
+          type="button"
+          onClick={onOpenLibrary}
+          className="overview-action-summary-item overview-action-summary-item-button"
+          aria-label={`Open Library — ${docCount} docs and training`}
+        >
           <span className="overview-action-summary-value">{docCount}</span>
           <span className="overview-action-summary-label">Docs and training</span>
-        </div>
+        </button>
       </div>
     </section>
   );

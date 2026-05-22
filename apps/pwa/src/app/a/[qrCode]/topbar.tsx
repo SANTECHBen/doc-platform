@@ -32,16 +32,32 @@ export function AssetTopbar({ hub }: { hub: AssetHubPayload }) {
     readHash();
     window.addEventListener('popstate', readHash);
     window.addEventListener('hashchange', readHash);
+    // AssetHubTabs changes the tab via history.pushState() which does NOT
+    // fire popstate or hashchange. It dispatches a custom 'asset-hub:tab'
+    // event after pushing so dependents (this topbar) can react.
+    window.addEventListener('asset-hub:tab', readHash);
     return () => {
       window.removeEventListener('popstate', readHash);
       window.removeEventListener('hashchange', readHash);
+      window.removeEventListener('asset-hub:tab', readHash);
     };
   }, []);
+
+  // Tap the brand mark to return to Overview. Mirrors AssetHubTabs.changeTab:
+  // clear the URL hash, push history so the device back button steps back
+  // through tabs, and dispatch the cross-component event so the topbar
+  // (and any future listener) updates.
+  function goHome() {
+    const url = new URL(window.location.href);
+    url.hash = '';
+    window.history.pushState({ tab: 'overview' }, '', url.toString());
+    window.dispatchEvent(new Event('asset-hub:tab'));
+  }
 
   return (
     <header className="app-topbar">
       {showChip ? (
-        <AssetChip hub={hub} />
+        <AssetChip hub={hub} onClick={goHome} />
       ) : (
         <div className="app-topbar-brand">
           {hub.brand.logoUrl ? (
@@ -49,11 +65,18 @@ export function AssetTopbar({ hub }: { hub: AssetHubPayload }) {
               src={hub.brand.logoUrl}
               alt={hub.brand.displayName}
               initials={hub.brand.initials}
+              onClick={goHome}
             />
           ) : (
-            <div className="brand-mark-square" style={{ width: 28, height: 28, fontSize: 11 }}>
+            <button
+              type="button"
+              onClick={goHome}
+              className="brand-logo-button brand-mark-square"
+              style={{ width: 28, height: 28, fontSize: 11 }}
+              aria-label={`${hub.brand.displayName} — return to Overview`}
+            >
               {hub.brand.initials}
-            </div>
+            </button>
           )}
         </div>
       )}
@@ -98,15 +121,20 @@ function SantechWordmark() {
   );
 }
 
-function AssetChip({ hub }: { hub: AssetHubPayload }) {
+function AssetChip({ hub, onClick }: { hub: AssetHubPayload; onClick: () => void }) {
   const openCount = hub.tabs.openWorkOrders.count;
   const pmAction = hub.tabs.pm.needsAction;
   const ledClass =
     openCount > 0 || pmAction > 0 ? 'led led-warn' : 'led led-ok';
   return (
-    <div className="app-topbar-chip" aria-label="Asset identity">
+    <button
+      type="button"
+      onClick={onClick}
+      className="app-topbar-chip app-topbar-chip-button"
+      aria-label={`${hub.assetModel.displayName} — return to Overview`}
+    >
       <span className={ledClass} aria-hidden />
       <span className="app-topbar-chip-name">{hub.assetModel.displayName}</span>
-    </div>
+    </button>
   );
 }

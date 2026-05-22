@@ -257,6 +257,28 @@
 .app-topbar-brand img {
   max-height: 28px !important;
 }
+/* Brand mark renders as a button when onClick is wired (topbar). Strip
+   the default <button> chrome and keep the tap target tight against the
+   logo so it still reads as "the logo," not a chip. */
+.brand-logo-button {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  transition: background 140ms ease;
+}
+.brand-logo-button:hover {
+  background: rgb(var(--surface-elevated));
+}
+.brand-logo-button:focus-visible {
+  outline: 2px solid rgb(var(--brand) / 0.6);
+  outline-offset: 2px;
+}
 
 /* Platform attribution — "Powered by SANTECH" wordmark on the right
    side of the topbar. Sits between the OEM brand mark and the action
@@ -316,6 +338,25 @@
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+}
+/* Tap-to-home variant of the asset chip — same visual treatment as the
+   plain chip, plus button reset and a soft hover so the affordance
+   reveals itself without screaming "I'm a button." */
+.app-topbar-chip-button {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  background: transparent;
+  text-align: left;
+  border-radius: 6px;
+  transition: background 140ms ease;
+}
+.app-topbar-chip-button:hover {
+  background: rgb(var(--surface-elevated));
+}
+.app-topbar-chip-button:focus-visible {
+  outline: 2px solid rgb(var(--brand) / 0.6);
+  outline-offset: 2px;
 }
 
 .app-scroll {
@@ -1567,6 +1608,31 @@
   }
   .overview-action-summary-item[data-tone='warn'] .overview-action-summary-value {
     color: rgb(var(--signal-warn));
+  }
+  /* Tappable variant — PM-due and Docs tiles route into Maintenance and
+     Library respectively. Keep the visual identical to the static tile
+     so the row reads as data; only show affordance on hover/focus, and
+     a brief press dim on active. */
+  .overview-action-summary-item-button {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    text-align: left;
+    cursor: pointer;
+    transition:
+      background 140ms ease,
+      transform 80ms ease;
+  }
+  .overview-action-summary-item-button:hover {
+    background: rgb(var(--surface-elevated));
+  }
+  .overview-action-summary-item-button:active {
+    transform: translateY(0.5px);
+  }
+  .overview-action-summary-item-button:focus-visible {
+    outline: 2px solid rgb(var(--brand) / 0.6);
+    outline-offset: -2px;
+    border-radius: 4px;
   }
 
   /* ------------------------------------------------------------

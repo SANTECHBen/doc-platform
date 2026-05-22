@@ -108,6 +108,7 @@ export function MaintenanceTab({
   fieldCapturesVersionId,
   onLaunchJobAid,
   onChange,
+  initialFilter,
 }: {
   assetInstanceId: string;
   versionId: string | null;
@@ -120,6 +121,11 @@ export function MaintenanceTab({
     onCompleted?: () => void,
   ) => void;
   onChange?: () => void;
+  /** Optional filter to preselect on mount — used by Overview tile taps
+   *  ("PM due now" → 'action') so a tech lands in the right slice
+   *  without an extra tap. Read once on mount; subsequent prop changes
+   *  do not override an active selection. */
+  initialFilter?: FilterKey;
 }) {
   const [data, setData] = useState<PmStatusPayload | null>(null);
   const [planData, setPlanData] = useState<PmPlanStatusPayload | null>(null);
@@ -130,7 +136,9 @@ export function MaintenanceTab({
   // tech tapping any card reveals its slice below. This avoids the
   // "automatic overdue list" failure mode where overdue items
   // appeared without intent and made the grid look like a header.
-  const [active, setActive] = useState<FilterKey | null>(null);
+  // When the parent passes initialFilter (e.g., from an Overview tile
+  // tap), seed the state with it so the slice is open on first paint.
+  const [active, setActive] = useState<FilterKey | null>(initialFilter ?? null);
   // Tracks the schedule / plan-bucket whose Mark performed is
   // currently in-flight, so the right button can show a spinner.
   // Keyed by schedule.id or `${planId}:${frequency}` for buckets.
