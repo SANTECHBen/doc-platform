@@ -617,9 +617,11 @@ function IdentityBand({ hub }: { hub: AssetHubPayload }) {
       <div className="identity-band-overlay">
         <h1 className="identity-band-title">{hub.assetModel.displayName}</h1>
         <div className="identity-band-meta">
+          {/* Serial moved to the Details disclosure below — keeping it
+              off the hero reduces the identity stack to model name +
+              model code, which is what techs read at a glance. The
+              serial is still one tap away when they need it. */}
           <span>{hub.assetModel.modelCode}</span>
-          <span className="sep">/</span>
-          <span className="serial">S/N {hub.assetInstance.serialNumber}</span>
         </div>
       </div>
     </header>
