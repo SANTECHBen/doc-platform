@@ -1,9 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { eq, and, sql, desc, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { schema } from '@platform/db';
+import {
+  schema,
+  PM_PLAN_FREQUENCY_DAYS,
+  type PmPlanFrequency,
+} from '@platform/db';
 import { AssetHubPayloadSchema, QrCodeStringSchema } from '@platform/shared';
-import { computeScheduleStatus } from '../lib/pm-status';
+import { computeScheduleStatus, calendarDayDiff } from '../lib/pm-status';
 
 // Two-letter initials from a display name — shown when no logo uploaded.
 // "Flow Turn" → "FT", "Dematic" → "DE", "Acme Logistics" → "AL".
@@ -93,52 +97,125 @@ export async function registerAssetRoutes(app: FastifyInstance) {
             )
             .then((rows) => (rows[0]?.version_id ?? null) as string | null),
           // PM summary: count overdue/due/soon for the nameplate badge.
-          // Slimmer than the full /pm-status endpoint — no history fetch,
-          // no document expansion, just the counters the hub needs.
+          // Covers BOTH the legacy flat pmSchedules AND the newer pmPlans
+          // (which group items into frequency buckets). The Maintenance
+          // tab's "Action" card sums both surfaces; the Overview badge
+          // must match or techs see "0 PM actions" on Overview and "1
+          // Action" on Maintenance for the same asset.
           (async () => {
+            const counts = { overdue: 0, due: 0, soon: 0, needsAction: 0 };
+            const now = new Date();
+
+            // --- Flat schedule contribution ---
             const schedules = await db.query.pmSchedules.findMany({
               where: and(
                 eq(schema.pmSchedules.assetModelId, instance.assetModelId),
                 eq(schema.pmSchedules.disabled, false),
               ),
             });
-            if (schedules.length === 0) {
-              return { overdue: 0, due: 0, soon: 0, needsAction: 0 };
-            }
-            const records = await db.query.pmServiceRecords.findMany({
-              where: and(
-                eq(schema.pmServiceRecords.assetInstanceId, instance.id),
-                inArray(
-                  schema.pmServiceRecords.pmScheduleId,
-                  schedules.map((s) => s.id),
+            if (schedules.length > 0) {
+              const records = await db.query.pmServiceRecords.findMany({
+                where: and(
+                  eq(schema.pmServiceRecords.assetInstanceId, instance.id),
+                  inArray(
+                    schema.pmServiceRecords.pmScheduleId,
+                    schedules.map((s) => s.id),
+                  ),
                 ),
-              ),
-              orderBy: [desc(schema.pmServiceRecords.performedAt)],
-            });
-            const lastByScheduleId = new Map<string, Date>();
-            for (const r of records) {
-              if (r.pmScheduleId && !lastByScheduleId.has(r.pmScheduleId)) {
-                lastByScheduleId.set(r.pmScheduleId, r.performedAt);
+                orderBy: [desc(schema.pmServiceRecords.performedAt)],
+              });
+              const lastByScheduleId = new Map<string, Date>();
+              for (const r of records) {
+                if (r.pmScheduleId && !lastByScheduleId.has(r.pmScheduleId)) {
+                  lastByScheduleId.set(r.pmScheduleId, r.performedAt);
+                }
+              }
+              for (const s of schedules) {
+                const r = computeScheduleStatus({
+                  cadenceKind: s.cadenceKind,
+                  cadenceValue: s.cadenceValue,
+                  graceDays: s.graceDays,
+                  scheduleCreatedAt: s.createdAt,
+                  instanceInstalledAt: instance.installedAt,
+                  lastPerformedAt: lastByScheduleId.get(s.id) ?? null,
+                  now,
+                  timezone: instance.site.timezone,
+                });
+                if (r.status === 'overdue') counts.overdue += 1;
+                else if (r.status === 'due') counts.due += 1;
+                else if (r.status === 'soon') counts.soon += 1;
+                if (r.needsAction) counts.needsAction += 1;
               }
             }
-            const now = new Date();
-            const counts = { overdue: 0, due: 0, soon: 0, needsAction: 0 };
-            for (const s of schedules) {
-              const r = computeScheduleStatus({
-                cadenceKind: s.cadenceKind,
-                cadenceValue: s.cadenceValue,
-                graceDays: s.graceDays,
-                scheduleCreatedAt: s.createdAt,
-                instanceInstalledAt: instance.installedAt,
-                lastPerformedAt: lastByScheduleId.get(s.id) ?? null,
-                now,
-                timezone: instance.site.timezone,
+
+            // --- PM plan bucket contribution ---
+            // Mirrors computePmPlanStatusForInstance in pm.ts but skips
+            // the bucket payload — we only need the per-bucket status to
+            // increment counts. Empty draft check-rows (checkText === '')
+            // are excluded, matching the full endpoint.
+            const plans = await db.query.pmPlans.findMany({
+              where: and(
+                eq(schema.pmPlans.assetModelId, instance.assetModelId),
+                eq(schema.pmPlans.disabled, false),
+              ),
+            });
+            if (plans.length > 0) {
+              const planIds = plans.map((p) => p.id);
+              const items = await db.query.pmPlanItems.findMany({
+                where: inArray(schema.pmPlanItems.planId, planIds),
               });
-              if (r.status === 'overdue') counts.overdue += 1;
-              else if (r.status === 'due') counts.due += 1;
-              else if (r.status === 'soon') counts.soon += 1;
-              if (r.needsAction) counts.needsAction += 1;
+              const planRecords = await db.query.pmPlanServiceRecords.findMany({
+                where: and(
+                  eq(schema.pmPlanServiceRecords.assetInstanceId, instance.id),
+                  inArray(schema.pmPlanServiceRecords.planId, planIds),
+                ),
+                orderBy: [desc(schema.pmPlanServiceRecords.performedAt)],
+              });
+              const lastByKey = new Map<string, Date>();
+              for (const r of planRecords) {
+                if (!r.planId) continue;
+                const k = `${r.planId}:${r.frequency}`;
+                if (!lastByKey.has(k)) lastByKey.set(k, r.performedAt);
+              }
+              for (const p of plans) {
+                // Items grouped by frequency for THIS plan, ignoring
+                // empty drafts so a checklist with all-blank rows
+                // doesn't show as a real bucket.
+                const planItems = items.filter(
+                  (it) => it.planId === p.id && it.checkText.trim().length > 0,
+                );
+                const byFreq = new Map<PmPlanFrequency, number>();
+                for (const it of planItems) {
+                  const f = it.frequency as PmPlanFrequency;
+                  byFreq.set(f, (byFreq.get(f) ?? 0) + 1);
+                }
+                for (const [f, n] of byFreq.entries()) {
+                  if (n === 0) continue;
+                  const cadenceDays = PM_PLAN_FREQUENCY_DAYS[f];
+                  const last = lastByKey.get(`${p.id}:${f}`);
+                  const anchor = last ?? instance.installedAt ?? p.createdAt;
+                  const daysSinceAnchor = calendarDayDiff(
+                    anchor,
+                    now,
+                    instance.site.timezone,
+                  );
+                  const daysUntilDue = cadenceDays - daysSinceAnchor;
+                  const status =
+                    daysUntilDue < 0
+                      ? 'overdue'
+                      : daysUntilDue === 0
+                        ? 'due'
+                        : daysUntilDue <= 7
+                          ? 'soon'
+                          : 'upcoming';
+                  if (status === 'overdue') counts.overdue += 1;
+                  else if (status === 'due') counts.due += 1;
+                  else if (status === 'soon') counts.soon += 1;
+                  if (status === 'overdue' || status === 'due') counts.needsAction += 1;
+                }
+              }
             }
+
             return counts;
           })(),
         ]);
