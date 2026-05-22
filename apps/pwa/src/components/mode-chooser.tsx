@@ -11,11 +11,10 @@ export type ChosenMode = 'voice' | 'browse';
 
 interface Props {
   assetName: string;
-  serialNumber: string;
   onPick: (mode: ChosenMode) => void;
 }
 
-export function ModeChooser({ assetName, serialNumber, onPick }: Props) {
+export function ModeChooser({ assetName, onPick }: Props) {
   return (
     <div
       className="mode-chooser-root"
@@ -25,7 +24,6 @@ export function ModeChooser({ assetName, serialNumber, onPick }: Props) {
     >
       <div className="mode-chooser-asset">
         <div className="mode-chooser-asset-name">{assetName}</div>
-        <div className="mode-chooser-asset-serial">S/N {serialNumber}</div>
       </div>
 
       <h1 className="mode-chooser-title">Choose a work mode</h1>

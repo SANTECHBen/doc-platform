@@ -190,7 +190,6 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
     return (
       <ModeChooser
         assetName={hub.assetModel.displayName}
-        serialNumber={hub.assetInstance.serialNumber}
         onPick={pickMode}
       />
     );
