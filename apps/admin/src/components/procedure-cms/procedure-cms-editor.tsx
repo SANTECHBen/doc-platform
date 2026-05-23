@@ -27,6 +27,7 @@ import {
   ExternalLink,
   Loader2,
   Plus,
+  Puzzle,
   Sparkles,
   Wand2,
 } from 'lucide-react';
@@ -47,9 +48,11 @@ import {
   type AdminProcedureSection,
   type AdminProcedureStep,
   type AdminSiblingProcedure,
+  type AdminSnippet,
   type CreateProcedureStepInput,
   type UpdateProcedureStepInput,
 } from '@/lib/api';
+import { SnippetPickerModal } from './snippet-picker-modal';
 import {
   Clock,
   Film,
@@ -98,6 +101,13 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
   // moves use the per-step "Move to section" dropdown instead.
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+
+  // Snippet picker state. When non-null, the modal is open targeting the
+  // given section (null = orphan-tier). Selecting a snippet creates a new
+  // step in that section backed by the snippet.
+  const [snippetPickerSectionId, setSnippetPickerSectionId] = useState<
+    string | null | undefined
+  >(undefined);
   // The most recently-added step ID. Step cards consult this on mount to
   // decide whether to default-expand: a fresh card should be open so the
   // author can type immediately, while existing cards stay collapsed so
@@ -232,6 +242,42 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
       setFreshStepId(created.id);
       endSave(true);
       // Smooth-scroll to the new card so the focus is obvious.
+      setTimeout(() => {
+        document.getElementById(`cms-step-${created.id}`)?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+        });
+      }, 50);
+    } catch (e) {
+      endSave(false, e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  // Create a new step backed by a reusable snippet. Server resolves the
+  // snippet's blocks/title at read time (always-latest) until the author
+  // edits the step inline (detach-on-edit).
+  async function addStepFromSnippet(
+    snippet: AdminSnippet,
+    sectionId: string | null = null,
+  ) {
+    const input: CreateProcedureStepInput = {
+      kind: snippet.kind,
+      // Leave title blank so the snippet's own title flows through on
+      // read. Authors can override per-step by typing in the card.
+      title: '',
+      bodyMarkdown: null,
+      safetyCritical: snippet.kind === 'safety_check',
+      sectionId,
+      snippetId: snippet.id,
+    };
+    beginSave();
+    try {
+      const created = await createProcedureStep(doc.id, input);
+      setLocalSteps((prev) => [...prev, created]);
+      // Don't default-expand a snippet-backed step — its content is
+      // read-only until detached, and the collapsed row already shows the
+      // resolved title.
+      endSave(true);
       setTimeout(() => {
         document.getElementById(`cms-step-${created.id}`)?.scrollIntoView({
           behavior: 'smooth',
@@ -578,6 +624,7 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
               dragId={dragId}
               dropTargetId={dropTargetId}
               onAddStep={() => addStep(g.section.id)}
+              onInsertSnippet={() => setSnippetPickerSectionId(g.section.id)}
               onRenameSection={(t) => renameSection(g.section.id, t)}
               onDeleteSection={() => removeSection(g.section.id)}
               onPatchStep={patchStep}
@@ -610,6 +657,15 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
         </button>
         <button
           type="button"
+          onClick={() => setSnippetPickerSectionId(null)}
+          className="group flex flex-1 items-center justify-center gap-2 rounded-md border border-dashed border-line bg-surface px-4 py-4 text-sm font-medium text-ink-secondary transition hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
+          title="Insert a reusable step (Lockout-Tagout, Safety Briefing, etc.). Edits to the snippet propagate to every step that uses it."
+        >
+          <Puzzle className="size-4" />
+          Insert snippet
+        </button>
+        <button
+          type="button"
           onClick={addSection}
           className="group flex flex-1 items-center justify-center gap-2 rounded-md border border-dashed border-line bg-surface px-4 py-4 text-sm font-medium text-ink-secondary transition hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
           title='Add a named section (e.g. "Removal", "Replacement"). Step numbers restart inside each section.'
@@ -618,6 +674,16 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
           Add section
         </button>
       </div>
+
+      <SnippetPickerModal
+        open={snippetPickerSectionId !== undefined}
+        onClose={() => setSnippetPickerSectionId(undefined)}
+        onPick={(s) => {
+          const targetSection = snippetPickerSectionId ?? null;
+          void addStepFromSnippet(s, targetSection);
+        }}
+        ownerOrganizationId={doc.ownerOrganizationId}
+      />
     </div>
   );
 }
@@ -634,6 +700,7 @@ function SectionGroup({
   dragId,
   dropTargetId,
   onAddStep,
+  onInsertSnippet,
   onRenameSection,
   onDeleteSection,
   onPatchStep,
@@ -654,6 +721,7 @@ function SectionGroup({
   dragId: string | null;
   dropTargetId: string | null;
   onAddStep: () => void;
+  onInsertSnippet: () => void;
   onRenameSection: (title: string) => void;
   onDeleteSection: () => void;
   onPatchStep: (
@@ -753,14 +821,25 @@ function SectionGroup({
         </ol>
       )}
 
-      <button
-        type="button"
-        onClick={onAddStep}
-        className="group flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-line bg-surface px-4 py-3 text-xs font-medium text-ink-secondary transition hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
-      >
-        <Plus className="size-3.5 transition group-hover:rotate-90" />
-        Add step in this section
-      </button>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onAddStep}
+          className="group flex flex-1 items-center justify-center gap-2 rounded-md border border-dashed border-line bg-surface px-4 py-3 text-xs font-medium text-ink-secondary transition hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
+        >
+          <Plus className="size-3.5 transition group-hover:rotate-90" />
+          Add step
+        </button>
+        <button
+          type="button"
+          onClick={onInsertSnippet}
+          className="flex flex-1 items-center justify-center gap-2 rounded-md border border-dashed border-line bg-surface px-4 py-3 text-xs font-medium text-ink-secondary transition hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
+          title="Insert a reusable snippet"
+        >
+          <Puzzle className="size-3.5" />
+          Insert snippet
+        </button>
+      </div>
     </section>
   );
 }

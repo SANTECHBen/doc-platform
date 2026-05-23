@@ -11,12 +11,16 @@ import {
   ChevronUp,
   ClipboardCheck,
   Film,
+  Globe2,
   GripVertical,
+  Link2,
   ListChecks,
   MoreVertical,
+  Puzzle,
   Ruler,
   ShieldAlert,
   Trash2,
+  Unlink2,
   Upload as UploadIcon,
 } from 'lucide-react';
 import {
@@ -277,6 +281,30 @@ export function StepCard({
           </span>
           {/* Quiet status pills — only render when set. Keeps the row
               uncluttered for plain instruction steps. */}
+          {step.snippetBadge && (
+            <span
+              className={[
+                'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium shrink-0',
+                step.snippetBadge.detached
+                  ? 'border border-line-subtle text-ink-tertiary'
+                  : 'bg-accent/10 text-accent',
+              ].join(' ')}
+              title={
+                step.snippetBadge.detached
+                  ? `Detached from snippet "${step.snippetBadge.title}". Edits stay on this step.`
+                  : `From snippet "${step.snippetBadge.title}". Edits to the snippet propagate here.`
+              }
+            >
+              {step.snippetBadge.isPlatform ? (
+                <Globe2 className="size-3" />
+              ) : (
+                <Puzzle className="size-3" />
+              )}
+              <span className="max-w-[8rem] truncate">
+                {step.snippetBadge.title}
+              </span>
+            </span>
+          )}
           {safetyCritical && (
             <ShieldAlert
               className="size-3.5 text-signal-warn shrink-0"
@@ -404,11 +432,32 @@ export function StepCard({
               videos panels each manage their own empty/non-empty states
               to keep this card terse when there's no media attached. */}
           <div className="flex flex-col gap-3 p-3">
+            {step.snippetBadge && (
+              <SnippetBanner
+                badge={step.snippetBadge}
+                onDetach={async () => {
+                  // Server flips snippet_detached on any blocks/title edit;
+                  // re-send the current blocks (with a no-op trailing space
+                  // appended then trimmed by validation? — simpler: send a
+                  // blocks copy. Server diffs aren't required; sending the
+                  // same array still counts as an edit.)
+                  // Actually we send back the resolved (snippet-expanded)
+                  // blocks the user is currently seeing. Server's detach
+                  // logic copies snippet content if blocks isn't supplied,
+                  // but supplying them is explicit + idempotent.
+                  await onPatch({ blocks: step.blocks });
+                }}
+              />
+            )}
             <input
               type="text"
               value={title}
               onChange={(e) => onTitleChange(e.target.value)}
-              placeholder="Short imperative — e.g., Apply LOTO and verify zero energy"
+              placeholder={
+                step.snippetBadge && !step.snippetBadge.detached
+                  ? `Override snippet title (or leave blank to use "${step.snippetBadge.title}")`
+                  : 'Short imperative — e.g., Apply LOTO and verify zero energy'
+              }
               className="w-full bg-transparent text-lg font-semibold text-ink-primary outline-none placeholder:text-ink-tertiary/60 focus:placeholder:text-ink-tertiary/40"
               autoFocus={defaultExpanded}
             />
@@ -583,6 +632,68 @@ function StepKebabMenu({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+// Banner shown at the top of an expanded step's body when the step is
+// snippet-backed. Two states:
+//   attached (detached=false) — accent-tinted, shows "From snippet: <title>"
+//     and a Detach button. The body editors below are still functional;
+//     any inline edit flips detach automatically on the server. The Detach
+//     button is an explicit affordance for authors who want to start
+//     editing without typing a stray character first.
+//   detached (detached=true) — quiet line-only treatment. Informational
+//     provenance only; the step has drifted from the snippet.
+function SnippetBanner({
+  badge,
+  onDetach,
+}: {
+  badge: { id: string; title: string; isPlatform: boolean; detached: boolean };
+  onDetach: () => void | Promise<void>;
+}) {
+  if (badge.detached) {
+    return (
+      <div className="flex items-center gap-1.5 text-[11px] text-ink-tertiary">
+        <Unlink2 className="size-3" />
+        Detached from snippet{' '}
+        <span className="font-medium text-ink-secondary">
+          "{badge.title}"
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-accent/30 bg-accent/5 px-3 py-2 text-sm">
+      {badge.isPlatform ? (
+        <Globe2 className="size-4 shrink-0 text-accent" />
+      ) : (
+        <Puzzle className="size-4 shrink-0 text-accent" />
+      )}
+      <div className="flex-1">
+        <p className="text-xs font-medium text-ink-primary">
+          From snippet:{' '}
+          <span className="font-semibold text-accent">{badge.title}</span>
+          {badge.isPlatform && (
+            <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] uppercase tracking-wider text-accent/70">
+              · Global
+            </span>
+          )}
+        </p>
+        <p className="mt-0.5 text-[11px] text-ink-tertiary">
+          Edits to the snippet propagate here. Detach to author this step
+          independently.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={() => void onDetach()}
+        className="inline-flex items-center gap-1 rounded-md border border-line bg-surface-raised px-2 py-1 text-xs font-medium text-ink-secondary transition hover:border-accent/40 hover:text-accent"
+        title="Detach this step from the snippet"
+      >
+        <Unlink2 className="size-3" />
+        Detach
+      </button>
     </div>
   );
 }

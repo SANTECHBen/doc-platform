@@ -27,6 +27,7 @@ import { registerAdminAgent } from './routes/admin-agent';
 import { registerAdminSections } from './routes/admin-sections';
 import { registerProcedureRoutes } from './routes/procedures';
 import { registerAdminProcedureSteps } from './routes/admin-procedure-steps';
+import { registerAdminSnippets } from './routes/admin-snippets';
 import { registerFieldProcedureRoutes } from './routes/field-procedures';
 import { registerFeedbackRoutes } from './routes/feedback';
 import { registerAnalyticsRoutes } from './routes/analytics';
@@ -94,6 +95,7 @@ export async function buildApp(ctx: AppContext) {
   await registerAdminSections(app);
   await registerProcedureRoutes(app);
   await registerAdminProcedureSteps(app);
+  await registerAdminSnippets(app);
   await registerFieldProcedureRoutes(app);
   await registerFeedbackRoutes(app);
   await registerAnalyticsRoutes(app);

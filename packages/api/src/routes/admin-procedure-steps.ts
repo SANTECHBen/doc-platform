@@ -20,6 +20,11 @@ import { z } from 'zod';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth.js';
 import { getScope, requireOrgInScope } from '../middleware/scope.js';
+import {
+  expandStep,
+  loadSnippetMap,
+  type SnippetBadge,
+} from '../services/snippet-expansion.js';
 
 // ---------------------------------------------------------------------------
 // Zod schemas — request bodies
@@ -130,6 +135,12 @@ const StepCreateBody = z
     minPhotoCount: z.number().int().min(0).max(10).optional(),
     measurementSpec: MeasurementSpecSchema.nullable().optional(),
     blocks: BlocksArraySchema.optional(),
+    // Reusable snippet reference. When set, the step's content is resolved
+    // at read time from procedure_snippets (always-latest). Title and
+    // blocks may still be supplied on create — when title is provided it
+    // becomes a per-step override; when blocks are provided they're
+    // ignored at read time as long as snippet_detached=false.
+    snippetId: UuidSchema.nullable().optional(),
   })
   .refine(
     (b) =>
@@ -180,6 +191,11 @@ function rowToDTO(
   opts?: {
     audioPublicUrl?: string | null;
     mediaPublicUrl?: (storageKey: string) => string;
+    /** Override for blocks/title after snippet expansion. When set, these
+     *  replace the row's own blocks/title in the returned DTO. */
+    expanded?: { blocks: StepRow['blocks']; title: string };
+    /** Snippet provenance badge — set when the step references a snippet. */
+    snippetBadge?: SnippetBadge | null;
   },
 ) {
   // Expand each media item with a publicly-resolvable URL so the admin
@@ -189,6 +205,8 @@ function rowToDTO(
     ...m,
     url: opts?.mediaPublicUrl ? opts.mediaPublicUrl(m.storageKey) : null,
   }));
+  const blocks = opts?.expanded ? opts.expanded.blocks : (row.blocks ?? []);
+  const title = opts?.expanded ? opts.expanded.title : row.title;
   return {
     id: row.id,
     documentId: row.documentId,
@@ -196,14 +214,14 @@ function rowToDTO(
     linkedProcedureDocId: row.linkedProcedureDocId,
     linkedProcedureStepIds: row.linkedProcedureStepIds ?? [],
     kind: row.kind,
-    title: row.title,
+    title,
     bodyMarkdown: row.bodyMarkdown,
     safetyCritical: row.safetyCritical,
     orderingHint: row.orderingHint,
     requiresPhoto: row.requiresPhoto,
     minPhotoCount: row.minPhotoCount,
     measurementSpec: row.measurementSpec,
-    blocks: row.blocks ?? [],
+    blocks,
     media,
     audioStorageKey: row.audioStorageKey,
     audioContentType: row.audioContentType,
@@ -211,9 +229,48 @@ function rowToDTO(
     audioDurationMs: row.audioDurationMs,
     audioSource: row.audioSource,
     audioUrl: opts?.audioPublicUrl ?? null,
+    snippetId: row.snippetId,
+    snippetDetached: row.snippetDetached,
+    snippetBadge: opts?.snippetBadge ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+/**
+ * Project a list of step rows through snippet expansion. Returns the same
+ * length-array of DTOs in the same order, with each DTO carrying the
+ * resolved blocks/title and a snippetBadge when a snippet is attached.
+ */
+async function rowsToExpandedDTO(
+  db: Database,
+  rows: StepRow[],
+  ctx: {
+    audioPublicUrl: (storageKey: string) => string;
+    mediaPublicUrl: (storageKey: string) => string;
+  },
+): Promise<ReturnType<typeof rowToDTO>[]> {
+  const snippetMap = await loadSnippetMap(
+    db,
+    rows.map((r) => r.snippetId),
+  );
+  return rows.map((r) => {
+    const expanded = expandStep(
+      {
+        snippetId: r.snippetId,
+        snippetDetached: r.snippetDetached,
+        title: r.title,
+        blocks: r.blocks ?? [],
+      },
+      snippetMap,
+    );
+    return rowToDTO(r, {
+      audioPublicUrl: r.audioStorageKey ? ctx.audioPublicUrl(r.audioStorageKey) : null,
+      mediaPublicUrl: ctx.mediaPublicUrl,
+      expanded: { blocks: expanded.blocks, title: expanded.title },
+      snippetBadge: expanded._snippetBadge,
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -320,14 +377,10 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           asc(schema.procedureSteps.createdAt),
         ],
       });
-      return rows.map((r) =>
-        rowToDTO(r, {
-          audioPublicUrl: r.audioStorageKey
-            ? storage.publicUrl(r.audioStorageKey)
-            : null,
-          mediaPublicUrl: (k) => storage.publicUrl(k),
-        }),
-      );
+      return rowsToExpandedDTO(db, rows, {
+        audioPublicUrl: (k) => storage.publicUrl(k),
+        mediaPublicUrl: (k) => storage.publicUrl(k),
+      });
     },
   );
 
@@ -460,6 +513,25 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         orderingHint = max + 100;
       }
 
+      // Snippet attach on create: verify the snippet exists and the caller
+      // can read it (platform snippets visible to all; org snippets must
+      // be in scope). Reject early with a clear 400 — silently dropping a
+      // bad snippetId would leave the step looking detached on first read.
+      if (body.snippetId) {
+        const snippet = await db.query.procedureSnippets.findFirst({
+          where: eq(schema.procedureSnippets.id, body.snippetId),
+        });
+        if (!snippet) {
+          return reply.badRequest('snippetId not found.');
+        }
+        if (!snippet.isPlatform) {
+          if (!snippet.ownerOrganizationId) {
+            return reply.internalServerError('snippet has no owner');
+          }
+          requireOrgInScope(scope, snippet.ownerOrganizationId);
+        }
+      }
+
       const [row] = await db
         .insert(schema.procedureSteps)
         .values({
@@ -476,6 +548,8 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           minPhotoCount: evidence.minPhotoCount,
           measurementSpec: evidence.measurementSpec ?? null,
           blocks: body.blocks ?? [],
+          snippetId: body.snippetId ?? null,
+          snippetDetached: false,
           createdByUserId: auth.userId,
         })
         .returning();
@@ -492,17 +566,17 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           kind: row.kind,
           title: row.title,
           safetyCritical: row.safetyCritical,
+          snippetId: row.snippetId,
         },
         ipAddress: request.ip,
         userAgent: request.headers['user-agent'] ?? null,
       });
 
-      return rowToDTO(row, {
-        audioPublicUrl: row.audioStorageKey
-          ? app.ctx.storage.publicUrl(row.audioStorageKey)
-          : null,
+      const [dto] = await rowsToExpandedDTO(db, [row], {
+        audioPublicUrl: (k) => app.ctx.storage.publicUrl(k),
         mediaPublicUrl: (k) => app.ctx.storage.publicUrl(k),
       });
+      return dto;
     },
   );
 
@@ -659,6 +733,40 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         patch.measurementSpec = evidence.measurementSpec;
       }
 
+      // Snippet detach-on-edit. If the step references a snippet and is
+      // still attached (snippet_detached=false), and the caller modifies
+      // either blocks or title, then we copy the snippet's current content
+      // into the step's own columns (preserving the visible state) and
+      // flip snippet_detached=true. From this point on the step drifts
+      // independently.
+      //
+      // We do this BEFORE building the SQL UPDATE so the snippet's blocks
+      // (when patch.blocks wasn't supplied) still land in the row at
+      // detach time. Without this, detaching would leave the step with
+      // its prior author-supplied blocks (often empty) and the snippet's
+      // expanded blocks would not be visible after the next read.
+      let detachedNow = false;
+      if (
+        ctx.step.snippetId &&
+        !ctx.step.snippetDetached &&
+        (b.blocks !== undefined || b.title !== undefined)
+      ) {
+        const snippet = await db.query.procedureSnippets.findFirst({
+          where: eq(schema.procedureSnippets.id, ctx.step.snippetId),
+        });
+        if (snippet) {
+          // Capture snippet content into the step row so the post-detach
+          // view matches the pre-detach view, then layer the author's
+          // patch on top.
+          if (b.blocks === undefined) patch.blocks = snippet.blocks;
+          if (b.title === undefined || b.title.length === 0) {
+            patch.title = snippet.title;
+          }
+        }
+        patch.snippetDetached = true;
+        detachedNow = true;
+      }
+
       const [updated] = await db
         .update(schema.procedureSteps)
         .set(patch)
@@ -669,20 +777,22 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
       await db.insert(schema.auditEvents).values({
         organizationId: ctx.ownerOrganizationId,
         actorUserId: auth.userId,
-        eventType: 'procedure_step.updated',
+        eventType: detachedNow ? 'procedure_step.snippet_detached' : 'procedure_step.updated',
         targetType: 'procedure_step',
         targetId: updated.id,
-        payload: { fields: Object.keys(b) },
+        payload: {
+          fields: Object.keys(b),
+          ...(detachedNow ? { snippetId: ctx.step.snippetId } : {}),
+        },
         ipAddress: request.ip,
         userAgent: request.headers['user-agent'] ?? null,
       });
 
-      return rowToDTO(updated, {
-        audioPublicUrl: updated.audioStorageKey
-          ? app.ctx.storage.publicUrl(updated.audioStorageKey)
-          : null,
+      const [dto] = await rowsToExpandedDTO(db, [updated], {
+        audioPublicUrl: (k) => app.ctx.storage.publicUrl(k),
         mediaPublicUrl: (k) => app.ctx.storage.publicUrl(k),
       });
+      return dto;
     },
   );
 
@@ -1252,14 +1362,10 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
 
       return {
         sections: sections.map(sectionRowToDTO),
-        steps: steps.map((r) =>
-          rowToDTO(r, {
-            audioPublicUrl: r.audioStorageKey
-              ? storage.publicUrl(r.audioStorageKey)
-              : null,
-            mediaPublicUrl: (k) => storage.publicUrl(k),
-          }),
-        ),
+        steps: await rowsToExpandedDTO(db, steps, {
+          audioPublicUrl: (k) => storage.publicUrl(k),
+          mediaPublicUrl: (k) => storage.publicUrl(k),
+        }),
       };
     },
   );

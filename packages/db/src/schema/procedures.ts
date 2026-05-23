@@ -18,6 +18,7 @@ import { users } from './users';
 import { assetInstances } from './assets';
 import { agentRuns } from './agent';
 import { workOrders } from './workorders';
+import { procedureSnippets } from './snippets';
 import { procedureStepKindEnum, procedureRunStatusEnum } from './enums';
 
 // Procedure mode — turns kind=structured_procedure documents into
@@ -266,6 +267,21 @@ export const procedureSteps = pgTable(
       { onDelete: 'set null' },
     ),
 
+    // Reusable-snippet link. When set and `snippetDetached=false`, the read
+    // path expands this step's blocks/title from procedure_snippets at
+    // render time (always-latest semantics — edits to the snippet propagate
+    // instantly to every referring step). First inline edit on the step
+    // sets `snippetDetached=true` and copies the snippet's current content
+    // into the step's own columns; subsequent edits drift independently.
+    // onDelete: set null so deleting a snippet does not nuke referring
+    // steps (the badge becomes orphaned but the step content survives via
+    // detach-on-edit; routes refuse to delete a snippet with attached
+    // non-detached references).
+    snippetId: uuid('snippet_id').references(() => procedureSnippets.id, {
+      onDelete: 'set null',
+    }),
+    snippetDetached: boolean('snippet_detached').notNull().default(false),
+
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -282,6 +298,10 @@ export const procedureSteps = pgTable(
       t.sectionId,
       t.orderingHint,
     ),
+    // Partial index for snippet reverse-lookup ("which steps use snippet X?").
+    snippetIdx: index('procedure_steps_snippet_idx')
+      .on(t.snippetId)
+      .where(sql`snippet_id IS NOT NULL`),
   }),
 );
 
@@ -494,6 +514,10 @@ export const procedureStepsRelations = relations(procedureSteps, ({ one, many })
   proposedByAgentRun: one(agentRuns, {
     fields: [procedureSteps.proposedByAgentRunId],
     references: [agentRuns.id],
+  }),
+  snippet: one(procedureSnippets, {
+    fields: [procedureSteps.snippetId],
+    references: [procedureSnippets.id],
   }),
   partLinks: many(partProcedureSteps),
   substeps: many(procedureSubsteps),

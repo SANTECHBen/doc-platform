@@ -300,13 +300,37 @@ Do not speculate about CAUSE or RECOMMEND action — just describe what's in the
           schema.procedureSteps.documentId,
           visibleProcedures.map((p) => p.id),
         ),
-        columns: { documentId: true, title: true, orderingHint: true },
+        columns: {
+          documentId: true,
+          title: true,
+          orderingHint: true,
+          snippetId: true,
+          snippetDetached: true,
+        },
       });
+      // Resolve attached snippets so the AI matcher sees the snippet's
+      // title for any snippet-backed step whose own title is empty.
+      const stepSnippetMap = await (async () => {
+        const ids = allSteps
+          .map((s) => s.snippetId)
+          .filter((id): id is string => !!id && id.length > 0);
+        if (ids.length === 0) return new Map<string, string>();
+        const rows = await db.query.procedureSnippets.findMany({
+          where: inArray(schema.procedureSnippets.id, [...new Set(ids)]),
+          columns: { id: true, title: true },
+        });
+        return new Map(rows.map((r) => [r.id, r.title]));
+      })();
       // Group by docId, sort by ordering, keep first 8 titles per doc.
       const byDoc = new Map<string, Array<{ title: string; orderingHint: number }>>();
       for (const s of allSteps) {
         const arr = byDoc.get(s.documentId) ?? [];
-        arr.push({ title: s.title, orderingHint: s.orderingHint });
+        // Attached snippet wins when the step has no own title.
+        const effectiveTitle =
+          s.snippetId && !s.snippetDetached && (!s.title || s.title.length === 0)
+            ? stepSnippetMap.get(s.snippetId) ?? s.title
+            : s.title;
+        arr.push({ title: effectiveTitle, orderingHint: s.orderingHint });
         byDoc.set(s.documentId, arr);
       }
       for (const [docId, steps] of byDoc.entries()) {

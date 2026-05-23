@@ -218,6 +218,13 @@
       "when": 1779926400000,
       "tag": "0030_asset_instance_image",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1780012800000,
+      "tag": "0031_procedure_snippets",
+      "breakpoints": true
     }
   ]
 }

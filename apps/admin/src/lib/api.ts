@@ -1973,8 +1973,27 @@ export interface AdminProcedureStep {
   audioDurationMs: number | null;
   audioSource: 'uploaded' | 'generated' | null;
   audioUrl: string | null;
+  /** Reusable snippet reference. When set, the step's blocks/title come
+   *  from procedure_snippets (always-latest) until snippetDetached flips
+   *  on first inline edit. */
+  snippetId: string | null;
+  snippetDetached: boolean;
+  /** Snippet provenance — non-null whenever snippetId is set. Lets the
+   *  step card render a "From snippet: X" pill without a second fetch. */
+  snippetBadge: SnippetBadge | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Snippet provenance surfaced on procedure step DTOs. */
+export interface SnippetBadge {
+  id: string;
+  title: string;
+  isPlatform: boolean;
+  /** True once the step has been edited inline and no longer tracks the
+   *  snippet. The badge still renders for provenance but the step content
+   *  is now independent. */
+  detached: boolean;
 }
 
 export interface ProcedureStepAudioResult {
@@ -2080,6 +2099,10 @@ export interface CreateProcedureStepInput {
   minPhotoCount?: number;
   measurementSpec?: MeasurementSpec | null;
   blocks?: StepBlock[];
+  /** Reusable snippet to attach. When set, the step's blocks/title resolve
+   *  from procedure_snippets at read time. Server validates that the
+   *  caller can read the snippet (org-scoped or platform-tier). */
+  snippetId?: string | null;
 }
 
 export type UpdateProcedureStepInput = Partial<CreateProcedureStepInput>;
@@ -2793,3 +2816,167 @@ export async function patchProcedureStepAudioDuration(
   );
   if (!res.ok) throw new Error(`Audio duration ${res.status}: ${await res.text()}`);
 }
+
+// ===========================================================================
+// Procedure snippets — reusable step content (Lockout-Tagout, Safety, etc.)
+// ===========================================================================
+
+export interface AdminSnippet {
+  id: string;
+  title: string;
+  kind: ProcedureStepKind;
+  isPlatform: boolean;
+  ownerOrganizationId: string | null;
+  tags: string[];
+  updatedAt: string;
+}
+
+export interface AdminSnippetReferencePreview {
+  stepId: string;
+  stepTitle: string;
+  documentId: string;
+  documentTitle: string;
+  ownerOrganizationId: string;
+  contentPackVersionId: string;
+}
+
+export interface AdminSnippetDetail {
+  id: string;
+  title: string;
+  kind: ProcedureStepKind;
+  blocks: StepBlock[];
+  tags: string[];
+  isPlatform: boolean;
+  ownerOrganizationId: string | null;
+  createdByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  referenceCount: number;
+  referencesPreview: AdminSnippetReferencePreview[];
+}
+
+export interface AdminSnippetRevision {
+  id: string;
+  snippetId: string;
+  revisionNumber: number;
+  title: string;
+  blocks: StepBlock[];
+  changeNote: string | null;
+  createdByUserId: string | null;
+  createdAt: string;
+}
+
+export interface CreateSnippetInput {
+  title: string;
+  kind?: ProcedureStepKind;
+  blocks?: StepBlock[];
+  tags?: string[];
+  isPlatform?: boolean;
+  /** Required when isPlatform=false. */
+  ownerOrganizationId?: string | null;
+}
+
+export interface UpdateSnippetInput {
+  title?: string;
+  kind?: ProcedureStepKind;
+  blocks?: StepBlock[];
+  tags?: string[];
+  changeNote?: string;
+}
+
+export interface ListSnippetsParams {
+  q?: string;
+  kind?: ProcedureStepKind;
+  ownerOrganizationId?: string | null;
+  includePlatform?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export async function listAdminSnippets(
+  params: ListSnippetsParams = {},
+): Promise<AdminSnippet[]> {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set('q', params.q);
+  if (params.kind) qs.set('kind', params.kind);
+  if (params.ownerOrganizationId !== undefined && params.ownerOrganizationId !== null) {
+    qs.set('ownerOrganizationId', params.ownerOrganizationId);
+  }
+  if (params.includePlatform !== undefined) {
+    qs.set('includePlatform', String(params.includePlatform));
+  }
+  if (params.limit !== undefined) qs.set('limit', String(params.limit));
+  if (params.offset !== undefined) qs.set('offset', String(params.offset));
+  const url = `${API_BASE}/admin/snippets${qs.toString() ? `?${qs}` : ''}`;
+  const res = await fetch(url, { cache: 'no-store', headers: await authHeaders() });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminSnippet[];
+}
+
+export async function getAdminSnippet(id: string): Promise<AdminSnippetDetail> {
+  const res = await fetch(
+    `${API_BASE}/admin/snippets/${encodeURIComponent(id)}`,
+    { cache: 'no-store', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminSnippetDetail;
+}
+
+export async function listSnippetRevisions(
+  id: string,
+  limit = 50,
+): Promise<AdminSnippetRevision[]> {
+  const res = await fetch(
+    `${API_BASE}/admin/snippets/${encodeURIComponent(id)}/revisions?limit=${limit}`,
+    { cache: 'no-store', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminSnippetRevision[];
+}
+
+export async function createAdminSnippet(
+  input: CreateSnippetInput,
+): Promise<AdminSnippetDetail> {
+  const res = await fetch(`${API_BASE}/admin/snippets`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminSnippetDetail;
+}
+
+export async function updateAdminSnippet(
+  id: string,
+  input: UpdateSnippetInput,
+): Promise<AdminSnippetDetail> {
+  const res = await fetch(
+    `${API_BASE}/admin/snippets/${encodeURIComponent(id)}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminSnippetDetail;
+}
+
+export async function deleteAdminSnippet(
+  id: string,
+): Promise<{ ok: true } | { statusCode: 409; references: AdminSnippetReferencePreview[] }> {
+  const res = await fetch(
+    `${API_BASE}/admin/snippets/${encodeURIComponent(id)}`,
+    { method: 'DELETE', headers: await authHeaders() },
+  );
+  if (res.status === 409) {
+    const body = (await res.json()) as {
+      statusCode: 409;
+      references: AdminSnippetReferencePreview[];
+    };
+    return body;
+  }
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { ok: true };
+}
+

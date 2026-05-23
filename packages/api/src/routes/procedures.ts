@@ -35,6 +35,11 @@ import { z } from 'zod';
 import { schema, type Database } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth';
+import {
+  expandStep,
+  loadSnippetMap,
+  type SnippetBadge,
+} from '../services/snippet-expansion';
 
 // ---------------------------------------------------------------------------
 // Zod request schemas
@@ -114,7 +119,13 @@ type StepRow = typeof schema.procedureSteps.$inferSelect;
 type RunRow = typeof schema.procedureRuns.$inferSelect;
 type CompletionRow = typeof schema.procedureStepCompletions.$inferSelect;
 
-function stepToDTO(s: StepRow) {
+function stepToDTO(
+  s: StepRow,
+  opts?: {
+    expanded?: { blocks: StepRow['blocks']; title: string };
+    snippetBadge?: SnippetBadge | null;
+  },
+) {
   return {
     id: s.id,
     documentId: s.documentId,
@@ -122,14 +133,43 @@ function stepToDTO(s: StepRow) {
     linkedProcedureDocId: s.linkedProcedureDocId,
     linkedProcedureStepIds: s.linkedProcedureStepIds ?? [],
     kind: s.kind,
-    title: s.title,
+    title: opts?.expanded ? opts.expanded.title : s.title,
     bodyMarkdown: s.bodyMarkdown,
     safetyCritical: s.safetyCritical,
     orderingHint: s.orderingHint,
     requiresPhoto: s.requiresPhoto,
     minPhotoCount: s.minPhotoCount,
     measurementSpec: s.measurementSpec,
+    blocks: opts?.expanded ? opts.expanded.blocks : (s.blocks ?? []),
+    snippetBadge: opts?.snippetBadge ?? null,
   };
+}
+
+/**
+ * Map a list of step rows through snippet expansion. Used by the PWA run
+ * routes so the Job Aid renders snippet-backed steps with current content
+ * + a "From snippet: …" badge.
+ */
+async function stepsToDTOWithExpansion(
+  db: Database,
+  rows: StepRow[],
+): Promise<ReturnType<typeof stepToDTO>[]> {
+  const snippetMap = await loadSnippetMap(db, rows.map((r) => r.snippetId));
+  return rows.map((s) => {
+    const expanded = expandStep(
+      {
+        snippetId: s.snippetId,
+        snippetDetached: s.snippetDetached,
+        title: s.title,
+        blocks: s.blocks ?? [],
+      },
+      snippetMap,
+    );
+    return stepToDTO(s, {
+      expanded: { blocks: expanded.blocks, title: expanded.title },
+      snippetBadge: expanded._snippetBadge,
+    });
+  });
 }
 
 function sectionToDTO(s: typeof schema.procedureSections.$inferSelect) {
@@ -387,7 +427,7 @@ export async function registerProcedureRoutes(app: FastifyInstance) {
           safetyCritical: doc.safetyCritical,
         },
         sections: sections.map(sectionToDTO),
-        steps: steps.map(stepToDTO),
+        steps: await stepsToDTOWithExpansion(db, steps),
         completions: completions.map(completionToDTO),
       };
     },
@@ -434,7 +474,7 @@ export async function registerProcedureRoutes(app: FastifyInstance) {
           safetyCritical: ctx.document.safetyCritical,
         },
         sections: sections.map(sectionToDTO),
-        steps: steps.map(stepToDTO),
+        steps: await stepsToDTOWithExpansion(db, steps),
         completions: completions.map(completionToDTO),
       };
     },

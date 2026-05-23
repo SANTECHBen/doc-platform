@@ -7,6 +7,12 @@ export type { VoiceQuotaConfig, VoiceUsage, NewVoiceUsage } from './schema/voice
 export type { RequiredTools, ProcedureDocMetadata } from './schema/content';
 export { normalizeRequiredTools } from './schema/content';
 export type { PmPlanFrequency } from './schema/preventive-maintenance';
+export type {
+  ProcedureSnippet,
+  NewProcedureSnippet,
+  ProcedureSnippetRevision,
+  NewProcedureSnippetRevision,
+} from './schema/snippets';
 export {
   PM_PLAN_FREQUENCY_DAYS,
   PM_PLAN_FREQUENCY_LABEL,

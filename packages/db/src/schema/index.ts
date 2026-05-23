@@ -14,6 +14,7 @@ export * from './qr-label-templates';
 export * from './embeddings';
 export * from './agent';
 export * from './document-sections';
+export * from './snippets';
 export * from './procedures';
 export * from './feedback';
 export * from './voice-usage';

@@ -30,6 +30,7 @@ import { requireAuth } from '../middleware/auth';
 import { getScope, requireOrgInScope } from '../middleware/scope';
 import { ensureFieldCapturesVersion } from '../lib/field-captures-pack';
 import { enqueueExtraction } from '../lib/extraction';
+import { expandStep, loadSnippetMap } from '../services/snippet-expansion';
 
 // ---------------------------------------------------------------------------
 // Zod schemas
@@ -1370,6 +1371,11 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
           })
         : [];
       const linkedById = new Map(linkedDocs.map((d) => [d.id, d]));
+      // Resolve snippet content for any snippet-backed steps. Returned blocks
+      // / title are replaced with the snippet's current content for attached
+      // (non-detached) steps; detached steps render their own content with a
+      // provenance badge.
+      const snippetMap = await loadSnippetMap(db, steps.map((s) => s.snippetId));
       const stepIds = steps.map((s) => s.id);
       const substeps = stepIds.length
         ? await db.query.procedureSubsteps.findMany({
@@ -1447,7 +1453,17 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
           description: sec.description,
           orderingHint: sec.orderingHint,
         })),
-        steps: steps.map((s) => ({
+        steps: steps.map((s) => {
+          const expanded = expandStep(
+            {
+              snippetId: s.snippetId,
+              snippetDetached: s.snippetDetached,
+              title: s.title,
+              blocks: s.blocks ?? [],
+            },
+            snippetMap,
+          );
+          return {
           id: s.id,
           sectionId: s.sectionId,
           linkedProcedureDocId: s.linkedProcedureDocId,
@@ -1466,7 +1482,7 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
                 }
               : null,
           kind: s.kind,
-          title: s.title,
+          title: expanded.title,
           bodyMarkdown: s.bodyMarkdown,
           safetyCritical: s.safetyCritical,
           orderingHint: s.orderingHint,
@@ -1480,9 +1496,11 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
             : null,
           audioDurationMs: s.audioDurationMs,
           audioSource: s.audioSource,
-          // Typed structured-content blocks. New authoring writes here;
-          // legacy rows fall back to bodyMarkdown until edited.
-          blocks: s.blocks ?? [],
+          // Typed structured-content blocks. Snippet-attached steps inherit
+          // the snippet's current blocks via expandStep above. Detached
+          // steps keep their own content (badge surfaces detached state).
+          blocks: expanded.blocks,
+          snippetBadge: expanded._snippetBadge,
           media: (s.media ?? []).map((m) => ({
             ...m,
             url: storage.publicUrl(m.storageKey),
@@ -1493,7 +1511,8 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
             bodyMarkdown: ss.bodyMarkdown,
             orderingHint: ss.orderingHint,
           })),
-        })),
+          };
+        }),
       };
     },
   );
