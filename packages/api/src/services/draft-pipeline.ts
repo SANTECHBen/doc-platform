@@ -52,6 +52,26 @@ interface MuxAssetEvent {
   playback_ids?: Array<{ id: string; policy?: string }>;
   duration?: number;
   static_renditions?: { files?: Array<{ name?: string }> };
+  aspect_ratio?: string;
+}
+
+/** Classify a Mux `aspect_ratio` ("16:9", "9:16", "4:3", "1:1") into the
+ *  coarse buckets the runner needs: portrait, landscape, or square. Falls
+ *  back to landscape when the ratio is malformed (the runner's default
+ *  styling assumes landscape). */
+function classifyOrientation(
+  aspectRatio: string | null | undefined,
+): 'portrait' | 'landscape' | 'square' | null {
+  if (!aspectRatio) return null;
+  const m = aspectRatio.match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
+  if (!m) return null;
+  const w = Number(m[1]);
+  const h = Number(m[2]);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null;
+  // 2% tolerance around square so something like 1.02:1 still reads square.
+  const ratio = w / h;
+  if (Math.abs(ratio - 1) < 0.02) return 'square';
+  return ratio < 1 ? 'portrait' : 'landscape';
 }
 
 /** video.upload.asset_created — Mux just created the asset row.
@@ -84,11 +104,15 @@ export async function onDraftMuxAssetReady(
 ): Promise<void> {
   const playbackId = data.playback_ids?.[0]?.id ?? null;
   const durationMs = data.duration ? Math.round(data.duration * 1000) : null;
+  const aspectRatio = data.aspect_ratio ?? null;
+  const orientation = classifyOrientation(aspectRatio);
   const updates: Record<string, unknown> = {
     muxPlaybackId: playbackId,
     updatedAt: new Date(),
   };
   if (durationMs != null) updates.sourceVideoDurationMs = durationMs;
+  if (aspectRatio) updates.sourceVideoAspectRatio = aspectRatio;
+  if (orientation) updates.sourceVideoOrientation = orientation;
   // Mux storyboard sprite is accessible at a deterministic URL given the
   // playbackId (Mux serves it as an animated sprite + JPEG; we use the
   // JPEG sprite for the LLM image attachment).
@@ -265,6 +289,12 @@ export async function refreshDraftFromMux(
       if (asset.duration && !run.sourceVideoDurationMs) {
         updates.sourceVideoDurationMs = Math.round(asset.duration * 1000);
         changed.push('duration');
+      }
+      if (asset.aspectRatio && !run.sourceVideoAspectRatio) {
+        updates.sourceVideoAspectRatio = asset.aspectRatio;
+        const orientation = classifyOrientation(asset.aspectRatio);
+        if (orientation) updates.sourceVideoOrientation = orientation;
+        changed.push('aspectRatio');
       }
       // Advance status when asset is ready and we're still in
       // uploading/transcribing — the webhook may have missed.
@@ -606,12 +636,22 @@ async function runDrafterLoop(
     ? `https://image.mux.com/${run.muxPlaybackId}/thumbnail.jpg?width=1280&height=720&fit_mode=preserve`
     : null;
 
+  // Extract caption cue boundaries (in ms) from the VTT so the LLM's
+  // clip range picks can be snapped to the nearest spoken-sentence edge
+  // by the loop's post-process. Falls back to an empty array when the
+  // run was transcribed via Whisper (no VTT persisted).
+  const cueBoundariesMs = run.sourceCaptionsVtt
+    ? extractCueBoundariesMs(run.sourceCaptionsVtt)
+    : [];
+
   try {
     const result = await runLoop({
       transcriptWithTimestamps: transcriptWithTimestamps.slice(0, 60_000),
       durationMs: run.sourceVideoDurationMs ?? 0,
       storyboardImageUrl,
       proposedTitle: run.proposedTitle,
+      procedureCategory: run.procedureCategory ?? null,
+      captionCueBoundariesMs: cueBoundariesMs,
       onStepEmitted: (step) => {
         agentBus.publish(runChannel(runId, 'propose'), 'step_emitted', {
           clientId: step.clientId,
@@ -755,6 +795,8 @@ export async function runDrafterExecution(params: {
       synthesizeTts,
       fetchKeyframe,
       sourcePlaybackId: playbackId,
+      sourceAspectRatio: run.sourceVideoAspectRatio,
+      sourceOrientation: run.sourceVideoOrientation,
       onProgress: (event) => {
         agentBus.publish(runChannel(runId, 'execute'), event.phase, {
           clientId: event.clientId,
@@ -1002,4 +1044,43 @@ function deriveTranscriptWithTimestamps(run: { sourceCaptionsVtt: string | null;
     return parseVtt(run.sourceCaptionsVtt).withTimestamps;
   }
   return run.sourceTranscript ?? '';
+}
+
+/** Pull every cue boundary (start + end timestamps) out of a VTT, in ms,
+ *  deduplicated and sorted ascending. Used by the drafter loop to snap
+ *  the LLM's proposed clip edges to real spoken-sentence boundaries so
+ *  clips don't start mid-word or end mid-syllable. */
+function extractCueBoundariesMs(vtt: string): number[] {
+  const lines = vtt.split(/\r?\n/);
+  const out = new Set<number>();
+  const cueLine = /^(\d{1,2}:\d{2}(?::\d{2})?\.\d+)\s+-->\s+(\d{1,2}:\d{2}(?::\d{2})?\.\d+)/;
+  for (const raw of lines) {
+    const m = raw.trim().match(cueLine);
+    if (!m) continue;
+    const start = vttToMs(m[1]!);
+    const end = vttToMs(m[2]!);
+    if (start != null) out.add(start);
+    if (end != null) out.add(end);
+  }
+  return Array.from(out).sort((a, b) => a - b);
+}
+
+function vttToMs(ts: string): number | null {
+  // Accept hh:mm:ss.mmm or mm:ss.mmm.
+  const parts = ts.split(':');
+  let h = 0;
+  let m = 0;
+  let s = 0;
+  if (parts.length === 3) {
+    h = Number(parts[0]);
+    m = Number(parts[1]);
+    s = Number(parts[2]);
+  } else if (parts.length === 2) {
+    m = Number(parts[0]);
+    s = Number(parts[1]);
+  } else {
+    return null;
+  }
+  if (!Number.isFinite(h) || !Number.isFinite(m) || !Number.isFinite(s)) return null;
+  return Math.round((h * 3600 + m * 60 + s) * 1000);
 }

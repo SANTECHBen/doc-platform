@@ -38,6 +38,17 @@ const CreateBody = z.object({
   proposedTitle: z.string().min(1).max(200),
   targetContentPackVersionId: UuidSchema,
   ownerOrganizationId: UuidSchema,
+  /** Optional up-front category pick — admin-initiated drafts usually
+   *  know what they're filming. PWA-submitted drafts set this later via
+   *  PATCH /:id/category before tapping "Run AI". */
+  procedureCategory: z
+    .enum([
+      'preventive_maintenance',
+      'removal_replacement',
+      'troubleshooting',
+      'walkthrough',
+    ])
+    .optional(),
 });
 
 const ListQuery = z.object({
@@ -86,6 +97,9 @@ function runToDTO(r: typeof schema.procedureDraftRuns.$inferSelect) {
     muxPlaybackId: r.muxPlaybackId,
     sourceVideoDurationMs: r.sourceVideoDurationMs,
     sourceVideoSizeBytes: r.sourceVideoSizeBytes,
+    sourceVideoAspectRatio: r.sourceVideoAspectRatio,
+    sourceVideoOrientation: r.sourceVideoOrientation,
+    procedureCategory: r.procedureCategory,
     transcriptSource: r.transcriptSource,
     hasTranscript: !!r.sourceTranscript,
     hasStoryboard: !!r.storyboardVttUrl,
@@ -101,6 +115,13 @@ function runToDTO(r: typeof schema.procedureDraftRuns.$inferSelect) {
     updatedAt: r.updatedAt.toISOString(),
   };
 }
+
+const ProcedureCategorySchema = z.enum([
+  'preventive_maintenance',
+  'removal_replacement',
+  'troubleshooting',
+  'walkthrough',
+]);
 
 function proposalToDTO(p: typeof schema.procedureDraftProposals.$inferSelect) {
   return {
@@ -154,6 +175,7 @@ export async function registerAdminProcedureDrafts(app: FastifyInstance) {
           targetContentPackVersionId: body.targetContentPackVersionId,
           proposedTitle: body.proposedTitle,
           status: 'uploading',
+          procedureCategory: body.procedureCategory ?? null,
           createdByUserId: auth.userId,
         })
         .returning();
@@ -493,6 +515,60 @@ export async function registerAdminProcedureDrafts(app: FastifyInstance) {
           })
         : null;
       return reply.code(202).send({ ok: true, streamToken });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // PATCH /admin/procedure-drafts/:id/category — set the procedure
+  // category (PM / R&R / Troubleshooting / Walkthrough). Drives the LLM
+  // prompt and post-process section grouping. Admins set this on the
+  // reviewer page before tapping "Run AI" so the drafter has the right
+  // schema in mind. Editable at any point before execute, since the
+  // category influences how the executor groups steps.
+  // -------------------------------------------------------------------------
+  app.patch<{
+    Params: { id: string };
+    Body: { procedureCategory: z.infer<typeof ProcedureCategorySchema> | null };
+  }>(
+    '/admin/procedure-drafts/:id/category',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema }),
+        body: z.object({
+          procedureCategory: ProcedureCategorySchema.nullable(),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const run = await loadRun(db, request.params.id);
+      if (!run) return reply.notFound();
+      requireDraftAccess(run, scope);
+      if (run.status === 'completed' || run.status === 'cancelled') {
+        return reply.conflict(
+          `cannot change category in terminal status '${run.status}'`,
+        );
+      }
+      await db
+        .update(schema.procedureDraftRuns)
+        .set({
+          procedureCategory: request.body.procedureCategory,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.procedureDraftRuns.id, run.id));
+      await db.insert(schema.auditEvents).values({
+        organizationId: run.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'procedure_draft.category_set',
+        targetType: 'procedure_draft_run',
+        targetId: run.id,
+        payload: { procedureCategory: request.body.procedureCategory },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+      return reply.send({ ok: true });
     },
   );
 

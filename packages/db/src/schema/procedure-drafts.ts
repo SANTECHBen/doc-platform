@@ -57,6 +57,23 @@ export const procedureDraftTranscriptSourceEnum = pgEnum(
   ['mux_captions', 'whisper_fallback', 'manual'],
 );
 
+// Author-set procedure category. Mirrors the runtime ProcedureCategory in
+// content.ts; persisted on the draft run so the LLM prompt + executor can
+// branch on it (R&R auto-splits into Removal/Replacement sections, PM
+// enforces a pre-check step, troubleshooting expects observe/decide flow).
+export const procedureDraftCategoryEnum = pgEnum(
+  'procedure_draft_category',
+  [
+    'preventive_maintenance',
+    'removal_replacement',
+    'troubleshooting',
+    'walkthrough',
+  ],
+);
+
+export type ProcedureDraftCategory =
+  (typeof procedureDraftCategoryEnum.enumValues)[number];
+
 export type ProcedureDraftRunStatus =
   (typeof procedureDraftRunStatusEnum.enumValues)[number];
 
@@ -85,6 +102,23 @@ export const procedureDraftRuns = pgTable(
     muxPlaybackId: text('mux_playback_id'),
     sourceVideoSizeBytes: bigint('source_video_size_bytes', { mode: 'number' }),
     sourceVideoDurationMs: integer('source_video_duration_ms'),
+    // Aspect ratio as Mux reports it: "16:9", "9:16", "1:1", "4:3" etc.
+    // Captured from video.asset.ready so the runner can frame the player
+    // in matching orientation (portrait clip → portrait container, not a
+    // letterboxed landscape box with black bars).
+    sourceVideoAspectRatio: text('source_video_aspect_ratio'),
+    // Coarse classification of the aspect ratio. Stored alongside the raw
+    // string so consumers (admin UI, MuxClipPlayer, doc viewer) don't
+    // re-parse the ratio on every render. Filled at the same time the
+    // ratio lands.
+    sourceVideoOrientation: text('source_video_orientation').$type<
+      'portrait' | 'landscape' | 'square' | null
+    >(),
+    // Author-picked category. Drives prompt selection and post-process
+    // section grouping (R&R auto-creates Removal + Replacement sections).
+    // Filled in by the admin before tapping "Run AI" on PWA-submitted
+    // drafts, or up-front on admin-initiated drafts.
+    procedureCategory: procedureDraftCategoryEnum('procedure_category'),
     // Transcript text + raw VTT. We persist both: VTT carries cue timing
     // for the storyboard prompt; plain text drives downstream summaries.
     sourceTranscript: text('source_transcript'),

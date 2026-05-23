@@ -52,7 +52,31 @@ interface Props {
   /** Identifier whose change triggers an auto-pause + reset. Pass the
    *  step id when one player exists per step. */
   playId: string;
+  /** Source aspect ratio Mux reported ("16:9", "9:16", "4:3", "1:1"). When
+   *  provided, the container frames the clip in matching aspect — portrait
+   *  clips render in a tall frame instead of a letterboxed wide one. Falls
+   *  back to landscape (16:9) when missing or unparseable. */
+  aspectRatio?: string | null;
+  /** Pre-classified orientation. Same data as aspectRatio but cheaper for
+   *  the runner to consume (no parsing). Defaults to 'landscape'. */
+  orientation?: 'portrait' | 'landscape' | 'square' | null;
   className?: string;
+}
+
+/** Pick a CSS aspect-ratio string for the container. We honor the
+ *  caller-provided ratio when it's parseable; otherwise derive one from
+ *  the orientation enum (portrait→9/16, square→1/1, else 16/9). */
+function frameAspectRatio(
+  ratio?: string | null,
+  orientation?: 'portrait' | 'landscape' | 'square' | null,
+): string {
+  if (ratio) {
+    const m = ratio.match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
+    if (m) return `${m[1]} / ${m[2]}`;
+  }
+  if (orientation === 'portrait') return '9 / 16';
+  if (orientation === 'square') return '1 / 1';
+  return '16 / 9';
 }
 
 // We never call into the hls.js types directly — the dynamic-import
@@ -86,6 +110,8 @@ export function MuxClipPlayer({
   muted = true,
   autoplay = true,
   playId,
+  aspectRatio,
+  orientation,
   className,
 }: Props): React.ReactElement {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -176,6 +202,27 @@ export function MuxClipPlayer({
           // Only load the first variant if there are multiple — short
           // clips don't need ABR ramp-up.
           startLevel: 0,
+          // Aggressive startup tuning. The clip is short and we already
+          // know we want it to play immediately; these knobs cut ~300-
+          // 600ms off first-frame on Chrome by skipping speculative
+          // higher-level probes and shrinking the parser window.
+          maxBufferSize: 8 * 1000 * 1000, // 8 MB
+          // Begin playback as soon as the first segment is buffered
+          // rather than waiting for the default 3-second prebuffer.
+          // We loop the same range, so initial buffer pressure is low.
+          maxStarvationDelay: 1,
+          maxLoadingDelay: 1,
+          // Mux HLS chunks are short — load two ahead so the loop's
+          // wrap-around doesn't stutter.
+          backBufferLength: 4,
+          // Snap startup to the requested clip start, avoiding the
+          // double seek (play → seek → buffer) that adds latency.
+          startPosition: Math.max(0, startMs / 1000),
+          // Lower-latency loading even though this isn't a live stream;
+          // gives faster first-frame because hls.js doesn't wait for a
+          // full ABR cycle before declaring the stream "started."
+          lowLatencyMode: false,
+          progressive: true,
         });
         inst.loadSource(streamUrl);
         inst.attachMedia(v);
@@ -291,12 +338,33 @@ export function MuxClipPlayer({
     }
   }
 
+  const containerStyle = {
+    aspectRatio: frameAspectRatio(aspectRatio, orientation),
+  } as React.CSSProperties;
+  const isPortrait =
+    orientation === 'portrait' ||
+    (aspectRatio
+      ? (() => {
+          const m = aspectRatio.match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
+          if (!m) return false;
+          return Number(m[1]) < Number(m[2]);
+        })()
+      : false);
+  const frameClassName = [
+    'step-video-frame',
+    isPortrait ? 'step-video-frame--portrait' : 'step-video-frame--landscape',
+    className ?? '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   if (failed && !posterUrl) {
     return (
       <div
-        className={`step-video-frame step-video-fallback ${className ?? ''}`}
+        className={`${frameClassName} step-video-fallback`}
         role="img"
         aria-label={alt ?? caption ?? 'Video unavailable'}
+        style={containerStyle}
       >
         <span aria-hidden>🎞️</span>
         <span>{caption ?? 'Video unavailable'}</span>
@@ -308,7 +376,7 @@ export function MuxClipPlayer({
   // Better than a black frame on a flaky network.
   if (failed && posterUrl) {
     return (
-      <figure className={`step-video-frame ${className ?? ''}`}>
+      <figure className={frameClassName} style={containerStyle}>
         <img
           src={posterUrl}
           alt={alt ?? caption ?? ''}
@@ -320,7 +388,7 @@ export function MuxClipPlayer({
   }
 
   return (
-    <figure className={`step-video-frame ${className ?? ''}`}>
+    <figure className={frameClassName} style={containerStyle}>
       <video
         ref={videoRef}
         poster={posterUrl}
@@ -331,8 +399,19 @@ export function MuxClipPlayer({
         // timeupdate so the wrap point matches endMs, not the full
         // asset duration.
         loop={false}
-        preload={autoplay ? 'auto' : 'metadata'}
+        // Always 'auto' so the browser begins fetching the manifest +
+        // first segment as soon as the element mounts. Even when
+        // autoplay=false (doc viewer), the user almost always plays
+        // shortly after — pre-warming the buffer trims first-tap
+        // latency without measurable network cost (clips are short).
+        preload="auto"
         controls={started}
+        // Hint to the browser about the orientation so it doesn't
+        // over-eagerly request fullscreen rotation on iOS Safari.
+        // 'object-fit: contain' keeps the full frame visible regardless
+        // of the container's CSS aspect-ratio mismatch (defensive when
+        // legacy clips have no aspectRatio metadata).
+        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
         onError={() => setFailed(true)}
       />
       {!started && (

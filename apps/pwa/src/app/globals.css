@@ -4531,12 +4531,31 @@
   .step-video-frame {
     position: relative;
     width: 100%;
+    /* aspect-ratio is set inline by MuxClipPlayer based on the source clip
+       orientation. This rule provides the fallback (16:9) for non-Mux
+       callers like the authored step-video-player that don't pass an
+       aspectRatio prop. */
     aspect-ratio: 16 / 9;
     border-radius: 12px;
     overflow: hidden;
     background: rgb(0 0 0);
     border: 1px solid rgb(var(--brand) / 0.35);
     box-shadow: 0 4px 18px rgb(0 0 0 / 0.18);
+  }
+  /* Portrait clips (filmed vertically on phones) get a tall frame capped
+     to keep them visually balanced with neighboring landscape steps and
+     to avoid pushing other UI off the screen on small viewports. The
+     inline aspect-ratio MuxClipPlayer sets handles the actual ratio;
+     this just bounds the max width so a 9:16 doesn't fill the whole
+     step card on desktop. */
+  .step-video-frame--portrait {
+    max-width: 340px;
+    margin-inline: auto;
+  }
+  @media (min-width: 768px) {
+    .step-video-frame--portrait {
+      max-width: 380px;
+    }
   }
   /* Full-bleed image-dominant hero block. The procedure intro renders
      this when a heroVideo is set so the video spans edge to edge under

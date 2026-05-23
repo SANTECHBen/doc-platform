@@ -2863,6 +2863,12 @@ export type ProcedureDraftTranscriptSource =
   | 'whisper_fallback'
   | 'manual';
 
+export type ProcedureDraftCategory =
+  | 'preventive_maintenance'
+  | 'removal_replacement'
+  | 'troubleshooting'
+  | 'walkthrough';
+
 export interface AdminDraftRun {
   id: string;
   ownerOrganizationId: string;
@@ -2875,6 +2881,16 @@ export interface AdminDraftRun {
   muxPlaybackId: string | null;
   sourceVideoDurationMs: number | null;
   sourceVideoSizeBytes: number | null;
+  /** Mux-reported aspect ratio ("16:9", "9:16", "4:3", "1:1"). Null on
+   *  runs created before this field landed or while the asset is still
+   *  processing. */
+  sourceVideoAspectRatio: string | null;
+  /** Pre-classified orientation derived from sourceVideoAspectRatio. */
+  sourceVideoOrientation: 'portrait' | 'landscape' | 'square' | null;
+  /** Author-picked category (set on the draft reviewer before "Run AI").
+   *  Drives the LLM prompt and post-process section grouping. Null until
+   *  the admin makes a pick. */
+  procedureCategory: ProcedureDraftCategory | null;
   transcriptSource: ProcedureDraftTranscriptSource | null;
   hasTranscript: boolean;
   hasStoryboard: boolean;
@@ -3033,6 +3049,21 @@ export async function cancelProcedureDraft(id: string): Promise<void> {
   const res = await fetch(`${API_BASE}/admin/procedure-drafts/${id}/cancel`, {
     method: 'POST',
     headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+/** Set or clear the procedure category on a draft. Admins set this on
+ *  the reviewer page before tapping "Run AI" so the drafter has the
+ *  right schema in mind. Pass null to clear. */
+export async function setProcedureDraftCategory(
+  id: string,
+  procedureCategory: ProcedureDraftCategory | null,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/admin/procedure-drafts/${id}/category`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+    body: JSON.stringify({ procedureCategory }),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }

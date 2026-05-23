@@ -95,6 +95,16 @@ export type ProcedureStepMedia =
         startMs: number;
         /** Exclusive end of the clip range, in ms. */
         endMs: number;
+        /** Source aspect ratio reported by Mux (e.g. "16:9", "9:16"). The
+         *  runner uses this to frame the clip in matching orientation
+         *  rather than letterboxing a portrait clip into a landscape box.
+         *  Optional: legacy clips without this field default to landscape
+         *  framing. */
+        aspectRatio?: string;
+        /** Coarse orientation derived from aspectRatio at proposal time.
+         *  Stored so the runner doesn't need to parse the ratio on every
+         *  render. Optional for the same legacy-fallback reason. */
+        orientation?: 'portrait' | 'landscape' | 'square';
       };
     };
 

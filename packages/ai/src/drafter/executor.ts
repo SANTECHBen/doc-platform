@@ -45,6 +45,15 @@ export interface DrafterExecutorContext {
    *  clip range from Mux at view time (no per-step file is generated —
    *  the [startMs, endMs] window plays from the same HLS stream). */
   sourcePlaybackId: string;
+  /** Aspect ratio Mux reported for the source video (e.g. "16:9", "9:16").
+   *  Threaded onto every step's video_clip so the runner can pick the
+   *  right player frame (portrait vs. landscape) without inspecting the
+   *  HLS stream itself. Null for legacy assets where Mux didn't report
+   *  one — the runner falls back to landscape framing. */
+  sourceAspectRatio?: string | null;
+  /** Coarse orientation derived from the aspect ratio. Same propagation
+   *  reasoning as sourceAspectRatio. */
+  sourceOrientation?: 'portrait' | 'landscape' | 'square' | null;
   /** Called once per step with a per-step status update. The API wires
    *  this to the SSE bus so the reviewer page can show live progress. */
   onProgress?: (event: {
@@ -198,6 +207,12 @@ export async function executeDrafter(
                     playbackId: ctx.sourcePlaybackId,
                     startMs: step.clipStartMs,
                     endMs: step.clipEndMs,
+                    ...(ctx.sourceAspectRatio
+                      ? { aspectRatio: ctx.sourceAspectRatio }
+                      : {}),
+                    ...(ctx.sourceOrientation
+                      ? { orientation: ctx.sourceOrientation }
+                      : {}),
                   },
                 },
               ],

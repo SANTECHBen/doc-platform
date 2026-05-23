@@ -8,10 +8,15 @@ import {
   CheckCircle2,
   Clapperboard,
   Film,
+  Layers,
   Loader2,
   Play,
   Rocket,
+  Smartphone,
+  Tablet,
+  Wrench,
   XCircle,
+  Zap,
 } from 'lucide-react';
 import { useToast } from '@/components/toast';
 import { PageHeader, PageShell } from '@/components/page-shell';
@@ -30,10 +35,13 @@ import {
   patchProcedureDraftProposal,
   refreshProcedureDraftFromMux,
   runAiOnProcedureDraft,
+  setProcedureDraftCategory,
   type AdminDraftDetail,
   type AdminDraftProposalTree,
   type AdminDraftStepProposal,
+  type ProcedureDraftCategory,
 } from '@/lib/api';
+import { MuxClipPreview } from '@/components/mux-clip-preview';
 
 type Phase =
   | 'loading'
@@ -186,12 +194,35 @@ export default function DraftReviewerPage() {
   }
 
   async function runAi() {
+    if (!detail?.run.procedureCategory) {
+      toast.error(
+        'Pick a category first',
+        'PM / R&R / Troubleshooting / Walkthrough — pick one before running the AI so the prompt biases the right way.',
+      );
+      return;
+    }
     setBusy(true);
     try {
       await runAiOnProcedureDraft(runId);
       toast.success('AI started', 'Claude is segmenting the transcript now.');
     } catch (e) {
       toast.error('Run AI failed', e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setCategory(category: ProcedureDraftCategory | null) {
+    if (!detail) return;
+    setBusy(true);
+    try {
+      await setProcedureDraftCategory(runId, category);
+      setDetail({
+        ...detail,
+        run: { ...detail.run, procedureCategory: category },
+      });
+    } catch (e) {
+      toast.error('Set category failed', e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -257,13 +288,42 @@ export default function DraftReviewerPage() {
       <PageHeader
         title={detail?.run.proposedTitle ?? 'Loading…'}
         description={
-          <span className="inline-flex items-center gap-2 text-xs">
-            <Clapperboard size={14} /> AI procedure drafter
-            {detail?.run.transcriptSource ? ` · transcript: ${detail.run.transcriptSource}` : ''}
-            {detail?.proposal?.tokenUsage
-              ? ` · tokens: ${detail.proposal.tokenUsage.inputTokens}/${detail.proposal.tokenUsage.outputTokens}`
-              : ''}
-          </span>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="inline-flex items-center gap-1 text-ink-secondary">
+              <Clapperboard size={14} /> AI procedure drafter
+            </span>
+            {detail?.run.sourceVideoOrientation && (
+              <Chip>
+                {detail.run.sourceVideoOrientation === 'portrait' ? (
+                  <Smartphone size={11} />
+                ) : (
+                  <Tablet size={11} />
+                )}
+                <span className="capitalize">
+                  {detail.run.sourceVideoOrientation}
+                </span>
+                {detail.run.sourceVideoAspectRatio && (
+                  <span className="text-ink-tertiary">
+                    · {detail.run.sourceVideoAspectRatio}
+                  </span>
+                )}
+              </Chip>
+            )}
+            {detail?.run.procedureCategory && (
+              <Chip tone="accent">
+                {CATEGORY_LABEL[detail.run.procedureCategory]}
+              </Chip>
+            )}
+            {detail?.run.transcriptSource && (
+              <Chip>transcript: {detail.run.transcriptSource}</Chip>
+            )}
+            {detail?.proposal?.tokenUsage && (
+              <Chip>
+                tokens: {detail.proposal.tokenUsage.inputTokens}/
+                {detail.proposal.tokenUsage.outputTokens}
+              </Chip>
+            )}
+          </div>
         }
         actions={
           <div className="flex items-center gap-2">
@@ -340,7 +400,12 @@ export default function DraftReviewerPage() {
       )}
 
       {phase === 'pending_decision' && detail && (
-        <PendingDecisionPanel detail={detail} runId={runId} />
+        <PendingDecisionPanel
+          detail={detail}
+          runId={runId}
+          onSetCategory={(c) => void setCategory(c)}
+          busy={busy}
+        />
       )}
 
       {(phase === 'transcribing' || phase === 'proposing') && (
@@ -362,12 +427,25 @@ export default function DraftReviewerPage() {
         <div className="grid gap-6 lg:grid-cols-[1fr_460px]">
           <main className="flex flex-col gap-3">
             {detail.playbackId && (
-              <video
-                controls
-                preload="metadata"
-                className="w-full rounded-md border border-line bg-black"
-                src={`https://stream.mux.com/${detail.playbackId}/low.mp4`}
-              />
+              <div
+                className="sticky top-3 z-10 overflow-hidden rounded-md border border-line bg-black"
+                style={{
+                  aspectRatio: aspectRatioFor(
+                    detail.run.sourceVideoAspectRatio,
+                    detail.run.sourceVideoOrientation,
+                  ),
+                  ...(detail.run.sourceVideoOrientation === 'portrait'
+                    ? { maxWidth: '420px', marginInline: 'auto' }
+                    : {}),
+                }}
+              >
+                <video
+                  controls
+                  preload="metadata"
+                  className="h-full w-full object-contain"
+                  src={`https://stream.mux.com/${detail.playbackId}/low.mp4`}
+                />
+              </div>
             )}
             {detail.transcript && (
               <details className="rounded-md border border-line bg-surface px-3 py-2 text-xs text-ink-secondary">
@@ -394,7 +472,12 @@ export default function DraftReviewerPage() {
               </div>
             )}
           </main>
-          <aside className="flex flex-col gap-2">
+          <aside className="flex flex-col gap-3">
+            <CategoryBanner
+              category={detail.run.procedureCategory}
+              onChange={(c) => void setCategory(c)}
+              disabled={busy || phase !== 'ready'}
+            />
             {detail.proposal.content.warnings.length > 0 && (
               <div className="rounded-md border border-signal-warn/30 bg-signal-warn/5 px-3 py-2 text-[11px] text-signal-warn">
                 <p className="font-semibold uppercase tracking-wider">Warnings</p>
@@ -405,23 +488,17 @@ export default function DraftReviewerPage() {
                 </ul>
               </div>
             )}
-            <ol className="flex flex-col gap-2">
-              {draftSteps.map((step, i) => (
-                <li key={step.clientId}>
-                  <DraftStepCard
-                    step={step}
-                    index={i}
-                    canMoveUp={i > 0}
-                    canMoveDown={i < draftSteps.length - 1}
-                    locked={phase !== 'ready'}
-                    onChange={(patch) => updateStep(step.clientId, patch)}
-                    onRemove={() => removeStep(step.clientId)}
-                    onMoveUp={() => moveStep(step.clientId, -1)}
-                    onMoveDown={() => moveStep(step.clientId, 1)}
-                  />
-                </li>
-              ))}
-            </ol>
+            <SectionedSteps
+              steps={draftSteps}
+              category={detail.run.procedureCategory}
+              playbackId={detail.playbackId}
+              aspectRatio={detail.run.sourceVideoAspectRatio}
+              orientation={detail.run.sourceVideoOrientation}
+              locked={phase !== 'ready'}
+              onUpdate={updateStep}
+              onRemove={removeStep}
+              onMove={moveStep}
+            />
           </aside>
         </div>
       )}
@@ -435,24 +512,44 @@ export default function DraftReviewerPage() {
 // and use the page-header "Run AI on this" or "Dismiss" buttons.
 function PendingDecisionPanel({
   detail,
-  runId,
+  runId: _runId,
+  onSetCategory,
+  busy,
 }: {
   detail: AdminDraftDetail;
   runId: string;
+  onSetCategory: (c: ProcedureDraftCategory | null) => void;
+  busy: boolean;
 }) {
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
       <main className="flex flex-col gap-3">
         {detail.playbackId && (
-          <video
-            controls
-            preload="metadata"
-            className="w-full rounded-md border border-line bg-black"
-            src={`https://stream.mux.com/${detail.playbackId}/low.mp4`}
-          />
+          <div
+            className="relative w-full overflow-hidden rounded-md border border-line bg-black"
+            style={{
+              aspectRatio: aspectRatioFor(
+                detail.run.sourceVideoAspectRatio,
+                detail.run.sourceVideoOrientation,
+              ),
+              ...(detail.run.sourceVideoOrientation === 'portrait'
+                ? { maxWidth: '420px', marginInline: 'auto' }
+                : {}),
+            }}
+          >
+            <video
+              controls
+              preload="metadata"
+              className="h-full w-full object-contain"
+              src={`https://stream.mux.com/${detail.playbackId}/low.mp4`}
+            />
+          </div>
         )}
         {detail.transcript ? (
-          <details className="rounded-md border border-line bg-surface px-3 py-2 text-xs text-ink-secondary" open>
+          <details
+            className="rounded-md border border-line bg-surface px-3 py-2 text-xs text-ink-secondary"
+            open
+          >
             <summary className="cursor-pointer text-ink-primary">
               Transcript ({detail.transcript.length} chars)
             </summary>
@@ -469,11 +566,16 @@ function PendingDecisionPanel({
         )}
       </main>
       <aside className="flex flex-col gap-3">
+        <CategoryPicker
+          value={detail.run.procedureCategory}
+          onChange={onSetCategory}
+          disabled={busy}
+        />
         <div className="rounded-md border border-line bg-surface-raised px-3 py-3 text-xs">
           <p className="font-semibold text-ink-primary">Ready for your decision</p>
           <p className="mt-1 text-ink-secondary">
-            A tech submitted this walkthrough from the PWA. Watch the clip
-            and skim the transcript, then:
+            A tech submitted this walkthrough from the PWA. Pick a
+            category, watch the clip, then:
           </p>
           <ul className="mt-2 ml-4 list-disc space-y-1 text-ink-secondary">
             <li>
@@ -486,6 +588,11 @@ function PendingDecisionPanel({
               spending on the LLM. The video stays in Mux for reference.
             </li>
           </ul>
+          {!detail.run.procedureCategory && (
+            <p className="mt-2 rounded border border-signal-warn/30 bg-signal-warn/5 px-2 py-1.5 text-[11px] text-signal-warn">
+              Pick a category before tapping Run AI — the prompt depends on it.
+            </p>
+          )}
         </div>
       </aside>
     </div>
@@ -523,6 +630,9 @@ function DraftStepCard({
   canMoveUp,
   canMoveDown,
   locked,
+  playbackId,
+  aspectRatio,
+  orientation,
   onChange,
   onRemove,
   onMoveUp,
@@ -533,6 +643,9 @@ function DraftStepCard({
   canMoveUp: boolean;
   canMoveDown: boolean;
   locked: boolean;
+  playbackId: string | null;
+  aspectRatio: string | null;
+  orientation: 'portrait' | 'landscape' | 'square' | null;
   onChange: (patch: Partial<AdminDraftStepProposal>) => void;
   onRemove: () => void;
   onMoveUp: () => void;
@@ -608,6 +721,17 @@ function DraftStepCard({
           </button>
         </div>
       </div>
+      {playbackId && (
+        <div className="mb-2 mt-1">
+          <MuxClipPreview
+            playbackId={playbackId}
+            startMs={step.clipStartMs}
+            endMs={step.clipEndMs}
+            aspectRatio={aspectRatio}
+            orientation={orientation}
+          />
+        </div>
+      )}
       <TextInput
         value={step.title}
         onChange={(e) => onChange({ title: e.target.value })}
@@ -675,6 +799,423 @@ function DraftStepCard({
       )}
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Category picker, banner, chips, section grouping
+// ---------------------------------------------------------------------------
+
+const CATEGORY_LABEL: Record<ProcedureDraftCategory, string> = {
+  preventive_maintenance: 'Preventive Maintenance',
+  removal_replacement: 'Removal & Replacement',
+  troubleshooting: 'Troubleshooting',
+  walkthrough: 'Walkthrough',
+};
+
+const CATEGORY_OPTIONS: Array<{
+  value: ProcedureDraftCategory;
+  label: string;
+  hint: string;
+  icon: React.ReactNode;
+}> = [
+  {
+    value: 'preventive_maintenance',
+    label: 'Preventive Maintenance',
+    hint: 'Scheduled, no part swap. Pre-check → inspect → restore.',
+    icon: <Wrench size={14} />,
+  },
+  {
+    value: 'removal_replacement',
+    label: 'Removal & Replacement',
+    hint: 'Old part out, new part in. Auto-splits into 2 sections.',
+    icon: <Layers size={14} />,
+  },
+  {
+    value: 'troubleshooting',
+    label: 'Troubleshooting',
+    hint: 'Observe → measure → branch. Numeric thresholds favored.',
+    icon: <Zap size={14} />,
+  },
+  {
+    value: 'walkthrough',
+    label: 'Walkthrough',
+    hint: 'Freeform narration. One step per demonstrated action.',
+    icon: <Play size={14} />,
+  },
+];
+
+function Chip({
+  children,
+  tone = 'default',
+}: {
+  children: React.ReactNode;
+  tone?: 'default' | 'accent';
+}) {
+  const cls =
+    tone === 'accent'
+      ? 'bg-accent/10 text-accent border-accent/30'
+      : 'bg-surface-elevated text-ink-secondary border-line';
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${cls}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+function CategoryPicker({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: ProcedureDraftCategory | null;
+  onChange: (c: ProcedureDraftCategory | null) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="rounded-md border border-line bg-surface-raised px-3 py-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary">
+          Procedure category
+        </p>
+        {value && (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            disabled={disabled}
+            className="text-[10px] font-medium text-ink-tertiary underline hover:text-ink-primary disabled:opacity-30"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      <div className="mt-2 grid grid-cols-1 gap-1.5">
+        {CATEGORY_OPTIONS.map((opt) => {
+          const active = value === opt.value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChange(opt.value)}
+              className={[
+                'group flex items-start gap-2 rounded-md border px-2.5 py-2 text-left transition',
+                active
+                  ? 'border-accent bg-accent/10'
+                  : 'border-line bg-surface hover:border-accent/40 hover:bg-accent/5',
+                disabled ? 'opacity-50' : '',
+              ].join(' ')}
+              aria-pressed={active}
+            >
+              <span
+                className={[
+                  'mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px]',
+                  active
+                    ? 'bg-accent text-white'
+                    : 'bg-surface-elevated text-ink-secondary group-hover:bg-accent/20 group-hover:text-accent',
+                ].join(' ')}
+              >
+                {opt.icon}
+              </span>
+              <span className="min-w-0">
+                <span
+                  className={[
+                    'block text-xs font-semibold',
+                    active ? 'text-accent' : 'text-ink-primary',
+                  ].join(' ')}
+                >
+                  {opt.label}
+                </span>
+                <span className="block text-[10px] leading-snug text-ink-tertiary">
+                  {opt.hint}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CategoryBanner({
+  category,
+  onChange,
+  disabled,
+}: {
+  category: ProcedureDraftCategory | null;
+  onChange: (c: ProcedureDraftCategory | null) => void;
+  disabled?: boolean;
+}) {
+  // Inline compact picker for the reviewer aside — same options as the
+  // pending-decision panel, but condensed to a row of pills so the
+  // primary focus stays on the step tree.
+  return (
+    <div className="rounded-md border border-line bg-surface-raised px-2.5 py-2">
+      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary">
+        Category
+      </p>
+      <div className="flex flex-wrap gap-1">
+        {CATEGORY_OPTIONS.map((opt) => {
+          const active = category === opt.value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => onChange(active ? null : opt.value)}
+              disabled={disabled}
+              className={[
+                'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition',
+                active
+                  ? 'border-accent bg-accent text-white'
+                  : 'border-line bg-surface text-ink-secondary hover:border-accent/40 hover:text-ink-primary',
+                disabled ? 'opacity-50' : '',
+              ].join(' ')}
+              title={opt.hint}
+              aria-pressed={active}
+            >
+              {opt.icon}
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Detect whether a step belongs to the Removal or Replacement phase of
+// an R&R procedure. Mirrors the heuristic the LLM prompt requests
+// ("first-word convention"). Falls back to "Removal" for unmatched
+// titles in the first half of the step list and "Replacement" in the
+// second half — best-effort so the section UI never silently drops a
+// step.
+const REMOVAL_VERBS = new Set([
+  'remove',
+  'disconnect',
+  'loosen',
+  'unscrew',
+  'lift',
+  'pull',
+  'unbolt',
+  'detach',
+  'unplug',
+  'extract',
+  'drain',
+  'open',
+  'unlock',
+  'release',
+]);
+const REPLACEMENT_VERBS = new Set([
+  'install',
+  'connect',
+  'tighten',
+  'screw',
+  'seat',
+  'attach',
+  'plug',
+  'fasten',
+  'replace',
+  'mount',
+  'close',
+  'secure',
+  'torque',
+  'reapply',
+]);
+
+function classifyRrPhase(
+  step: AdminDraftStepProposal,
+  index: number,
+  total: number,
+): 'removal' | 'replacement' | 'verify' {
+  const firstWord = step.title.trim().split(/\s+/)[0]?.toLowerCase().replace(/[^a-z]/g, '') ?? '';
+  if (REMOVAL_VERBS.has(firstWord)) return 'removal';
+  if (REPLACEMENT_VERBS.has(firstWord)) return 'replacement';
+  if (/verify|confirm|check|test/i.test(step.title)) return 'verify';
+  // Positional fallback: first half assumed removal, second half assumed
+  // replacement. The admin can drag-reorder if the heuristic miscalls.
+  return index < total / 2 ? 'removal' : 'replacement';
+}
+
+function SectionedSteps({
+  steps,
+  category,
+  playbackId,
+  aspectRatio,
+  orientation,
+  locked,
+  onUpdate,
+  onRemove,
+  onMove,
+}: {
+  steps: AdminDraftStepProposal[];
+  category: ProcedureDraftCategory | null;
+  playbackId: string | null;
+  aspectRatio: string | null;
+  orientation: 'portrait' | 'landscape' | 'square' | null;
+  locked: boolean;
+  onUpdate: (id: string, patch: Partial<AdminDraftStepProposal>) => void;
+  onRemove: (id: string) => void;
+  onMove: (id: string, delta: -1 | 1) => void;
+}) {
+  // R&R groups into Removal / Replacement; other categories render a
+  // single flat list. We compute index lookups so the move handlers
+  // still operate on the global step order even when rendered by group.
+  if (category !== 'removal_replacement') {
+    return (
+      <ol className="flex flex-col gap-2">
+        {steps.map((step, i) => (
+          <li key={step.clientId}>
+            <DraftStepCard
+              step={step}
+              index={i}
+              canMoveUp={i > 0}
+              canMoveDown={i < steps.length - 1}
+              locked={locked}
+              playbackId={playbackId}
+              aspectRatio={aspectRatio}
+              orientation={orientation}
+              onChange={(patch) => onUpdate(step.clientId, patch)}
+              onRemove={() => onRemove(step.clientId)}
+              onMoveUp={() => onMove(step.clientId, -1)}
+              onMoveDown={() => onMove(step.clientId, 1)}
+            />
+          </li>
+        ))}
+      </ol>
+    );
+  }
+
+  const phases = steps.map((s, i) => classifyRrPhase(s, i, steps.length));
+  const removal: Array<{ step: AdminDraftStepProposal; absoluteIndex: number }> = [];
+  const replacement: Array<{ step: AdminDraftStepProposal; absoluteIndex: number }> = [];
+  const verify: Array<{ step: AdminDraftStepProposal; absoluteIndex: number }> = [];
+  steps.forEach((s, i) => {
+    const p = phases[i];
+    const target = p === 'removal' ? removal : p === 'replacement' ? replacement : verify;
+    target.push({ step: s, absoluteIndex: i });
+  });
+
+  return (
+    <div className="flex flex-col gap-3">
+      <SectionGroup
+        title="Removal"
+        accent="bg-signal-warn/15 text-signal-warn"
+        items={removal}
+        steps={steps}
+        locked={locked}
+        playbackId={playbackId}
+        aspectRatio={aspectRatio}
+        orientation={orientation}
+        onUpdate={onUpdate}
+        onRemove={onRemove}
+        onMove={onMove}
+      />
+      <SectionGroup
+        title="Replacement"
+        accent="bg-signal-ok/15 text-signal-ok"
+        items={replacement}
+        steps={steps}
+        locked={locked}
+        playbackId={playbackId}
+        aspectRatio={aspectRatio}
+        orientation={orientation}
+        onUpdate={onUpdate}
+        onRemove={onRemove}
+        onMove={onMove}
+      />
+      {verify.length > 0 && (
+        <SectionGroup
+          title="Verify"
+          accent="bg-accent/15 text-accent"
+          items={verify}
+          steps={steps}
+          locked={locked}
+          playbackId={playbackId}
+          aspectRatio={aspectRatio}
+          orientation={orientation}
+          onUpdate={onUpdate}
+          onRemove={onRemove}
+          onMove={onMove}
+        />
+      )}
+      <p className="text-[10px] italic text-ink-tertiary">
+        Sections are heuristic (first-word of each title). Drag with ▲▼ or
+        edit the title to reassign a step.
+      </p>
+    </div>
+  );
+}
+
+function SectionGroup({
+  title,
+  accent,
+  items,
+  steps,
+  locked,
+  playbackId,
+  aspectRatio,
+  orientation,
+  onUpdate,
+  onRemove,
+  onMove,
+}: {
+  title: string;
+  accent: string;
+  items: Array<{ step: AdminDraftStepProposal; absoluteIndex: number }>;
+  steps: AdminDraftStepProposal[];
+  locked: boolean;
+  playbackId: string | null;
+  aspectRatio: string | null;
+  orientation: 'portrait' | 'landscape' | 'square' | null;
+  onUpdate: (id: string, patch: Partial<AdminDraftStepProposal>) => void;
+  onRemove: (id: string) => void;
+  onMove: (id: string, delta: -1 | 1) => void;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <section>
+      <h3
+        className={`mb-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${accent}`}
+      >
+        {title} · {items.length}
+      </h3>
+      <ol className="flex flex-col gap-2">
+        {items.map(({ step, absoluteIndex }) => (
+          <li key={step.clientId}>
+            <DraftStepCard
+              step={step}
+              index={absoluteIndex}
+              canMoveUp={absoluteIndex > 0}
+              canMoveDown={absoluteIndex < steps.length - 1}
+              locked={locked}
+              playbackId={playbackId}
+              aspectRatio={aspectRatio}
+              orientation={orientation}
+              onChange={(patch) => onUpdate(step.clientId, patch)}
+              onRemove={() => onRemove(step.clientId)}
+              onMoveUp={() => onMove(step.clientId, -1)}
+              onMoveDown={() => onMove(step.clientId, 1)}
+            />
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function aspectRatioFor(
+  ratio: string | null,
+  orientation: 'portrait' | 'landscape' | 'square' | null,
+): string {
+  if (ratio) {
+    const m = ratio.match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
+    if (m) return `${m[1]} / ${m[2]}`;
+  }
+  if (orientation === 'portrait') return '9 / 16';
+  if (orientation === 'square') return '1 / 1';
+  return '16 / 9';
 }
 
 function formatMmSs(ms: number): string {

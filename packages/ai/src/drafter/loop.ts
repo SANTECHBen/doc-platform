@@ -19,9 +19,14 @@ import {
   type DraftStepProposal,
 } from './schema.js';
 import {
-  VIDEO_DRAFTER_SYSTEM_PROMPT,
+  buildDrafterSystemPrompt,
   buildDraftUserText,
 } from './prompts.js';
+
+// DrafterCategory re-exported from ./prompts.js — the system-prompt
+// guidance is the source of truth for the enum.
+export type { DrafterCategory } from './prompts.js';
+import type { DrafterCategory as DC } from './prompts.js';
 
 export interface DrafterLoopOptions {
   /** Transcript text annotated with [mm:ss] markers. The pipeline assembles
@@ -33,6 +38,15 @@ export interface DrafterLoopOptions {
    *  available (fallback to transcript-only segmentation). */
   storyboardImageUrl: string | null;
   proposedTitle: string;
+  /** Author-picked category. Steers prompt + post-process. When null, the
+   *  drafter falls back to the generic walkthrough prompt (legacy
+   *  behavior — drafts created before category capture). */
+  procedureCategory?: DC | null;
+  /** Cue boundaries (in milliseconds) extracted from the source VTT — used
+   *  to snap clipStartMs/clipEndMs to the nearest spoken-sentence edge.
+   *  Cuts mid-word "ums" out of the looped clip. Empty array disables the
+   *  snap pass. */
+  captionCueBoundariesMs?: number[];
   /** Optional model override. Defaults to anthropic/claude-opus-4.7 routed
    *  through the AI Gateway. */
   model?: LanguageModel | string;
@@ -90,6 +104,31 @@ export async function runDrafterLoop(
   let finalWarnings: string[] = [];
   let finalized = false;
 
+  // Sorted ascending. Empty when transcribed via Whisper (no VTT).
+  const cueBoundaries = options.captionCueBoundariesMs ?? [];
+
+  /** Snap a millisecond timestamp to the nearest VTT cue boundary within
+   *  `maxJumpMs` of the input. Returns the input unchanged if no boundary
+   *  is close enough — the LLM's pick is preserved when it's already
+   *  off-cue (e.g. an action mid-cue). Linear scan is fine: caption
+   *  arrays are <1k entries even for 30-min videos. */
+  function snapToCue(ms: number, maxJumpMs: number): number {
+    if (cueBoundaries.length === 0) return ms;
+    let best = ms;
+    let bestDelta = maxJumpMs + 1;
+    for (const b of cueBoundaries) {
+      const d = Math.abs(b - ms);
+      if (d <= maxJumpMs && d < bestDelta) {
+        best = b;
+        bestDelta = d;
+      }
+      // cueBoundaries is sorted — once we're past the target by more
+      // than maxJumpMs we can stop.
+      if (b > ms + maxJumpMs) break;
+    }
+    return best;
+  }
+
   const tools = {
     emitDraftStep: tool({
       description:
@@ -138,6 +177,41 @@ export async function runDrafterLoop(
           }
         }
 
+        // Snap clip start/end to the nearest VTT cue boundary within 1.2s.
+        // The transcript was authored from caption cues, so cue starts and
+        // ends are real spoken-sentence boundaries — snapping there avoids
+        // mid-word cuts that the LLM commonly produces when it estimates
+        // from [mm:ss] markers (which only resolve to the second).
+        //
+        // After the snap we re-validate the duration window — if the snap
+        // collapsed the range below MIN, we extend the end forward; if it
+        // pushed past MAX, we shrink the end back.
+        if (cueBoundaries.length > 0) {
+          const snappedStart = snapToCue(input.clipStartMs, 1_200);
+          const snappedEnd = snapToCue(input.clipEndMs, 1_200);
+          if (snappedEnd > snappedStart) {
+            input.clipStartMs = snappedStart;
+            input.clipEndMs = snappedEnd;
+          }
+          let snappedSpan = input.clipEndMs - input.clipStartMs;
+          if (snappedSpan < STEP_CLIP_MIN_MS) {
+            input.clipEndMs = input.clipStartMs + STEP_CLIP_MIN_MS;
+            snappedSpan = STEP_CLIP_MIN_MS;
+          }
+          if (snappedSpan > STEP_CLIP_MAX_MS) {
+            input.clipEndMs = input.clipStartMs + STEP_CLIP_MAX_MS;
+          }
+          if (duration > 0 && input.clipEndMs > duration) {
+            input.clipEndMs = duration;
+            if (input.clipEndMs - input.clipStartMs < STEP_CLIP_MIN_MS) {
+              input.clipStartMs = Math.max(
+                0,
+                input.clipEndMs - STEP_CLIP_MIN_MS,
+              );
+            }
+          }
+        }
+
         // Enforce monotonic clip starts across steps. The LLM is told to
         // emit in transcript order; if a later step's start regresses
         // before the previous step's start, nudge it forward to avoid
@@ -151,6 +225,18 @@ export async function runDrafterLoop(
               input.clipStartMs + STEP_CLIP_MIN_MS,
             );
           }
+        }
+
+        // Also nudge keyframe inside the (possibly snapped) clip range so
+        // the poster JPEG shows something representative — not the moment
+        // before the action starts or after it ends.
+        if (
+          input.keyframeTimestampMs < input.clipStartMs ||
+          input.keyframeTimestampMs >= input.clipEndMs
+        ) {
+          input.keyframeTimestampMs = Math.floor(
+            (input.clipStartMs + input.clipEndMs) / 2,
+          );
         }
 
         proposedSteps.push(input);
@@ -190,7 +276,7 @@ export async function runDrafterLoop(
   try {
     const result = streamText({
       model: typeof model === 'string' ? gateway(model) : model,
-      system: VIDEO_DRAFTER_SYSTEM_PROMPT,
+      system: buildDrafterSystemPrompt(options.procedureCategory ?? null),
       messages: [
         {
           role: 'user',

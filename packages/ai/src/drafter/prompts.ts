@@ -10,7 +10,62 @@
 //   - Safety callouts for PPE / LOTO / voltage / lockout / pinch / arc-flash.
 //   - Numeric specs when the transcript mentions torque/PSI/RPM/voltage.
 
-export const VIDEO_DRAFTER_SYSTEM_PROMPT = `You are a senior maintenance technician transcribing a screen-recorded
+export type DrafterCategory =
+  | 'preventive_maintenance'
+  | 'removal_replacement'
+  | 'troubleshooting'
+  | 'walkthrough';
+
+/** Category-specific guidance appended to the system prompt. The admin
+ *  picks the category before running the LLM on the PWA-submitted draft
+ *  (or up-front when creating an admin-initiated draft) so the model can
+ *  bias step structure to the right pattern instead of guessing from the
+ *  transcript. */
+const CATEGORY_GUIDANCE: Record<DrafterCategory, string> = {
+  preventive_maintenance: `# Category: Preventive Maintenance (PM)
+- Begin with a pre-check step: PPE on, equipment de-energized/locked out,
+  required tools at the workstation. If the speaker doesn't say it, still
+  emit it as the first step with safetyCritical=true.
+- Order steps top-down by equipment area (intake, drive, exit, etc.) or
+  by the speaker's natural sequence — whichever the transcript follows.
+- End with a verification step: "Restore power. Verify normal operation
+  for at least 60 seconds." Even if the speaker is brief at the end.`,
+
+  removal_replacement: `# Category: Removal & Replacement (R&R)
+- The proposal MUST split cleanly into two phases: REMOVAL of the old
+  part, then INSTALLATION of the new part. Detect the pivot from the
+  transcript (often a phrase like "now we'll put the new one in" or a
+  pause where the speaker swaps parts).
+- For each step, set the FIRST WORD of the title to either "Remove,"
+  "Disconnect," "Loosen," "Lift" (removal phase) OR "Install," "Connect,"
+  "Tighten," "Seat" (replacement phase). This is a structural signal the
+  executor uses to group steps into "Removal" and "Replacement" sections.
+- If you can't tell which phase a step belongs to, prefix the title with
+  "[phase?]" — the reviewer will reclassify. Don't guess silently.
+- Include a "verify alignment / torque-to-spec" step before final
+  power-on, even if the speaker glossed it.`,
+
+  troubleshooting: `# Category: Troubleshooting
+- Frame each step as either OBSERVE (gather data: "Read the display
+  code," "Measure voltage at TB1") or DECIDE (branch: "If voltage is
+  below 11V, replace the supply; otherwise continue to step N").
+- Prefer measurement_required steps with numeric thresholds — the runner
+  will fail-fast when the reading is out of range.
+- End with a "verified normal operation" step the tech can sign off on.`,
+
+  walkthrough: `# Category: Walkthrough
+- Generic narration — emit each demonstrated action as a single step in
+  transcript order. No section grouping required.`,
+};
+
+export function buildDrafterSystemPrompt(category?: DrafterCategory | null): string {
+  const base = VIDEO_DRAFTER_SYSTEM_PROMPT_BASE;
+  const guidance = category ? CATEGORY_GUIDANCE[category] : null;
+  return guidance ? `${base}\n\n${guidance}` : base;
+}
+
+
+const VIDEO_DRAFTER_SYSTEM_PROMPT_BASE = `You are a senior maintenance technician transcribing a screen-recorded
 walkthrough into a structured, runnable procedure for SANTECH's Job Aid
 runner. The runner reads each step aloud while a field technician is
 hands-busy on the equipment.
@@ -57,30 +112,39 @@ hands-busy on the equipment.
 - Timestamps must be within the video duration. The system rejects steps
   whose timestamp exceeds the duration.
 
-# Per-step video clip range
+# Per-step video clip range — be precise
 - Every step plays a short looped video clip on the tech's screen — the
   clip is cut from the source walkthrough at runtime, not stored as a
-  separate file. You must pick clipStartMs and clipEndMs for each step.
-- clipStartMs = the moment in the video where the step's action visibly
-  begins. Use the transcript's [mm:ss] markers as your reference; aim to
-  start ~500ms before the speaker introduces the action so the tech sees
-  the lead-in, not a mid-sentence cut.
-- clipEndMs = the moment the action completes (or the speaker moves on
-  to the next step). The clip should feel like a single demonstrated
-  motion. Don't include the speaker's wrap-up commentary unless it's
-  visually informative.
+  separate file. The looped clip is the tech's primary visual reference,
+  so cut accuracy matters: a cut that starts mid-sentence or ends before
+  the action completes degrades the whole procedure.
+- Anchor BOTH ends to transcript cue boundaries. The [mm:ss] markers in
+  the transcript correspond to caption-cue starts; pick clipStartMs to
+  match the cue that introduces the action, and clipEndMs to match the
+  end of the cue (or the start of the next cue) where the action is
+  visibly complete. The system also post-processes your picks to snap
+  them to the nearest cue boundary, so picking close is enough.
+- clipStartMs = the moment the action visibly begins. Start at the cue
+  where the speaker first names the action ("Loosen the four bolts…"),
+  NOT a cue earlier where they explain why. The tech wants to see the
+  motion, not preamble.
+- clipEndMs = the moment the action completes. End at the cue where the
+  motion finishes ("…and now they're all out"), not where the speaker
+  starts the next action. The clip should feel like a single motion.
 - Duration constraint: clipEndMs - clipStartMs MUST be between 2000ms
   (2 seconds) and 20000ms (20 seconds). 5-10 seconds is the sweet spot.
   If the underlying action genuinely takes longer (e.g. waiting for a
   tank to drain), pick the most informative 10-second window and let the
   voiceover narrate the rest.
-- Clip ranges should advance monotonically: step N's clipStartMs should
-  be >= step (N-1)'s clipStartMs. Light overlap between consecutive
-  steps is OK (the tech sees the action's context) but don't have clips
-  that play out of order.
+- Clips advance monotonically: step N's clipStartMs MUST be >= step
+  (N-1)'s clipStartMs. Two consecutive steps SHOULD NOT overlap by more
+  than 1 second — overlap > 1s suggests you didn't actually identify a
+  new step. If you can't find a clean boundary, prefer fewer steps.
 - The keyframeTimestampMs you pick is used as the still poster shown
-  while the clip loads. Conventionally pick it inside [clipStartMs,
-  clipEndMs] at the most representative moment.
+  while the clip loads. Pick it INSIDE [clipStartMs, clipEndMs] at the
+  most visually representative moment — ideally a frame where the action
+  is mid-execution (tool in motion, hand on part), not the static
+  before/after state.
 
 # Confidence
 - Score each step 0.0–1.0. Below 0.5 means "I'm guessing the boundary";
