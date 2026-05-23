@@ -78,23 +78,24 @@ const CalloutBlock = z.object({
   kind: z.literal('callout'),
   tone: z.enum(['safety', 'warning', 'tip', 'note']),
   title: z.string().max(120).optional(),
-  text: z.string().min(1).max(2000),
+  // Permissive on write — the slash-menu inserts blocks empty and the
+  // debounced auto-save would otherwise 400 on a freshly-added block
+  // before the author types into it. Empty text renders as nothing in
+  // the runner, which matches the paragraph block behavior.
+  text: z.string().max(2000),
 });
 const BulletListBlock = z.object({
   kind: z.literal('bullet_list'),
-  items: z.array(z.string().min(1).max(800)).min(1).max(50),
+  items: z.array(z.string().max(800)).max(50),
 });
 const NumberedListBlock = z.object({
   kind: z.literal('numbered_list'),
-  items: z.array(z.string().min(1).max(800)).min(1).max(50),
+  items: z.array(z.string().max(800)).max(50),
 });
 const KeyValueBlock = z.object({
   kind: z.literal('key_value'),
-  columns: z.tuple([z.string().min(1).max(60), z.string().min(1).max(60)]),
-  rows: z
-    .array(z.tuple([z.string().min(1).max(200), z.string().min(1).max(200)]))
-    .min(1)
-    .max(60),
+  columns: z.tuple([z.string().max(60), z.string().max(60)]),
+  rows: z.array(z.tuple([z.string().max(200), z.string().max(200)])).max(60),
 });
 const PhotoInlineBlock = z.object({
   kind: z.literal('photo_inline'),
