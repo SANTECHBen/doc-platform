@@ -23,7 +23,24 @@ export type AgentEventType =
   | 'status'
   | 'mux_ready'
   | 'execution_step'
-  | 'done';
+  | 'done'
+  // Drafter pipeline events. Shared with the bus so SSE consumers can
+  // switch on event.type without a custom dispatcher.
+  | 'open'
+  | 'mux_asset_created'
+  | 'mux_asset_ready'
+  | 'transcript_ready'
+  | 'proposing'
+  | 'step_emitted'
+  | 'awaiting_review'
+  | 'executing'
+  | 'starting'
+  | 'keyframe'
+  | 'tts'
+  | 'inserting'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
 
 export interface AgentBusEvent {
   id: number;

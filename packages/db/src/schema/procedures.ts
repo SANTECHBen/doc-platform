@@ -19,6 +19,7 @@ import { assetInstances } from './assets';
 import { agentRuns } from './agent';
 import { workOrders } from './workorders';
 import { procedureSnippets } from './snippets';
+import { procedureDraftRuns } from './procedure-drafts';
 import { procedureStepKindEnum, procedureRunStatusEnum } from './enums';
 
 // Procedure mode — turns kind=structured_procedure documents into
@@ -269,6 +270,13 @@ export const procedureSteps = pgTable(
     // accepts an agent run's step proposal. Null today.
     proposedByAgentRunId: uuid('proposed_by_agent_run_id').references(
       () => agentRuns.id,
+      { onDelete: 'set null' },
+    ),
+    // Set when this step was materialized by the AI video-walkthrough
+    // drafter's executor. Lets the admin reviewer surface a "Drafted from
+    // video. [View source]" banner that links back to the run.
+    proposedByDraftRunId: uuid('proposed_by_draft_run_id').references(
+      () => procedureDraftRuns.id,
       { onDelete: 'set null' },
     ),
 

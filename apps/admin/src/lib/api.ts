@@ -2818,6 +2818,198 @@ export async function patchProcedureStepAudioDuration(
 }
 
 // ===========================================================================
+// AI video-walkthrough drafter
+// ===========================================================================
+
+export type ProcedureDraftRunStatus =
+  | 'uploading'
+  | 'transcribing'
+  | 'storyboarding'
+  | 'proposing'
+  | 'awaiting_review'
+  | 'executing'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export type ProcedureDraftTranscriptSource =
+  | 'mux_captions'
+  | 'whisper_fallback'
+  | 'manual';
+
+export interface AdminDraftRun {
+  id: string;
+  ownerOrganizationId: string;
+  targetContentPackVersionId: string;
+  targetDocumentId: string | null;
+  proposedTitle: string;
+  status: ProcedureDraftRunStatus;
+  muxUploadId: string | null;
+  muxAssetId: string | null;
+  muxPlaybackId: string | null;
+  sourceVideoDurationMs: number | null;
+  sourceVideoSizeBytes: number | null;
+  transcriptSource: ProcedureDraftTranscriptSource | null;
+  hasTranscript: boolean;
+  hasStoryboard: boolean;
+  error: string | null;
+  createdByUserId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminDraftStepBlock {
+  kind: 'paragraph' | 'callout' | 'bullet_list' | 'numbered_list' | 'key_value';
+  // We type this loosely on the client; server validates against the
+  // discriminated union.
+  [key: string]: unknown;
+}
+
+export interface AdminDraftStepProposal {
+  clientId: string;
+  confidence: number;
+  title: string;
+  kind: ProcedureStepKind;
+  voiceoverText: string;
+  blocks: StepBlock[];
+  keyframeTimestampMs: number;
+  safetyCritical: boolean;
+  requiresPhoto: boolean;
+  minPhotoCount: number;
+  measurementSpec: MeasurementSpec | null;
+  rationale?: string;
+}
+
+export interface AdminDraftProposalTree {
+  schemaVersion: 1;
+  summary?: string;
+  warnings: string[];
+  steps: AdminDraftStepProposal[];
+}
+
+export interface AdminDraftProposal {
+  id: string;
+  runId: string;
+  version: number;
+  content: AdminDraftProposalTree;
+  summary: string | null;
+  modelUsed: string | null;
+  tokenUsage: { inputTokens: number; outputTokens: number; costUsd?: number } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminDraftExecution {
+  id: string;
+  status: 'running' | 'succeeded' | 'partial' | 'failed';
+  proposalVersion: number;
+  error: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export interface AdminDraftDetail {
+  run: AdminDraftRun;
+  proposal: AdminDraftProposal | null;
+  executions: AdminDraftExecution[];
+  playbackId: string | null;
+  transcript: string | null;
+}
+
+export async function createProcedureDraft(input: {
+  proposedTitle: string;
+  targetContentPackVersionId: string;
+  ownerOrganizationId: string;
+}): Promise<{ runId: string; uploadId: string; uploadUrl: string }> {
+  const res = await fetch(`${API_BASE}/admin/procedure-drafts`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { runId: string; uploadId: string; uploadUrl: string };
+}
+
+export async function listProcedureDrafts(
+  ownerOrganizationId?: string,
+): Promise<AdminDraftRun[]> {
+  const qs = ownerOrganizationId ? `?ownerOrganizationId=${ownerOrganizationId}` : '';
+  const res = await fetch(`${API_BASE}/admin/procedure-drafts${qs}`, {
+    cache: 'no-store',
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminDraftRun[];
+}
+
+export async function getProcedureDraft(id: string): Promise<AdminDraftDetail> {
+  const res = await fetch(`${API_BASE}/admin/procedure-drafts/${id}`, {
+    cache: 'no-store',
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminDraftDetail;
+}
+
+export async function patchProcedureDraftProposal(
+  id: string,
+  body: { version: number; content: AdminDraftProposalTree },
+): Promise<AdminDraftProposal> {
+  const res = await fetch(`${API_BASE}/admin/procedure-drafts/${id}/proposal`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminDraftProposal;
+}
+
+export async function executeProcedureDraft(
+  id: string,
+): Promise<{ executionId: string; targetDocumentId: string; streamToken: string | null }> {
+  const res = await fetch(`${API_BASE}/admin/procedure-drafts/${id}/execute`, {
+    method: 'POST',
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as {
+    executionId: string;
+    targetDocumentId: string;
+    streamToken: string | null;
+  };
+}
+
+export async function cancelProcedureDraft(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/admin/procedure-drafts/${id}/cancel`, {
+    method: 'POST',
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+/** Mux Direct Upload — PUTs raw bytes from the browser to Mux. Reuses the
+ *  upload URL minted by createProcedureDraft. */
+export async function uploadDraftVideoToMux(
+  uploadUrl: string,
+  file: File,
+  onProgress?: (frac: number) => void,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`Mux upload ${xhr.status}: ${xhr.responseText}`));
+    };
+    xhr.onerror = () => reject(new Error('Mux upload network error'));
+    xhr.open('PUT', uploadUrl);
+    xhr.send(file);
+  });
+}
+
+// ===========================================================================
 // Procedure snippets — reusable step content (Lockout-Tagout, Safety, etc.)
 // ===========================================================================
 

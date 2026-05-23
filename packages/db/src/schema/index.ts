@@ -15,6 +15,7 @@ export * from './embeddings';
 export * from './agent';
 export * from './document-sections';
 export * from './snippets';
+export * from './procedure-drafts';
 export * from './procedures';
 export * from './search-index';
 export * from './feedback';

@@ -1,6 +1,6 @@
 'use client';
 
-import { Building2, Puzzle, type LucideIcon } from 'lucide-react';
+import { Building2, Clapperboard, Puzzle, type LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
@@ -16,6 +16,12 @@ interface Nav {
 const NAV: Nav[] = [
   { href: '/orgs', label: 'Organizations', icon: Building2, match: /^\/orgs\/?$/ },
   { href: '/snippets', label: 'Snippets', icon: Puzzle, match: /^\/snippets/ },
+  {
+    href: '/procedure-drafts',
+    label: 'AI drafts',
+    icon: Clapperboard,
+    match: /^\/procedure-drafts/,
+  },
 ];
 
 // Slim sidebar shown OUTSIDE an org workspace — i.e. on the org picker,

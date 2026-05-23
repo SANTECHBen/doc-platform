@@ -11,3 +11,4 @@ export * from './search-indexer';
 export * from './extract/index.js';
 export * from './agent/index.js';
 export * from './sections/index.js';
+export * from './drafter/index.js';

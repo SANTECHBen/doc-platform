@@ -29,6 +29,13 @@ import { requireAuth } from '../middleware/auth.js';
 import { startSse } from '../lib/sse.js';
 import { agentBus, runChannel } from '../lib/agent-bus.js';
 import { runProposePhase } from '../lib/agent-runner.js';
+import {
+  parseDraftPassthrough,
+  onDraftMuxAssetCreated,
+  onDraftMuxAssetReady,
+  onDraftMuxTrackReady,
+  onDraftMuxErrored,
+} from '../services/draft-pipeline.js';
 
 export async function registerAdminAgent(app: FastifyInstance) {
   if (app.ctx.env.AGENT_ENABLED !== '1') {
@@ -293,22 +300,31 @@ export async function registerAdminAgent(app: FastifyInstance) {
       return reply.code(400).send({ error: 'invalid signature' });
     }
 
+    // Discriminator: passthrough='draft:<runId>' routes Mux events to the
+    // procedure-draft pipeline; bare ids (no prefix) route to the
+    // onboarding-agent path below.
+    const passthrough = (event.data as { passthrough?: string } | undefined)
+      ?.passthrough;
+    const draftRunId = parseDraftPassthrough(passthrough);
+
     if (event.type === 'video.upload.asset_created' && event.data && 'asset_id' in event.data) {
-      const passthrough = (event.data as { passthrough?: string }).passthrough;
       const assetId = (event.data as { asset_id?: string }).asset_id;
-      if (passthrough && assetId) {
+      if (draftRunId) {
+        await onDraftMuxAssetCreated(app, draftRunId, event.data as Parameters<typeof onDraftMuxAssetCreated>[2]);
+      } else if (passthrough && assetId) {
         await app.ctx.db
           .update(schema.agentRunFiles)
           .set({ muxAssetId: assetId, updatedAt: new Date() })
           .where(eq(schema.agentRunFiles.id, passthrough));
       }
     } else if (event.type === 'video.asset.ready' && event.data) {
-      const passthrough = (event.data as { passthrough?: string }).passthrough;
       const playbackIds = (
         event.data as { playback_ids?: Array<{ id: string; policy: string }> }
       ).playback_ids;
       const playbackId = playbackIds?.[0]?.id;
-      if (passthrough) {
+      if (draftRunId) {
+        await onDraftMuxAssetReady(app, draftRunId, event.data as Parameters<typeof onDraftMuxAssetReady>[2]);
+      } else if (passthrough) {
         const [updated] = await app.ctx.db
           .update(schema.agentRunFiles)
           .set({
@@ -332,17 +348,26 @@ export async function registerAdminAgent(app: FastifyInstance) {
           });
         }
       }
+    } else if (
+      // Mux fires this when an asset's auto-captions track becomes
+      // fetchable. The draft pipeline waits for it before invoking the
+      // LLM so the prompt has timestamped transcript content.
+      (event.type as string) === 'video.asset.track.ready' &&
+      event.data
+    ) {
+      if (draftRunId) {
+        const track = (event.data as { track?: Record<string, unknown> }).track ?? {};
+        await onDraftMuxTrackReady(app, draftRunId, track as Parameters<typeof onDraftMuxTrackReady>[2]);
+      }
     } else if (event.type === 'video.asset.errored' && event.data) {
-      const passthrough = (event.data as { passthrough?: string }).passthrough;
       const errors = (event.data as { errors?: { messages?: string[] } }).errors;
-      if (passthrough) {
+      const message = errors?.messages?.join('; ') ?? 'Mux asset errored';
+      if (draftRunId) {
+        await onDraftMuxErrored(app, draftRunId, message);
+      } else if (passthrough) {
         await app.ctx.db
           .update(schema.agentRunFiles)
-          .set({
-            status: 'failed',
-            error: errors?.messages?.join('; ') ?? 'Mux asset errored',
-            updatedAt: new Date(),
-          })
+          .set({ status: 'failed', error: message, updatedAt: new Date() })
           .where(eq(schema.agentRunFiles.id, passthrough));
       }
     }

@@ -19,6 +19,20 @@ export type {
   SearchSourceType,
 } from './schema/search-index';
 export type { StepBlock, MeasurementSpec, ProcedureStepMedia } from './schema/procedures';
+export type {
+  ProcedureDraftRun,
+  NewProcedureDraftRun,
+  ProcedureDraftProposal,
+  NewProcedureDraftProposal,
+  ProcedureDraftExecution,
+  NewProcedureDraftExecution,
+  ProcedureDraftExecutionStep,
+  NewProcedureDraftExecutionStep,
+  ProcedureDraftRunStatus,
+  ProcedureDraftExecutionStatus,
+  ProcedureDraftExecutionStepStatus,
+  ProcedureDraftTokenUsage,
+} from './schema/procedure-drafts';
 export {
   PM_PLAN_FREQUENCY_DAYS,
   PM_PLAN_FREQUENCY_LABEL,
