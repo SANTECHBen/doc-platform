@@ -360,13 +360,27 @@ export async function registerAdminSnippets(app: FastifyInstance) {
       }
       if (q.ownerOrganizationId !== undefined) {
         if (q.ownerOrganizationId === null) {
+          // Explicit request for ONLY platform-tier snippets.
           filters.push(isNull(schema.procedureSnippets.ownerOrganizationId));
         } else {
-          // Caller can narrow to a specific org but only if it's in scope.
+          // Caller is asking to see snippets for this org. When the
+          // caller also opted into platform snippets (the picker does),
+          // OR the two predicates so platform-tier snippets aren't
+          // accidentally excluded by an exact-match filter on
+          // ownerOrganizationId. Previously this hard-filtered out
+          // every platform snippet from the picker.
           requireOrgInScope(scope, q.ownerOrganizationId);
-          filters.push(
-            eq(schema.procedureSnippets.ownerOrganizationId, q.ownerOrganizationId),
+          const orgEq = eq(
+            schema.procedureSnippets.ownerOrganizationId,
+            q.ownerOrganizationId,
           );
+          if (q.includePlatform) {
+            filters.push(
+              or(orgEq, eq(schema.procedureSnippets.isPlatform, true))!,
+            );
+          } else {
+            filters.push(orgEq);
+          }
         }
       }
       if (q.kind) filters.push(eq(schema.procedureSnippets.kind, q.kind));
