@@ -351,6 +351,25 @@ export async function refreshDraftFromMux(
           // track in the branch above.
           const result = await mux.enableAutoCaptions(asset.id, audioTrack.id, 'en');
           if (result.ok) {
+            // Reset the run out of any prior failed/uploading state so
+            // the UI moves to "Transcribing" instead of continuing to
+            // show the stale failure message. Clears `error` too.
+            const recoveryUpdate: Record<string, unknown> = { updatedAt: new Date() };
+            if (run.status === 'failed' || run.status === 'uploading') {
+              recoveryUpdate.status = 'transcribing';
+              recoveryUpdate.error = null;
+              changed.push('status=transcribing');
+              changed.push('error_cleared');
+            } else if (run.error) {
+              recoveryUpdate.error = null;
+              changed.push('error_cleared');
+            }
+            if (Object.keys(recoveryUpdate).length > 1) {
+              await db
+                .update(schema.procedureDraftRuns)
+                .set(recoveryUpdate)
+                .where(eq(schema.procedureDraftRuns.id, run.id));
+            }
             notes.push(
               'requested Mux auto-captions; transcript should arrive in 1-2 min',
             );

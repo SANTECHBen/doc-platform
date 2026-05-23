@@ -289,7 +289,9 @@ export default function DraftReviewerPage() {
                 </PrimaryButton>
               </>
             )}
-            {(phase === 'awaiting_video' || phase === 'transcribing') && (
+            {(phase === 'awaiting_video' ||
+              phase === 'transcribing' ||
+              phase === 'failed') && (
               <SecondaryButton onClick={() => void refreshFromMux()} disabled={busy}>
                 Refresh from Mux
               </SecondaryButton>
