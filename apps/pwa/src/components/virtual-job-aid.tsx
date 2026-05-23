@@ -61,6 +61,12 @@ interface Props {
    *  by sub-procedure pushes where the parent step pinned a specific
    *  subset. Empty / omitted = play all loaded steps. */
   stepIdsFilter?: string[];
+  /** Optional jump-to-step. When set, the runner mounts at this step
+   *  instead of the intro / Step 1. Used by voice-search deep links so
+   *  the tech lands directly on the matched step. The intro panel is
+   *  suppressed in this mode — we assume the tech already knows what
+   *  they're looking at and want the answer immediately. */
+  initialStepId?: string;
 }
 
 // Max nesting depth — refuse to push a sub-procedure deeper than this so
@@ -86,6 +92,10 @@ interface ResolvedJobAid {
     safetyNotes: string | null;
   } | null;
   steps: Array<{
+    /** The source step's id (procedure_steps row UUID). null when the
+     *  source is inline / AI-emitted (no DB row exists). Used by voice-
+     *  search deep links to jump straight to a specific step. */
+    id: string | null;
     title: string;
     bodyMarkdown: string | null;
     blocks: StepBlock[];
@@ -219,6 +229,7 @@ function buildSectionedSteps(
       linkedProcedureStepIds?: string[];
     };
     return {
+      id: s.id,
       title: s.title,
       bodyMarkdown: s.bodyMarkdown ?? null,
       blocks: augmented.blocks ?? [],
@@ -246,6 +257,7 @@ function normalizeFromInline(inline: Extract<JobAidSource, { kind: 'inline' }>):
     // Inline source (AI-emitted steps) never carries a hero video.
     intro: null,
     steps: inline.steps.map((s, i) => ({
+      id: null,
       title: s.title,
       bodyMarkdown: s.bodyMarkdown ?? null,
       blocks: [],
@@ -271,6 +283,7 @@ export function VirtualJobAid({
   autoSpeak = true,
   breadcrumb = [],
   stepIdsFilter,
+  initialStepId,
 }: Props): React.ReactElement {
   const [resolved, setResolved] = useState<ResolvedJobAid | null>(
     source.kind === 'inline' ? normalizeFromInline(source) : null,
@@ -299,10 +312,26 @@ export function VirtualJobAid({
   // start at step 0 — the tech just chose to "Run sub-procedure" and
   // expects to be working immediately, not to watch another intro.
   const isNested = breadcrumb.length > 0;
-  const [showHeroIntro, setShowHeroIntro] = useState(!isNested);
+  const [showHeroIntro, setShowHeroIntro] = useState(!isNested && !initialStepId);
   useEffect(() => {
     if (resolved && !resolved.intro) setShowHeroIntro(false);
   }, [resolved]);
+
+  // Voice-search deep-link jump. When `initialStepId` is set, find the
+  // matching step's index in the resolved list and seek to it once. We
+  // only fire when resolved is non-null AND stepIdx is still at the
+  // initial 0 (don't clobber the tech's manual navigation if the prop
+  // changes mid-session).
+  const jumpedRef = useRef(false);
+  useEffect(() => {
+    if (!initialStepId || !resolved || jumpedRef.current) return;
+    const idx = resolved.steps.findIndex((s) => s.id === initialStepId);
+    if (idx >= 0) {
+      setStepIdx(idx);
+      setShowHeroIntro(false);
+    }
+    jumpedRef.current = true;
+  }, [initialStepId, resolved]);
   // Completion summary panel shown after the tech finishes the last step,
   // before this instance closes. Replaces the prior behavior of closing
   // immediately on Finish — techs reported they wanted a moment to

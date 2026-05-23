@@ -551,6 +551,9 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           snippetId: body.snippetId ?? null,
           snippetDetached: false,
           createdByUserId: auth.userId,
+          // Newly-created step is searchable as soon as the sweeper picks
+          // it up. Indexer is idempotent — it'll dedup on (version, type, id).
+          searchIndexStaleAt: new Date(),
         })
         .returning();
       if (!row) return reply.internalServerError('Failed to create step.');
@@ -732,6 +735,18 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         patch.minPhotoCount = evidence.minPhotoCount;
         patch.measurementSpec = evidence.measurementSpec;
       }
+      // Mark search-index dirty when any field that affects the indexed
+      // text changes. Non-searchable changes (sectionId rebucketing,
+      // ordering, linked sub-procedure picks) don't trigger a re-embed.
+      if (
+        b.title !== undefined ||
+        b.blocks !== undefined ||
+        b.kind !== undefined ||
+        b.safetyCritical !== undefined ||
+        b.sectionId !== undefined
+      ) {
+        patch.searchIndexStaleAt = new Date();
+      }
 
       // Snippet detach-on-edit. If the step references a snippet and is
       // still attached (snippet_detached=false), and the caller modifies
@@ -827,6 +842,19 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
               'Step has historical run evidence and cannot be deleted. Edit it instead, or rebuild the procedure under a new version.',
           });
       }
+
+      // Clean the search-index row before deleting the step. FK ON DELETE
+      // CASCADE would reach search_index_items via content_pack_version, but
+      // not the per-source-row dedup — explicit cleanup keeps the index
+      // tight without waiting for a manual rebuild.
+      await db
+        .delete(schema.searchIndexItems)
+        .where(
+          and(
+            eq(schema.searchIndexItems.sourceType, 'procedure_step'),
+            eq(schema.searchIndexItems.sourceId, ctx.step.id),
+          ),
+        );
 
       await db
         .delete(schema.procedureSteps)
@@ -1149,6 +1177,7 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           description: request.body.description ?? null,
           orderingHint,
           createdByUserId: auth.userId,
+          searchIndexStaleAt: new Date(),
         })
         .returning();
       if (!row) return reply.internalServerError('Failed to create section.');
@@ -1206,6 +1235,13 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
       if (b.title !== undefined) patch.title = b.title;
       if (b.description !== undefined) patch.description = b.description;
       if (b.orderingHint !== undefined) patch.orderingHint = b.orderingHint;
+      // A renamed section's title is part of every child step's indexed
+      // text — mark the section stale so the sweeper re-embeds it. (The
+      // child steps re-embed only when their own row changes; the slight
+      // stale window for their `sectionTitle` field is acceptable.)
+      if (b.title !== undefined || b.description !== undefined) {
+        patch.searchIndexStaleAt = new Date();
+      }
 
       const [updated] = await db
         .update(schema.procedureSections)

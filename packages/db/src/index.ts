@@ -13,6 +13,12 @@ export type {
   ProcedureSnippetRevision,
   NewProcedureSnippetRevision,
 } from './schema/snippets';
+export type {
+  SearchIndexItem,
+  NewSearchIndexItem,
+  SearchSourceType,
+} from './schema/search-index';
+export type { StepBlock, MeasurementSpec, ProcedureStepMedia } from './schema/procedures';
 export {
   PM_PLAN_FREQUENCY_DAYS,
   PM_PLAN_FREQUENCY_LABEL,

@@ -16,6 +16,7 @@ export * from './agent';
 export * from './document-sections';
 export * from './snippets';
 export * from './procedures';
+export * from './search-index';
 export * from './feedback';
 export * from './voice-usage';
 export * from './preventive-maintenance';

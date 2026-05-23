@@ -420,6 +420,82 @@ export async function transcribeAudio(blob: Blob): Promise<string> {
   return json.text;
 }
 
+// ---------------------------------------------------------------------------
+// Voice search
+// ---------------------------------------------------------------------------
+
+export type VoiceSearchJumpTarget =
+  | {
+      kind: 'jobaid';
+      docId: string;
+      initialStepId: string;
+      sectionTitle?: string | null;
+    }
+  | { kind: 'section'; sectionId: string; docId: string }
+  | {
+      kind: 'doc';
+      docId: string;
+      pageStart?: number | null;
+      pageEnd?: number | null;
+    };
+
+export interface VoiceSearchResult {
+  id: string;
+  sourceType: 'doc_chunk' | 'procedure_step' | 'document_section';
+  sourceId: string;
+  documentId: string | null;
+  contentPackVersionId: string;
+  title: string;
+  snippet: string;
+  score: number;
+  docTitle: string | null;
+  sectionTitle: string | null;
+  jumpTarget: VoiceSearchJumpTarget | null;
+}
+
+export interface VoiceSearchResponse {
+  transcript: string;
+  results: VoiceSearchResult[];
+  spokenPreview: {
+    text: string;
+    confidence: 'none' | 'low' | 'confident';
+  };
+}
+
+export async function voiceSearch(
+  blob: Blob,
+  opts: { assetInstanceId?: string; topK?: number },
+): Promise<VoiceSearchResponse> {
+  const form = new FormData();
+  form.append('audio', blob, 'query.webm');
+  if (opts.assetInstanceId) form.append('assetInstanceId', opts.assetInstanceId);
+  if (opts.topK != null) form.append('topK', String(opts.topK));
+  const res = await fetch(`${CLIENT_API_BASE}/ai/search/voice`, {
+    method: 'POST',
+    body: form,
+  });
+  if (res.status === 503) throw new Error('Voice search is not configured.');
+  if (!res.ok) throw new Error(`Search ${res.status}: ${await res.text()}`);
+  return (await res.json()) as VoiceSearchResponse;
+}
+
+export async function textSearch(
+  query: string,
+  opts: { assetInstanceId?: string; topK?: number } = {},
+): Promise<{ results: VoiceSearchResult[] }> {
+  const res = await fetch(`${CLIENT_API_BASE}/ai/search`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      query,
+      assetInstanceId: opts.assetInstanceId,
+      topK: opts.topK,
+    }),
+  });
+  if (!res.ok) throw new Error(`Search ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { results: VoiceSearchResult[] };
+}
+
 // Streamed audio response. Returns the response so the caller can pipe
 // `response.body` into MediaSource for true streaming or use response.blob()
 // for simple end-to-end playback.

@@ -9,6 +9,7 @@ import {
   LayoutGrid,
   Library,
   MessageSquare,
+  Search,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
@@ -22,6 +23,7 @@ import { MaintenanceTab } from './maintenance-tab';
 import { VoiceMode, type PrefetchedGreeting } from '@/components/voice-mode';
 import { VirtualJobAid, type JobAidSource } from '@/components/virtual-job-aid';
 import { ModeChooser, type ChosenMode } from '@/components/mode-chooser';
+import { VoiceSearch } from '@/components/voice-search';
 import { ImageZoom } from '@/components/image-zoom';
 import { fetchPreflight, listParts, speak, type BomEntry } from '@/lib/api';
 
@@ -98,7 +100,14 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
   const [jobAidRequest, setJobAidRequest] = useState<{
     source: JobAidSource;
     onCompleted?: () => void;
+    /** When set, VirtualJobAid mounts at this step instead of the intro.
+     *  Wired from voice-search jump targets so the tech lands at the
+     *  matched step directly. */
+    initialStepId?: string;
   } | null>(null);
+  // Voice-search overlay state. Distinct from voice mode (chat) — search
+  // returns ranked results + a spoken preview, not a streamed answer.
+  const [voiceSearchOpen, setVoiceSearchOpen] = useState(false);
 
   // Prefetch the greeting (preflight + TTS blob) the moment the chooser
   // is up, so tapping Hands-Free starts speaking ~immediately rather than
@@ -332,9 +341,61 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
           // shouldn't auto-narrate. Authored doc procedures keep the
           // default voice-over behavior.
           autoSpeak={jobAidRequest.source.kind !== 'inline'}
+          initialStepId={jobAidRequest.initialStepId}
           onClose={({ completed }) => {
             if (completed) jobAidRequest.onCompleted?.();
             setJobAidRequest(null);
+          }}
+        />
+      )}
+
+      {/* Floating Search FAB — visible whenever the tech is in the asset
+          hub (not in the mode chooser or voice mode). Opens VoiceSearch
+          which records a query, runs hybrid search, and deep-links
+          results into VirtualJobAid / doc viewer. */}
+      {mode === 'browse' && !voiceSearchOpen && (
+        <button
+          type="button"
+          onClick={() => setVoiceSearchOpen(true)}
+          className="fixed bottom-20 right-4 z-40 inline-flex items-center gap-1.5 rounded-full bg-[rgb(var(--brand))] px-4 py-2 text-sm font-semibold text-white shadow-lg active:scale-95"
+          aria-label="Voice search"
+        >
+          <Search size={14} strokeWidth={2.25} />
+          Search
+        </button>
+      )}
+
+      {voiceSearchOpen && (
+        <VoiceSearch
+          assetInstanceId={hub.assetInstance.id}
+          onClose={() => setVoiceSearchOpen(false)}
+          onJump={(result) => {
+            setVoiceSearchOpen(false);
+            if (!result.jumpTarget) return;
+            if (result.jumpTarget.kind === 'jobaid' && DEV_USER_ID && DEV_ORG_ID) {
+              setJobAidRequest({
+                source: {
+                  kind: 'doc',
+                  docId: result.jumpTarget.docId,
+                  devUserId: DEV_USER_ID,
+                  devOrgId: DEV_ORG_ID,
+                },
+                initialStepId: result.jumpTarget.initialStepId,
+              });
+              return;
+            }
+            // doc + section jumps route to the Library tab; the existing
+            // SectionViewerOverlay flow inside the voice-mode handler is
+            // tuned for hands-free chat. For v1 we surface a fallback that
+            // navigates to the Library tab and the user can click through
+            // — a future iteration can mount SectionViewerOverlay directly.
+            const params = new URLSearchParams();
+            params.set('docId', result.jumpTarget.docId);
+            if (result.jumpTarget.kind === 'section') {
+              params.set('sectionId', result.jumpTarget.sectionId);
+            }
+            window.location.hash = `library?${params.toString()}`;
+            changeTab('library');
           }}
         />
       )}

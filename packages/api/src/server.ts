@@ -33,6 +33,36 @@ try {
   app.log.warn({ err }, 'extraction sweep failed; continuing');
 }
 
+// Search-index sweeper. Picks up procedure_steps / document_sections with
+// search_index_stale_at > embedded_at, re-embeds them via Voyage, and
+// clears the dirty bit. Runs every 60 seconds; concurrency cap is inside
+// the indexer (sequential per-row). Guarded against double-start in
+// dev/HMR by a global flag.
+const SWEEPER_FLAG = Symbol.for('platform.search-sweeper');
+const globalAny = globalThis as Record<symbol, unknown>;
+if (!globalAny[SWEEPER_FLAG]) {
+  globalAny[SWEEPER_FLAG] = true;
+  const { reindexStale } = await import('@platform/ai');
+  // Stagger the initial run so a cold boot doesn't race startup work.
+  setTimeout(() => {
+    const tick = async () => {
+      try {
+        const r = await reindexStale(ctx.db, 50);
+        if (r.scanned > 0) {
+          app.log.info(
+            { ...r },
+            'search-sweeper: re-embedded stale rows',
+          );
+        }
+      } catch (err) {
+        app.log.warn({ err }, 'search-sweeper: tick failed');
+      }
+    };
+    void tick();
+    setInterval(tick, 60_000);
+  }, 15_000);
+}
+
 try {
   await app.listen({ host: env.API_HOST, port: env.API_PORT });
   app.log.info(`API listening on http://${env.API_HOST}:${env.API_PORT}`);

@@ -225,6 +225,13 @@
       "when": 1780012800000,
       "tag": "0031_procedure_snippets",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1780099200000,
+      "tag": "0032_search_index_items",
+      "breakpoints": true
     }
   ]
 }

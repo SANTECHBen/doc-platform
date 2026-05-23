@@ -152,6 +152,11 @@ export const procedureSections = pgTable(
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
+    // Search-index dirty-bit. Same lazy re-embed pattern as
+    // procedure_steps.searchIndexStaleAt.
+    searchIndexStaleAt: timestamp('search_index_stale_at', {
+      withTimezone: true,
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -281,6 +286,15 @@ export const procedureSteps = pgTable(
       onDelete: 'set null',
     }),
     snippetDetached: boolean('snippet_detached').notNull().default(false),
+
+    // Search-index dirty-bit. Set to now() on every write that affects
+    // searchable text (title, blocks, kind). The 60-second sweeper picks
+    // up rows whose stale_at > embedded_at and re-embeds them. Indexing
+    // never blocks the PATCH response — Voyage's retry backoff would
+    // tank step-save latency.
+    searchIndexStaleAt: timestamp('search_index_stale_at', {
+      withTimezone: true,
+    }),
 
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
       onDelete: 'set null',

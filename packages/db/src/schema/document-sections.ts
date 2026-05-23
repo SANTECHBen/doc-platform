@@ -102,6 +102,11 @@ export const documentSections = pgTable(
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
+    // Search-index dirty-bit. Set on every write that affects searchable
+    // text; lazy re-embed sweeper picks it up. See search_index_items.
+    searchIndexStaleAt: timestamp('search_index_stale_at', {
+      withTimezone: true,
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

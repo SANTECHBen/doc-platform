@@ -18,6 +18,7 @@ import { schema, type Database } from '@platform/db';
 import { extract, isExtractable, ExtractionError } from './extract/index.js';
 import { chunkMarkdown, DEFAULT_CHUNK_OPTIONS } from './chunking.js';
 import { embedBatch } from './embeddings.js';
+import { indexDocChunkBatch } from './search-indexer.js';
 
 export interface PipelineParams {
   db: Database;
@@ -194,13 +195,15 @@ export async function processDocument(params: PipelineParams): Promise<PipelineR
         );
       }
 
-      await db.transaction(async (tx) => {
+      const insertedChunkIds: string[] = await db.transaction(async (tx) => {
         await tx
           .delete(schema.documentChunks)
           .where(eq(schema.documentChunks.documentId, documentId));
 
-        if (chunks.length > 0) {
-          await tx.insert(schema.documentChunks).values(
+        if (chunks.length === 0) return [];
+        const returned = await tx
+          .insert(schema.documentChunks)
+          .values(
             chunks.map((c, i) => ({
               documentId,
               contentPackVersionId: doc.contentPackVersionId,
@@ -215,10 +218,38 @@ export async function processDocument(params: PipelineParams): Promise<PipelineR
                 rawContent: c.rawContent,
               },
             })),
-          );
-        }
+          )
+          .returning({ id: schema.documentChunks.id });
+        return returned.map((r) => r.id);
       });
       chunksWritten = chunks.length;
+
+      // Mirror into the unified search_index_items table so voice-search
+      // (and any future global-search UI) can serve these chunks alongside
+      // procedure steps and document sections. Best-effort — a failure here
+      // doesn't roll back the chat-facing chunk write.
+      if (chunks.length > 0 && insertedChunkIds.length === chunks.length) {
+        try {
+          await indexDocChunkBatch(
+            db,
+            documentId,
+            chunks.map((c, i) => ({
+              id: insertedChunkIds[i]!,
+              content: c.content,
+              chunkIndex: i,
+            })),
+          );
+        } catch (err) {
+          console.warn(
+            JSON.stringify({
+              level: 'warn',
+              msg: 'pipeline: search-index mirror failed (non-fatal)',
+              documentId,
+              error: formatError(err),
+            }),
+          );
+        }
+      }
     } catch (embedErr) {
       const embedMsg = formatError(embedErr);
       embedNotes = [
@@ -303,13 +334,15 @@ async function processMarkdownDocument(
             )
           : [];
 
-      await db.transaction(async (tx) => {
+      const insertedChunkIds: string[] = await db.transaction(async (tx) => {
         await tx
           .delete(schema.documentChunks)
           .where(eq(schema.documentChunks.documentId, doc.id));
 
-        if (chunks.length > 0) {
-          await tx.insert(schema.documentChunks).values(
+        if (chunks.length === 0) return [];
+        const returned = await tx
+          .insert(schema.documentChunks)
+          .values(
             chunks.map((c, i) => ({
               documentId: doc.id,
               contentPackVersionId: doc.contentPackVersionId,
@@ -324,10 +357,34 @@ async function processMarkdownDocument(
                 rawContent: c.rawContent,
               },
             })),
-          );
-        }
+          )
+          .returning({ id: schema.documentChunks.id });
+        return returned.map((r) => r.id);
       });
       chunksWritten = chunks.length;
+
+      if (chunks.length > 0 && insertedChunkIds.length === chunks.length) {
+        try {
+          await indexDocChunkBatch(
+            db,
+            doc.id,
+            chunks.map((c, i) => ({
+              id: insertedChunkIds[i]!,
+              content: c.content,
+              chunkIndex: i,
+            })),
+          );
+        } catch (err) {
+          console.warn(
+            JSON.stringify({
+              level: 'warn',
+              msg: 'pipeline: markdown search-index mirror failed (non-fatal)',
+              documentId: doc.id,
+              error: formatError(err),
+            }),
+          );
+        }
+      }
     } catch (embedErr) {
       const embedMsg = formatError(embedErr);
       await db

@@ -432,6 +432,8 @@ export async function registerAdminSections(app: FastifyInstance) {
         // Snapshot the doc's current extractedAt so re-validation can short-
         // circuit until the doc is re-extracted.
         sourceExtractionAt: ctx.doc.extractedAt ?? null,
+        // New section ships to the search index on the next sweeper tick.
+        searchIndexStaleAt: new Date(),
       };
       if (body.kind === 'page_range') {
         insertValues.pageStart = body.pageStart;
@@ -556,6 +558,18 @@ export async function registerAdminSections(app: FastifyInstance) {
           patch.revalidationReason = null;
         }
       }
+      // Search-index dirty bit: title / description / excerpt changes flow
+      // into the indexed text. The re-anchor metadata (pageStart, etc.)
+      // doesn't change indexed content, but it does change the jump-URL
+      // metadata persisted alongside; mark stale to keep them aligned.
+      if (
+        b.title !== undefined ||
+        b.description !== undefined ||
+        b.anchorExcerpt !== undefined ||
+        reAnchored
+      ) {
+        patch.searchIndexStaleAt = new Date();
+      }
 
       const [updated] = await db
         .update(schema.documentSections)
@@ -592,6 +606,15 @@ export async function registerAdminSections(app: FastifyInstance) {
       const ctx = await loadSectionForWrite(db, request.params.sectionId, scope);
       if (!ctx) return reply.notFound();
       // Allowed on published versions — sections are additive overlays.
+      // Clean the search-index row first; the source FK has no cascade.
+      await db
+        .delete(schema.searchIndexItems)
+        .where(
+          and(
+            eq(schema.searchIndexItems.sourceType, 'document_section'),
+            eq(schema.searchIndexItems.sourceId, ctx.section.id),
+          ),
+        );
       await db
         .delete(schema.documentSections)
         .where(eq(schema.documentSections.id, ctx.section.id));
