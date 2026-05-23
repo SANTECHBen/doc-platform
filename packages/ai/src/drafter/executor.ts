@@ -40,6 +40,11 @@ export interface DrafterExecutorContext {
     playbackId: string,
     timestampMs: number,
   ) => Promise<{ storageKey: string; mime: string; sizeBytes: number }>;
+  /** Mux playback id of the source video. The executor attaches this to
+   *  each step's `video_clip` media entry so the runner can stream the
+   *  clip range from Mux at view time (no per-step file is generated —
+   *  the [startMs, endMs] window plays from the same HLS stream). */
+  sourcePlaybackId: string;
   /** Called once per step with a per-step status update. The API wires
    *  this to the SSE bus so the reviewer page can show live progress. */
   onProgress?: (event: {
@@ -178,12 +183,22 @@ export async function executeDrafter(
               requiresPhoto,
               minPhotoCount,
               measurementSpec,
+              // Each step gets one media entry: a Mux HLS clip range.
+              // storageKey holds the JPEG poster (still frame at
+              // keyframeTimestampMs) so the runner shows something
+              // immediately while HLS loads, and falls back gracefully
+              // if playback fails. The actual video plays from Mux at
+              // [startMs, endMs] on a loop, like an animated GIF.
               media: [
                 {
-                  kind: 'image' as const,
+                  kind: 'video_clip' as const,
                   storageKey: keyframe.storageKey,
                   mime: keyframe.mime,
-                  caption: undefined,
+                  clip: {
+                    playbackId: ctx.sourcePlaybackId,
+                    startMs: step.clipStartMs,
+                    endMs: step.clipEndMs,
+                  },
                 },
               ],
               audioStorageKey: audio.storageKey,

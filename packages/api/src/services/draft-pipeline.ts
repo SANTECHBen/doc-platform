@@ -466,6 +466,8 @@ async function runDrafterLoop(
           clientId: step.clientId,
           title: step.title,
           timestampMs: step.keyframeTimestampMs,
+          clipStartMs: step.clipStartMs,
+          clipEndMs: step.clipEndMs,
         });
       },
     });
@@ -601,6 +603,7 @@ export async function runDrafterExecution(params: {
       db,
       synthesizeTts,
       fetchKeyframe,
+      sourcePlaybackId: playbackId,
       onProgress: (event) => {
         agentBus.publish(runChannel(runId, 'execute'), event.phase, {
           clientId: event.clientId,

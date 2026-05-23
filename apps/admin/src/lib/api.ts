@@ -1916,14 +1916,39 @@ export type StepBlock =
     }
   | { kind: 'photo_inline'; storageKey: string; caption?: string };
 
-export interface AdminStepMedia {
-  kind: 'image' | 'video';
-  storageKey: string;
-  mime: string;
-  caption?: string;
-  /** Resolved public URL — server fills this in from storage.publicUrl(). */
-  url: string | null;
-}
+// Admin-side step media. Mirrors packages/db ProcedureStepMedia. The
+// drafter writes `video_clip` entries; admin uploads write 'image' or
+// 'video' entries.
+export type AdminStepMedia =
+  | {
+      kind: 'image';
+      storageKey: string;
+      mime: string;
+      caption?: string;
+      /** Resolved public URL — server fills this in from storage.publicUrl(). */
+      url: string | null;
+    }
+  | {
+      kind: 'video';
+      storageKey: string;
+      mime: string;
+      caption?: string;
+      url: string | null;
+    }
+  | {
+      kind: 'video_clip';
+      storageKey: string;
+      mime: string;
+      caption?: string;
+      /** Poster image URL — resolves from storageKey (a JPEG still). */
+      url: string | null;
+      clip: {
+        playbackId: string;
+        startMs: number;
+        endMs: number;
+        streamUrl: string;
+      };
+    };
 
 // Section grouping above procedure steps. Optional — a procedure can have
 // zero sections (flat list) or N sections with steps grouped inside each.
@@ -2877,7 +2902,14 @@ export interface AdminDraftStepProposal {
   kind: ProcedureStepKind;
   voiceoverText: string;
   blocks: StepBlock[];
+  /** Single-frame timestamp used as the poster JPEG for the per-step
+   *  clip. Usually picked inside [clipStartMs, clipEndMs]. */
   keyframeTimestampMs: number;
+  /** Inclusive start of the per-step Mux clip range (ms). The runner
+   *  plays [clipStartMs..clipEndMs] from the source video on a loop. */
+  clipStartMs: number;
+  /** Exclusive end of the per-step Mux clip range (ms). */
+  clipEndMs: number;
   safetyCritical: boolean;
   requiresPhoto: boolean;
   minPhotoCount: number;

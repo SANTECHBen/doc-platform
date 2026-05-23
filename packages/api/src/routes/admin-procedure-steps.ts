@@ -201,11 +201,24 @@ function rowToDTO(
 ) {
   // Expand each media item with a publicly-resolvable URL so the admin
   // editor and PWA runner can render thumbnails without a second round-
-  // trip per item.
-  const media = (row.media ?? []).map((m) => ({
-    ...m,
-    url: opts?.mediaPublicUrl ? opts.mediaPublicUrl(m.storageKey) : null,
-  }));
+  // trip per item. For drafter-produced video_clip entries, also derive
+  // the Mux HLS endpoint so the reviewer can preview the clip range.
+  const media = (row.media ?? []).map((m) => {
+    const base = {
+      ...m,
+      url: opts?.mediaPublicUrl ? opts.mediaPublicUrl(m.storageKey) : null,
+    };
+    if (m.kind === 'video_clip') {
+      return {
+        ...base,
+        clip: {
+          ...m.clip,
+          streamUrl: `https://stream.mux.com/${m.clip.playbackId}.m3u8`,
+        },
+      };
+    }
+    return base;
+  });
   const blocks = opts?.expanded ? opts.expanded.blocks : (row.blocks ?? []);
   const title = opts?.expanded ? opts.expanded.title : row.title;
   return {

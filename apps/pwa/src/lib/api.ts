@@ -1052,14 +1052,47 @@ export type ProcedureMeasurementSpec =
       maxLen?: number;
     };
 
-export interface ProcedureStepMedia {
-  kind: 'image' | 'video';
-  storageKey: string;
-  mime: string;
-  caption?: string;
-  /** Resolved on read paths via storage.publicUrl. */
-  url?: string;
-}
+// Step media discriminator:
+//   'image'      — author-uploaded photograph (storageKey → public URL).
+//   'video'      — author-uploaded video file (storageKey → public URL).
+//   'video_clip' — synthesized clip range on a Mux HLS stream. Produced
+//                  by the AI walkthrough drafter: storageKey holds a
+//                  poster JPEG (still from inside the clip), and `clip`
+//                  carries the Mux playbackId + start/end window. The
+//                  PWA's MuxClipPlayer streams the HLS stream and
+//                  clamps playback to that window on a loop.
+export type ProcedureStepMedia =
+  | {
+      kind: 'image';
+      storageKey: string;
+      mime: string;
+      caption?: string;
+      /** Resolved on read paths via storage.publicUrl. */
+      url?: string;
+    }
+  | {
+      kind: 'video';
+      storageKey: string;
+      mime: string;
+      caption?: string;
+      url?: string;
+    }
+  | {
+      kind: 'video_clip';
+      storageKey: string;
+      mime: string;
+      caption?: string;
+      /** Poster image URL (resolves from storageKey). */
+      url?: string;
+      clip: {
+        playbackId: string;
+        startMs: number;
+        endMs: number;
+        /** Server-derived HLS endpoint:
+         *  https://stream.mux.com/<playbackId>.m3u8 */
+        streamUrl: string;
+      };
+    };
 
 export interface ProcedureSubstepDto {
   id?: string;

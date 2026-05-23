@@ -13,6 +13,8 @@ import { z } from 'zod';
 import {
   DraftProposalTreeSchema,
   DraftStepProposalSchema,
+  STEP_CLIP_MAX_MS,
+  STEP_CLIP_MIN_MS,
   type DraftProposalTree,
   type DraftStepProposal,
 } from './schema.js';
@@ -94,11 +96,63 @@ export async function runDrafterLoop(
         'Emit one proposed step. Schema-validated; reject + retry on error. Call once per step in transcript order.',
       inputSchema: DraftStepProposalSchema,
       execute: async (input: DraftStepProposal) => {
-        // Bound the timestamp against the source duration. Clamp rather
-        // than reject so a slightly off pick still lands.
-        if (input.keyframeTimestampMs > options.durationMs) {
-          input.keyframeTimestampMs = Math.max(0, options.durationMs - 500);
+        // Clamp the keyframe timestamp to the source duration. Clamp
+        // rather than reject so a slightly off pick still lands.
+        const duration = options.durationMs;
+        if (duration > 0 && input.keyframeTimestampMs > duration) {
+          input.keyframeTimestampMs = Math.max(0, duration - 500);
         }
+
+        // Clamp the clip range. Two adjustments happen here, in order:
+        //   1. Cap clipEndMs to the source duration (LLM can't pick past
+        //      the end of the video).
+        //   2. If the resulting span violates [MIN..MAX] bounds, shrink
+        //      from the end (preferred) or extend it (when the picked
+        //      span is genuinely too short and there's headroom).
+        // We never reject — the schema's superRefine already vetted
+        // gross violations; these are defense-in-depth.
+        if (duration > 0 && input.clipEndMs > duration) {
+          input.clipEndMs = duration;
+        }
+        if (input.clipStartMs >= input.clipEndMs) {
+          // Pathological pick (e.g., model emitted same value). Recover
+          // by giving it a STEP_CLIP_MIN_MS window starting at clipStartMs.
+          input.clipEndMs = Math.min(
+            duration > 0 ? duration : input.clipStartMs + STEP_CLIP_MIN_MS,
+            input.clipStartMs + STEP_CLIP_MIN_MS,
+          );
+        }
+        let span = input.clipEndMs - input.clipStartMs;
+        if (span > STEP_CLIP_MAX_MS) {
+          input.clipEndMs = input.clipStartMs + STEP_CLIP_MAX_MS;
+          span = STEP_CLIP_MAX_MS;
+        }
+        if (span < STEP_CLIP_MIN_MS) {
+          // Try to extend forward; if no room, slide both back.
+          const ceiling = duration > 0 ? duration : input.clipStartMs + STEP_CLIP_MIN_MS;
+          if (input.clipStartMs + STEP_CLIP_MIN_MS <= ceiling) {
+            input.clipEndMs = input.clipStartMs + STEP_CLIP_MIN_MS;
+          } else {
+            input.clipStartMs = Math.max(0, ceiling - STEP_CLIP_MIN_MS);
+            input.clipEndMs = ceiling;
+          }
+        }
+
+        // Enforce monotonic clip starts across steps. The LLM is told to
+        // emit in transcript order; if a later step's start regresses
+        // before the previous step's start, nudge it forward to avoid
+        // confusing playback in the runner.
+        const prev = proposedSteps[proposedSteps.length - 1];
+        if (prev && input.clipStartMs < prev.clipStartMs) {
+          input.clipStartMs = prev.clipStartMs;
+          if (input.clipStartMs >= input.clipEndMs) {
+            input.clipEndMs = Math.min(
+              duration > 0 ? duration : input.clipStartMs + STEP_CLIP_MIN_MS,
+              input.clipStartMs + STEP_CLIP_MIN_MS,
+            );
+          }
+        }
+
         proposedSteps.push(input);
         options.onStepEmitted?.(input);
         return { accepted: true, index: proposedSteps.length - 1 };

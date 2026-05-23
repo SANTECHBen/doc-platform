@@ -74,6 +74,43 @@ const MeasurementSpecSchema = z.discriminatedUnion('kind', [
   FreeTextSpec,
 ]);
 
+// Per-step media payload. Three discriminants:
+//   - image: author-uploaded photograph
+//   - video: author-uploaded video file
+//   - video_clip: a Mux HLS clip range produced by the AI walkthrough
+//                 drafter (storageKey holds a poster JPEG; the clip field
+//                 carries the Mux playbackId + [startMs, endMs] window).
+// Authors don't write video_clip directly — the drafter executor does —
+// but the validator accepts it here so subsequent PATCHes that send the
+// existing media[] back don't strip drafter-generated clips.
+const StepMediaItemSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('image'),
+    storageKey: z.string().max(400),
+    mime: z.string().max(120),
+    caption: z.string().max(200).optional(),
+  }),
+  z.object({
+    kind: z.literal('video'),
+    storageKey: z.string().max(400),
+    mime: z.string().max(120),
+    caption: z.string().max(200).optional(),
+  }),
+  z.object({
+    kind: z.literal('video_clip'),
+    storageKey: z.string().max(400),
+    mime: z.string().max(120),
+    caption: z.string().max(200).optional(),
+    clip: z.object({
+      playbackId: z.string().min(1).max(200),
+      startMs: z.number().int().min(0),
+      endMs: z.number().int().min(0),
+    }).refine((c) => c.endMs > c.startMs, {
+      message: 'clip.endMs must be > clip.startMs',
+    }),
+  }),
+]);
+
 const AuthoringStepBody = z.object({
   kind: StepKindEnum,
   title: z.string().min(1).max(200),
@@ -84,12 +121,10 @@ const AuthoringStepBody = z.object({
   measurementSpec: MeasurementSpecSchema.nullable().optional(),
   // Doc-authoring v3 — media (photos/videos) + substeps may be supplied
   // at create time, so a single save persists the whole step structure.
-  media: z.array(z.object({
-    kind: z.enum(['image', 'video']),
-    storageKey: z.string().max(400),
-    mime: z.string().max(120),
-    caption: z.string().max(200).optional(),
-  })).max(20).optional(),
+  // The video_clip variant carries a Mux playbackId + range and is
+  // produced by the AI walkthrough drafter; the same validator accepts
+  // it here so re-saves preserve drafter-generated clips.
+  media: z.array(StepMediaItemSchema).max(20).optional(),
   substeps: z.array(z.object({
     title: z.string().min(1).max(200),
     bodyMarkdown: z.string().max(5000).nullable().optional(),
@@ -118,12 +153,7 @@ const AuthoringFinalizeBody = z.object({
 // Set-replace: every PATCH that includes this field replaces the full list
 // for the step. The client buffers any new uploads via the media-upload
 // endpoint, then sends the resulting set with the next step PATCH.
-const StepMediaItem = z.object({
-  kind: z.enum(['image', 'video']),
-  storageKey: z.string().max(400),
-  mime: z.string().max(120),
-  caption: z.string().max(200).optional(),
-});
+const StepMediaItem = StepMediaItemSchema;
 
 // Substep — author-defined nested step inside a parent step. Lightweight
 // (title + optional body) for v1; per-substep evidence and media land in v2.
@@ -1509,10 +1539,29 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
           // steps keep their own content (badge surfaces detached state).
           blocks: expanded.blocks,
           snippetBadge: expanded._snippetBadge,
-          media: (s.media ?? []).map((m) => ({
-            ...m,
-            url: storage.publicUrl(m.storageKey),
-          })),
+          media: (s.media ?? []).map((m) => {
+            const base = {
+              ...m,
+              // For video_clip, storageKey holds the poster JPEG; url
+              // resolves to that. The HLS stream URL is derived from
+              // the Mux playbackId below and exposed separately so the
+              // client can wire <video poster> + clip source cleanly.
+              url: storage.publicUrl(m.storageKey),
+            };
+            if (m.kind === 'video_clip') {
+              return {
+                ...base,
+                clip: {
+                  ...m.clip,
+                  // Mux HLS endpoint. iOS Safari plays this natively;
+                  // hls.js handles other browsers. The client clamps
+                  // playback to [startMs, endMs] and loops.
+                  streamUrl: `https://stream.mux.com/${m.clip.playbackId}.m3u8`,
+                },
+              };
+            }
+            return base;
+          }),
           substeps: (substepsByStep.get(s.id) ?? []).map((ss) => ({
             id: ss.id,
             title: ss.title,

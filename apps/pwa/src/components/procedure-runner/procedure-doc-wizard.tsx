@@ -178,16 +178,34 @@ export function ProcedureDocWizard({
     if (!step.title.trim()) {
       throw new Error('Add a title for this step first.');
     }
+    // PWA wizard only ever produces image/video uploads — never the
+    // drafter's video_clip variant — so we forward each item with its
+    // original discriminator and let the API's discriminated-union
+    // validator handle the shape. We don't strip the clip field for
+    // video_clip items in the unlikely case one's pre-attached (e.g.,
+    // a future re-edit flow); the spread preserves it.
     const stepInput = {
       kind: 'instruction' as const,
       title: step.title.trim(),
       bodyMarkdown: step.body.trim() || null,
-      media: step.media.map((m) => ({
-        kind: m.kind,
-        storageKey: m.storageKey,
-        mime: m.mime,
-        ...(m.caption ? { caption: m.caption } : {}),
-      })),
+      media: step.media.map((m) => {
+        const captionPart = m.caption ? { caption: m.caption } : {};
+        if (m.kind === 'video_clip') {
+          return {
+            kind: 'video_clip' as const,
+            storageKey: m.storageKey,
+            mime: m.mime,
+            clip: m.clip,
+            ...captionPart,
+          };
+        }
+        return {
+          kind: m.kind,
+          storageKey: m.storageKey,
+          mime: m.mime,
+          ...captionPart,
+        };
+      }),
     };
     if (step.id) {
       const dto = await updateAuthoringStep({

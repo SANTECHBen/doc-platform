@@ -563,6 +563,16 @@ function DraftStepCard({
         <span className="font-mono text-[10px] text-ink-tertiary">
           @ {formatMmSs(step.keyframeTimestampMs)}
         </span>
+        {/* Clip range chip — exposes the per-step Mux clip window the
+            drafter picked. Tap-to-edit so reviewers can fine-tune the
+            range before executing (e.g., extend a too-short cut, or
+            trim a clip that drifted into the next step). */}
+        <span
+          className="inline-flex items-center rounded-full bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-accent"
+          title={`Clip range: ${formatMmSs(step.clipStartMs)} → ${formatMmSs(step.clipEndMs)} (${formatClipDuration(step.clipEndMs - step.clipStartMs)})`}
+        >
+          ▶ {formatMmSs(step.clipStartMs)}–{formatMmSs(step.clipEndMs)}
+        </span>
         {step.safetyCritical && (
           <span className="inline-flex items-center rounded-full bg-signal-warn/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-signal-warn">
             Safety
@@ -613,6 +623,53 @@ function DraftStepCard({
         className="mt-1.5 !text-xs"
         placeholder="Voiceover script (synthesized at execute time)"
       />
+      {/* Editable clip range. Reviewers type mm:ss into start/end and the
+          parent re-validates on save. We don't enforce the 2–20s clamp
+          here client-side — the server's DraftProposalTreeSchema does
+          that on PATCH and surfaces the error in the existing
+          ErrorBanner. Leaving the UI permissive avoids fighting the
+          author while they're mid-edit. */}
+      <div className="mt-1.5 flex items-center gap-1.5 text-[11px]">
+        <label className="flex items-center gap-1 text-ink-tertiary">
+          <span>Clip</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={formatMmSs(step.clipStartMs)}
+            onChange={(e) => {
+              const ms = parseMmSs(e.target.value);
+              if (ms != null) onChange({ clipStartMs: ms });
+            }}
+            disabled={locked}
+            className="w-14 rounded border border-line bg-surface-inset px-1.5 py-0.5 text-center font-mono text-[11px] text-ink-primary disabled:opacity-50"
+            aria-label="Clip start"
+          />
+          <span aria-hidden>→</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={formatMmSs(step.clipEndMs)}
+            onChange={(e) => {
+              const ms = parseMmSs(e.target.value);
+              if (ms != null) onChange({ clipEndMs: ms });
+            }}
+            disabled={locked}
+            className="w-14 rounded border border-line bg-surface-inset px-1.5 py-0.5 text-center font-mono text-[11px] text-ink-primary disabled:opacity-50"
+            aria-label="Clip end"
+          />
+        </label>
+        <span
+          className={[
+            'font-mono text-[10px]',
+            step.clipEndMs - step.clipStartMs < 2000 ||
+            step.clipEndMs - step.clipStartMs > 20000
+              ? 'text-signal-warn'
+              : 'text-ink-tertiary',
+          ].join(' ')}
+        >
+          ({formatClipDuration(step.clipEndMs - step.clipStartMs)})
+        </span>
+      </div>
       {step.rationale && (
         <p className="mt-1 text-[10px] italic text-ink-tertiary">{step.rationale}</p>
       )}
@@ -621,8 +678,34 @@ function DraftStepCard({
 }
 
 function formatMmSs(ms: number): string {
-  const totalSec = Math.floor(ms / 1000);
+  const safe = Math.max(0, ms | 0);
+  const totalSec = Math.floor(safe / 1000);
   const mm = Math.floor(totalSec / 60);
   const ss = totalSec % 60;
   return `${mm.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`;
+}
+
+// Parse a user-typed mm:ss (or bare seconds) into milliseconds. Returns
+// null when the input is incomplete or unparseable so the caller can
+// leave the prior value alone while the author is still typing.
+function parseMmSs(input: string): number | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  const match = trimmed.match(/^(\d+):(\d{1,2})$/);
+  if (match) {
+    const mm = Number(match[1]);
+    const ss = Number(match[2]);
+    if (!Number.isFinite(mm) || !Number.isFinite(ss) || ss >= 60) return null;
+    return (mm * 60 + ss) * 1000;
+  }
+  // Allow plain seconds entry for fast scrubbing.
+  const seconds = Number(trimmed);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.floor(seconds * 1000);
+  return null;
+}
+
+function formatClipDuration(ms: number): string {
+  const safe = Math.max(0, ms);
+  if (safe < 1000) return `${safe}ms`;
+  return `${(safe / 1000).toFixed(1)}s`;
 }

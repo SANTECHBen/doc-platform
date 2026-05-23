@@ -83,35 +83,82 @@ export const DraftStepKindSchema = z.enum([
   'measurement_required',
 ]);
 
-export const DraftStepProposalSchema = z.object({
-  /** Stable per-step identifier the LLM picks. Used for execution idempotency
-   *  via clientToken = `draft:<proposalId>:step:<clientId>`. Length-bounded
-   *  and slugged so an out-of-tree client can't smuggle path characters. */
-  clientId: z.string().min(1).max(80).regex(/^[A-Za-z0-9._-]+$/),
-  /** Model self-rated 0..1 confidence. Surfaces in the reviewer as a chip
-   *  so the author can skim low-confidence steps first. */
-  confidence: z.number().min(0).max(1),
-  title: z.string().min(1).max(200),
-  kind: DraftStepKindSchema.default('instruction'),
-  /** Cleaned voiceover script. Will be synthesized via OpenAI tts-1-hd at
-   *  execute time — not at propose time, because the author may edit. */
-  voiceoverText: z.string().min(1).max(2000),
-  /** Structured blocks for the on-screen step body. The voiceover is
-   *  separate; blocks render even when the audio is muted. */
-  blocks: z.array(DraftStepBlockSchema).max(20).default([]),
-  /** Mux timestamp the executor downloads as a still frame for media[].
-   *  Bounded to the source video duration in the executor. */
-  keyframeTimestampMs: z.number().int().min(0),
-  safetyCritical: z.boolean().default(false),
-  /** When kind = 'photo_required', the executor sets requiresPhoto/min_photo_count
-   *  to enforce evidence capture. */
-  requiresPhoto: z.boolean().default(false),
-  minPhotoCount: z.number().int().min(0).max(10).default(0),
-  measurementSpec: DraftMeasurementSpecSchema.nullable().optional(),
-  /** Short reason the LLM proposed this step — surfaces in the reviewer's
-   *  details panel so authors can quickly judge intent. */
-  rationale: z.string().max(500).optional(),
-});
+// Bounds for per-step video clip ranges. Short enough that a tech glancing
+// at the step sees the action complete in one loop, long enough that the
+// motion is interpretable without scrubbing. 2s minimum is a hard floor —
+// anything shorter is a glance, not a demo. 20s ceiling stops the LLM from
+// dumping the whole video into one step when boundaries are ambiguous.
+export const STEP_CLIP_MIN_MS = 2_000;
+export const STEP_CLIP_MAX_MS = 20_000;
+
+export const DraftStepProposalSchema = z
+  .object({
+    /** Stable per-step identifier the LLM picks. Used for execution idempotency
+     *  via clientToken = `draft:<proposalId>:step:<clientId>`. Length-bounded
+     *  and slugged so an out-of-tree client can't smuggle path characters. */
+    clientId: z.string().min(1).max(80).regex(/^[A-Za-z0-9._-]+$/),
+    /** Model self-rated 0..1 confidence. Surfaces in the reviewer as a chip
+     *  so the author can skim low-confidence steps first. */
+    confidence: z.number().min(0).max(1),
+    title: z.string().min(1).max(200),
+    kind: DraftStepKindSchema.default('instruction'),
+    /** Cleaned voiceover script. Will be synthesized via OpenAI tts-1-hd at
+     *  execute time — not at propose time, because the author may edit. */
+    voiceoverText: z.string().min(1).max(2000),
+    /** Structured blocks for the on-screen step body. The voiceover is
+     *  separate; blocks render even when the audio is muted. */
+    blocks: z.array(DraftStepBlockSchema).max(20).default([]),
+    /** Mux timestamp the executor downloads as a still JPEG. Used as the
+     *  poster image for the per-step video clip (shown while HLS loads
+     *  and as the offline fallback). Bounded to the source video duration
+     *  in the executor. Conventionally picked inside [clipStartMs, clipEndMs]
+     *  but the LLM may pick any frame that best represents the action. */
+    keyframeTimestampMs: z.number().int().min(0),
+    /** Inclusive start of the per-step Mux clip range, in milliseconds.
+     *  Aligned to where this step's voiceover speech begins in the
+     *  transcript. The runner plays [clipStartMs..clipEndMs] on a loop
+     *  on the step card. */
+    clipStartMs: z.number().int().min(0),
+    /** Exclusive end of the per-step clip range, in milliseconds.
+     *  Must satisfy clipEndMs > clipStartMs and the duration must land
+     *  in [STEP_CLIP_MIN_MS, STEP_CLIP_MAX_MS]. The executor clamps to
+     *  the source video duration and the next step's start. */
+    clipEndMs: z.number().int().min(0),
+    safetyCritical: z.boolean().default(false),
+    /** When kind = 'photo_required', the executor sets requiresPhoto/min_photo_count
+     *  to enforce evidence capture. */
+    requiresPhoto: z.boolean().default(false),
+    minPhotoCount: z.number().int().min(0).max(10).default(0),
+    measurementSpec: DraftMeasurementSpecSchema.nullable().optional(),
+    /** Short reason the LLM proposed this step — surfaces in the reviewer's
+     *  details panel so authors can quickly judge intent. */
+    rationale: z.string().max(500).optional(),
+  })
+  .superRefine((step, ctx) => {
+    if (step.clipEndMs <= step.clipStartMs) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['clipEndMs'],
+        message: 'clipEndMs must be strictly greater than clipStartMs',
+      });
+      return;
+    }
+    const span = step.clipEndMs - step.clipStartMs;
+    if (span < STEP_CLIP_MIN_MS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['clipEndMs'],
+        message: `clip duration ${span}ms is below minimum ${STEP_CLIP_MIN_MS}ms`,
+      });
+    }
+    if (span > STEP_CLIP_MAX_MS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['clipEndMs'],
+        message: `clip duration ${span}ms exceeds maximum ${STEP_CLIP_MAX_MS}ms`,
+      });
+    }
+  });
 
 export type DraftStepProposal = z.infer<typeof DraftStepProposalSchema>;
 

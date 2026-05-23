@@ -30,6 +30,7 @@ import {
 } from '@/lib/api';
 import { StepVideoPlayer } from '../step-video-player';
 import { HeroVideoEmbed } from '../hero-video-embed';
+import { MuxClipPlayer } from '../mux-clip-player';
 import { capitalize, formatDuration } from '@/lib/format';
 
 export function ProcedureDocViewer({
@@ -476,6 +477,25 @@ function StepBlock({
                       alt={m.caption ?? ''}
                       className="h-auto w-full"
                     />
+                  ) : m.kind === 'video_clip' ? (
+                    // AI-drafted clip range — streams from Mux HLS,
+                    // clamped to [startMs..endMs]. Doc viewer is a
+                    // scrollable list, so we opt out of autoplay
+                    // (passing autoplay=false makes it tap-to-play)
+                    // to avoid a dozen clips fighting for bandwidth
+                    // on a long procedure. The runner / Job Aid view
+                    // autoplays the active step's clip; see below.
+                    <MuxClipPlayer
+                      streamUrl={m.clip.streamUrl}
+                      startMs={m.clip.startMs}
+                      endMs={m.clip.endMs}
+                      posterUrl={m.url ?? undefined}
+                      alt={m.caption ?? step.title}
+                      caption={m.caption ?? null}
+                      muted
+                      autoplay={false}
+                      playId={`viewer-${step.id ?? index}-${mi}`}
+                    />
                   ) : (
                     <video
                       src={m.url ?? ''}
@@ -488,7 +508,7 @@ function StepBlock({
                       className="h-auto w-full"
                     />
                   )}
-                  {m.caption && (
+                  {m.caption && m.kind !== 'video_clip' && (
                     <p className="px-3 py-2 text-xs text-ink-secondary">
                       {m.caption}
                     </p>

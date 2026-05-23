@@ -23,6 +23,7 @@ import {
 import { getProcedureDoc, speak, type ProcedureDocFullDto, type StepBlock } from '@/lib/api';
 import { StepVideoPlayer } from './step-video-player';
 import { HeroVideoEmbed } from './hero-video-embed';
+import { MuxClipPlayer } from './mux-clip-player';
 import { capitalize, formatDuration } from '@/lib/format';
 
 // VirtualJobAid — hands-free, step-at-a-time procedure walkthrough that
@@ -100,12 +101,34 @@ interface ResolvedJobAid {
     bodyMarkdown: string | null;
     blocks: StepBlock[];
     safetyCritical: boolean;
-    media: Array<{
-      kind: 'image' | 'video';
-      url?: string | null;
-      caption?: string;
-      storageKey: string;
-    }>;
+    media: Array<
+      | {
+          kind: 'image';
+          url?: string | null;
+          caption?: string;
+          storageKey: string;
+        }
+      | {
+          kind: 'video';
+          url?: string | null;
+          caption?: string;
+          storageKey: string;
+        }
+      | {
+          kind: 'video_clip';
+          url?: string | null;
+          caption?: string;
+          storageKey: string;
+          /** Mux HLS clip range — produced by the AI walkthrough drafter.
+           *  Runner plays [startMs..endMs] on a loop via MuxClipPlayer. */
+          clip: {
+            playbackId: string;
+            startMs: number;
+            endMs: number;
+            streamUrl: string;
+          };
+        }
+    >;
     substeps: Array<{ id?: string; title: string; bodyMarkdown?: string | null }>;
     /** When the author attached or generated a voiceover, this URL plays
      *  instead of synthesizing TTS at run time. */
@@ -911,6 +934,25 @@ export function VirtualJobAid({
                           alt={m.caption ?? step.title}
                           label={m.caption ?? 'Image unavailable'}
                         />
+                      ) : m.kind === 'video_clip' ? (
+                        // AI-drafted clip range — streams from Mux
+                        // HLS, looped between [startMs..endMs]. In the
+                        // hands-free Job Aid this autoplays so the
+                        // motion is visible the moment the step lands;
+                        // the playId keyed on stepIdx auto-resets the
+                        // loop on navigation so audio doesn't leak
+                        // across steps.
+                        <MuxClipPlayer
+                          streamUrl={m.clip.streamUrl}
+                          startMs={m.clip.startMs}
+                          endMs={m.clip.endMs}
+                          posterUrl={m.url ?? undefined}
+                          alt={m.caption ?? step.title}
+                          caption={m.caption ?? null}
+                          muted
+                          autoplay
+                          playId={`step-${stepIdx}-${m.storageKey}`}
+                        />
                       ) : (
                         // Job Aid view: muted by default so step videos
                         // don't fight TTS narration. playId keyed on the
@@ -923,9 +965,9 @@ export function VirtualJobAid({
                           playId={`step-${stepIdx}-${m.storageKey}`}
                         />
                       )}
-                      {/* caption is rendered overlaid by StepVideoPlayer
-                          for video; keep the existing under-image caption
-                          for images only. */}
+                      {/* caption is rendered overlaid by Step/Mux clip
+                          players for video; keep the existing under-image
+                          caption for images only. */}
                       {m.kind === 'image' && m.caption && (
                         <p className="vja-step-caption">{m.caption}</p>
                       )}
@@ -1122,12 +1164,10 @@ function BlockRenderer({
   media,
 }: {
   block: StepBlock;
-  media: Array<{
-    kind: 'image' | 'video';
-    url?: string | null;
-    caption?: string;
-    storageKey: string;
-  }>;
+  // Accepts the full step media union (image / video / video_clip) — the
+  // photo_inline block looks up referenced items by storageKey and only
+  // renders the image variant; other kinds are ignored.
+  media: ResolvedJobAid['steps'][number]['media'];
 }): React.ReactElement | null {
   switch (block.kind) {
     case 'paragraph':

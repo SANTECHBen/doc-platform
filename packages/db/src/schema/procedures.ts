@@ -50,14 +50,53 @@ import { procedureStepKindEnum, procedureRunStatusEnum } from './enums';
 // which are evidence captured during a run). Stored as jsonb so an
 // individual step can carry an arbitrary number of media items in
 // authored order.
-export type ProcedureStepMedia = {
-  /** 'image' for jpeg/png/webp; 'video' for any video/* mime. */
-  kind: 'image' | 'video';
-  storageKey: string;
-  mime: string;
-  /** Optional author caption rendered below the media. */
-  caption?: string;
-};
+//
+// Discriminator (kind):
+//   'image'      — a JPEG/PNG/WebP/HEIC photograph stored at storageKey.
+//   'video'      — a video file (mp4/webm/mov) the author uploaded;
+//                  storageKey points at the file, mime gives the container.
+//   'video_clip' — a synthesized clip range played from a Mux HLS stream.
+//                  Produced by the AI video-walkthrough drafter: instead
+//                  of cutting an MP4 per step, we reference the source
+//                  video's playbackId and a [startMs, endMs] window, and
+//                  the runner clamps native HTML5 <video> playback to
+//                  loop that range. `storageKey` on this variant holds
+//                  a still poster JPEG (the executor's keyframe) shown
+//                  while HLS loads and as the offline fallback.
+export type ProcedureStepMedia =
+  | {
+      kind: 'image';
+      storageKey: string;
+      mime: string;
+      caption?: string;
+    }
+  | {
+      kind: 'video';
+      storageKey: string;
+      mime: string;
+      caption?: string;
+    }
+  | {
+      kind: 'video_clip';
+      /** Storage key of the JPEG poster — a still extracted from inside
+       *  the clip window. The runner uses this as <video poster> and as
+       *  the fallback when HLS playback is unavailable. */
+      storageKey: string;
+      /** Always 'image/jpeg' for v1 (the poster's mime). The actual clip
+       *  stream is HLS served from Mux at runtime. */
+      mime: string;
+      caption?: string;
+      clip: {
+        /** Mux playback id (public or signed). The runner streams from
+         *  https://stream.mux.com/<playbackId>.m3u8 — HLS on Safari/iOS
+         *  natively, hls.js elsewhere. */
+        playbackId: string;
+        /** Inclusive start of the clip range, in ms. */
+        startMs: number;
+        /** Exclusive end of the clip range, in ms. */
+        endMs: number;
+      };
+    };
 
 // Typed content blocks on a step. Replaces the freeform `bodyMarkdown`
 // field with a discriminated union that the template renders. Authors

@@ -57,6 +57,31 @@ hands-busy on the equipment.
 - Timestamps must be within the video duration. The system rejects steps
   whose timestamp exceeds the duration.
 
+# Per-step video clip range
+- Every step plays a short looped video clip on the tech's screen — the
+  clip is cut from the source walkthrough at runtime, not stored as a
+  separate file. You must pick clipStartMs and clipEndMs for each step.
+- clipStartMs = the moment in the video where the step's action visibly
+  begins. Use the transcript's [mm:ss] markers as your reference; aim to
+  start ~500ms before the speaker introduces the action so the tech sees
+  the lead-in, not a mid-sentence cut.
+- clipEndMs = the moment the action completes (or the speaker moves on
+  to the next step). The clip should feel like a single demonstrated
+  motion. Don't include the speaker's wrap-up commentary unless it's
+  visually informative.
+- Duration constraint: clipEndMs - clipStartMs MUST be between 2000ms
+  (2 seconds) and 20000ms (20 seconds). 5-10 seconds is the sweet spot.
+  If the underlying action genuinely takes longer (e.g. waiting for a
+  tank to drain), pick the most informative 10-second window and let the
+  voiceover narrate the rest.
+- Clip ranges should advance monotonically: step N's clipStartMs should
+  be >= step (N-1)'s clipStartMs. Light overlap between consecutive
+  steps is OK (the tech sees the action's context) but don't have clips
+  that play out of order.
+- The keyframeTimestampMs you pick is used as the still poster shown
+  while the clip loads. Conventionally pick it inside [clipStartMs,
+  clipEndMs] at the most representative moment.
+
 # Confidence
 - Score each step 0.0–1.0. Below 0.5 means "I'm guessing the boundary";
   the reviewer will sort these to the top.
