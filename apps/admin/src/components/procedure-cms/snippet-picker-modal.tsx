@@ -48,7 +48,9 @@ export function SnippetPickerModal({
   open,
   onClose,
   onPick,
-  ownerOrganizationId,
+  // Kept on Props for parity with the picker invocation but intentionally
+  // unused — see comment on the load effect below for why.
+  ownerOrganizationId: _ownerOrganizationId,
 }: Props) {
   const [q, setQ] = useState('');
   const [snippets, setSnippets] = useState<AdminSnippet[] | null>(null);
@@ -56,6 +58,12 @@ export function SnippetPickerModal({
   const [loading, setLoading] = useState(false);
 
   // Load on open; refetch when the search query changes (debounced).
+  // Note: we deliberately don't pass ownerOrganizationId. The server's
+  // scope filter already includes platform snippets and every org in
+  // the caller's scope. Passing the doc's own org as a hard filter
+  // would EXCLUDE platform snippets (ownerOrganizationId IS NULL),
+  // which was the symptom of "No snippets found" right after creating
+  // a snippet.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -64,7 +72,6 @@ export function SnippetPickerModal({
       try {
         const rows = await listAdminSnippets({
           q: q.trim() || undefined,
-          ownerOrganizationId: ownerOrganizationId ?? undefined,
           includePlatform: true,
           limit: 100,
         });
@@ -82,7 +89,7 @@ export function SnippetPickerModal({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [open, q, ownerOrganizationId]);
+  }, [open, q]);
 
   // Reset query when reopening so the picker starts fresh each time.
   useEffect(() => {
