@@ -9,7 +9,6 @@ import {
   Clapperboard,
   Film,
   Loader2,
-  MessageSquare,
   Play,
   Rocket,
   XCircle,
@@ -292,13 +291,12 @@ export default function DraftReviewerPage() {
             <p className="font-semibold">
               Submitted from the PWA
               {detail.run.submittedFromAssetInstanceId && (
-                <Link
-                  href={`/`}
+                <span
                   className="ml-1 font-normal text-ink-tertiary"
                   title={detail.run.submittedFromAssetInstanceId}
                 >
                   · asset {detail.run.submittedFromAssetInstanceId.slice(0, 8)}
-                </Link>
+                </span>
               )}
             </p>
             {detail.run.submissionNotes && (

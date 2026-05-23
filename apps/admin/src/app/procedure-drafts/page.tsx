@@ -12,6 +12,7 @@ import {
   type AdminDraftRun,
   type ProcedureDraftRunStatus,
 } from '@/lib/api';
+import { DateLabel } from '@/components/date-label';
 
 const STATUS_LABEL: Record<ProcedureDraftRunStatus, string> = {
   uploading: 'Uploading',
@@ -124,7 +125,7 @@ export default function ProcedureDraftsPage() {
                     )}
                   </p>
                   <p className="mt-0.5 text-[11px] text-ink-tertiary">
-                    Created {new Date(r.createdAt).toLocaleString()}
+                    Created <DateLabel iso={r.createdAt} />
                     {r.sourceVideoDurationMs
                       ? ` · ${Math.round(r.sourceVideoDurationMs / 60_000)} min`
                       : ''}

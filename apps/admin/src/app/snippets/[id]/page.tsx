@@ -34,6 +34,7 @@ import {
   type ProcedureStepKind,
   type StepBlock,
 } from '@/lib/api';
+import { DateLabel } from '@/components/date-label';
 
 export default function SnippetEditPage() {
   const params = useParams<{ id: string }>();
@@ -374,7 +375,7 @@ function RevisionsPanel({
               <p className="font-medium text-ink-primary">
                 Revision {r.revisionNumber}
                 <span className="ml-2 font-normal text-ink-tertiary">
-                  {new Date(r.createdAt).toLocaleString()}
+                  <DateLabel iso={r.createdAt} />
                 </span>
               </p>
               {r.changeNote && (

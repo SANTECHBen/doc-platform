@@ -36,6 +36,7 @@ import {
   type Me,
   type ProcedureStepKind,
 } from '@/lib/api';
+import { DateLabel } from '@/components/date-label';
 
 const KIND_ICON: Record<ProcedureStepKind, typeof FileText> = {
   instruction: FileText,
@@ -228,7 +229,7 @@ function SnippetGroup({
                   </p>
                 </div>
                 <span className="text-[10px] text-ink-tertiary">
-                  Updated {new Date(s.updatedAt).toLocaleDateString()}
+                  Updated <DateLabel iso={s.updatedAt} mode="date" />
                 </span>
               </Link>
             </li>
