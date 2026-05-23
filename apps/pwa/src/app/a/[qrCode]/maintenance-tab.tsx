@@ -919,6 +919,11 @@ function CategoryCardButton({
   onClick: () => void;
 }) {
   const Icon = card.icon;
+  // Only Action and Upcoming surface a count — those represent open work
+  // the tech needs to see. The other category buttons (walkthroughs,
+  // removal, troubleshoot, history) are pure navigation; a count on
+  // them crowds the label and reads like an alarm where none exists.
+  const showCount = card.key === 'action' || card.key === 'upcoming';
   return (
     <button
       type="button"
@@ -926,6 +931,7 @@ function CategoryCardButton({
       aria-pressed={active}
       data-tone={card.tone}
       data-active={active ? 'true' : 'false'}
+      data-has-count={showCount ? 'true' : 'false'}
       className="cat-card"
     >
       <Icon
@@ -935,7 +941,7 @@ function CategoryCardButton({
         aria-hidden
       />
       <span className="cat-card-label">{card.label}</span>
-      <span className="cat-card-count">{card.count}</span>
+      {showCount && <span className="cat-card-count">{card.count}</span>}
     </button>
   );
 }

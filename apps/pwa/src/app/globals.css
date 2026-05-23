@@ -5379,8 +5379,18 @@
      supporting affordance, not a header. */
   .maintenance-author-row {
     display: flex;
+    flex-wrap: wrap;
     justify-content: flex-end;
+    gap: 8px;
     margin-bottom: 4px;
+  }
+  /* Stretch the buttons in this row to share the available width on
+     narrow screens so they wrap cleanly instead of clipping at the
+     left edge of the container. */
+  .maintenance-author-row > .btn {
+    flex: 1 1 auto;
+    min-width: 0;
+    justify-content: center;
   }
 
   /* Nav cards — tinted surface, no border. Visually distinct from
@@ -5403,6 +5413,12 @@
     transition:
       background 140ms ease,
       border-color 140ms ease;
+  }
+  /* When a card has no count column the label gets the freed space.
+     Drops the trailing `auto` column so the label can grow to the
+     card's edge without empty padding on the right. */
+  .maintenance-filter-grid .cat-card[data-has-count='false'] {
+    grid-template-columns: auto minmax(0, 1fr);
   }
   .maintenance-filter-grid .cat-card:hover {
     background: rgb(var(--surface-elevated));
