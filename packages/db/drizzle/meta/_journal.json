@@ -246,6 +246,13 @@
       "when": 1780272000000,
       "tag": "0034_pwa_draft_submissions",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1780272001000,
+      "tag": "0035_pwa_draft_columns",
+      "breakpoints": true
     }
   ]
 }
