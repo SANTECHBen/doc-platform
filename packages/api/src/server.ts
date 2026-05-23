@@ -63,6 +63,38 @@ if (!globalAny[SWEEPER_FLAG]) {
   }, 15_000);
 }
 
+// Draft-run sweeper. Picks up procedure_draft_runs stuck in
+// 'uploading' / 'transcribing' (waiting for a Mux webhook that never
+// arrived) and polls Mux directly to advance them. Also fires the
+// Whisper transcript fallback for drafts that have sat in
+// 'transcribing' for >5 min — the in-process 5-minute timer in
+// onDraftMuxAssetReady dies on container restart, this is the durable
+// backup. See sweepStuckDrafts for details.
+//
+// Tick = 20s; sweepStuckDrafts only acts on drafts whose updatedAt is
+// older than that, so the loop self-paces against Mux's API. Same
+// global-symbol guard pattern as the search sweeper so dev HMR doesn't
+// spawn parallel intervals.
+const DRAFT_SWEEPER_FLAG = Symbol.for('platform.draft-sweeper');
+if (!globalAny[DRAFT_SWEEPER_FLAG]) {
+  globalAny[DRAFT_SWEEPER_FLAG] = true;
+  const { sweepStuckDrafts } = await import('./services/draft-pipeline.js');
+  setTimeout(() => {
+    const tick = async () => {
+      try {
+        const r = await sweepStuckDrafts(app);
+        if (r.scanned > 0 || r.errors > 0) {
+          app.log.info({ ...r }, 'draft-sweeper: tick complete');
+        }
+      } catch (err) {
+        app.log.warn({ err }, 'draft-sweeper: tick failed');
+      }
+    };
+    void tick();
+    setInterval(tick, 20_000);
+  }, 10_000);
+}
+
 try {
   await app.listen({ host: env.API_HOST, port: env.API_PORT });
   app.log.info(`API listening on http://${env.API_HOST}:${env.API_PORT}`);

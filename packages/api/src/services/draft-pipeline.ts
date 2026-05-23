@@ -13,7 +13,7 @@
 // beyond that one dispatch — every cross-cutting concern (transcript
 // fetching, storyboard URL, LLM loop, executor) lives in this module.
 
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray, lt } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import {
   buildDraftClientToken,
@@ -388,12 +388,163 @@ export async function refreshDraftFromMux(
     }
   }
 
+  // Always touch updatedAt so the background sweeper (see
+  // sweepStuckDrafts) paces itself correctly. The sweeper uses
+  // `updatedAt < now() - 20s` as its "haven't polled recently" filter;
+  // if a poll above made no changes we still need to record that we
+  // looked, otherwise the sweeper would re-fire on the same draft
+  // every tick and hammer Mux.
+  await db
+    .update(schema.procedureDraftRuns)
+    .set({ updatedAt: new Date() })
+    .where(eq(schema.procedureDraftRuns.id, runId));
+
   // Re-read the final state for the response.
   const final = await db.query.procedureDraftRuns.findFirst({
     where: eq(schema.procedureDraftRuns.id, runId),
     columns: { status: true },
   });
   return { status: final?.status ?? run.status, changed, notes };
+}
+
+// Sweeper config — exported so tests / ops can introspect.
+//
+// MIN_POLL_INTERVAL_MS: don't repoll a draft we just touched. Stops the
+// sweeper from hammering Mux on a draft that's actively progressing.
+// 20s gives the webhook a clean window to land first (typical webhook
+// latency is <5s); past that, the polling fallback kicks in.
+export const DRAFT_SWEEPER_MIN_POLL_INTERVAL_MS = 20_000;
+// WHISPER_FALLBACK_AGE_MS: how long a draft can sit in 'transcribing'
+// before we give up on Mux captions and synthesize a transcript via
+// Whisper. The in-process timer in onDraftMuxAssetReady covers the
+// happy path; the sweeper is the durable backup that survives
+// container restarts. 5 min mirrors that timer.
+export const DRAFT_SWEEPER_WHISPER_FALLBACK_AGE_MS = 5 * 60_000;
+// Per-tick cap so the sweeper can't run away if a backlog accumulates.
+// At 20s tick, 25/tick = 75 drafts/minute — well above realistic load.
+export const DRAFT_SWEEPER_MAX_PER_TICK = 25;
+
+export interface DraftSweepResult {
+  /** Number of stuck drafts the sweeper found this tick. */
+  scanned: number;
+  /** How many of those changed state as a result of the refresh. */
+  changed: number;
+  /** Drafts whose refresh threw. The error is logged on the app logger. */
+  errors: number;
+  /** Drafts old enough that the Whisper fallback fired. */
+  whisperFallbacks: number;
+}
+
+/**
+ * Background sweeper for draft runs stuck waiting on Mux webhooks.
+ *
+ * Why this exists
+ * ---------------
+ * Mux delivers state transitions (asset.ready, track.ready) via webhooks.
+ * When the webhook misses — Fly autoscaled to zero, transient network,
+ * Mux retry exhausted, anything — drafts hang in 'uploading' /
+ * 'transcribing' forever. Users notice and have to manually tap
+ * "Refresh from Mux" on the admin reviewer; that's the bug this fixes.
+ *
+ * What it does
+ * ------------
+ * Every server.ts tick (20s), find drafts in webhook-dependent states
+ * whose `updatedAt` is older than the min-poll-interval. For each:
+ *   1. Call refreshDraftFromMux — polls Mux for upload/asset/track state
+ *      and advances the run when something has progressed.
+ *   2. If the draft has been in 'transcribing' for >5 min with no
+ *      transcript, fire runWhisperFallback as a safety net (the
+ *      in-process 5-min timer dies on container restart; this is the
+ *      durable equivalent).
+ *
+ * Idempotency
+ * -----------
+ * Both refreshDraftFromMux and runWhisperFallback are idempotent — the
+ * sweeper can run alongside in-process timers / live webhook handlers
+ * without double-processing.
+ */
+export async function sweepStuckDrafts(
+  app: FastifyInstance,
+): Promise<DraftSweepResult> {
+  const { db } = app.ctx;
+  const now = Date.now();
+  const pollCutoff = new Date(now - DRAFT_SWEEPER_MIN_POLL_INTERVAL_MS);
+
+  // Only sweep webhook-dependent statuses. Other statuses are either
+  // user-driven (pending_admin_decision, awaiting_review), already
+  // running in-process (proposing, executing), or terminal (completed,
+  // failed, cancelled). 'storyboarding' is transient and owned by the
+  // LLM kickoff path — leave it alone.
+  // Mutable array (not `as const`) — drizzle's inArray needs a writable
+  // tuple to match the column's literal-union enum type.
+  const stuckStatuses: Array<'uploading' | 'transcribing'> = [
+    'uploading',
+    'transcribing',
+  ];
+
+  const stuck = await db.query.procedureDraftRuns.findMany({
+    where: and(
+      inArray(schema.procedureDraftRuns.status, stuckStatuses),
+      lt(schema.procedureDraftRuns.updatedAt, pollCutoff),
+    ),
+    columns: {
+      id: true,
+      status: true,
+      createdAt: true,
+      muxPlaybackId: true,
+      sourceTranscript: true,
+    },
+    limit: DRAFT_SWEEPER_MAX_PER_TICK,
+  });
+
+  let changed = 0;
+  let errors = 0;
+  let whisperFallbacks = 0;
+
+  // Serial loop — keeps Mux API pressure low and makes log output
+  // easy to read. Sweep volume is bounded by MAX_PER_TICK anyway.
+  for (const row of stuck) {
+    try {
+      const result = await refreshDraftFromMux(app, row.id);
+      if (result.changed.length > 0) {
+        changed++;
+        app.log.info(
+          { runId: row.id, changed: result.changed, notes: result.notes },
+          'draft-sweeper: advanced stuck draft',
+        );
+      }
+
+      // After the refresh, check whether this row qualifies for the
+      // Whisper safety net. We use the row we read at sweep time
+      // (createdAt is immutable, transcript/playbackId only got more
+      // populated by refreshDraftFromMux above — so an absent transcript
+      // is still absent).
+      const transcribingTooLong =
+        row.status === 'transcribing' &&
+        !row.sourceTranscript &&
+        row.muxPlaybackId != null &&
+        now - new Date(row.createdAt).getTime() >
+          DRAFT_SWEEPER_WHISPER_FALLBACK_AGE_MS;
+      if (transcribingTooLong) {
+        const whisper = await runWhisperFallback(app, row.id);
+        if (whisper.ran) {
+          whisperFallbacks++;
+          app.log.info(
+            { runId: row.id },
+            'draft-sweeper: triggered Whisper fallback for stuck transcribing draft',
+          );
+        }
+      }
+    } catch (err) {
+      errors++;
+      app.log.warn(
+        { err, runId: row.id },
+        'draft-sweeper: refresh failed; will retry next tick',
+      );
+    }
+  }
+
+  return { scanned: stuck.length, changed, errors, whisperFallbacks };
 }
 
 /**
