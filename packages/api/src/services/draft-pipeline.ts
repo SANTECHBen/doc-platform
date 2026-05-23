@@ -296,27 +296,70 @@ export async function refreshDraftFromMux(
       }
       notes.push(`Mux asset status: ${asset.status}`);
 
-      // If the asset is ready and we still don't have a transcript
-      // after a beat, trigger the Whisper fallback. This covers two
-      // failure modes:
-      //   1. Captions weren't enabled on the upload (older drafts
-      //      before the captions fix).
-      //   2. video.asset.track.ready webhook missed.
-      // Idempotent — Whisper helper short-circuits if a transcript
-      // already exists.
-      if (
-        asset.status === 'ready' &&
-        !run.sourceTranscript &&
-        app.ctx.env.OPENAI_API_KEY
-      ) {
-        try {
-          await runWhisperFallbackIfStuck(app, run.id);
-          notes.push('triggered Whisper fallback');
-          changed.push('transcript');
-        } catch (err) {
-          notes.push(
-            `Whisper fallback failed: ${err instanceof Error ? err.message : String(err)}`,
-          );
+      // If the asset is ready and we still don't have a transcript,
+      // try recovery via Mux auto-captions (free, async) — this is
+      // the right path now that we know the .mp4 rendition fallback
+      // doesn't work without mp4_support enabled on the asset.
+      if (asset.status === 'ready' && !run.sourceTranscript) {
+        const textTrack = asset.tracks.find(
+          (t) => t.type === 'text' && t.textSource === 'generated_vod',
+        );
+        const audioTrack = asset.tracks.find((t) => t.type === 'audio');
+
+        if (textTrack && textTrack.status === 'ready' && asset.playbackIds[0]) {
+          // Mux already generated captions but the webhook never
+          // landed. Fetch the VTT directly and persist it.
+          try {
+            const vtt = await fetchMuxCaptionVtt(asset.playbackIds[0].id, textTrack.id);
+            const { plain, withTimestamps } = parseVtt(vtt);
+            await db
+              .update(schema.procedureDraftRuns)
+              .set({
+                sourceTranscript: plain,
+                sourceCaptionsVtt: vtt,
+                transcriptSource: 'mux_captions',
+                updatedAt: new Date(),
+              })
+              .where(eq(schema.procedureDraftRuns.id, run.id));
+            agentBus.publish(runChannel(run.id, 'propose'), 'transcript_ready', {
+              source: 'mux_captions',
+              lengthChars: plain.length,
+            });
+            // PWA submissions stop at pending_admin_decision; admin-
+            // initiated drafts auto-kick the LLM.
+            if (run.pwaSubmitted) {
+              await db
+                .update(schema.procedureDraftRuns)
+                .set({ status: 'pending_admin_decision', updatedAt: new Date() })
+                .where(eq(schema.procedureDraftRuns.id, run.id));
+            } else {
+              void runDrafterLoop(app, run.id, {
+                transcriptWithTimestamps: withTimestamps || plain,
+              });
+            }
+            changed.push('transcript');
+            notes.push('fetched existing Mux captions');
+          } catch (err) {
+            notes.push(
+              `Mux caption fetch failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        } else if (audioTrack) {
+          // No captions track yet — request one from Mux. The webhook
+          // fires when ready (usually 1-2 min). If the webhook misses,
+          // the user can tap Refresh again and we'll catch the ready
+          // track in the branch above.
+          const result = await mux.enableAutoCaptions(asset.id, audioTrack.id, 'en');
+          if (result.ok) {
+            notes.push(
+              'requested Mux auto-captions; transcript should arrive in 1-2 min',
+            );
+            changed.push('captions_requested');
+          } else {
+            notes.push(`Could not request captions: ${result.error}`);
+          }
+        } else {
+          notes.push('asset has no audio track — cannot generate captions');
         }
       }
     } catch (err) {

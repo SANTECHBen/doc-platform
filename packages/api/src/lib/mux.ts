@@ -21,6 +21,15 @@ export interface MuxConfig {
   corsOrigin: string;
 }
 
+export interface MuxAssetTrack {
+  id: string;
+  type: 'audio' | 'video' | 'text';
+  languageCode: string | null;
+  /** For 'text' tracks Mux populates this once generation completes. */
+  status: string | null;
+  textSource: string | null;
+}
+
 export interface MuxClient {
   createDirectUpload: (input: {
     /** Optional pass-through info, surfaced in webhook events. */
@@ -32,6 +41,7 @@ export interface MuxClient {
     playbackIds: Array<{ id: string; policy: string }>;
     duration: number | null;
     aspectRatio: string | null;
+    tracks: MuxAssetTrack[];
   }>;
   /**
    * Get the asset for a given upload id. Useful for the polling fallback in
@@ -42,6 +52,16 @@ export interface MuxClient {
     status: string;
     assetId: string | null;
   }>;
+  /**
+   * Retroactively request auto-generated captions for an asset's audio
+   * track. Idempotent — Mux returns 400 if a generated_vod track already
+   * exists, which callers should treat as success.
+   */
+  enableAutoCaptions: (
+    assetId: string,
+    audioTrackId: string,
+    languageCode?: string,
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
   unwrapWebhook: (
     body: string,
     headers: Record<string, string | string[] | undefined>,
@@ -100,7 +120,40 @@ export function createMuxClient(cfg: MuxConfig): MuxClient {
           a.playback_ids?.map((p) => ({ id: p.id, policy: p.policy ?? 'public' })) ?? [],
         duration: a.duration ?? null,
         aspectRatio: a.aspect_ratio ?? null,
+        tracks: (a.tracks ?? []).map((t) => ({
+          id: t.id ?? '',
+          type: (t.type ?? 'audio') as MuxAssetTrack['type'],
+          languageCode: t.language_code ?? null,
+          status: t.status ?? null,
+          textSource: (t as { text_source?: string }).text_source ?? null,
+        })),
       };
+    },
+
+    async enableAutoCaptions(assetId, audioTrackId, languageCode = 'en') {
+      try {
+        await mux.video.assets.generateSubtitles(assetId, audioTrackId, {
+          generated_subtitles: [
+            {
+              // Mux's SDK types this as a closed union; 'en' is the
+              // default. Cast through unknown so callers can pass other
+              // valid Mux codes if needed.
+              language_code: languageCode as 'en',
+              name: 'English (auto)',
+            },
+          ],
+        });
+        return { ok: true };
+      } catch (err) {
+        // Mux returns 400 when a generated_vod track already exists. Treat
+        // that as success for idempotency — the caller can poll/await the
+        // existing track.
+        const message = err instanceof Error ? err.message : String(err);
+        if (/already.*generated/i.test(message) || /400/.test(message)) {
+          return { ok: true };
+        }
+        return { ok: false, error: message };
+      }
     },
 
     async getUpload(uploadId) {
