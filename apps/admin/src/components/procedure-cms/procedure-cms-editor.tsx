@@ -256,10 +256,32 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
   // Create a new step backed by a reusable snippet. Server resolves the
   // snippet's blocks/title at read time (always-latest) until the author
   // edits the step inline (detach-on-edit).
+  //
+  // Snippets are inserted at the TOP of the target section (or top of
+  // the whole procedure for orphan inserts). The dominant snippet use
+  // case is safety boilerplate — LOTO, PPE briefing — which logically
+  // belongs as Step 1, not whatever step happens to come last. The
+  // author can drag-reorder afterward if a different position is
+  // wanted.
   async function addStepFromSnippet(
     snippet: AdminSnippet,
     sectionId: string | null = null,
   ) {
+    // Compute an orderingHint smaller than every existing step in the
+    // target scope so the new step lands first. The reorder endpoint
+    // re-stamps at 100-stride; we just need ANY value below the current
+    // minimum, and 100 below leaves room for further inserts above.
+    const scopeSteps = localSteps.filter((s) =>
+      sectionId === null ? s.sectionId === null : s.sectionId === sectionId,
+    );
+    const minHint = scopeSteps.length
+      ? Math.min(...scopeSteps.map((s) => s.orderingHint))
+      : 100;
+    // Floor at 1 — orderingHint is int; we want strictly > 0 so the
+    // server's "max + 100" append on the NEXT addStep still produces a
+    // sensible ordering.
+    const orderingHint = Math.max(1, minHint - 100);
+
     const input: CreateProcedureStepInput = {
       kind: snippet.kind,
       // Leave title blank so the snippet's own title flows through on
@@ -269,11 +291,15 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
       safetyCritical: snippet.kind === 'safety_check',
       sectionId,
       snippetId: snippet.id,
+      orderingHint,
     };
     beginSave();
     try {
       const created = await createProcedureStep(doc.id, input);
-      setLocalSteps((prev) => [...prev, created]);
+      // Insert at the front of local state (matching the server's
+      // orderingHint) so the UI doesn't flash the new step at the
+      // bottom before the next refetch.
+      setLocalSteps((prev) => [created, ...prev]);
       // Don't default-expand a snippet-backed step — its content is
       // read-only until detached, and the collapsed row already shows the
       // resolved title.
