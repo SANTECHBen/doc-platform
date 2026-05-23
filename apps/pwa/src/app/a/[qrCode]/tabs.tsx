@@ -9,7 +9,6 @@ import {
   LayoutGrid,
   Library,
   MessageSquare,
-  Search,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
@@ -107,7 +106,19 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
   } | null>(null);
   // Voice-search overlay state. Distinct from voice mode (chat) — search
   // returns ranked results + a spoken preview, not a streamed answer.
+  // Opened by the topbar's magnifier button via a window event so the
+  // server-rendered topbar stays decoupled from this client tree.
   const [voiceSearchOpen, setVoiceSearchOpen] = useState(false);
+  useEffect(() => {
+    const onOpen = () => {
+      // Don't reopen while voice assistant owns the screen — they'd
+      // fight over the mic.
+      if (mode === 'voice') return;
+      setVoiceSearchOpen(true);
+    };
+    window.addEventListener('asset-hub:open-search', onOpen);
+    return () => window.removeEventListener('asset-hub:open-search', onOpen);
+  }, [mode]);
 
   // Prefetch the greeting (preflight + TTS blob) the moment the chooser
   // is up, so tapping Hands-Free starts speaking ~immediately rather than
@@ -349,22 +360,12 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
         />
       )}
 
-      {/* Floating Search FAB — visible whenever the tech is in the asset
-          hub (not in the mode chooser or voice mode). Opens VoiceSearch
-          which records a query, runs hybrid search, and deep-links
-          results into VirtualJobAid / doc viewer. */}
-      {mode === 'browse' && !voiceSearchOpen && (
-        <button
-          type="button"
-          onClick={() => setVoiceSearchOpen(true)}
-          className="fixed bottom-20 right-4 z-40 inline-flex items-center gap-1.5 rounded-full bg-[rgb(var(--brand))] px-4 py-2 text-sm font-semibold text-white shadow-lg active:scale-95"
-          aria-label="Voice search"
-        >
-          <Search size={14} strokeWidth={2.25} />
-          Search
-        </button>
-      )}
-
+      {/* Voice search is launched from the topbar (search icon) — not a
+          floating FAB — so it never covers content and it sits visually
+          apart from the post-scan Voice assistant mode. The topbar
+          dispatches `asset-hub:open-search`; the listener below opens
+          the overlay. We don't reopen during voice mode (voice already
+          owns the screen) or while the chooser is up. */}
       {voiceSearchOpen && (
         <VoiceSearch
           assetInstanceId={hub.assetInstance.id}

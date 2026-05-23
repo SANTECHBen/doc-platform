@@ -1,11 +1,14 @@
 'use client';
 
-import { LayoutGrid, Mic } from 'lucide-react';
+import { LayoutGrid, Mic, Search } from 'lucide-react';
 
 // First-touch picker shown on every QR scan. Two options:
 //   - Hands-Free: opens VoiceMode immediately (mic + AI voice)
 //   - Browse:    drops the tech into the asset hub to tap through docs/parts
 // Choice is intentional and not remembered — see plan for rationale.
+//
+// A footnote points at the Voice search affordance in Browse mode so techs
+// know lookup-only is one tap away (no conversation overhead).
 
 export type ChosenMode = 'voice' | 'browse';
 
@@ -36,7 +39,7 @@ export function ModeChooser({ assetName, onPick }: Props) {
           <span className="mode-chooser-card-text">
             <span className="mode-chooser-card-title">Voice assistant</span>
             <span className="mode-chooser-card-sub">
-              Hands-free troubleshooting and walkthroughs
+              Conversation: troubleshoot or walk through a procedure hands-free
             </span>
           </span>
         </button>
@@ -51,6 +54,18 @@ export function ModeChooser({ assetName, onPick }: Props) {
           </span>
         </button>
       </div>
+
+      {/* Footnote pointing at the topbar search icon — explains the
+          distinction so a tech who really wants a one-shot lookup (not a
+          conversation) knows where to go without picking Voice and
+          backing out. */}
+      <p className="mode-chooser-footnote">
+        <Search size={12} strokeWidth={2.25} aria-hidden />
+        <span>
+          Looking for a specific procedure or step? Tap the search icon in
+          the top bar after picking <strong>Equipment dashboard</strong>.
+        </span>
+      </p>
     </div>
   );
 }

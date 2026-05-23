@@ -316,6 +316,35 @@
   flex-shrink: 0;
 }
 
+/* Voice-search trigger in the topbar. Visually weighted slightly heavier
+   than the theme toggle so the affordance reads as "useful tool" not
+   "settings knob" — matches the brand color on hover/focus so the tech
+   recognizes it as a primary find-stuff entry. Lives in the topbar
+   (always visible, never covers content) rather than a floating FAB so
+   the bottom-right of every tab stays usable. */
+.app-topbar-search-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgb(var(--ink-secondary));
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.app-topbar-search-btn:hover {
+  background: rgb(var(--brand) / 0.08);
+  color: rgb(var(--brand));
+  border-color: rgb(var(--brand) / 0.18);
+}
+.app-topbar-search-btn:focus-visible {
+  outline: 2px solid rgb(var(--brand));
+  outline-offset: 2px;
+}
+
 /* Compact asset chip — shown on every tab EXCEPT Overview so the tech
    never loses identity context. Status LED + asset name only — no
    thumbnail, no serial number. Per UX feedback the chip should read
@@ -3825,6 +3854,25 @@
   .mode-chooser-card-sub {
     font-size: 13px;
     color: rgb(var(--ink-secondary));
+  }
+  /* Footnote anchoring the Search vs Voice distinction. Sits below the
+     two big choice cards in a quieter type weight so it reads as
+     guidance, not as a third option. */
+  .mode-chooser-footnote {
+    margin-top: 16px;
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: rgb(var(--ink-tertiary));
+    max-width: 36ch;
+    text-align: left;
+  }
+  .mode-chooser-footnote svg {
+    margin-top: 2px;
+    flex-shrink: 0;
+    color: rgb(var(--brand));
   }
 
   /* =========================================================================

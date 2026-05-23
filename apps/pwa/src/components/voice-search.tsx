@@ -246,7 +246,12 @@ export function VoiceSearch({ assetInstanceId, onClose, onJump }: Props) {
       <header className="flex items-center justify-between px-4 py-3 border-b border-white/10">
         <div className="flex items-center gap-2">
           <Search size={16} className="text-white/70" />
-          <span className="text-sm font-semibold tracking-wide">Voice search</span>
+          <div className="flex flex-col leading-tight">
+            <span className="text-sm font-semibold tracking-wide">Voice search</span>
+            <span className="text-[10px] uppercase tracking-wider text-white/40">
+              Lookup · ranked results
+            </span>
+          </div>
         </div>
         <button
           type="button"
@@ -265,7 +270,9 @@ export function VoiceSearch({ assetInstanceId, onClose, onJump }: Props) {
         {phase === 'idle' && (
           <div className="mx-auto flex max-w-md flex-col items-center gap-6 py-12 text-center">
             <p className="text-sm text-white/80">
-              Tap the mic and ask a question — &ldquo;how do I bleed the chiller pump&rdquo;, &ldquo;what is the torque spec for the cover bolt&rdquo;.
+              Speak a phrase to find the right document, section, or
+              procedure step. &ldquo;Torque spec for the cover bolt&rdquo;,
+              &ldquo;bleed the chiller pump&rdquo;.
             </p>
             <button
               type="button"
@@ -278,6 +285,18 @@ export function VoiceSearch({ assetInstanceId, onClose, onJump }: Props) {
             <p className="text-xs text-white/50">
               Recording stops automatically after a second of silence.
             </p>
+            {/* Cross-affordance hint. Search returns a list; Voice
+                assistant has a conversation. Surface the distinction
+                here so a tech who wants to *talk through* a problem
+                knows where to go without learning by trial-and-error. */}
+            <div className="mt-4 flex items-start gap-2 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-left text-[11px] text-white/60">
+              <Mic size={12} className="mt-0.5 shrink-0 text-white/50" />
+              <span>
+                Need to <em>talk through</em> a problem instead of looking
+                one up? Re-scan the equipment and pick{' '}
+                <strong className="text-white/80">Voice assistant</strong>.
+              </span>
+            </div>
           </div>
         )}
 

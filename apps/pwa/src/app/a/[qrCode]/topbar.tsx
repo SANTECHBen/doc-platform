@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Search } from 'lucide-react';
 import type { AssetHubPayload } from '@/lib/shared-schema';
 import { BrandLogo } from '@/components/brand-logo';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -82,6 +83,20 @@ export function AssetTopbar({ hub }: { hub: AssetHubPayload }) {
       )}
       <PoweredBy />
       <div className="app-topbar-actions">
+        {/* Voice search — distinct from the post-scan Voice assistant mode.
+            Search returns a ranked list of docs/steps; Voice assistant
+            opens a conversational AI. Dispatching a window event keeps
+            the topbar (server-rendered) decoupled from the asset-hub tabs
+            tree (client-rendered with its own state). */}
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new Event('asset-hub:open-search'))}
+          aria-label="Voice search — find a document, step, or section"
+          title="Voice search — find a doc, step, or section (separate from Voice assistant)"
+          className="app-topbar-search-btn"
+        >
+          <Search size={16} strokeWidth={2.25} aria-hidden />
+        </button>
         <ThemeToggle />
       </div>
     </header>
