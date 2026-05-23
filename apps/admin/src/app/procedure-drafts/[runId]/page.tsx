@@ -28,6 +28,7 @@ import {
   executeProcedureDraft,
   getProcedureDraft,
   patchProcedureDraftProposal,
+  refreshProcedureDraftFromMux,
   runAiOnProcedureDraft,
   type AdminDraftDetail,
   type AdminDraftProposalTree,
@@ -196,6 +197,23 @@ export default function DraftReviewerPage() {
     }
   }
 
+  async function refreshFromMux() {
+    setBusy(true);
+    try {
+      const r = await refreshProcedureDraftFromMux(runId);
+      const summary =
+        r.changed.length > 0 ? r.changed.join(', ') : 'no changes from Mux yet';
+      toast.success('Refreshed', summary);
+    } catch (e) {
+      toast.error(
+        'Refresh failed',
+        e instanceof Error ? e.message : String(e),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function updateStep(clientId: string, patch: Partial<AdminDraftStepProposal>) {
     setDraftSteps((prev) =>
       prev.map((s) => (s.clientId === clientId ? { ...s, ...patch } : s)),
@@ -270,6 +288,11 @@ export default function DraftReviewerPage() {
                   <Rocket size={14} /> Accept and create procedure
                 </PrimaryButton>
               </>
+            )}
+            {(phase === 'awaiting_video' || phase === 'transcribing') && (
+              <SecondaryButton onClick={() => void refreshFromMux()} disabled={busy}>
+                Refresh from Mux
+              </SecondaryButton>
             )}
             {(phase === 'transcribing' || phase === 'proposing' || phase === 'awaiting_video') && (
               <GhostButton onClick={() => void cancel()} disabled={busy}>
@@ -472,15 +495,21 @@ function AwaitingVideo({ runId }: { runId: string }) {
     <div className="rounded-md border border-line bg-surface px-4 py-6 text-sm text-ink-secondary">
       <p className="font-medium text-ink-primary">Waiting for video upload…</p>
       <p className="mt-1 text-xs">
-        This usually means the upload was started elsewhere and hasn&rsquo;t
-        finished yet. If you meant to start fresh, head to{' '}
+        If the upload finished on the tech&rsquo;s device but the status
+        hasn&rsquo;t moved here, tap <strong>Refresh from Mux</strong> in
+        the header — we&rsquo;ll poll Mux directly and advance the run.
+        Webhooks can sometimes miss; the refresh button is the manual
+        recovery path. Run id: <code>{runId}</code>.
+      </p>
+      <p className="mt-2 text-xs">
+        Need to start a brand-new admin-uploaded draft instead?{' '}
         <Link
           href="/procedure-drafts/new"
           className="font-semibold text-accent hover:underline"
         >
           New draft
-        </Link>{' '}
-        — it walks through the upload step by step. Run id: <code>{runId}</code>.
+        </Link>
+        .
       </p>
     </div>
   );

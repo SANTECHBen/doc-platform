@@ -188,6 +188,129 @@ export async function onDraftMuxErrored(
 // ---------------------------------------------------------------------------
 
 /**
+ * Polls Mux directly for the current state of a draft's upload + asset.
+ * Used as a safety net when webhooks don't arrive (Mux destination
+ * misconfigured, network blip, slow processing). Idempotent — calling
+ * it on an already-progressed draft is a no-op.
+ *
+ *   - If the upload has an assetId we don't yet know about → set
+ *     muxAssetId, move status to 'transcribing'.
+ *   - If the asset is 'ready' and we don't have a playbackId → set
+ *     muxPlaybackId + storyboardVttUrl + duration; kick the LLM loop
+ *     when the run is admin-initiated (pwa_submitted=false). PWA
+ *     submissions stop here at pending_admin_decision so the admin
+ *     can review the transcript before spending on AI.
+ *   - If captions are available → fetch the VTT and persist; gate
+ *     LLM kickoff on pwa_submitted as usual.
+ */
+export async function refreshDraftFromMux(
+  app: FastifyInstance,
+  runId: string,
+): Promise<{
+  status: string;
+  changed: string[];
+  notes: string[];
+}> {
+  const { db } = app.ctx;
+  const mux = app.ctx.mux;
+  if (!mux) {
+    throw new Error('Mux client not configured');
+  }
+  const run = await db.query.procedureDraftRuns.findFirst({
+    where: eq(schema.procedureDraftRuns.id, runId),
+  });
+  if (!run) throw new Error('draft run not found');
+
+  const changed: string[] = [];
+  const notes: string[] = [];
+  let assetId = run.muxAssetId;
+
+  // Step 1: if we don't have an assetId yet, ask Mux about the upload.
+  if (!assetId && run.muxUploadId) {
+    try {
+      const upload = await mux.getUpload(run.muxUploadId);
+      if (upload.assetId) {
+        assetId = upload.assetId;
+        await db
+          .update(schema.procedureDraftRuns)
+          .set({
+            muxAssetId: assetId,
+            status: run.status === 'uploading' ? 'transcribing' : run.status,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.procedureDraftRuns.id, run.id));
+        changed.push('muxAssetId');
+        if (run.status === 'uploading') changed.push('status=transcribing');
+      } else {
+        notes.push(`Mux upload status: ${upload.status}; no asset yet`);
+      }
+    } catch (err) {
+      notes.push(
+        `Mux upload lookup failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  // Step 2: if we have an assetId, poll its state.
+  if (assetId) {
+    try {
+      const asset = await mux.getAsset(assetId);
+      const playbackId = asset.playbackIds[0]?.id ?? null;
+      const updates: Record<string, unknown> = { updatedAt: new Date() };
+      if (playbackId && !run.muxPlaybackId) {
+        updates.muxPlaybackId = playbackId;
+        updates.storyboardVttUrl = `https://image.mux.com/${playbackId}/storyboard.vtt`;
+        changed.push('muxPlaybackId');
+      }
+      if (asset.duration && !run.sourceVideoDurationMs) {
+        updates.sourceVideoDurationMs = Math.round(asset.duration * 1000);
+        changed.push('duration');
+      }
+      // Advance status when asset is ready and we're still in
+      // uploading/transcribing — the webhook may have missed.
+      if (
+        asset.status === 'ready' &&
+        (run.status === 'uploading' || run.status === 'transcribing')
+      ) {
+        // Don't immediately go to pending_admin_decision for PWA
+        // submissions — we still need the transcript. Leave status at
+        // 'transcribing' so the track.ready webhook (or a Whisper
+        // fallback) advances it later.
+        if (!run.status.startsWith('uploading')) {
+          // No-op — already past upload phase.
+        } else {
+          updates.status = 'transcribing';
+          changed.push('status=transcribing');
+        }
+      }
+      if (asset.status === 'errored') {
+        updates.status = 'failed';
+        updates.error = `Mux asset errored (poll)`;
+        changed.push('status=failed');
+      }
+      if (Object.keys(updates).length > 1) {
+        await db
+          .update(schema.procedureDraftRuns)
+          .set(updates)
+          .where(eq(schema.procedureDraftRuns.id, run.id));
+      }
+      notes.push(`Mux asset status: ${asset.status}`);
+    } catch (err) {
+      notes.push(
+        `Mux asset lookup failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  // Re-read the final state for the response.
+  const final = await db.query.procedureDraftRuns.findFirst({
+    where: eq(schema.procedureDraftRuns.id, runId),
+    columns: { status: true },
+  });
+  return { status: final?.status ?? run.status, changed, notes };
+}
+
+/**
  * Public entry point for the LLM loop. Called from the auto-start path
  * (track.ready / Whisper fallback) and from the manual "Run AI" admin
  * route for PWA-submitted drafts. Idempotent: if the run is already past

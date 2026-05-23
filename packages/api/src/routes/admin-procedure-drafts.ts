@@ -29,6 +29,7 @@ import {
   onDraftMuxTrackReady,
   onDraftMuxErrored,
   parseDraftPassthrough,
+  refreshDraftFromMux,
   runDrafterExecution,
   startDrafterLoop,
 } from '../services/draft-pipeline.js';
@@ -492,6 +493,36 @@ export async function registerAdminProcedureDrafts(app: FastifyInstance) {
           })
         : null;
       return reply.code(202).send({ ok: true, streamToken });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /admin/procedure-drafts/:id/refresh-mux — manual webhook recovery
+  //
+  // When Mux webhooks don't land (destination misconfigured, network
+  // blip, the run was created against a different env, etc.), the
+  // draft stays in 'uploading' forever. This route polls Mux directly
+  // and advances state based on the upload/asset status it returns.
+  // Idempotent and safe to call repeatedly.
+  // -------------------------------------------------------------------------
+  app.post<{ Params: { id: string } }>(
+    '/admin/procedure-drafts/:id/refresh-mux',
+    { schema: { params: z.object({ id: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const scope = await getScope(request, db);
+      const run = await loadRun(db, request.params.id);
+      if (!run) return reply.notFound();
+      requireDraftAccess(run, scope);
+      try {
+        const result = await refreshDraftFromMux(app, run.id);
+        return reply.send(result);
+      } catch (err) {
+        return reply.internalServerError(
+          err instanceof Error ? err.message : String(err),
+        );
+      }
     },
   );
 

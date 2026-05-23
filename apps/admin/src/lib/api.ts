@@ -2984,6 +2984,19 @@ export async function executeProcedureDraft(
   };
 }
 
+/** Force-refresh a stuck draft by polling Mux directly. Use when the
+ *  webhook never advanced the status past uploading/transcribing. */
+export async function refreshProcedureDraftFromMux(
+  id: string,
+): Promise<{ status: string; changed: string[]; notes: string[] }> {
+  const res = await fetch(`${API_BASE}/admin/procedure-drafts/${id}/refresh-mux`, {
+    method: 'POST',
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { status: string; changed: string[]; notes: string[] };
+}
+
 export async function cancelProcedureDraft(id: string): Promise<void> {
   const res = await fetch(`${API_BASE}/admin/procedure-drafts/${id}/cancel`, {
     method: 'POST',
