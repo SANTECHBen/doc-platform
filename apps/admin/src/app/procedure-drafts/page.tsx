@@ -17,6 +17,7 @@ const STATUS_LABEL: Record<ProcedureDraftRunStatus, string> = {
   uploading: 'Uploading',
   transcribing: 'Transcribing',
   storyboarding: 'Storyboarding',
+  pending_admin_decision: 'Pending review',
   proposing: 'Proposing steps',
   awaiting_review: 'Ready for review',
   executing: 'Executing',
@@ -29,6 +30,7 @@ const STATUS_TONE: Record<ProcedureDraftRunStatus, string> = {
   uploading: 'bg-surface-elevated text-ink-secondary',
   transcribing: 'bg-accent/10 text-accent',
   storyboarding: 'bg-accent/10 text-accent',
+  pending_admin_decision: 'bg-signal-warn/15 text-signal-warn',
   proposing: 'bg-accent/10 text-accent',
   awaiting_review: 'bg-signal-info/15 text-signal-info',
   executing: 'bg-accent/10 text-accent',
@@ -113,8 +115,13 @@ export default function ProcedureDraftsPage() {
               >
                 <Film className="size-4 shrink-0 text-ink-tertiary" />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-ink-primary">
+                  <p className="flex items-center gap-2 truncate text-sm font-medium text-ink-primary">
                     {r.proposedTitle}
+                    {r.pwaSubmitted && (
+                      <span className="inline-flex items-center rounded-full bg-accent/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-accent">
+                        PWA
+                      </span>
+                    )}
                   </p>
                   <p className="mt-0.5 text-[11px] text-ink-tertiary">
                     Created {new Date(r.createdAt).toLocaleString()}

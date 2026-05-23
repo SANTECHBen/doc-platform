@@ -479,6 +479,70 @@ export async function voiceSearch(
   return (await res.json()) as VoiceSearchResponse;
 }
 
+// ---------------------------------------------------------------------------
+// Procedure draft submissions (video walkthrough → AI procedure)
+// ---------------------------------------------------------------------------
+
+export interface DraftSubmissionResponse {
+  runId: string;
+  uploadId: string;
+  uploadUrl: string;
+}
+
+export async function submitProcedureDraft(input: {
+  assetInstanceId: string;
+  proposedTitle: string;
+  notes?: string;
+  /** Dev-auth credentials. Matches the rest of the PWA writers (start
+   *  procedure run, submit feedback, etc.) — `x-dev-user` header is
+   *  what the API auth middleware accepts in dev. Prod OIDC swap is a
+   *  TODO across the whole PWA. */
+  devUserId: string;
+  devOrgId: string;
+}): Promise<DraftSubmissionResponse> {
+  const res = await fetch(`${CLIENT_API_BASE}/pwa/procedure-drafts`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-dev-user': `${input.devUserId}:${input.devOrgId}`,
+    },
+    body: JSON.stringify({
+      assetInstanceId: input.assetInstanceId,
+      proposedTitle: input.proposedTitle,
+      notes: input.notes,
+    }),
+  });
+  if (res.status === 503) {
+    throw new Error('Video submissions are not configured on this environment.');
+  }
+  if (!res.ok) {
+    throw new Error(`Submit ${res.status}: ${await res.text()}`);
+  }
+  return (await res.json()) as DraftSubmissionResponse;
+}
+
+/** PUT the recorded file straight to Mux. Mirrors the admin helper but
+ *  lives here so PWA bundles don't import from the admin package. */
+export async function uploadDraftVideoToMuxFromPwa(
+  uploadUrl: string,
+  file: File | Blob,
+  onProgress?: (frac: number) => void,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`Mux upload ${xhr.status}: ${xhr.responseText}`));
+    };
+    xhr.onerror = () => reject(new Error('Mux upload network error'));
+    xhr.open('PUT', uploadUrl);
+    xhr.send(file);
+  });
+}
+
 export async function textSearch(
   query: string,
   opts: { assetInstanceId?: string; topK?: number } = {},

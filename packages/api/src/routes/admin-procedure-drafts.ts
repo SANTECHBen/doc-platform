@@ -30,6 +30,7 @@ import {
   onDraftMuxErrored,
   parseDraftPassthrough,
   runDrafterExecution,
+  startDrafterLoop,
 } from '../services/draft-pipeline.js';
 
 const CreateBody = z.object({
@@ -88,6 +89,12 @@ function runToDTO(r: typeof schema.procedureDraftRuns.$inferSelect) {
     hasTranscript: !!r.sourceTranscript,
     hasStoryboard: !!r.storyboardVttUrl,
     error: r.error,
+    // PWA-submission provenance — surfaces a "Submitted by tech" badge
+    // and the asset context strip on the admin reviewer.
+    pwaSubmitted: r.pwaSubmitted,
+    submittedByUserId: r.submittedByUserId,
+    submittedFromAssetInstanceId: r.submittedFromAssetInstanceId,
+    submissionNotes: r.submissionNotes,
     createdByUserId: r.createdByUserId,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
@@ -427,6 +434,64 @@ export async function registerAdminProcedureDrafts(app: FastifyInstance) {
         targetDocumentId: doc.id,
         streamToken,
       });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /admin/procedure-drafts/:id/run-ai — start the LLM for a
+  // PWA-submitted draft that's been pending admin decision.
+  //
+  // The pipeline gates LLM cost behind this admin action for PWA-
+  // initiated drafts. The transcript is already present (Mux captions
+  // or Whisper fallback ran automatically); this kicks off Claude Opus
+  // 4.7 to segment it into proposed steps.
+  // -------------------------------------------------------------------------
+  app.post<{ Params: { id: string } }>(
+    '/admin/procedure-drafts/:id/run-ai',
+    { schema: { params: z.object({ id: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const run = await loadRun(db, request.params.id);
+      if (!run) return reply.notFound();
+      requireDraftAccess(run, scope);
+      if (run.status !== 'pending_admin_decision') {
+        return reply.conflict(
+          `cannot run AI in status '${run.status}' — expected pending_admin_decision`,
+        );
+      }
+      // Kick the loop async — same fire-and-forget pattern as the
+      // automatic path, so the route returns immediately and the SSE
+      // stream surfaces progress.
+      setImmediate(() => {
+        startDrafterLoop(app, run.id).catch((err) => {
+          app.log.error({ err, runId: run.id }, 'run-ai: loop failed');
+        });
+      });
+      await db.insert(schema.auditEvents).values({
+        organizationId: run.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'procedure_draft.ai_started',
+        targetType: 'procedure_draft_run',
+        targetId: run.id,
+        payload: {
+          pwaSubmitted: run.pwaSubmitted,
+          submittedByUserId: run.submittedByUserId,
+        },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+      // Mint an SSE token so the admin can subscribe to propose-channel
+      // events immediately.
+      const streamToken = app.ctx.streamTokens
+        ? app.ctx.streamTokens.mint({
+            runId: run.id,
+            userId: auth.userId,
+            purpose: 'propose',
+          })
+        : null;
+      return reply.code(202).send({ ok: true, streamToken });
     },
   );
 

@@ -2825,6 +2825,7 @@ export type ProcedureDraftRunStatus =
   | 'uploading'
   | 'transcribing'
   | 'storyboarding'
+  | 'pending_admin_decision'
   | 'proposing'
   | 'awaiting_review'
   | 'executing'
@@ -2853,6 +2854,10 @@ export interface AdminDraftRun {
   hasTranscript: boolean;
   hasStoryboard: boolean;
   error: string | null;
+  pwaSubmitted: boolean;
+  submittedByUserId: string | null;
+  submittedFromAssetInstanceId: string | null;
+  submissionNotes: string | null;
   createdByUserId: string;
   createdAt: string;
   updatedAt: string;
@@ -2985,6 +2990,19 @@ export async function cancelProcedureDraft(id: string): Promise<void> {
     headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+/** Start the LLM loop on a PWA-submitted draft that's pending admin
+ *  decision. Returns a stream token for the propose-channel SSE. */
+export async function runAiOnProcedureDraft(
+  id: string,
+): Promise<{ ok: true; streamToken: string | null }> {
+  const res = await fetch(`${API_BASE}/admin/procedure-drafts/${id}/run-ai`, {
+    method: 'POST',
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { ok: true; streamToken: string | null };
 }
 
 /** Mux Direct Upload — PUTs raw bytes from the browser to Mux. Reuses the

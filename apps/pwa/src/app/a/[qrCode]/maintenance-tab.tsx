@@ -19,9 +19,11 @@ import {
   Plus,
   RotateCcw,
   ShieldAlert,
+  Video,
   type LucideIcon,
 } from 'lucide-react';
 import { useToast } from '@/components/toast';
+import { VideoSubmission } from '@/components/video-submission';
 import {
   fetchPmStatus,
   fetchPmPlanStatus,
@@ -155,6 +157,9 @@ export function MaintenanceTab({
   // alongside the work it produces.
   const [authoringActive, setAuthoringActive] = useState(false);
   const [authPromptOpen, setAuthPromptOpen] = useState(false);
+  // Video walkthrough submission — tech films and submits, admin
+  // reviews and decides whether to run the AI on it.
+  const [videoSubmissionOpen, setVideoSubmissionOpen] = useState(false);
   // Scroll the slice panel into view when the tech taps a card — the
   // items below the grid would otherwise sit off-screen and read as
   // "nothing happened" on phones.
@@ -772,12 +777,28 @@ export function MaintenanceTab({
     );
   }
 
+  // Video submission overlay — fixed-position full-screen panel that
+  // overlays whatever's behind. We keep the maintenance content rendered
+  // underneath so closing snaps the tech right back where they were.
+  const videoSubmission =
+    videoSubmissionOpen && DEV_USER_ID && DEV_ORG_ID ? (
+      <VideoSubmission
+        assetInstanceId={assetInstanceId}
+        devUserId={DEV_USER_ID}
+        devOrgId={DEV_ORG_ID}
+        onClose={() => setVideoSubmissionOpen(false)}
+      />
+    ) : null;
+
   return (
     <div className="maintenance-page">
       {/* Document-a-procedure CTA — lives here (not Library) because the
           saved output is a Maintenance artifact: it shows up in one of
           the PM / R&R / Troubleshooting buckets below. The wizard's
-          first step is a category picker that picks which bucket. */}
+          first step is a category picker that picks which bucket.
+          Sits alongside "Submit a walkthrough" which lets the tech film
+          a video for the AI drafter — admin reviews + decides whether
+          to spend on AI. */}
       <div className="maintenance-author-row">
         <button
           type="button"
@@ -786,6 +807,20 @@ export function MaintenanceTab({
         >
           <Plus size={15} strokeWidth={2} />
           Document a procedure
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (!DEV_USER_ID || !DEV_ORG_ID) {
+              setAuthPromptOpen(true);
+              return;
+            }
+            setVideoSubmissionOpen(true);
+          }}
+          className="btn btn-secondary"
+        >
+          <Video size={15} strokeWidth={2} />
+          Submit a walkthrough
         </button>
       </div>
       {nothingScheduled && libraryProcedures.length === 0 ? (
@@ -819,6 +854,7 @@ export function MaintenanceTab({
           onClose={() => setAuthPromptOpen(false)}
         />
       )}
+      {videoSubmission}
     </div>
   );
 }

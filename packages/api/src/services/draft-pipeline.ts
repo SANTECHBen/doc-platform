@@ -150,8 +150,19 @@ export async function onDraftMuxTrackReady(
       source: 'mux_captions',
       lengthChars: plain.length,
     });
-    // Persist the with-timestamps text on a separate column? Skip — we
-    // can re-derive it from the VTT on demand. runDrafterLoop reads it.
+    // PWA-submitted drafts pause here. The admin reviews the transcript
+    // and the asset context, then explicitly taps Run AI to spend on
+    // the LLM. Admin-initiated drafts kick the loop automatically.
+    if (run.pwaSubmitted) {
+      await app.ctx.db
+        .update(schema.procedureDraftRuns)
+        .set({ status: 'pending_admin_decision', updatedAt: new Date() })
+        .where(eq(schema.procedureDraftRuns.id, runId));
+      agentBus.publish(runChannel(runId, 'propose'), 'awaiting_review', {
+        gate: 'pending_admin_decision',
+      });
+      return;
+    }
     void runDrafterLoop(app, runId, { transcriptWithTimestamps: withTimestamps }).catch(
       (err) => app.log.error({ err, runId }, 'draft-pipeline: loop failed'),
     );
@@ -175,6 +186,38 @@ export async function onDraftMuxErrored(
 // ---------------------------------------------------------------------------
 // LLM loop runner
 // ---------------------------------------------------------------------------
+
+/**
+ * Public entry point for the LLM loop. Called from the auto-start path
+ * (track.ready / Whisper fallback) and from the manual "Run AI" admin
+ * route for PWA-submitted drafts. Idempotent: if the run is already past
+ * the transcribe stage, it returns without re-running.
+ */
+export async function startDrafterLoop(
+  app: FastifyInstance,
+  runId: string,
+): Promise<void> {
+  const run = await app.ctx.db.query.procedureDraftRuns.findFirst({
+    where: eq(schema.procedureDraftRuns.id, runId),
+  });
+  if (!run) throw new Error('run not found');
+  if (
+    run.status !== 'pending_admin_decision' &&
+    run.status !== 'transcribing' &&
+    run.status !== 'storyboarding'
+  ) {
+    throw new Error(`cannot start LLM in status '${run.status}'`);
+  }
+  // Move out of pending_admin_decision so concurrent reads don't see a
+  // stale gate; the inner function will progress to 'proposing' itself.
+  if (run.status === 'pending_admin_decision') {
+    await app.ctx.db
+      .update(schema.procedureDraftRuns)
+      .set({ status: 'transcribing', updatedAt: new Date() })
+      .where(eq(schema.procedureDraftRuns.id, runId));
+  }
+  await runDrafterLoop(app, runId);
+}
 
 async function runDrafterLoop(
   app: FastifyInstance,
@@ -471,6 +514,21 @@ async function runWhisperFallbackIfStuck(
       source: 'whisper_fallback',
       lengthChars: plain.length,
     });
+    // Same PWA gate as the captions path. We re-fetch the run state
+    // because the timer is async and a /cancel could have landed.
+    const post = await app.ctx.db.query.procedureDraftRuns.findFirst({
+      where: eq(schema.procedureDraftRuns.id, runId),
+    });
+    if (post?.pwaSubmitted) {
+      await app.ctx.db
+        .update(schema.procedureDraftRuns)
+        .set({ status: 'pending_admin_decision', updatedAt: new Date() })
+        .where(eq(schema.procedureDraftRuns.id, runId));
+      agentBus.publish(runChannel(runId, 'propose'), 'awaiting_review', {
+        gate: 'pending_admin_decision',
+      });
+      return;
+    }
     void runDrafterLoop(app, runId, {
       transcriptWithTimestamps: withTimestamps || plain,
     });

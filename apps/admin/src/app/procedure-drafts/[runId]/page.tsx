@@ -9,6 +9,7 @@ import {
   Clapperboard,
   Film,
   Loader2,
+  MessageSquare,
   Play,
   Rocket,
   XCircle,
@@ -28,12 +29,22 @@ import {
   executeProcedureDraft,
   getProcedureDraft,
   patchProcedureDraftProposal,
+  runAiOnProcedureDraft,
   type AdminDraftDetail,
   type AdminDraftProposalTree,
   type AdminDraftStepProposal,
 } from '@/lib/api';
 
-type Phase = 'loading' | 'awaiting_video' | 'transcribing' | 'proposing' | 'ready' | 'executing' | 'done' | 'failed';
+type Phase =
+  | 'loading'
+  | 'awaiting_video'
+  | 'transcribing'
+  | 'pending_decision'
+  | 'proposing'
+  | 'ready'
+  | 'executing'
+  | 'done'
+  | 'failed';
 
 export default function DraftReviewerPage() {
   const params = useParams<{ runId: string }>();
@@ -82,6 +93,7 @@ export default function DraftReviewerPage() {
     const status = detail.run.status;
     if (status === 'uploading') return 'awaiting_video';
     if (status === 'transcribing' || status === 'storyboarding') return 'transcribing';
+    if (status === 'pending_admin_decision') return 'pending_decision';
     if (status === 'proposing') return 'proposing';
     if (status === 'awaiting_review') return 'ready';
     if (status === 'executing') return 'executing';
@@ -173,6 +185,18 @@ export default function DraftReviewerPage() {
     }
   }
 
+  async function runAi() {
+    setBusy(true);
+    try {
+      await runAiOnProcedureDraft(runId);
+      toast.success('AI started', 'Claude is segmenting the transcript now.');
+    } catch (e) {
+      toast.error('Run AI failed', e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function updateStep(clientId: string, patch: Partial<AdminDraftStepProposal>) {
     setDraftSteps((prev) =>
       prev.map((s) => (s.clientId === clientId ? { ...s, ...patch } : s)),
@@ -226,6 +250,16 @@ export default function DraftReviewerPage() {
         }
         actions={
           <div className="flex items-center gap-2">
+            {phase === 'pending_decision' && (
+              <>
+                <GhostButton onClick={() => void cancel()} disabled={busy}>
+                  Dismiss
+                </GhostButton>
+                <PrimaryButton onClick={() => void runAi()} disabled={busy}>
+                  <Rocket size={14} /> Run AI on this
+                </PrimaryButton>
+              </>
+            )}
             {phase === 'ready' && (
               <>
                 {dirty && (
@@ -248,10 +282,42 @@ export default function DraftReviewerPage() {
       />
       <ErrorBanner error={error ?? detail?.run.error ?? null} />
 
+      {/* PWA-submission context strip — shows the admin who filmed it
+          and which asset they were working on, so the decision to run
+          AI has the right context. */}
+      {detail?.run.pwaSubmitted && (
+        <div className="mb-4 flex items-start gap-3 rounded-md border border-accent/30 bg-accent/5 px-3 py-2 text-xs text-ink-primary">
+          <Clapperboard size={14} className="mt-0.5 text-accent" />
+          <div className="flex-1">
+            <p className="font-semibold">
+              Submitted from the PWA
+              {detail.run.submittedFromAssetInstanceId && (
+                <Link
+                  href={`/`}
+                  className="ml-1 font-normal text-ink-tertiary"
+                  title={detail.run.submittedFromAssetInstanceId}
+                >
+                  · asset {detail.run.submittedFromAssetInstanceId.slice(0, 8)}
+                </Link>
+              )}
+            </p>
+            {detail.run.submissionNotes && (
+              <p className="mt-1 text-ink-secondary">
+                &ldquo;{detail.run.submissionNotes}&rdquo;
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       {phase === 'loading' && <p className="text-sm text-ink-tertiary">Loading…</p>}
 
       {phase === 'awaiting_video' && (
         <AwaitingVideo runId={runId} />
+      )}
+
+      {phase === 'pending_decision' && detail && (
+        <PendingDecisionPanel detail={detail} runId={runId} />
       )}
 
       {(phase === 'transcribing' || phase === 'proposing') && (
@@ -337,6 +403,69 @@ export default function DraftReviewerPage() {
         </div>
       )}
     </PageShell>
+  );
+}
+
+// Shown while a PWA-submitted draft sits gated waiting for an admin to
+// decide whether to spend on the LLM. The transcript + video are
+// already available — admin can read the transcript, watch the clip,
+// and use the page-header "Run AI on this" or "Dismiss" buttons.
+function PendingDecisionPanel({
+  detail,
+  runId,
+}: {
+  detail: AdminDraftDetail;
+  runId: string;
+}) {
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+      <main className="flex flex-col gap-3">
+        {detail.playbackId && (
+          <video
+            controls
+            preload="metadata"
+            className="w-full rounded-md border border-line bg-black"
+            src={`https://stream.mux.com/${detail.playbackId}/low.mp4`}
+          />
+        )}
+        {detail.transcript ? (
+          <details className="rounded-md border border-line bg-surface px-3 py-2 text-xs text-ink-secondary" open>
+            <summary className="cursor-pointer text-ink-primary">
+              Transcript ({detail.transcript.length} chars)
+            </summary>
+            <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap text-[11px] leading-relaxed">
+              {detail.transcript}
+            </pre>
+          </details>
+        ) : (
+          <div className="flex items-center gap-2 rounded-md border border-line bg-surface px-4 py-3 text-sm text-ink-secondary">
+            <Loader2 className="size-4 animate-spin" /> Transcript still
+            processing — Mux usually takes 1-2 minutes after the upload
+            finishes. Refresh shortly.
+          </div>
+        )}
+      </main>
+      <aside className="flex flex-col gap-3">
+        <div className="rounded-md border border-line bg-surface-raised px-3 py-3 text-xs">
+          <p className="font-semibold text-ink-primary">Ready for your decision</p>
+          <p className="mt-1 text-ink-secondary">
+            A tech submitted this walkthrough from the PWA. Watch the clip
+            and skim the transcript, then:
+          </p>
+          <ul className="mt-2 ml-4 list-disc space-y-1 text-ink-secondary">
+            <li>
+              <strong>Run AI on this</strong> — spend a Claude Opus 4.7
+              call (~$0.25–$1) to draft steps with timestamped keyframes.
+              You&rsquo;ll edit and accept in the reviewer.
+            </li>
+            <li>
+              <strong>Dismiss</strong> — closes this submission without
+              spending on the LLM. The video stays in Mux for reference.
+            </li>
+          </ul>
+        </div>
+      </aside>
+    </div>
   );
 }
 

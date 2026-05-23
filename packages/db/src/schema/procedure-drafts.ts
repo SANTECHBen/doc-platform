@@ -7,6 +7,7 @@ import {
   jsonb,
   integer,
   bigint,
+  boolean,
   unique,
   index,
 } from 'drizzle-orm/pg-core';
@@ -14,6 +15,7 @@ import { relations } from 'drizzle-orm';
 import { organizations } from './organizations';
 import { contentPackVersions, documents } from './content';
 import { users } from './users';
+import { assetInstances } from './assets';
 
 // AI Video-Walkthrough → Procedure Draft.
 //
@@ -38,6 +40,9 @@ export const procedureDraftRunStatusEnum = pgEnum(
     'uploading',
     'transcribing',
     'storyboarding',
+    // PWA-submitted drafts pause here so an admin can decide whether to
+    // run the LLM. (Admin-initiated drafts skip this state.)
+    'pending_admin_decision',
     'proposing',
     'awaiting_review',
     'executing',
@@ -88,6 +93,31 @@ export const procedureDraftRuns = pgTable(
     storyboardVttUrl: text('storyboard_vtt_url'),
     // Captures Voyage / OpenAI / Mux costs for the reviewer's cost panel.
     error: text('error'),
+    // True when the run was started from the PWA (a tech filmed a
+    // walkthrough and submitted it for AI processing). The pipeline
+    // pauses at pending_admin_decision after transcription instead of
+    // auto-starting the LLM — admin must explicitly tap Run AI.
+    pwaSubmitted: boolean('pwa_submitted').notNull().default(false),
+    // For PWA submissions: the tech who recorded + submitted. Distinct
+    // from createdByUserId (which is also the tech in this case) only
+    // semantically — kept separate so a future admin-promoted PWA
+    // submission can record who initially submitted vs who promoted.
+    submittedByUserId: uuid('submitted_by_user_id').references(
+      () => users.id,
+      { onDelete: 'set null' },
+    ),
+    // For PWA submissions: the asset the tech was working on. Drives
+    // the reviewer's context strip and lets the admin land a fresh
+    // procedure into the right asset model's content pack without
+    // hunting through the picker.
+    submittedFromAssetInstanceId: uuid('submitted_from_asset_instance_id').references(
+      () => assetInstances.id,
+      { onDelete: 'set null' },
+    ),
+    // Free-text tech-supplied description. Visible to the admin on the
+    // pending-review row. Length-bounded so a slip of the finger can't
+    // dump a whole paragraph.
+    submissionNotes: text('submission_notes'),
     createdByUserId: uuid('created_by_user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
