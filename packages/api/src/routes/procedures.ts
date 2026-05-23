@@ -162,6 +162,7 @@ async function stepsToDTOWithExpansion(
         snippetDetached: s.snippetDetached,
         title: s.title,
         blocks: s.blocks ?? [],
+        audioStorageKey: s.audioStorageKey,
       },
       snippetMap,
     );

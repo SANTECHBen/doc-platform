@@ -253,6 +253,13 @@
       "when": 1780272001000,
       "tag": "0035_pwa_draft_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1780358400000,
+      "tag": "0036_snippet_audio",
+      "breakpoints": true
     }
   ]
 }

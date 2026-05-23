@@ -14,6 +14,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { BlockListEditor } from '@/components/procedure-cms/block-editor';
+import { SnippetVoiceoverPanel } from '@/components/snippet-voiceover-panel';
 import { useToast } from '@/components/toast';
 import { PageHeader, PageShell } from '@/components/page-shell';
 import {
@@ -271,6 +272,10 @@ export default function SnippetEditPage() {
             )}
           </main>
           <aside className="flex flex-col gap-3">
+            <SnippetVoiceoverPanel
+              snippet={snippet}
+              onChanged={(next) => setSnippet(next)}
+            />
             <ReferencesPanel snippet={snippet} />
           </aside>
         </div>
@@ -278,6 +283,8 @@ export default function SnippetEditPage() {
     </PageShell>
   );
 }
+
+
 
 function PlatformPropagationCallout({ referenceCount }: { referenceCount: number }) {
   if (referenceCount === 0) {

@@ -154,6 +154,7 @@ function snippetToDetailDTO(
       documentTitle: string;
       ownerOrganizationId: string;
     }>;
+    audioUrl: string | null;
   },
 ) {
   return {
@@ -164,6 +165,12 @@ function snippetToDetailDTO(
     tags: row.tags,
     isPlatform: row.isPlatform,
     ownerOrganizationId: row.ownerOrganizationId,
+    audioStorageKey: row.audioStorageKey,
+    audioContentType: row.audioContentType,
+    audioSizeBytes: row.audioSizeBytes,
+    audioDurationMs: row.audioDurationMs,
+    audioSource: row.audioSource,
+    audioUrl: extras.audioUrl,
     createdByUserId: row.createdByUserId,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -389,7 +396,7 @@ export async function registerAdminSnippets(app: FastifyInstance) {
     '/admin/snippets/:id',
     { schema: { params: z.object({ id: UuidSchema }) } },
     async (request, reply) => {
-      const { db } = app.ctx;
+      const { db, storage } = app.ctx;
       requireAuth(request);
       const scope = await getScope(request, db);
       const snippet = await db.query.procedureSnippets.findFirst({
@@ -402,7 +409,14 @@ export async function registerAdminSnippets(app: FastifyInstance) {
         countActiveReferences(db, snippet.id),
         loadReferenceSample(db, snippet.id, 10),
       ]);
-      return snippetToDetailDTO(snippet, { referenceCount, referencesPreview });
+      const audioUrl = snippet.audioStorageKey
+        ? storage.publicUrl(snippet.audioStorageKey)
+        : null;
+      return snippetToDetailDTO(snippet, {
+        referenceCount,
+        referencesPreview,
+        audioUrl,
+      });
     },
   );
 
@@ -518,7 +532,11 @@ export async function registerAdminSnippets(app: FastifyInstance) {
       });
 
       return reply.code(201).send(
-        snippetToDetailDTO(row, { referenceCount: 0, referencesPreview: [] }),
+        snippetToDetailDTO(row, {
+          referenceCount: 0,
+          referencesPreview: [],
+          audioUrl: null,
+        }),
       );
     },
   );
@@ -658,7 +676,14 @@ export async function registerAdminSnippets(app: FastifyInstance) {
         countActiveReferences(db, updated.id),
         loadReferenceSample(db, updated.id, 10),
       ]);
-      return snippetToDetailDTO(updated, { referenceCount, referencesPreview });
+      const audioUrl = updated.audioStorageKey
+        ? app.ctx.storage.publicUrl(updated.audioStorageKey)
+        : null;
+      return snippetToDetailDTO(updated, {
+        referenceCount,
+        referencesPreview,
+        audioUrl,
+      });
     },
   );
 

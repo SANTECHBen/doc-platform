@@ -1460,9 +1460,15 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
               snippetDetached: s.snippetDetached,
               title: s.title,
               blocks: s.blocks ?? [],
+              audioStorageKey: s.audioStorageKey,
             },
             snippetMap,
           );
+          // Effective audio: step's own > inherited from snippet > none.
+          // The runner doesn't need to know which source the audio came
+          // from — it just plays audioUrl if set.
+          const effectiveAudioKey =
+            s.audioStorageKey ?? expanded.inheritedAudioStorageKey;
           return {
           id: s.id,
           sectionId: s.sectionId,
@@ -1491,8 +1497,10 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
           measurementSpec: s.measurementSpec,
           // Authored voiceover. When present, the runner plays this file
           // instead of synthesizing TTS — better quality, zero per-play cost.
-          audioUrl: s.audioStorageKey
-            ? storage.publicUrl(s.audioStorageKey)
+          // Falls back to the snippet's audio when the step is attached
+          // and has no audio of its own (inherited from snippet).
+          audioUrl: effectiveAudioKey
+            ? storage.publicUrl(effectiveAudioKey)
             : null,
           audioDurationMs: s.audioDurationMs,
           audioSource: s.audioSource,

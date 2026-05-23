@@ -261,11 +261,16 @@ async function rowsToExpandedDTO(
         snippetDetached: r.snippetDetached,
         title: r.title,
         blocks: r.blocks ?? [],
+        audioStorageKey: r.audioStorageKey,
       },
       snippetMap,
     );
+    // Audio URL hierarchy: step's own audio wins; otherwise the snippet's
+    // inherited audio plays at runtime (and surfaces here for the admin
+    // editor's preview).
+    const effectiveAudioKey = r.audioStorageKey ?? expanded.inheritedAudioStorageKey;
     return rowToDTO(r, {
-      audioPublicUrl: r.audioStorageKey ? ctx.audioPublicUrl(r.audioStorageKey) : null,
+      audioPublicUrl: effectiveAudioKey ? ctx.audioPublicUrl(effectiveAudioKey) : null,
       mediaPublicUrl: ctx.mediaPublicUrl,
       expanded: { blocks: expanded.blocks, title: expanded.title },
       snippetBadge: expanded._snippetBadge,
@@ -776,6 +781,17 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           if (b.blocks === undefined) patch.blocks = snippet.blocks;
           if (b.title === undefined || b.title.length === 0) {
             patch.title = snippet.title;
+          }
+          // Also copy the snippet's audio if the step had none of its own
+          // — keeps the post-detach playback identical to what the tech
+          // was hearing pre-detach. Step-own audio (the rare case where
+          // a step had an override) stays untouched.
+          if (!ctx.step.audioStorageKey && snippet.audioStorageKey) {
+            patch.audioStorageKey = snippet.audioStorageKey;
+            patch.audioContentType = snippet.audioContentType;
+            patch.audioSizeBytes = snippet.audioSizeBytes;
+            patch.audioDurationMs = snippet.audioDurationMs;
+            patch.audioSource = snippet.audioSource;
           }
         }
         patch.snippetDetached = true;

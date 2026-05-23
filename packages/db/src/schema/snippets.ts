@@ -15,6 +15,10 @@ import { users } from './users';
 import { procedureStepKindEnum } from './enums';
 import type { StepBlock } from './procedures';
 
+// Use this matching docstring as procedure_steps' audioSource enum for
+// consistency: 'uploaded' = browser pick or in-browser recording;
+// 'generated' = synthesized via OpenAI TTS.
+
 // Reusable step snippets — authors define standard content once
 // ("Lockout-Tagout", "Safety Briefing") and reference it from any procedure
 // step. References resolve at read time (always-latest semantics): editing a
@@ -50,6 +54,19 @@ export const procedureSnippets = pgTable(
     blocks: jsonb('blocks').$type<StepBlock[]>().notNull().default([]),
     // Free-form tags for picker filtering.
     tags: jsonb('tags').$type<string[]>().notNull().default([]),
+    // Authored voiceover. Same shape as procedure_steps audio. When a
+    // step references this snippet (attached) and has no audio of its
+    // own, the runner falls back to the snippet's audio at play time —
+    // so a single edit to the LOTO snippet's voiceover propagates
+    // across every procedure that uses it. Step-level audio (override)
+    // wins when present.
+    audioStorageKey: text('audio_storage_key'),
+    audioContentType: text('audio_content_type'),
+    audioSizeBytes: integer('audio_size_bytes'),
+    audioDurationMs: integer('audio_duration_ms'),
+    /** 'uploaded' = admin upload / in-browser recording.
+     *  'generated' = OpenAI tts-1-hd synthesis. */
+    audioSource: text('audio_source'),
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),

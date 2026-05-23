@@ -35,6 +35,11 @@ export interface SnippetBadge {
   title: string;
   isPlatform: boolean;
   detached: boolean;
+  /** When the step is attached AND its own audio is null, the runner
+   *  plays this snippet-level audio at run time. Surfaces here so the
+   *  expanded DTO can carry an audioUrl for snippet-inherited audio
+   *  without the caller having to load the snippet row separately. */
+  hasInheritedAudio: boolean;
 }
 
 /**
@@ -47,17 +52,23 @@ export interface ExpandableStep {
   snippetDetached: boolean;
   title: string;
   blocks: typeof schema.procedureSteps.$inferSelect['blocks'];
+  /** Step's own audio key, if any. When the step is snippet-attached and
+   *  this is null, the snippet's audio is inherited at render time. */
+  audioStorageKey?: string | null;
 }
 
 /**
  * Result of applying snippet expansion to a step.
  *
  *   blocks/title are the resolved values (snippet-overridden when attached).
+ *   inheritedAudioStorageKey is the snippet's audio key when the attached
+ *     step has no audio of its own — caller turns it into a publicUrl.
  *   _snippetBadge is non-null when the step references a snippet.
  */
 export interface ExpandedFields {
   blocks: typeof schema.procedureSteps.$inferSelect['blocks'];
   title: string;
+  inheritedAudioStorageKey: string | null;
   _snippetBadge: SnippetBadge | null;
 }
 
@@ -89,29 +100,47 @@ export function expandStep(
   snippetMap: Map<string, ProcedureSnippet>,
 ): ExpandedFields {
   if (!step.snippetId) {
-    return { blocks: step.blocks, title: step.title, _snippetBadge: null };
+    return {
+      blocks: step.blocks,
+      title: step.title,
+      inheritedAudioStorageKey: null,
+      _snippetBadge: null,
+    };
   }
   const snippet = snippetMap.get(step.snippetId);
   if (!snippet) {
-    // Snippet row was deleted out from under the step (FK was set null
-    // by then). Surface no badge, return the step's own content.
-    return { blocks: step.blocks, title: step.title, _snippetBadge: null };
+    return {
+      blocks: step.blocks,
+      title: step.title,
+      inheritedAudioStorageKey: null,
+      _snippetBadge: null,
+    };
   }
+  // Audio fallback: step's own audio wins when present; otherwise the
+  // snippet's audio is "inherited" at render time. We only surface the
+  // inherited key when the step is attached AND has no audio of its
+  // own — detached steps are fully independent.
+  const hasInheritedAudio =
+    !step.snippetDetached && !step.audioStorageKey && !!snippet.audioStorageKey;
   const badge: SnippetBadge = {
     id: snippet.id,
     title: snippet.title,
     isPlatform: snippet.isPlatform,
     detached: step.snippetDetached,
+    hasInheritedAudio,
   };
   if (step.snippetDetached) {
-    // Detached: step content is authoritative. Badge is informational only.
-    return { blocks: step.blocks, title: step.title, _snippetBadge: badge };
+    return {
+      blocks: step.blocks,
+      title: step.title,
+      inheritedAudioStorageKey: null,
+      _snippetBadge: badge,
+    };
   }
-  // Attached: snippet content wins. Step's own title acts as a fallback
-  // only when present (lets an author override snippet title rarely).
   return {
     blocks: snippet.blocks,
     title: step.title && step.title.length > 0 ? step.title : snippet.title,
+    inheritedAudioStorageKey: hasInheritedAudio ? snippet.audioStorageKey : null,
     _snippetBadge: badge,
   };
 }

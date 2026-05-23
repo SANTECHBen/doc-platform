@@ -28,6 +28,7 @@ import { registerAdminSections } from './routes/admin-sections';
 import { registerProcedureRoutes } from './routes/procedures';
 import { registerAdminProcedureSteps } from './routes/admin-procedure-steps';
 import { registerAdminSnippets } from './routes/admin-snippets';
+import { registerAdminSnippetAudioRoutes } from './routes/admin-snippet-audio';
 import { registerSearchRoutes } from './routes/search';
 import { registerAdminProcedureDrafts } from './routes/admin-procedure-drafts';
 import { registerPwaProcedureDrafts } from './routes/pwa-procedure-drafts';
@@ -99,6 +100,7 @@ export async function buildApp(ctx: AppContext) {
   await registerProcedureRoutes(app);
   await registerAdminProcedureSteps(app);
   await registerAdminSnippets(app);
+  await registerAdminSnippetAudioRoutes(app);
   await registerSearchRoutes(app);
   await registerAdminProcedureDrafts(app);
   await registerPwaProcedureDrafts(app);

@@ -3058,6 +3058,15 @@ export interface AdminSnippetDetail {
   tags: string[];
   isPlatform: boolean;
   ownerOrganizationId: string | null;
+  /** Authored voiceover — same shape as AdminProcedureStep.audio*. When
+   *  set, an attached step inherits this audio for runtime playback
+   *  unless the step has its own audio override. */
+  audioStorageKey: string | null;
+  audioContentType: string | null;
+  audioSizeBytes: number | null;
+  audioDurationMs: number | null;
+  audioSource: 'uploaded' | 'generated' | null;
+  audioUrl: string | null;
   createdByUserId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -3170,6 +3179,68 @@ export async function updateAdminSnippet(
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return (await res.json()) as AdminSnippetDetail;
+}
+
+export interface SnippetAudioResult {
+  audioUrl: string;
+  audioContentType: string;
+  audioSizeBytes: number;
+  audioSource: 'uploaded' | 'generated';
+  voice?: string;
+  updatedAt?: string;
+}
+
+export async function uploadSnippetAudio(
+  snippetId: string,
+  file: File,
+): Promise<SnippetAudioResult> {
+  const form = new FormData();
+  form.append('audio', file, file.name);
+  const res = await fetch(
+    `${API_BASE}/admin/snippets/${encodeURIComponent(snippetId)}/audio`,
+    { method: 'POST', headers: await authHeaders(), body: form },
+  );
+  if (!res.ok) throw new Error(`Audio upload ${res.status}: ${await res.text()}`);
+  return (await res.json()) as SnippetAudioResult;
+}
+
+export async function generateSnippetAudio(
+  snippetId: string,
+  input: { voice?: string; script?: string } = {},
+): Promise<SnippetAudioResult> {
+  const res = await fetch(
+    `${API_BASE}/admin/snippets/${encodeURIComponent(snippetId)}/audio/generate`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!res.ok) throw new Error(`Audio generate ${res.status}: ${await res.text()}`);
+  return (await res.json()) as SnippetAudioResult;
+}
+
+export async function deleteSnippetAudio(snippetId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/snippets/${encodeURIComponent(snippetId)}/audio`,
+    { method: 'DELETE', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`Audio delete ${res.status}: ${await res.text()}`);
+}
+
+export async function patchSnippetAudioDuration(
+  snippetId: string,
+  audioDurationMs: number,
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/snippets/${encodeURIComponent(snippetId)}/audio/duration`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ audioDurationMs }),
+    },
+  );
+  if (!res.ok) throw new Error(`Audio duration ${res.status}: ${await res.text()}`);
 }
 
 export async function deleteAdminSnippet(
