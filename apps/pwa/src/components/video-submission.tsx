@@ -204,7 +204,7 @@ export function VideoSubmission({
     phase.kind === 'uploading' ? Math.round(phase.progress * 100) : 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-gradient-to-b from-black via-black/95 to-[rgb(var(--brand))/0.15] text-white">
+    <div className="fixed inset-0 z-50 flex flex-col bg-black text-white">
       <header className="flex items-center justify-between border-b border-white/10 px-4 py-3">
         <div className="flex items-center gap-2">
           <span className="grid place-items-center rounded-full bg-[rgb(var(--brand))]/15 p-1.5">
