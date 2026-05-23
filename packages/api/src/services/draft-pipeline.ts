@@ -295,6 +295,30 @@ export async function refreshDraftFromMux(
           .where(eq(schema.procedureDraftRuns.id, run.id));
       }
       notes.push(`Mux asset status: ${asset.status}`);
+
+      // If the asset is ready and we still don't have a transcript
+      // after a beat, trigger the Whisper fallback. This covers two
+      // failure modes:
+      //   1. Captions weren't enabled on the upload (older drafts
+      //      before the captions fix).
+      //   2. video.asset.track.ready webhook missed.
+      // Idempotent — Whisper helper short-circuits if a transcript
+      // already exists.
+      if (
+        asset.status === 'ready' &&
+        !run.sourceTranscript &&
+        app.ctx.env.OPENAI_API_KEY
+      ) {
+        try {
+          await runWhisperFallbackIfStuck(app, run.id);
+          notes.push('triggered Whisper fallback');
+          changed.push('transcript');
+        } catch (err) {
+          notes.push(
+            `Whisper fallback failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
     } catch (err) {
       notes.push(
         `Mux asset lookup failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -568,6 +592,30 @@ export async function runDrafterExecution(params: {
 // Whisper fallback — used when Mux captions don't arrive within 5 minutes
 // of video.asset.ready.
 // ---------------------------------------------------------------------------
+
+/** Public Whisper fallback runner. Used by the manual refresh route to
+ *  recover drafts whose transcription never started (e.g., captions
+ *  weren't enabled on the Mux asset, or the asset.ready webhook missed
+ *  and the in-process 5-minute timer never fired). Safe to call on
+ *  drafts that already have a transcript — it short-circuits. */
+export async function runWhisperFallback(
+  app: FastifyInstance,
+  runId: string,
+): Promise<{ ran: boolean; reason?: string }> {
+  const run = await app.ctx.db.query.procedureDraftRuns.findFirst({
+    where: eq(schema.procedureDraftRuns.id, runId),
+  });
+  if (!run) return { ran: false, reason: 'run not found' };
+  if (run.sourceTranscript) return { ran: false, reason: 'transcript already present' };
+  if (!run.muxPlaybackId) {
+    return { ran: false, reason: 'no Mux playbackId yet (asset still processing)' };
+  }
+  if (!app.ctx.env.OPENAI_API_KEY) {
+    return { ran: false, reason: 'OPENAI_API_KEY not configured' };
+  }
+  await runWhisperFallbackIfStuck(app, runId);
+  return { ran: true };
+}
 
 async function runWhisperFallbackIfStuck(
   app: FastifyInstance,

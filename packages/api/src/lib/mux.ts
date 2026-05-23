@@ -64,11 +64,22 @@ export function createMuxClient(cfg: MuxConfig): MuxClient {
         new_asset_settings: {
           playback_policies: [cfg.playbackPolicy],
           passthrough,
-          // Enable Mux's automatic captions for English when the upload has
-          // an audio track. We don't surface captions in v1, but having the
-          // tracks generated in the background means a v2 transcription
-          // feature has nothing extra to wire.
-          inputs: undefined,
+          // Enable Mux's automatic English captions. Without this,
+          // video.asset.track.ready never fires because there's no
+          // transcription track being generated. The drafter pipeline
+          // depends on these captions to produce a transcript for
+          // Claude to segment.
+          //
+          // The video.* webhook payload type doesn't expose the
+          // generated_subtitles field in the SDK's TS surface, but
+          // Mux accepts it at runtime — cast to keep TypeScript happy.
+          inputs: [
+            {
+              generated_subtitles: [
+                { language_code: 'en', name: 'English (auto)' },
+              ],
+            },
+          ] as unknown as undefined,
         },
       });
       if (!upload.url) {
