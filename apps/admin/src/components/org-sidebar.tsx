@@ -7,11 +7,13 @@ import {
   Boxes,
   Building2,
   ChevronLeft,
+  Clapperboard,
   FileStack,
   GraduationCap,
   Info,
   LayoutDashboard,
   MapPin,
+  Puzzle,
   QrCode,
   ScrollText,
   Settings,
@@ -108,6 +110,30 @@ function buildGroups(orgId: string): NavGroup[] {
           label: 'Training',
           icon: GraduationCap,
           match: new RegExp(`^/orgs/${orgId}/training`),
+        },
+      ],
+    },
+    {
+      id: 'authoring',
+      label: 'Authoring',
+      info:
+        'Tools that speed up writing and maintaining procedures. Snippets are reusable step content (LOTO, safety briefings) referenced from any procedure. AI drafts ingests a video walkthrough and proposes a structured procedure for review.',
+      items: [
+        // Snippets and drafts are platform-wide surfaces, not per-org
+        // routes — both filter by org server-side. Linking to the global
+        // paths keeps a single list to manage and avoids duplicating
+        // pages under /orgs/[id]/...
+        {
+          href: '/snippets',
+          label: 'Snippets',
+          icon: Puzzle,
+          match: /^\/snippets/,
+        },
+        {
+          href: '/procedure-drafts',
+          label: 'AI video drafts',
+          icon: Clapperboard,
+          match: /^\/procedure-drafts/,
         },
       ],
     },

@@ -2,11 +2,11 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Clapperboard, Film, Loader2 } from 'lucide-react';
+import { Clapperboard, Film, Loader2, Plus } from 'lucide-react';
 import { EmptyState } from '@/components/empty-state';
 import { TableSkeleton } from '@/components/skeleton';
 import { PageHeader, PageShell } from '@/components/page-shell';
-import { ErrorBanner } from '@/components/form';
+import { ErrorBanner, PrimaryButton } from '@/components/form';
 import {
   listProcedureDrafts,
   type AdminDraftRun,
@@ -74,6 +74,14 @@ export default function ProcedureDraftsPage() {
       <PageHeader
         title="AI procedure drafts"
         description="Upload a recorded walkthrough; the AI proposes a structured procedure with timestamped keyframes and synthesized voiceover. Review, edit, and accept to materialize it as a real procedure."
+        actions={
+          <Link
+            href="/procedure-drafts/new"
+            className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-accent/90"
+          >
+            <Plus size={14} strokeWidth={2.25} /> New draft
+          </Link>
+        }
       />
       <ErrorBanner error={error} />
       {rows === null ? (
@@ -82,7 +90,15 @@ export default function ProcedureDraftsPage() {
         <EmptyState
           icon={Clapperboard}
           title="No AI drafts yet"
-          description="Drafts are started from a procedure's edit page — record a walkthrough on site, then upload it here for the AI to segment into steps."
+          description="Record a walkthrough on site (any phone or camera works) and upload it here. The AI segments the narration into steps with chosen keyframes."
+          action={
+            <Link
+              href="/procedure-drafts/new"
+              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-accent/90"
+            >
+              <Plus size={14} strokeWidth={2.25} /> Start a new draft
+            </Link>
+          }
         />
       ) : (
         <ul className="overflow-hidden rounded-md border border-line bg-surface-raised">

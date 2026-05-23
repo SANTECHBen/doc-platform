@@ -345,9 +345,15 @@ function AwaitingVideo({ runId }: { runId: string }) {
     <div className="rounded-md border border-line bg-surface px-4 py-6 text-sm text-ink-secondary">
       <p className="font-medium text-ink-primary">Waiting for video upload…</p>
       <p className="mt-1 text-xs">
-        Run id: <code>{runId}</code>. Use the upload helper at /procedure-drafts/new (TODO) to
-        ship the video to Mux. Once Mux finishes processing, the draft moves
-        to transcribing automatically.
+        This usually means the upload was started elsewhere and hasn&rsquo;t
+        finished yet. If you meant to start fresh, head to{' '}
+        <Link
+          href="/procedure-drafts/new"
+          className="font-semibold text-accent hover:underline"
+        >
+          New draft
+        </Link>{' '}
+        — it walks through the upload step by step. Run id: <code>{runId}</code>.
       </p>
     </div>
   );
