@@ -1,5 +1,13 @@
--- PWA-submitted procedure drafts — part 2: columns + partial index that
--- references the 'pending_admin_decision' enum value added in 0034.
+-- PWA-submitted procedure drafts — part 2: columns + FK constraints.
+--
+-- The original v1 of this migration included a partial index
+--   CREATE INDEX ... WHERE status = 'pending_admin_decision'
+-- but Postgres refuses references to a newly-added enum value within the
+-- same transaction the value was added in, and Drizzle's migrator wraps
+-- every pending migration set in one transaction. We drop the partial
+-- index — the existing org_idx on (owner_organization_id, created_at)
+-- covers the "show me pending" admin query fine, and we can revisit the
+-- partial index in a follow-up migration after this one commits.
 
 ALTER TABLE "procedure_draft_runs"
   ADD COLUMN IF NOT EXISTS "pwa_submitted" boolean NOT NULL DEFAULT false;
@@ -27,10 +35,3 @@ DO $$ BEGIN
    FOREIGN KEY ("submitted_from_asset_instance_id") REFERENCES "asset_instances"("id")
    ON DELETE set null ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN null; END $$;
---> statement-breakpoint
--- Partial index — fast lookup of "what's waiting for me" on the admin
--- list page. Safe to reference the new enum value here because 0034
--- (enum add) committed before this migration ran.
-CREATE INDEX IF NOT EXISTS "procedure_draft_runs_pending_review_idx"
-  ON "procedure_draft_runs" ("owner_organization_id", "updated_at")
-  WHERE "status" = 'pending_admin_decision';
