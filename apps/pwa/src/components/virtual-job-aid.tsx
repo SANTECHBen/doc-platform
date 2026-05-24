@@ -1056,12 +1056,6 @@ export function VirtualJobAid({
                   {' '}
                   / {String(step.sectionStepTotal).padStart(2, '0')}
                 </span>
-                {step.sectionLabel && step.sectionStepTotal !== totalSteps && (
-                  <span className="vja-step-overall">
-                    {' '}
-                    / {stepIdx + 1}/{totalSteps} overall
-                  </span>
-                )}
               </span>
               {step.safetyCritical && (
                 <span className="vja-safety-pill">
