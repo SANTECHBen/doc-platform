@@ -86,7 +86,12 @@ type Mode = 'choosing' | 'voice' | 'browse';
 // the Overview tile can deep-link into. The tab also accepts the
 // legacy 'action' / 'walkthroughs' / 'removal' strings via its own
 // LEGACY_FILTER_MAP, but new callers should use the current four.
-type MaintenanceFilter = 'scheduled' | 'procedures' | 'troubleshoot' | 'history';
+type MaintenanceFilter =
+  | 'scheduled'
+  | 'pm'
+  | 'removal'
+  | 'troubleshoot'
+  | 'history';
 
 export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: string }) {
   const [active, setActive] = useState<TabKey>('home');

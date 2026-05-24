@@ -102,10 +102,16 @@ function isPmPlanBucketSevere(b: PmPlanBucket): boolean {
   return -b.daysUntilDue > interval;
 }
 
-// Browse-row keys. 'walkthroughs' + 'removal' folded into a single
-// 'procedures' row — the prior distinction lived inside one screen
-// anyway and the tech sees subheaders inside the slice.
-type FilterKey = 'scheduled' | 'procedures' | 'troubleshoot' | 'history';
+// Browse-row keys. Preventive Maintenance (PM plan checklists +
+// routine authored procedures) and Removal & Replacement get their
+// own rows so a tech replacing a worn part doesn't have to dig
+// through inspections to find it.
+type FilterKey =
+  | 'scheduled'
+  | 'pm'
+  | 'removal'
+  | 'troubleshoot'
+  | 'history';
 
 // Back-compat for the parent's deep-link prop. The Overview's PM-due
 // tile previously passed 'action'; map any legacy key to its new home.
@@ -113,9 +119,10 @@ const LEGACY_FILTER_MAP: Record<string, FilterKey> = {
   action: 'scheduled',
   upcoming: 'scheduled',
   scheduled: 'scheduled',
-  walkthroughs: 'procedures',
-  removal: 'procedures',
-  procedures: 'procedures',
+  walkthroughs: 'pm',
+  procedures: 'pm',
+  pm: 'pm',
+  removal: 'removal',
   troubleshoot: 'troubleshoot',
   history: 'history',
 };
@@ -324,6 +331,13 @@ export function MaintenanceTab({
   const overdueCount = dueNow.length + overdueBuckets.length;
   const upcomingCount = upcoming.length + upcomingBuckets.length;
   const scheduledTotal = overdueCount + upcomingCount;
+  // Preventive Maintenance = PM checklists + non-R&R authored
+  // procedures (routine inspections, calibrations, diagnostics).
+  // R&R lives on its own row.
+  const pmTotal = allBuckets.length + nonRrProcedures.length;
+  const removalTotal = rrProcedures.length;
+  // Headline number for the status strip — every authored or
+  // scheduled procedure surface on this asset.
   const proceduresTotal = allBuckets.length + libraryProcedures.length;
 
   const anyMaintenance =
@@ -447,7 +461,8 @@ export function MaintenanceTab({
 
   const browseRows: Array<{ key: FilterKey; label: string; count: number }> = [
     { key: 'scheduled', label: 'Scheduled', count: scheduledTotal },
-    { key: 'procedures', label: 'Procedures', count: proceduresTotal },
+    { key: 'pm', label: 'Preventive Maintenance', count: pmTotal },
+    { key: 'removal', label: 'Removal & Replacement', count: removalTotal },
     { key: 'troubleshoot', label: 'Troubleshooting', count: troubleshootingTotal },
     { key: 'history', label: 'History', count: historyRecords.length },
   ];
@@ -567,12 +582,15 @@ export function MaintenanceTab({
           </div>
         );
       }
-      case 'procedures': {
-        if (allBuckets.length === 0 && libraryProcedures.length === 0) {
+      case 'pm': {
+        // PM plan checklists + non-R&R authored procedures
+        // (inspections / calibrations / diagnostics — the routine
+        // recurring work). R&R has its own row below.
+        if (allBuckets.length === 0 && nonRrProcedures.length === 0) {
           return (
             <SliceEmpty
-              title="No procedures"
-              body="No PM checklists or authored procedures for this model yet."
+              title="No preventive maintenance"
+              body="No PM checklists or routine procedures for this model yet."
             />
           );
         }
@@ -616,20 +634,6 @@ export function MaintenanceTab({
                   ))}
               </div>
             )}
-            {rrProcedures.length > 0 && (
-              <div className="flex flex-col gap-1">
-                <p className="cap">Removal & replacement</p>
-                <ul className="flex flex-col">
-                  {rrProcedures.map((p) => (
-                    <ProcedureRow
-                      key={p.id}
-                      doc={p}
-                      onLaunch={() => launchDoc(p.id)}
-                    />
-                  ))}
-                </ul>
-              </div>
-            )}
             {nonRrProcedures.length > 0 && (
               <div className="flex flex-col gap-1">
                 <p className="cap">Procedures · run on demand</p>
@@ -645,6 +649,27 @@ export function MaintenanceTab({
               </div>
             )}
           </div>
+        );
+      }
+      case 'removal': {
+        if (rrProcedures.length === 0) {
+          return (
+            <SliceEmpty
+              title="No removal & replacement procedures"
+              body="None authored for this asset model yet."
+            />
+          );
+        }
+        return (
+          <ul className="flex flex-col">
+            {rrProcedures.map((p) => (
+              <ProcedureRow
+                key={p.id}
+                doc={p}
+                onLaunch={() => launchDoc(p.id)}
+              />
+            ))}
+          </ul>
         );
       }
       case 'troubleshoot':
