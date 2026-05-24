@@ -72,11 +72,52 @@ function formatCadenceDays(days: number): string {
 // active, unresolved escalation — a tech should be able to see it from
 // across the shop floor. Due/Soon/Upcoming are informational.
 const STATUS_PILL: Record<PmStatus, { label: string; className: string }> = {
-  overdue: { label: 'Overdue', className: 'pill pill-alarm' },
+  // Overdue at the row level now reads as a warning (yellow) by default
+  // — matches the Action card's amber tone. Severely-overdue rows get
+  // an alarm/red treatment via a separate data-severe attribute that
+  // overrides the pill className at render time (see ScheduleCard /
+  // PlanBucketCard).
+  overdue: { label: 'Overdue', className: 'pill pill-warn' },
   due: { label: 'Due', className: 'pill pill-warn' },
   soon: { label: 'Soon', className: 'pill pill-info' },
   upcoming: { label: 'Upcoming', className: 'pill' },
 };
+
+// Relative-threshold "severely overdue" check. The flat threshold ("X
+// days past due → red") punishes daily PMs (red after a day) while
+// barely touching annuals; using the cadence as the unit fixes that.
+//   * A daily lube becomes severely overdue 2 days late.
+//   * An annual rebuild only becomes severely overdue a year past due.
+// Returns false for any non-overdue row (status !== 'overdue') and any
+// row missing the data needed to make the call.
+function isPmScheduleSevere(s: PmScheduleStatusItem): boolean {
+  if (s.status !== 'overdue') return false;
+  const cadence = s.schedule.cadenceValue;
+  if (!cadence || cadence <= 0) return false;
+  // daysUntilDue is negative once overdue. The magnitude is "how many
+  // days past due" — once that exceeds the cadence, we've waited a
+  // full cycle longer than allowed.
+  return -s.daysUntilDue > cadence;
+}
+
+// PM plan bucket intervals in days. Plans use frequency codes
+// (D/W/M/Q/S/Y) rather than a raw day cadence; map them here for the
+// severity threshold. Y conservatively rounds to 365.
+const PLAN_FREQ_DAYS: Record<PmPlanBucket['frequency'], number> = {
+  D: 1,
+  W: 7,
+  M: 30,
+  Q: 90,
+  S: 180,
+  Y: 365,
+};
+
+function isPmPlanBucketSevere(b: PmPlanBucket): boolean {
+  if (b.status !== 'overdue') return false;
+  const interval = PLAN_FREQ_DAYS[b.frequency];
+  if (!interval) return false;
+  return -b.daysUntilDue > interval;
+}
 
 // The category cards drive a slice below them. Nothing renders below
 // the grid until the tech taps a card — the prior "auto-pin Action
@@ -307,6 +348,13 @@ export function MaintenanceTab({
     0,
   );
   const actionCount = dueNow.length + overdueBuckets.length;
+  // Subset of the Action bucket that crossed the relative threshold —
+  // overdue by more than one full cadence/interval. Used to escalate
+  // both the Action card's tone and the individual row treatment from
+  // warn (yellow) to fault (red).
+  const severeCount =
+    dueNow.filter(isPmScheduleSevere).length +
+    overdueBuckets.filter((row) => isPmPlanBucketSevere(row.bucket)).length;
   const anyMaintenance =
     data.schedules.length > 0 ||
     allBuckets.length > 0 ||
@@ -418,10 +466,15 @@ export function MaintenanceTab({
       key: 'action',
       label: 'Action',
       count: actionCount,
-      // Binary tone — anything actionable reads yellow (attention),
-      // otherwise green. "fault" red is reserved for actual error
-      // states; "needs action" is a warning, not a fault.
-      tone: actionCount === 0 ? 'ok' : 'warn',
+      // Three-tier escalation:
+      //   * No actionable items   → 'ok'    (idle green)
+      //   * Something actionable  → 'warn'  (amber attention)
+      //   * Anything severely overdue (past 1× its cadence)
+      //                           → 'fault' (red alarm)
+      // Card color mirrors the worst row in the bucket — see
+      // isPmScheduleSevere / isPmPlanBucketSevere above.
+      tone:
+        actionCount === 0 ? 'ok' : severeCount > 0 ? 'fault' : 'warn',
       icon: AlertTriangle,
     },
     {
@@ -882,7 +935,13 @@ function ScheduleCard({
   onRunProcedure: () => void;
   onMarkDone: () => void;
 }) {
-  const pill = STATUS_PILL[schedule.status];
+  const severe = isPmScheduleSevere(schedule);
+  // Severely-overdue rows escalate the pill from amber to red so the
+  // chip the tech reads first matches the row's outer treatment.
+  const basePill = STATUS_PILL[schedule.status];
+  const pill = severe
+    ? { label: 'Overdue', className: 'pill pill-alarm' }
+    : basePill;
   const dueText =
     schedule.status === 'overdue'
       ? `Overdue · ${formatDaysUntil(schedule.daysUntilDue)}`
@@ -891,7 +950,11 @@ function ScheduleCard({
         : `Due ${formatDaysUntil(schedule.daysUntilDue)} (${formatNextDue(schedule.nextDueAt)})`;
 
   return (
-    <div className="maintenance-task-card" data-status={schedule.status}>
+    <div
+      className="maintenance-task-card"
+      data-status={schedule.status}
+      data-severe={severe ? 'true' : undefined}
+    >
       {/* Block 1 — STATUS */}
       <div className="task-card-status">
         <span className={pill.className}>{pill.label}</span>
@@ -972,7 +1035,11 @@ function PlanBucketCard({
   onRun: () => void;
   onMarkPerformed: () => void;
 }) {
-  const pill = STATUS_PILL[bucket.status];
+  const severe = isPmPlanBucketSevere(bucket);
+  const basePill = STATUS_PILL[bucket.status];
+  const pill = severe
+    ? { label: 'Overdue', className: 'pill pill-alarm' }
+    : basePill;
   const dueText =
     bucket.status === 'overdue'
       ? `Overdue · ${formatDaysUntil(bucket.daysUntilDue)}`
@@ -981,7 +1048,11 @@ function PlanBucketCard({
         : `Due ${formatDaysUntil(bucket.daysUntilDue)} (${formatNextDue(bucket.nextDueAt)})`;
 
   return (
-    <div className="maintenance-task-card" data-status={bucket.status}>
+    <div
+      className="maintenance-task-card"
+      data-status={bucket.status}
+      data-severe={severe ? 'true' : undefined}
+    >
       {/* Block 1 — STATUS. Pill (Overdue/Due/etc) + relative time. The
           "when is this" answer. */}
       <div className="task-card-status">

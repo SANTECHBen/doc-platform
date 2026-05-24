@@ -6314,8 +6314,12 @@
     font-size: 12px;
     color: rgb(var(--ink-tertiary));
   }
+  /* Overdue at the time-bucket level is yellow by default — the row
+     reads as "needs attention" without screaming fault. Severely-overdue
+     rows (more than 1× the cadence past due) override this with the
+     fault color below. */
   .maintenance-task-card[data-status='overdue'] {
-    border-left-color: rgb(var(--signal-fault));
+    border-left-color: rgb(var(--signal-warn));
   }
   .maintenance-task-card[data-status='due'] {
     border-left-color: rgb(var(--signal-warn));
@@ -6325,6 +6329,11 @@
   }
   .maintenance-task-card[data-status='upcoming'] {
     border-left-color: rgb(var(--signal-ok));
+  }
+  /* Severely-overdue (relative threshold blown). Overrides the
+     status-level color so the worst rows draw the eye first. */
+  .maintenance-task-card[data-severe='true'] {
+    border-left-color: rgb(var(--signal-fault));
   }
   .maintenance-card-actions {
     display: flex;
