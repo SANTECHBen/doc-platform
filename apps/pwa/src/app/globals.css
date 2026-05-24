@@ -519,6 +519,202 @@
   color: rgb(var(--brand));
 }
 
+/* Center "+" FAB lives in the bottom tabbar between Maintenance and
+   Library. Raised circular treatment mirrors YouTube / Instagram / TikTok:
+   the create affordance gets clearly elevated chrome so techs can find
+   it without reading any label. The button is a TabBar sibling rather
+   than a free-floating fixed-position element so it stays aligned with
+   the tabs as the safe-area inset changes (notched devices, gesture
+   bars). */
+.app-tabbar-fab {
+  appearance: none;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Sized larger than the flat tabs and lifted upward so it visually
+     sits above the tabbar surface. Margin-top negative pulls into the
+     bar's padding; the bar's overflow stays visible so the lift reads. */
+  width: 52px;
+  height: 52px;
+  margin: -10px 4px 0 4px;
+  border-radius: 50%;
+  background: rgb(var(--brand));
+  color: rgb(var(--brand-on-primary, 255 255 255));
+  box-shadow:
+    0 6px 12px rgba(0, 0, 0, 0.22),
+    0 1px 0 rgba(255, 255, 255, 0.18) inset;
+  cursor: pointer;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease;
+  /* Keep the FAB pinned to its slot — the surrounding tabs flex evenly,
+     but the FAB shouldn't grow. */
+  flex: 0 0 auto;
+}
+.app-tabbar-fab:active {
+  transform: translateY(1px);
+  box-shadow:
+    0 3px 6px rgba(0, 0, 0, 0.22),
+    0 1px 0 rgba(255, 255, 255, 0.12) inset;
+}
+.app-tabbar-fab:focus-visible {
+  outline: 2px solid rgb(var(--brand));
+  outline-offset: 3px;
+}
+
+/* Create-procedure bottom sheet — slides up from the bottom edge when
+   the "+" FAB is tapped. Two tiles (AI walkthrough / Manual procedure),
+   a drag handle, a Cancel target. Backdrop dims the page behind. */
+.create-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+  z-index: 90;
+}
+.create-sheet-backdrop[data-open='true'] {
+  opacity: 1;
+  pointer-events: auto;
+}
+.create-sheet {
+  position: fixed;
+  inset: auto 0 0 0;
+  background: rgb(var(--surface-raised));
+  border-top-left-radius: 18px;
+  border-top-right-radius: 18px;
+  z-index: 91;
+  transform: translateY(110%);
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 18px max(18px, env(safe-area-inset-bottom)) 18px;
+  box-shadow: 0 -10px 32px rgba(0, 0, 0, 0.32);
+  overscroll-behavior: contain;
+  max-width: 640px;
+  margin: 0 auto;
+}
+.create-sheet[data-open='true'] {
+  transform: translateY(0);
+}
+.create-sheet-handle {
+  width: 40px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgb(var(--line));
+  margin: 0 auto;
+}
+.create-sheet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0 0 0;
+}
+.create-sheet-title {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.3;
+  font-weight: 600;
+  color: rgb(var(--ink-primary));
+  /* Wraps to two lines on narrow phones so the close button stays on the
+     same horizontal as the first line of the title. */
+  max-width: 80%;
+}
+.create-sheet-close {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: rgb(var(--ink-tertiary));
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.create-sheet-close:hover {
+  background: rgb(var(--surface-elevated));
+  color: rgb(var(--ink-primary));
+}
+.create-sheet-tiles {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.create-sheet-tile {
+  appearance: none;
+  border: 1px solid rgb(var(--line));
+  background: rgb(var(--surface));
+  border-radius: 12px;
+  padding: 14px 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  text-align: left;
+  cursor: pointer;
+  color: rgb(var(--ink-primary));
+  transition:
+    border-color 140ms ease,
+    transform 80ms ease,
+    background 140ms ease;
+}
+.create-sheet-tile:hover {
+  border-color: rgb(var(--brand) / 0.6);
+  background: rgb(var(--brand) / 0.04);
+}
+.create-sheet-tile:active {
+  transform: scale(0.99);
+}
+.create-sheet-tile-icon {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgb(var(--brand) / 0.12);
+  color: rgb(var(--brand));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.create-sheet-tile-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.create-sheet-tile-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: rgb(var(--ink-primary));
+}
+.create-sheet-tile-sub {
+  font-size: 13px;
+  line-height: 1.4;
+  color: rgb(var(--ink-secondary));
+}
+.create-sheet-cancel {
+  appearance: none;
+  border: 0;
+  background: rgb(var(--surface-elevated));
+  color: rgb(var(--ink-secondary));
+  border-radius: 12px;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.create-sheet-cancel:hover {
+  background: rgb(var(--surface-inset));
+  color: rgb(var(--ink-primary));
+}
+
 /* Placeholder thumbnail for docs that haven't got an uploaded preview. */
 .doc-thumb-placeholder {
   position: relative;

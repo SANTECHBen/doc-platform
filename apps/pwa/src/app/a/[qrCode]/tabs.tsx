@@ -6,9 +6,10 @@ import {
   ChevronDown,
   FileText,
   GraduationCap,
-  LayoutGrid,
+  Home,
   Library,
   MessageSquare,
+  Plus,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
@@ -16,7 +17,7 @@ import type { AssetHubPayload } from '@/lib/shared-schema';
 import { DocsTab } from './docs-tab';
 import { ChatTab } from './chat-tab';
 import { TrainingTab } from './training-tab';
-import { PartInspector, PartsTab } from './parts-tab';
+import { PartInspector } from './parts-tab';
 import { IssuesPanel } from './issues-panel';
 import { MaintenanceTab } from './maintenance-tab';
 import { VoiceMode, type PrefetchedGreeting } from '@/components/voice-mode';
@@ -24,21 +25,27 @@ import { VirtualJobAid, type JobAidSource } from '@/components/virtual-job-aid';
 import { ModeChooser, type ChosenMode } from '@/components/mode-chooser';
 import { VoiceSearch } from '@/components/voice-search';
 import { ImageZoom } from '@/components/image-zoom';
+import { CreateProcedureSheet } from '@/components/create-procedure-sheet';
+import { ProcedureDocWizard } from '@/components/procedure-runner/procedure-doc-wizard';
+import { VideoSubmission } from '@/components/video-submission';
+import { AuthPrompt } from '@/components/auth-prompt';
 import { fetchPreflight, listParts, speak, type BomEntry } from '@/lib/api';
 
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
 const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
 
-type TabKey = 'overview' | 'library' | 'parts' | 'maintenance' | 'chat';
+type TabKey = 'home' | 'library' | 'maintenance' | 'chat';
 
-// Order matches a tech's typical workflow on a scan: glance at the
-// asset (Overview), check what's due (Maintenance), look up a part
-// (Parts), read reference material (Library), and ask the assistant
-// last. Bottom tabbar reads left-to-right in priority order.
+// Four bottom tabs plus a raised center "+" FAB that opens the create-
+// procedure sheet. Order matches a tech's typical workflow on a scan:
+// glance at the asset (Home, which carries the asset photo + parts +
+// open issues), check what's due (Maintenance), capture work in
+// progress via the +, read reference material (Library), ask the
+// assistant last. The FAB is rendered between Maintenance and Library
+// in the bottom bar.
 const TABS: Array<{ key: TabKey; label: string; icon: LucideIcon }> = [
-  { key: 'overview', label: 'Overview', icon: LayoutGrid },
+  { key: 'home', label: 'Home', icon: Home },
   { key: 'maintenance', label: 'Maintenance', icon: CalendarClock },
-  { key: 'parts', label: 'Parts', icon: Wrench },
   { key: 'library', label: 'Library', icon: Library },
   { key: 'chat', label: 'Assistant', icon: MessageSquare },
 ];
@@ -57,6 +64,11 @@ function readTabFromHash(): { tab: TabKey; library?: LibrarySection } | null {
   // corresponding sub-section pre-selected.
   if (h === 'docs') return { tab: 'library', library: 'documents' };
   if (h === 'training') return { tab: 'library', library: 'training' };
+  // Back-compat: #overview is the prior name of #home. #parts no longer
+  // exists as a destination — parts live on Home now. Bookmarks /
+  // dispatched events still route through here, so both fold back to
+  // Home rather than 404.
+  if (h === 'overview' || h === 'parts') return { tab: 'home' };
   if ((TAB_KEYS as string[]).includes(h)) {
     return { tab: h as TabKey };
   }
@@ -75,7 +87,7 @@ type Mode = 'choosing' | 'voice' | 'browse';
 type MaintenanceFilter = 'action' | 'upcoming' | 'walkthroughs' | 'removal' | 'troubleshoot' | 'history';
 
 export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: string }) {
-  const [active, setActive] = useState<TabKey>('overview');
+  const [active, setActive] = useState<TabKey>('home');
   const [librarySection, setLibrarySection] = useState<LibrarySection>('documents');
   const [openIssueCount, setOpenIssueCount] = useState<number>(hub.tabs.openWorkOrders.count);
   // One-shot preselect for the Maintenance tab. Consumed on the next
@@ -109,6 +121,29 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
   // Opened by the topbar's magnifier button via a window event so the
   // server-rendered topbar stays decoupled from this client tree.
   const [voiceSearchOpen, setVoiceSearchOpen] = useState(false);
+
+  // Center "+" FAB → CreateProcedureSheet → one of two authoring flows.
+  // Hoisted to this top-level component so the FAB works from any tab
+  // (the previous in-Maintenance buttons only worked while the tech was
+  // on the Maintenance tab). Both overlays are full-screen self-contained
+  // — they sit above the tabbar and the topbar via their own z-index.
+  const [createSheetOpen, setCreateSheetOpen] = useState(false);
+  const [manualAuthoringOpen, setManualAuthoringOpen] = useState(false);
+  const [videoSubmissionOpen, setVideoSubmissionOpen] = useState(false);
+  // Auth gate — both authoring flows require an identified user (they
+  // create persistent server-side artifacts). When the dev IDs are
+  // missing we open AuthPrompt instead of the flow itself; the prompt
+  // explains why and points to sign-in.
+  const [authPromptOpen, setAuthPromptOpen] = useState(false);
+  function openCreate(mode: 'ai' | 'manual') {
+    setCreateSheetOpen(false);
+    if (!DEV_USER_ID || !DEV_ORG_ID) {
+      setAuthPromptOpen(true);
+      return;
+    }
+    if (mode === 'ai') setVideoSubmissionOpen(true);
+    else setManualAuthoringOpen(true);
+  }
   useEffect(() => {
     const onOpen = () => {
       // Don't reopen while voice assistant owns the screen — they'd
@@ -162,13 +197,13 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
   // immediately popping out to the QR scanner.
   useEffect(() => {
     const initial = readTabFromHash();
-    if (initial && initial.tab !== 'overview') {
+    if (initial && initial.tab !== 'home') {
       setActive(initial.tab);
       if (initial.library) setLibrarySection(initial.library);
     }
     function onPop() {
       const fromHash = readTabFromHash();
-      setActive(fromHash?.tab ?? 'overview');
+      setActive(fromHash?.tab ?? 'home');
       if (fromHash?.library) setLibrarySection(fromHash.library);
     }
     window.addEventListener('popstate', onPop);
@@ -186,9 +221,9 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
     setActive((prev) => {
       if (prev === next) return prev;
       // Update history so phone back button returns to the previous tab.
-      // Overview is the canonical "no hash" state.
+      // Home is the canonical "no hash" state.
       const url = new URL(window.location.href);
-      url.hash = next === 'overview' ? '' : next;
+      url.hash = next === 'home' ? '' : next;
       window.history.pushState({ tab: next }, '', url.toString());
       // history.pushState() does NOT fire popstate/hashchange. The topbar
       // listens for this custom event so its brand/asset-chip swap stays
@@ -217,7 +252,13 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
 
   return (
     <>
-      <TabBar hub={hub} active={active} setActive={changeTab} position="top" />
+      <TabBar
+        hub={hub}
+        active={active}
+        setActive={changeTab}
+        position="top"
+        onCreateTap={() => setCreateSheetOpen(true)}
+      />
 
       <div key={inspectingPartId ?? active} className="tab-pane flex flex-col gap-4">
         {inspectingPartId ? (
@@ -230,7 +271,7 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
             qrCode={qrCode}
             onBack={() => setInspectingPartId(null)}
           />
-        ) : active === 'overview' ? (
+        ) : active === 'home' ? (
           <div className="flex flex-col gap-4">
             <IdentityBand hub={hub} />
             <OverviewActionSummary
@@ -272,19 +313,18 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
           />
         ) : (
           <section className="rounded-md border border-line bg-surface-raised p-4 md:p-6">
-            {active === 'parts' && (
-              <PartsTab
-                hub={hub}
-                qrCode={qrCode}
-                onInspectPart={(partId) => setInspectingPartId(partId)}
-              />
-            )}
             {active === 'chat' && <ChatTab hub={hub} qrCode={qrCode} />}
           </section>
         )}
       </div>
 
-      <TabBar hub={hub} active={active} setActive={changeTab} position="bottom" />
+      <TabBar
+        hub={hub}
+        active={active}
+        setActive={changeTab}
+        position="bottom"
+        onCreateTap={() => setCreateSheetOpen(true)}
+      />
 
       {voiceOpen && DEV_USER_ID && DEV_ORG_ID && (
         <VoiceMode
@@ -357,6 +397,47 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
             if (completed) jobAidRequest.onCompleted?.();
             setJobAidRequest(null);
           }}
+        />
+      )}
+
+      {/* Create-procedure bottom sheet, opened by the center "+" FAB.
+          Two tiles: AI walkthrough (VideoSubmission) and Manual
+          procedure (ProcedureDocWizard). Both flows require auth — if
+          missing, openCreate routes through the AuthPrompt instead. */}
+      <CreateProcedureSheet
+        open={createSheetOpen}
+        onClose={() => setCreateSheetOpen(false)}
+        onPick={openCreate}
+      />
+
+      {/* Manual procedure capture — full-screen wizard the tech walks
+          through step by step. Self-contained (uses FullScreenShell);
+          mounts above everything when open. */}
+      {manualAuthoringOpen && DEV_USER_ID && DEV_ORG_ID && (
+        <ProcedureDocWizard
+          assetInstanceId={hub.assetInstance.id}
+          devUserId={DEV_USER_ID}
+          devOrgId={DEV_ORG_ID}
+          onClose={() => setManualAuthoringOpen(false)}
+        />
+      )}
+
+      {/* AI walkthrough video submission — full-screen camera + upload
+          panel. The drafter slices the upload into per-step proposals
+          for an admin reviewer; the tech doesn't see those here. */}
+      {videoSubmissionOpen && DEV_USER_ID && DEV_ORG_ID && (
+        <VideoSubmission
+          assetInstanceId={hub.assetInstance.id}
+          devUserId={DEV_USER_ID}
+          devOrgId={DEV_ORG_ID}
+          onClose={() => setVideoSubmissionOpen(false)}
+        />
+      )}
+
+      {authPromptOpen && (
+        <AuthPrompt
+          reason="document a procedure"
+          onClose={() => setAuthPromptOpen(false)}
         />
       )}
 
@@ -712,37 +793,68 @@ function DetailsDisclosure({ children }: { children: React.ReactNode }) {
 }
 
 function TabBar({
-  hub,
+  hub: _hub,
   active,
   setActive,
   position,
+  onCreateTap,
 }: {
   hub: AssetHubPayload;
   active: TabKey;
   setActive: (k: TabKey) => void;
   position: 'top' | 'bottom';
+  /** Center "+" FAB tap handler. Renders only on the bottom bar — the
+   *  top bar uses the four flat tabs without an authoring entry point
+   *  because the FAB needs to sit on top of content, which only the
+   *  bottom bar guarantees. */
+  onCreateTap?: () => void;
 }) {
   const className = `app-tabbar ${position === 'top' ? 'app-tabbar-top' : 'app-tabbar-bottom'}`;
+  // YouTube layout: two flat tabs, then the raised FAB, then the
+  // remaining flat tabs. Split the tab list at the midpoint and
+  // interleave the FAB in the bottom bar. The top bar keeps a simple
+  // four-flat-tab layout (no FAB) to avoid duplicating the prominent
+  // create affordance.
+  const half = Math.ceil(TABS.length / 2);
+  const lead = TABS.slice(0, half);
+  const tail = TABS.slice(half);
+  const renderTab = (t: (typeof TABS)[number]) => {
+    const Icon = t.icon;
+    const isActive = active === t.key;
+    return (
+      <button
+        key={t.key}
+        role="tab"
+        aria-selected={isActive}
+        aria-current={isActive ? 'page' : undefined}
+        data-active={isActive}
+        onClick={() => setActive(t.key)}
+        className="app-tabbar-item"
+      >
+        <Icon size={22} strokeWidth={isActive ? 2.25 : 1.75} />
+        <span>{t.label}</span>
+      </button>
+    );
+  };
+  if (position === 'bottom' && onCreateTap) {
+    return (
+      <nav className={className} role="tablist" aria-label="Sections">
+        {lead.map(renderTab)}
+        <button
+          type="button"
+          onClick={onCreateTap}
+          className="app-tabbar-fab"
+          aria-label="Document a procedure"
+        >
+          <Plus size={22} strokeWidth={2.5} />
+        </button>
+        {tail.map(renderTab)}
+      </nav>
+    );
+  }
   return (
     <nav className={className} role="tablist" aria-label="Sections">
-      {TABS.map((t) => {
-        const Icon = t.icon;
-        const isActive = active === t.key;
-        return (
-          <button
-            key={t.key}
-            role="tab"
-            aria-selected={isActive}
-            aria-current={isActive ? 'page' : undefined}
-            data-active={isActive}
-            onClick={() => setActive(t.key)}
-            className="app-tabbar-item"
-          >
-            <Icon size={22} strokeWidth={isActive ? 2.25 : 1.75} />
-            <span>{t.label}</span>
-          </button>
-        );
-      })}
+      {TABS.map(renderTab)}
     </nav>
   );
 }

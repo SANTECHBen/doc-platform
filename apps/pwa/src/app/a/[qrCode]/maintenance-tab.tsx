@@ -16,14 +16,11 @@ import {
   History,
   ListChecks,
   Play,
-  Plus,
   RotateCcw,
   ShieldAlert,
-  Video,
   type LucideIcon,
 } from 'lucide-react';
 import { useToast } from '@/components/toast';
-import { VideoSubmission } from '@/components/video-submission';
 import {
   fetchPmStatus,
   fetchPmPlanStatus,
@@ -41,8 +38,6 @@ import {
   type TroubleshootingGuide,
 } from '@/lib/api';
 import type { JobAidSource } from '@/components/virtual-job-aid';
-import { ProcedureDocWizard } from '@/components/procedure-runner/procedure-doc-wizard';
-import { AuthPrompt } from '@/components/auth-prompt';
 
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
 const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
@@ -155,11 +150,7 @@ export function MaintenanceTab({
   // Library tab. Maintenance is the right home: the saved procedure
   // ends up in one of these category buckets, so authoring belongs
   // alongside the work it produces.
-  const [authoringActive, setAuthoringActive] = useState(false);
-  const [authPromptOpen, setAuthPromptOpen] = useState(false);
-  // Video walkthrough submission — tech films and submits, admin
-  // reviews and decides whether to run the AI on it.
-  const [videoSubmissionOpen, setVideoSubmissionOpen] = useState(false);
+  // (Authoring overlays moved to tabs.tsx behind the global "+" FAB.)
   // Scroll the slice panel into view when the tech taps a card — the
   // items below the grid would otherwise sit off-screen and read as
   // "nothing happened" on phones.
@@ -752,77 +743,12 @@ export function MaintenanceTab({
     }
   })();
 
-  function openAuthoring() {
-    if (!DEV_USER_ID || !DEV_ORG_ID) {
-      setAuthPromptOpen(true);
-      return;
-    }
-    setAuthoringActive(true);
-  }
-
-  // Authoring wizard takes over the tab while it's open — same pattern
-  // it used to use on Library. Refresh on close so a newly captured
-  // procedure shows up in whichever bucket it was categorized into.
-  if (authoringActive) {
-    return (
-      <ProcedureDocWizard
-        assetInstanceId={assetInstanceId}
-        devUserId={DEV_USER_ID}
-        devOrgId={DEV_ORG_ID}
-        onClose={() => {
-          setAuthoringActive(false);
-          void refresh();
-        }}
-      />
-    );
-  }
-
-  // Video submission overlay — fixed-position full-screen panel that
-  // overlays whatever's behind. We keep the maintenance content rendered
-  // underneath so closing snaps the tech right back where they were.
-  const videoSubmission =
-    videoSubmissionOpen && DEV_USER_ID && DEV_ORG_ID ? (
-      <VideoSubmission
-        assetInstanceId={assetInstanceId}
-        devUserId={DEV_USER_ID}
-        devOrgId={DEV_ORG_ID}
-        onClose={() => setVideoSubmissionOpen(false)}
-      />
-    ) : null;
-
   return (
     <div className="maintenance-page">
-      {/* Document-a-procedure CTA — lives here (not Library) because the
-          saved output is a Maintenance artifact: it shows up in one of
-          the PM / R&R / Troubleshooting buckets below. The wizard's
-          first step is a category picker that picks which bucket.
-          Sits alongside "Submit a walkthrough" which lets the tech film
-          a video for the AI drafter — admin reviews + decides whether
-          to spend on AI. */}
-      <div className="maintenance-author-row">
-        <button
-          type="button"
-          onClick={openAuthoring}
-          className="btn btn-secondary"
-        >
-          <Plus size={15} strokeWidth={2} />
-          Document a procedure
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            if (!DEV_USER_ID || !DEV_ORG_ID) {
-              setAuthPromptOpen(true);
-              return;
-            }
-            setVideoSubmissionOpen(true);
-          }}
-          className="btn btn-secondary"
-        >
-          <Video size={15} strokeWidth={2} />
-          Submit a walkthrough
-        </button>
-      </div>
+      {/* Authoring entry points moved to the global center "+" FAB in
+          the bottom tabbar — both "Document a procedure" and "Submit a
+          walkthrough" live behind it now. The buttons that used to sit
+          on this row are gone to avoid two paths to the same flow. */}
       {nothingScheduled && libraryProcedures.length === 0 ? (
         <EmptyState
           title="No PM schedules for this model"
@@ -848,13 +774,6 @@ export function MaintenanceTab({
         </>
       )}
 
-      {authPromptOpen && (
-        <AuthPrompt
-          reason="document a procedure"
-          onClose={() => setAuthPromptOpen(false)}
-        />
-      )}
-      {videoSubmission}
     </div>
   );
 }
