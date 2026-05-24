@@ -20,7 +20,14 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import { getProcedureDoc, speak, type ProcedureDocFullDto, type StepBlock } from '@/lib/api';
+import {
+  getProcedureDoc,
+  speak,
+  type ProcedureDocFullDto,
+  type ProcedureStepCategoryDto,
+  type StepBlock,
+} from '@/lib/api';
+import { CategoryIcon } from './procedure-runner/category-icon';
 import { StepVideoPlayer } from './step-video-player';
 import { HeroVideoEmbed } from './hero-video-embed';
 import { MuxClipPlayer } from './mux-clip-player';
@@ -157,6 +164,25 @@ interface ResolvedJobAid {
        *  these IDs (preserving the linked doc's natural ordering). */
       stepIds: string[];
     } | null;
+    /** Per-step category override (when the author tagged this step with
+     *  a category distinct from the section's). Drives a small badge
+     *  above the step title; when matching the section's category, the
+     *  badge is suppressed to avoid visual duplication with the strip. */
+    category: ProcedureStepCategoryDto | null;
+  }>;
+  /** Phase descriptors derived from sections. One entry per consecutive
+   *  run of steps sharing a sectionId, with the section's category color
+   *  (or a neutral default). Powers the phase-progress strip; empty for
+   *  ungrouped procedures (the renderer falls back to the dot strip). */
+  phases: Array<{
+    /** Section id, or null for the orphan synthetic group. */
+    key: string | null;
+    label: string;
+    color: string;
+    icon: string | null;
+    /** Inclusive start, exclusive end into the resolved steps array. */
+    start: number;
+    end: number;
   }>;
 }
 
@@ -190,6 +216,7 @@ function normalizeFromDoc(doc: ProcedureDocFullDto, stepIdsFilter?: string[]): R
     meta?.skillLevel != null ||
     anyTools ||
     safetyNotes != null;
+  const steps = buildSectionedSteps(doc, stepIdsFilter);
   return {
     title: doc.document.title,
     intro: hasIntroContent
@@ -205,7 +232,8 @@ function normalizeFromDoc(doc: ProcedureDocFullDto, stepIdsFilter?: string[]): R
           safetyNotes,
         }
       : null,
-    steps: buildSectionedSteps(doc, stepIdsFilter),
+    steps,
+    phases: buildPhases(doc.sections, steps, doc.steps),
   };
 }
 
@@ -272,8 +300,55 @@ function buildSectionedSteps(
             stepIds: augmented.linkedProcedureStepIds ?? [],
           }
         : null,
+      category: s.category ?? null,
     };
   });
+}
+
+// Walk the resolved (already-section-sorted) step list and emit one
+// phase per consecutive run of steps sharing a sectionId. Resolves the
+// section's category color/icon for each phase; falls back to a neutral
+// blue when no category is set. Returns an empty array for procedures
+// with no sections — the renderer then falls back to the per-step dot
+// strip.
+function buildPhases(
+  sections: ProcedureDocFullDto['sections'],
+  resolvedSteps: ResolvedJobAid['steps'],
+  rawSteps: ProcedureDocFullDto['steps'],
+): ResolvedJobAid['phases'] {
+  if (!sections || sections.length === 0) return [];
+  // Map resolved step indices back to their source step rows so we can
+  // read sectionId. resolvedSteps preserves the same order as rawSteps
+  // after sorting, so we pre-index by id once.
+  const sectionIdByStepId = new Map<string, string | null>();
+  for (const r of rawSteps) sectionIdByStepId.set(r.id, r.sectionId ?? null);
+  const sectionById = new Map(sections.map((sec) => [sec.id, sec]));
+  const phases: ResolvedJobAid['phases'] = [];
+  let i = 0;
+  while (i < resolvedSteps.length) {
+    const start = i;
+    const startStep = resolvedSteps[start]!;
+    const currentSecId = startStep.id ? sectionIdByStepId.get(startStep.id) ?? null : null;
+    let j = i + 1;
+    while (
+      j < resolvedSteps.length &&
+      (resolvedSteps[j]!.id ? sectionIdByStepId.get(resolvedSteps[j]!.id!) ?? null : null) ===
+        currentSecId
+    ) {
+      j += 1;
+    }
+    const sec = currentSecId ? sectionById.get(currentSecId) : null;
+    phases.push({
+      key: currentSecId,
+      label: sec ? sec.title || sec.category?.name || 'Steps' : 'Steps',
+      color: sec?.category?.color ?? '#2563EB',
+      icon: sec?.category?.icon ?? null,
+      start,
+      end: j,
+    });
+    i = j;
+  }
+  return phases;
 }
 
 function normalizeFromInline(inline: Extract<JobAidSource, { kind: 'inline' }>): ResolvedJobAid {
@@ -298,7 +373,11 @@ function normalizeFromInline(inline: Extract<JobAidSource, { kind: 'inline' }>):
       sectionStepTotal: inline.steps.length,
       // Inline source has no procedure-doc references.
       linkedSubProcedure: null,
+      category: null,
     })),
+    // Inline AI-emitted lists have no authored sections — fall back to
+    // the per-step dot strip by leaving phases empty.
+    phases: [],
   };
 }
 
@@ -741,10 +820,53 @@ export function VirtualJobAid({
         </button>
       </header>
 
-      {/* Progress strip — one segment per step, current pulses. Hidden
-          on the hero intro panel since no step is "active" yet, and on
-          the completion screen where every segment renders 'done'. */}
-      {!showHeroIntro && (
+      {/* Progress strip — when the procedure has authored sections, render
+          the phase-progress strip (one labeled segment per section, color
+          from the section's category). For ungrouped procedures fall
+          back to the per-step dot strip. Hidden on the hero intro panel
+          since no step is "active" yet. */}
+      {!showHeroIntro && resolved.phases.length > 0 && (
+        <nav className="vja-phases" aria-label="Procedure phases">
+          {resolved.phases.map((p) => {
+            const total = p.end - p.start;
+            const doneInPhase = showCompletion
+              ? total
+              : Math.max(0, Math.min(total, stepIdx - p.start));
+            const isActive = !showCompletion && stepIdx >= p.start && stepIdx < p.end;
+            const pct = total > 0 ? Math.round((doneInPhase / total) * 100) : 0;
+            return (
+              <button
+                type="button"
+                key={p.key ?? '__orphans__'}
+                onClick={() => setStepIdx(p.start)}
+                className="vja-phase"
+                aria-label={`${p.label} — ${doneInPhase} of ${total} done${isActive ? ', current phase' : ''}`}
+                aria-current={isActive ? 'step' : undefined}
+                data-active={isActive ? 'true' : 'false'}
+              >
+                <span
+                  className="vja-phase-label"
+                  style={isActive ? { color: p.color } : undefined}
+                >
+                  <CategoryIcon name={p.icon} size={12} strokeWidth={2.25} />
+                  {p.label}
+                </span>
+                <span className="vja-phase-bar" aria-hidden>
+                  <span
+                    className="vja-phase-fill"
+                    style={{
+                      width: `${pct}%`,
+                      backgroundColor: p.color,
+                      opacity: isActive ? 1 : 0.6,
+                    }}
+                  />
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+      )}
+      {!showHeroIntro && resolved.phases.length === 0 && (
         <div className="vja-progress" aria-hidden>
           {resolved.steps.map((_, i) => (
             <span
@@ -871,11 +993,63 @@ export function VirtualJobAid({
             aria-live="polite"
           >
             <div className="vja-step-header">
-              {step.sectionLabel && (
-                <span className="vja-section-label" title={`Section: ${step.sectionLabel}`}>
-                  {step.sectionLabel}
-                </span>
-              )}
+              {(() => {
+                // Resolve the visual treatment for this step's section
+                // pill. When the phase strip is rendering above, the
+                // section name is already visible there — but we still
+                // want a per-step accent in the section's category color
+                // (or the category override when set) so the active
+                // phase ties visually to the step body.
+                const phase = resolved.phases.find(
+                  (p) => stepIdx >= p.start && stepIdx < p.end,
+                );
+                const sectionColor = phase?.color ?? null;
+                const sectionIcon = phase?.icon ?? null;
+                const stepCat = step.category;
+                // Show the step-level category badge only when it differs
+                // from the section's effective category — otherwise it's
+                // visual duplication of the strip's active color.
+                const showStepBadge =
+                  stepCat && (!phase || stepCat.color.toLowerCase() !== phase.color.toLowerCase());
+                return (
+                  <>
+                    {step.sectionLabel && (
+                      <span
+                        className="vja-section-label"
+                        title={`Section: ${step.sectionLabel}`}
+                        style={
+                          sectionColor
+                            ? {
+                                color: sectionColor,
+                                borderColor: sectionColor,
+                                backgroundColor: `${sectionColor}1A`,
+                              }
+                            : undefined
+                        }
+                      >
+                        {sectionIcon && (
+                          <CategoryIcon name={sectionIcon} size={11} strokeWidth={2.25} />
+                        )}
+                        {step.sectionLabel}
+                      </span>
+                    )}
+                    {showStepBadge && stepCat && (
+                      <span
+                        className="vja-section-label"
+                        title={`Category: ${stepCat.name}`}
+                        style={{
+                          color: 'white',
+                          backgroundColor: stepCat.color,
+                          borderColor: stepCat.color,
+                        }}
+                      >
+                        <CategoryIcon name={stepCat.icon} size={11} strokeWidth={2.25} />
+                        {stepCat.name}
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
               <span className="vja-step-num">
                 {String(step.sectionStepIndex).padStart(2, '0')}
                 <span className="vja-step-of">
