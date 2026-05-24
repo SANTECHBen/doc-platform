@@ -109,27 +109,13 @@ export function ProcedureDocWizard({
     };
   }, []);
 
-  // Start the run on mount. Title + steps stay client-side until each
-  // gets explicitly saved.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const b = await startFieldProcedure({
-          assetInstanceId,
-          devUserId,
-          devOrgId,
-        });
-        if (!cancelled) setBundle(b);
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assetInstanceId]);
+  // Run + backing document are created LATER — when the tech commits
+  // intake (category + title). Creating it on mount used to leave an
+  // "Untitled procedure" stub in the field_captures pack whenever a
+  // tech opened the wizard and bailed before naming anything; the
+  // user saw those as click-to-nowhere rows in Maintenance. By
+  // deferring until we know the real title we never write a
+  // placeholder.
 
   const currentStep = steps[currentIdx]!;
 
@@ -421,15 +407,69 @@ export function ProcedureDocWizard({
     setMode('step');
   }
 
+  // ---- INTAKE (category + title) — delegated to the shared component
+  // so the manual wizard and the AI walkthrough flow present these two
+  // screens identically. Commit creates the run + backing document
+  // (with the real title) and transitions us into capture; cancel
+  // tears down the whole wizard. Rendered BEFORE the bundle-null
+  // branches because intake intentionally runs without a bundle —
+  // the bundle gets created at intake commit time.
+  if (mode === 'intake') {
+    return (
+      <ProcedureIntake
+        kicker="DOCUMENT A PROCEDURE"
+        title="Document a procedure"
+        totalSteps={3}
+        initialCategory={procedureCategory}
+        initialTitle={procedureTitle}
+        onCancel={onCancelAll}
+        onCommit={async ({ category, title }) => {
+          // Create the run + backing document NOW (with the real
+          // title) instead of at wizard mount. If startFieldProcedure
+          // throws, ProcedureIntake catches and surfaces the error
+          // inline so the tech can retry without losing what they typed.
+          setProcedureCategory(category);
+          setProcedureTitle(title);
+          // Idempotent: if the tech navigates back to intake then
+          // forward again (mode === 'intake' more than once) we'd
+          // otherwise create a second backing doc. Reuse the existing
+          // bundle when one's already in flight.
+          if (!bundle) {
+            const b = await startFieldProcedure({
+              assetInstanceId,
+              title,
+              devUserId,
+              devOrgId,
+            });
+            setBundle(b);
+          }
+          setMode('step');
+        }}
+      />
+    );
+  }
+
   // ---- Loading / error states ---------------------------------------
+  // Past intake, every other mode reads from `bundle` (run id, etc.).
+  // If the run creation failed at intake commit, surface the error and
+  // let the tech retry by going Back to intake. If somehow we landed
+  // in step mode without a bundle (shouldn't happen), the same
+  // "Initializing…" panel acts as a safety net.
 
   if (!bundle && error) {
     return (
       <FullScreenShell title="Couldn't start" onClose={onClose}>
         <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
           <p className="text-sm text-signal-fault">{error}</p>
-          <button type="button" onClick={onClose} className="btn btn-secondary">
-            Back
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              setMode('intake');
+            }}
+            className="btn btn-secondary"
+          >
+            Back to intake
           </button>
         </div>
       </FullScreenShell>
@@ -442,28 +482,6 @@ export function ProcedureDocWizard({
           Initializing…
         </div>
       </FullScreenShell>
-    );
-  }
-
-  // ---- INTAKE (category + title) — delegated to the shared component
-  // so the manual wizard and the AI walkthrough flow present these two
-  // screens identically. Commit transitions us into capture; cancel
-  // tears down the whole wizard.
-  if (mode === 'intake') {
-    return (
-      <ProcedureIntake
-        kicker="DOCUMENT A PROCEDURE"
-        title="Document a procedure"
-        totalSteps={3}
-        initialCategory={procedureCategory}
-        initialTitle={procedureTitle}
-        onCancel={onCancelAll}
-        onCommit={({ category, title }) => {
-          setProcedureCategory(category);
-          setProcedureTitle(title);
-          setMode('step');
-        }}
-      />
     );
   }
 

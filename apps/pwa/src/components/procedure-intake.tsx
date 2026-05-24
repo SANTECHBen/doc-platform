@@ -101,11 +101,15 @@ interface Props {
    *  arrow from the category screen, or the X button on either screen. */
   onCancel: () => void;
   /** Tech finished intake — commit the (category, title) to the parent
-   *  so it can transition into the capture step. */
+   *  so it can transition into the capture step. May be async (the
+   *  manual wizard now creates the server-side procedure run here so
+   *  it can pass the real title instead of an "Untitled procedure"
+   *  placeholder). The component disables the Next button while the
+   *  returned promise is pending so a double-tap doesn't double-fire. */
   onCommit: (input: {
     category: AuthoredProcedureCategory;
     title: string;
-  }) => void;
+  }) => void | Promise<void>;
 }
 
 export function ProcedureIntake({
@@ -126,6 +130,11 @@ export function ProcedureIntake({
     initialCategory ?? null,
   );
   const [text, setText] = useState<string>(initialTitle ?? '');
+  // Tracks the in-flight onCommit so we can disable Next during it and
+  // re-enable if the parent throws (e.g., network blip on the manual
+  // wizard's startFieldProcedure call).
+  const [committing, setCommitting] = useState(false);
+  const [commitError, setCommitError] = useState<string | null>(null);
 
   if (phase === 'category') {
     return (
@@ -222,16 +231,39 @@ export function ProcedureIntake({
             />
           </div>
         </div>
+        {commitError && (
+          <p
+            role="status"
+            className="text-center text-sm text-signal-fault"
+            aria-live="polite"
+          >
+            {commitError}
+          </p>
+        )}
         <button
           type="button"
-          onClick={() => {
-            if (!category || !canAdvance) return;
-            onCommit({ category, title: text.trim() });
+          onClick={async () => {
+            if (!category || !canAdvance || committing) return;
+            setCommitError(null);
+            setCommitting(true);
+            try {
+              await onCommit({ category, title: text.trim() });
+            } catch (e) {
+              setCommitError(e instanceof Error ? e.message : String(e));
+            } finally {
+              setCommitting(false);
+            }
           }}
-          disabled={!canAdvance || !category}
+          disabled={!canAdvance || !category || committing}
           className="btn btn-primary btn-lg w-full max-w-md"
         >
-          Next <ChevronRight size={18} strokeWidth={2} />
+          {committing ? (
+            'Starting…'
+          ) : (
+            <>
+              Next <ChevronRight size={18} strokeWidth={2} />
+            </>
+          )}
         </button>
       </div>
     </Shell>

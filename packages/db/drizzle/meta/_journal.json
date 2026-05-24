@@ -281,6 +281,13 @@
       "when": 1783000000000,
       "tag": "0040_drop_orphan_field_untitled_docs",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1784000000000,
+      "tag": "0041_drop_stale_orphan_field_untitled_docs",
+      "breakpoints": true
     }
   ]
 }
