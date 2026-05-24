@@ -82,10 +82,11 @@ function readTabFromHash(): { tab: TabKey; library?: LibrarySection } | null {
 // scan / refresh starts in 'choosing'.
 type Mode = 'choosing' | 'voice' | 'browse';
 
-// Filter keys the Maintenance tab understands. Kept in sync with its
-// internal FilterKey union — when Overview deep-links into Maintenance
-// (PM-due tile → 'action'), we seed the tab's initial selection.
-type MaintenanceFilter = 'action' | 'upcoming' | 'walkthroughs' | 'removal' | 'troubleshoot' | 'history';
+// Filter keys the Maintenance tab understands — names the browse rows
+// the Overview tile can deep-link into. The tab also accepts the
+// legacy 'action' / 'walkthroughs' / 'removal' strings via its own
+// LEGACY_FILTER_MAP, but new callers should use the current four.
+type MaintenanceFilter = 'scheduled' | 'procedures' | 'troubleshoot' | 'history';
 
 export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: string }) {
   const [active, setActive] = useState<TabKey>('home');
@@ -279,7 +280,11 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
               hub={hub}
               openIssueCount={openIssueCount}
               onOpenMaintenanceAction={() => {
-                setPendingMaintenanceFilter('action');
+                // Overview's PM-due tile lands the tech on Maintenance
+                // with the Scheduled queue open — the hero already
+                // promotes the single most-urgent item; opening
+                // Scheduled gives them the full list.
+                setPendingMaintenanceFilter('scheduled');
                 changeTab('maintenance');
               }}
               onOpenLibrary={() => {

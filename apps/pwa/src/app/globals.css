@@ -6165,80 +6165,257 @@
 
   /* ------------------------------------------------------------
      MAINTENANCE COMMAND SURFACE
+     Layout hierarchy answers one question — "what does the tech
+     need to do next?" — in three quieter layers:
+       1. status strip — three muted counts; overdue is the only
+          metric that gets to shout (warn tint when > 0).
+       2. hero card    — the single most-urgent open task. One
+          accent only (the status pill); no colored side rail.
+       3. browse list  — Scheduled / Procedures / Troubleshooting /
+          History as compact rows with subtle counts. One row
+          expanded at a time so the page never shows two columns
+          of stuff to scan.
      ------------------------------------------------------------ */
   .maintenance-page {
     display: flex;
     flex-direction: column;
-    gap: 14px;
-  }
-  .maintenance-filter-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-  }
-  @media (min-width: 700px) {
-    .maintenance-filter-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-  }
-  /* Document-a-procedure CTA row above the Maintenance grid. Right-
-     aligned so the cards below are the visual anchor; this is a
-     supporting affordance, not a header. */
-  .maintenance-author-row {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 8px;
-    margin-bottom: 4px;
-  }
-  /* Stretch the buttons in this row to share the available width on
-     narrow screens so they wrap cleanly instead of clipping at the
-     left edge of the container. */
-  .maintenance-author-row > .btn {
-    flex: 1 1 auto;
-    min-width: 0;
-    justify-content: center;
+    gap: 20px;
   }
 
-  /* Card chrome now lives in .segment-card (apps/pwa/src/components/
-     segment-card.tsx) — Maintenance uses it via <SegmentCard tone …
-     count …> so Library's Documents/Training and Maintenance's 6-card
-     grid share the same etched-tile vocabulary. The filter grid here
-     only owns layout (column count + gap). */
-
-  .maintenance-panel {
+  /* ── header (title + status strip) ── */
+  .maint-header {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 14px;
-    border-radius: 8px;
+    gap: 4px;
+  }
+  .maint-header-title {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+    color: rgb(var(--ink-primary));
+    letter-spacing: -0.01em;
+  }
+  .maint-status-strip {
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 8px;
+    font-size: 13px;
+    color: rgb(var(--ink-tertiary));
+  }
+  .maint-status-metric {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+  .maint-status-metric strong {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: rgb(var(--ink-secondary));
+  }
+  /* Warn-tinted overdue count when > 0. Single-accent rule: this is
+     the ONLY place red/amber appears in the top summary. */
+  .maint-status-metric[data-tone='warn'] strong {
+    color: rgb(var(--signal-warn));
+  }
+  .maint-status-sep {
+    color: rgb(var(--ink-tertiary));
+    opacity: 0.55;
+  }
+
+  /* ── hero card ── */
+  .maint-hero {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 18px;
+    border-radius: 10px;
     border: 1px solid rgb(var(--line));
     background: rgb(var(--surface-raised));
     box-shadow: var(--shadow-sm);
   }
-  .maintenance-panel-header {
+  .maint-hero-head {
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid rgb(var(--line-subtle));
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
   }
-  .maintenance-panel-header h3 {
+  .maint-hero-when {
+    font-size: 12.5px;
+    color: rgb(var(--ink-tertiary));
+  }
+  .maint-hero-title {
     margin: 0;
-    color: rgb(var(--ink-primary));
-    font-size: 18px;
-    line-height: 1.2;
-    font-weight: 700;
-    letter-spacing: 0;
-  }
-  .maintenance-panel-count {
-    color: rgb(var(--ink-primary));
-    font-family: var(--font-mono);
-    font-size: 20px;
+    font-size: 19px;
+    line-height: 1.25;
     font-weight: 600;
-    font-variant-numeric: tabular-nums;
+    color: rgb(var(--ink-primary));
+    letter-spacing: -0.01em;
   }
+  .maint-hero-subtitle {
+    margin: 0;
+    font-size: 13px;
+    color: rgb(var(--ink-secondary));
+  }
+  .maint-hero-actions {
+    margin-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 14px;
+  }
+  /* The hero's primary takes the obvious tap target — full width on
+     phones so the tech can hit it with gloves; auto-width on tablet+
+     so "Mark performed" can sit beside it. */
+  .maint-hero-primary {
+    flex: 1 1 220px;
+    min-height: 48px;
+  }
+  /* Quiet secondary — text + check icon, no border. Per the audit:
+     the acknowledge action shouldn't compete with the primary CTA. */
+  .maint-hero-ack {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    color: rgb(var(--ink-secondary));
+    cursor: pointer;
+    transition: color 120ms ease, background 120ms ease;
+  }
+  .maint-hero-ack:hover:not(:disabled) {
+    color: rgb(var(--ink-primary));
+    background: rgb(var(--surface-elevated));
+  }
+  .maint-hero-ack:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  /* Overflow link when more than one item is overdue — pushes the
+     full queue into the Scheduled slice without crowding the hero. */
+  .maint-hero-more {
+    align-self: flex-start;
+    margin-top: 2px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    font-family: inherit;
+    font-size: 12.5px;
+    color: rgb(var(--ink-secondary));
+    text-decoration: underline;
+    text-decoration-color: rgb(var(--line));
+    text-underline-offset: 3px;
+    cursor: pointer;
+  }
+  .maint-hero-more:hover {
+    color: rgb(var(--ink-primary));
+    text-decoration-color: currentColor;
+  }
+  /* All-caught-up state — calm, dashed border, no card weight. */
+  .maint-hero-empty {
+    align-items: flex-start;
+    padding: 16px 18px;
+    border-style: dashed;
+    background: transparent;
+    box-shadow: none;
+    gap: 4px;
+  }
+  .maint-hero-empty-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: rgb(var(--ink-primary));
+  }
+  .maint-hero-empty-body {
+    margin: 0;
+    font-size: 12.5px;
+    color: rgb(var(--ink-secondary));
+  }
+
+  /* ── browse rows ── */
+  .maint-browse {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .maint-browse-h {
+    margin: 0;
+    font-size: 11.5px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-tertiary));
+  }
+  /* Connected-list chrome — single border around the whole stack
+     with internal dividers, so the four rows read as one navigation
+     unit rather than four separate cards. */
+  .maint-browse-list {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid rgb(var(--line));
+    border-radius: 8px;
+    background: rgb(var(--surface-raised));
+    overflow: hidden;
+  }
+  .maint-browse-item + .maint-browse-item {
+    border-top: 1px solid rgb(var(--line-subtle));
+  }
+  .maint-browse-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 14px 16px;
+    background: transparent;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    color: inherit;
+    transition: background 120ms ease;
+  }
+  .maint-browse-row:hover {
+    background: rgb(var(--surface-elevated));
+  }
+  .maint-browse-row-label {
+    flex: 1;
+    font-size: 14.5px;
+    font-weight: 500;
+    color: rgb(var(--ink-primary));
+  }
+  .maint-browse-row-count {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: rgb(var(--ink-tertiary));
+    font-variant-numeric: tabular-nums;
+    min-width: 24px;
+    text-align: right;
+  }
+  .maint-browse-row-chevron {
+    color: rgb(var(--ink-tertiary));
+    transition: transform 160ms ease;
+    flex-shrink: 0;
+  }
+  .maint-browse-item[data-expanded='true'] .maint-browse-row-chevron {
+    transform: rotate(180deg);
+  }
+  .maint-browse-item[data-expanded='true'] .maint-browse-row {
+    background: rgb(var(--surface-elevated));
+  }
+  .maint-browse-content {
+    padding: 14px 14px 18px;
+    border-top: 1px solid rgb(var(--line-subtle));
+    background: rgb(var(--surface-base));
+  }
+
+  /* Card chrome reused inside expanded slices (Scheduled / Procedures).
+     The hero owns its own quieter chrome; these heavier cards only
+     appear after the tech opens a slice to see the full queue. */
   .maintenance-task-card,
   .maintenance-history-row,
   .maintenance-guide-card {

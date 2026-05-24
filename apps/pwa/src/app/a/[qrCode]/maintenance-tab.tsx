@@ -2,24 +2,29 @@
 
 // Field-tech preventive maintenance view for an asset instance.
 //
-// Compact 2-column grid of category cards (Action / Upcoming /
-// Preventive Maintenance / Removal & Replacement / Troubleshoot /
-// History) — each tile is just icon + label + count. Tapping a card
-// reveals its slice in the panel below and scrolls it into view so the
-// items aren't hiding below the fold.
+// One question, one screen: "What does the tech need to do next?"
+//
+//   * Status strip — three quiet counts at the top. Overdue is the
+//     only one that can shout (warn-tinted text when > 0).
+//   * Today hero — the single most-urgent open task, surfaced as a
+//     calm card with one primary button and a quiet acknowledge link.
+//     One accent at a time: the status pill carries the urgency, the
+//     primary button carries the action. No colored side rail on the
+//     hero (the previous design stacked red rail + red pill + red
+//     count on the same card).
+//   * Browse list — Scheduled / Procedures / Troubleshooting /
+//     History as compact rows with subtle counts. Tapping a row
+//     expands its slice inline; one slice open at a time. Secondary
+//     paths, not peers to the hero.
+//
+// The 6-tile grid that lived here previously treated every category as
+// equal weight and stacked five accent colors onto one screen. Most
+// days a tech has one overdue thing — this layout makes that the
+// page.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  AlertTriangle,
-  CalendarClock,
-  Clock,
-  History,
-  ListChecks,
-  Play,
-  RotateCcw,
-  ShieldAlert,
-  type LucideIcon,
-} from 'lucide-react';
+import type { ReactNode } from 'react';
+import { Check, ChevronDown, Clock, Play } from 'lucide-react';
 import { useToast } from '@/components/toast';
 import {
   fetchPmStatus,
@@ -38,7 +43,6 @@ import {
   type TroubleshootingGuide,
 } from '@/lib/api';
 import type { JobAidSource } from '@/components/virtual-job-aid';
-import { SegmentCard } from '@/components/segment-card';
 
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
 const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
@@ -68,49 +72,27 @@ function formatCadenceDays(days: number): string {
   return `every ${days} days`;
 }
 
-// Maps PmStatus / PmPlanBucket['status'] to the shared .pill tone classes.
-// Overdue gets the solid-red .pill-alarm variant because it represents
-// active, unresolved escalation — a tech should be able to see it from
-// across the shop floor. Due/Soon/Upcoming are informational.
+// Pill tone per row status. Overdue stays warn (amber) by default; the
+// severe-threshold helpers below escalate to alarm-red only when a row
+// has blown past a full cadence cycle.
 const STATUS_PILL: Record<PmStatus, { label: string; className: string }> = {
-  // Overdue at the row level now reads as a warning (yellow) by default
-  // — matches the Action card's amber tone. Severely-overdue rows get
-  // an alarm/red treatment via a separate data-severe attribute that
-  // overrides the pill className at render time (see ScheduleCard /
-  // PlanBucketCard).
   overdue: { label: 'Overdue', className: 'pill pill-warn' },
   due: { label: 'Due', className: 'pill pill-warn' },
   soon: { label: 'Soon', className: 'pill pill-info' },
   upcoming: { label: 'Upcoming', className: 'pill' },
 };
 
-// Relative-threshold "severely overdue" check. The flat threshold ("X
-// days past due → red") punishes daily PMs (red after a day) while
-// barely touching annuals; using the cadence as the unit fixes that.
-//   * A daily lube becomes severely overdue 2 days late.
-//   * An annual rebuild only becomes severely overdue a year past due.
-// Returns false for any non-overdue row (status !== 'overdue') and any
-// row missing the data needed to make the call.
+// Relative-threshold "severely overdue" check. A daily lube becomes
+// severely overdue 2 days late; an annual rebuild only after a year.
 function isPmScheduleSevere(s: PmScheduleStatusItem): boolean {
   if (s.status !== 'overdue') return false;
   const cadence = s.schedule.cadenceValue;
   if (!cadence || cadence <= 0) return false;
-  // daysUntilDue is negative once overdue. The magnitude is "how many
-  // days past due" — once that exceeds the cadence, we've waited a
-  // full cycle longer than allowed.
   return -s.daysUntilDue > cadence;
 }
 
-// PM plan bucket intervals in days. Plans use frequency codes
-// (D/W/M/Q/S/Y) rather than a raw day cadence; map them here for the
-// severity threshold. Y conservatively rounds to 365.
 const PLAN_FREQ_DAYS: Record<PmPlanBucket['frequency'], number> = {
-  D: 1,
-  W: 7,
-  M: 30,
-  Q: 90,
-  S: 180,
-  Y: 365,
+  D: 1, W: 7, M: 30, Q: 90, S: 180, Y: 365,
 };
 
 function isPmPlanBucketSevere(b: PmPlanBucket): boolean {
@@ -120,26 +102,26 @@ function isPmPlanBucketSevere(b: PmPlanBucket): boolean {
   return -b.daysUntilDue > interval;
 }
 
-// The category cards drive a slice below them. Nothing renders below
-// the grid until the tech taps a card — the prior "auto-pin Action
-// open" behavior was confusing alongside the Overview's PM Due count
-// (different totals depending on data source) and made the cards feel
-// like decoration rather than the navigation.
-type FilterKey =
-  | 'action'
-  | 'upcoming'
-  | 'walkthroughs'
-  | 'removal'
-  | 'troubleshoot'
-  | 'history';
+// Browse-row keys. 'walkthroughs' + 'removal' folded into a single
+// 'procedures' row — the prior distinction lived inside one screen
+// anyway and the tech sees subheaders inside the slice.
+type FilterKey = 'scheduled' | 'procedures' | 'troubleshoot' | 'history';
+
+// Back-compat for the parent's deep-link prop. The Overview's PM-due
+// tile previously passed 'action'; map any legacy key to its new home.
+const LEGACY_FILTER_MAP: Record<string, FilterKey> = {
+  action: 'scheduled',
+  upcoming: 'scheduled',
+  scheduled: 'scheduled',
+  walkthroughs: 'procedures',
+  removal: 'procedures',
+  procedures: 'procedures',
+  troubleshoot: 'troubleshoot',
+  history: 'history',
+};
 
 // R&R fallback — title-keyword heuristic for legacy procedures with no
-// explicit `procedureCategory` set. New procedures get an author-
-// controlled Category picker in the admin editor; the server normalizes
-// missing categories via the same family of regexes (see
-// inferCategoryFromTitle in packages/api/src/routes/content.ts), so this
-// client-side fallback only matters when the server's enrichment hasn't
-// reached this client (e.g., stale cached payload during a deploy).
+// explicit `procedureCategory` set.
 const RR_TITLE_RE = /\b(removal|replacement|replace|remove|r&r|swap|rebuild)\b/i;
 
 function isRrProcedure(doc: { title: string; procedureCategory?: string | null }) {
@@ -166,37 +148,28 @@ export function MaintenanceTab({
     onCompleted?: () => void,
   ) => void;
   onChange?: () => void;
-  /** Optional filter to preselect on mount — used by Overview tile taps
-   *  ("PM due now" → 'action') so a tech lands in the right slice
-   *  without an extra tap. Read once on mount; subsequent prop changes
-   *  do not override an active selection. */
-  initialFilter?: FilterKey;
+  /** Optional browse row to expand on mount — Overview's PM-due tile
+   *  passes 'scheduled' (or the legacy 'action' which maps to the
+   *  same thing) so the tech lands with the queue open. */
+  initialFilter?: string;
 }) {
   const [data, setData] = useState<PmStatusPayload | null>(null);
   const [planData, setPlanData] = useState<PmPlanStatusPayload | null>(null);
   const [troubleshooting, setTroubleshooting] = useState<TroubleshootingGuide[]>([]);
   const [procedures, setProcedures] = useState<DocumentListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
-  // Nothing selected by default — the cards are the navigation. A
-  // tech tapping any card reveals its slice below. This avoids the
-  // "automatic overdue list" failure mode where overdue items
-  // appeared without intent and made the grid look like a header.
-  // When the parent passes initialFilter (e.g., from an Overview tile
-  // tap), seed the state with it so the slice is open on first paint.
-  const [active, setActive] = useState<FilterKey | null>(initialFilter ?? null);
+  // One expanded slice at a time. Defaults to null (collapsed) so the
+  // page reads as hero-first; the parent can seed a row open via
+  // initialFilter when deep-linking from Overview.
+  const [expanded, setExpanded] = useState<FilterKey | null>(
+    initialFilter ? LEGACY_FILTER_MAP[initialFilter] ?? null : null,
+  );
   // Tracks the schedule / plan-bucket whose Mark performed is
   // currently in-flight, so the right button can show a spinner.
-  // Keyed by schedule.id or `${planId}:${frequency}` for buckets.
   const [marking, setMarking] = useState<string | null>(null);
-  // Document-a-procedure authoring — replaces what used to live on the
-  // Library tab. Maintenance is the right home: the saved procedure
-  // ends up in one of these category buckets, so authoring belongs
-  // alongside the work it produces.
-  // (Authoring overlays moved to tabs.tsx behind the global "+" FAB.)
-  // Scroll the slice panel into view when the tech taps a card — the
-  // items below the grid would otherwise sit off-screen and read as
-  // "nothing happened" on phones.
-  const panelRef = useRef<HTMLElement | null>(null);
+  // Scroll the expanded row into view so the slice content doesn't
+  // appear below the fold on phones.
+  const expandedRef = useRef<HTMLDivElement | null>(null);
   const toast = useToast();
 
   async function refresh() {
@@ -258,10 +231,10 @@ export function MaintenanceTab({
   }, [assetInstanceId]);
 
   useEffect(() => {
-    if (active && panelRef.current) {
-      panelRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (expanded && expandedRef.current) {
+      expandedRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
-  }, [active]);
+  }, [expanded]);
 
   useEffect(() => {
     let cancelled = false;
@@ -302,10 +275,8 @@ export function MaintenanceTab({
     [procedures, scheduledDocIds],
   );
 
-  // Split the procedure library by R&R heuristic. R&R procedures get
-  // their own card so a tech replacing a worn part doesn't dig through
-  // a mixed Walkthroughs list; the remainder (inspections, diagnostics,
-  // calibrations etc.) stays in Walkthroughs.
+  // Split the procedure library by R&R heuristic so the Procedures
+  // slice can render subheaders without making R&R its own browse row.
   const rrProcedures = useMemo(
     () => libraryProcedures.filter((p) => isRrProcedure(p)),
     [libraryProcedures],
@@ -348,14 +319,13 @@ export function MaintenanceTab({
     (n, g) => n + g.items.length,
     0,
   );
-  const actionCount = dueNow.length + overdueBuckets.length;
-  // Subset of the Action bucket that crossed the relative threshold —
-  // overdue by more than one full cadence/interval. Used to escalate
-  // both the Action card's tone and the individual row treatment from
-  // warn (yellow) to fault (red).
-  const severeCount =
-    dueNow.filter(isPmScheduleSevere).length +
-    overdueBuckets.filter((row) => isPmPlanBucketSevere(row.bucket)).length;
+
+  // Counts surfaced in the status strip and browse rows.
+  const overdueCount = dueNow.length + overdueBuckets.length;
+  const upcomingCount = upcoming.length + upcomingBuckets.length;
+  const scheduledTotal = overdueCount + upcomingCount;
+  const proceduresTotal = allBuckets.length + libraryProcedures.length;
+
   const anyMaintenance =
     data.schedules.length > 0 ||
     allBuckets.length > 0 ||
@@ -363,10 +333,6 @@ export function MaintenanceTab({
   const nothingScheduled = !anyMaintenance;
 
   async function logServicePerformed(s: PmScheduleStatusItem) {
-    // No identity gate — writes go through the scan session and are
-    // attributed as "Field tech" server-side. When strict per-tech
-    // sign-in is wired (admin-toggleable, future), this is where the
-    // AuthPrompt fallback returns.
     setMarking(s.schedule.id);
     try {
       await createPmServiceRecord({
@@ -391,18 +357,9 @@ export function MaintenanceTab({
     }
   }
 
-  // Local helpers that adapt callers (cards / rows) to the unified
-  // onLaunchJobAid surface. `launchDoc` wraps an authored procedure;
-  // `launchInline` synthesizes the click-through step list from data
-  // we already have in hand (plan checklist, troubleshooting causes).
   function launchDoc(docId: string, onCompleted?: () => void) {
     onLaunchJobAid(
-      {
-        kind: 'doc',
-        docId,
-        devUserId: DEV_USER_ID,
-        devOrgId: DEV_ORG_ID,
-      },
+      { kind: 'doc', docId, devUserId: DEV_USER_ID, devOrgId: DEV_ORG_ID },
       onCompleted,
     );
   }
@@ -419,9 +376,43 @@ export function MaintenanceTab({
     onLaunchJobAid({ kind: 'inline', title, steps }, onCompleted);
   }
 
-  // Next-up preview: pick whichever of (upcoming flat schedule,
-  // upcoming plan bucket) is sooner — shown in the Action card's empty
-  // state so a tech who taps Action sees what's coming next.
+  // The single item the hero promotes. Severely-overdue rows beat
+  // ordinary-overdue rows; within each tier the most-overdue (most
+  // negative daysUntilDue) wins.
+  type Hero =
+    | { kind: 'schedule'; item: PmScheduleStatusItem }
+    | {
+        kind: 'bucket';
+        plan: { id: string; name: string };
+        bucket: PmPlanBucket;
+      };
+  const heroItem: Hero | null = (() => {
+    type Ranked = { hero: Hero; severeTier: number; daysUntilDue: number };
+    const all: Ranked[] = [];
+    for (const s of dueNow) {
+      all.push({
+        hero: { kind: 'schedule', item: s },
+        severeTier: isPmScheduleSevere(s) ? 0 : 1,
+        daysUntilDue: s.daysUntilDue,
+      });
+    }
+    for (const row of overdueBuckets) {
+      all.push({
+        hero: { kind: 'bucket', plan: row.plan, bucket: row.bucket },
+        severeTier: isPmPlanBucketSevere(row.bucket) ? 0 : 1,
+        daysUntilDue: row.bucket.daysUntilDue,
+      });
+    }
+    if (all.length === 0) return null;
+    all.sort((a, b) =>
+      a.severeTier !== b.severeTier
+        ? a.severeTier - b.severeTier
+        : a.daysUntilDue - b.daysUntilDue,
+    );
+    return all[0]!.hero;
+  })();
+
+  // Empty-state "Next:" preview pulled from upcoming schedules + buckets.
   const nextItem = (() => {
     const cands: Array<{ label: string; days: number }> = [];
     if (upcoming[0]) {
@@ -439,95 +430,36 @@ export function MaintenanceTab({
     return cands.sort((a, b) => a.days - b.days)[0] ?? null;
   })();
 
-  // Card grid. Six cards arranged 2×3 (phone) or 3×2 (tablet). Action
-  // is back IN the grid (no longer pinned above) per UX feedback —
-  // cards are the navigation, the slice content only reveals on tap.
-  // Walkthroughs holds PM checklists + non-R&R procedures (inspections
-  // / diagnostics / calibrations); R&R has its own card so a tech
-  // replacing a worn part doesn't dig through a mixed list.
-  const walkthroughCount = allBuckets.length + nonRrProcedures.length;
-  const upcomingCount = upcoming.length + upcomingBuckets.length;
-  const recommendedKey: FilterKey =
-    actionCount > 0
-      ? 'action'
-      : upcomingCount > 0
-        ? 'upcoming'
-        : walkthroughCount > 0
-          ? 'walkthroughs'
-          : rrProcedures.length > 0
-            ? 'removal'
-            : troubleshootingTotal > 0
-              ? 'troubleshoot'
-              : data.history.length > 0
-                ? 'history'
-                : 'walkthroughs';
-  const activeView = active ?? recommendedKey;
-  const cards: CategoryCard[] = [
-    {
-      key: 'action',
-      label: 'Action',
-      count: actionCount,
-      // Three-tier escalation:
-      //   * No actionable items   → 'ok'    (idle green)
-      //   * Something actionable  → 'warn'  (amber attention)
-      //   * Anything severely overdue (past 1× its cadence)
-      //                           → 'fault' (red alarm)
-      // Card color mirrors the worst row in the bucket — see
-      // isPmScheduleSevere / isPmPlanBucketSevere above.
-      tone:
-        actionCount === 0 ? 'ok' : severeCount > 0 ? 'fault' : 'warn',
-      icon: AlertTriangle,
-    },
-    {
-      key: 'upcoming',
-      label: 'Upcoming',
-      count: upcomingCount,
-      tone: 'idle',
-      icon: CalendarClock,
-    },
-    {
-      key: 'walkthroughs',
-      label: 'Preventive Maintenance',
-      count: walkthroughCount,
-      tone: 'idle',
-      icon: ListChecks,
-    },
-    {
-      key: 'removal',
-      label: 'Removal & Replacement',
-      count: rrProcedures.length,
-      tone: 'idle',
-      icon: RotateCcw,
-    },
-    {
-      key: 'troubleshoot',
-      label: 'Troubleshooting',
-      count: troubleshootingTotal,
-      tone: 'idle',
-      icon: ShieldAlert,
-    },
-    {
-      key: 'history',
-      label: 'History',
-      count: data.history.length,
-      tone: 'idle',
-      icon: History,
-    },
-  ];
-  const activeCard = cards.find((c) => c.key === activeView) ?? cards[0]!;
+  if (nothingScheduled && libraryProcedures.length === 0) {
+    return (
+      <div className="maintenance-page">
+        <EmptyState
+          title="No PM schedules for this model"
+          body="An admin can author PM schedules from the asset model detail page. Once added, every instance of this model — including this one — will see what's due here."
+        />
+      </div>
+    );
+  }
 
-  const slice = (() => {
-    switch (activeView) {
-      case 'action': {
-        if (actionCount === 0) {
+  // Snapshot history out of the (now-narrowed) data payload — captured
+  // by closure inside renderSlice, where TS can't carry the narrowing.
+  const historyRecords = data.history;
+
+  const browseRows: Array<{ key: FilterKey; label: string; count: number }> = [
+    { key: 'scheduled', label: 'Scheduled', count: scheduledTotal },
+    { key: 'procedures', label: 'Procedures', count: proceduresTotal },
+    { key: 'troubleshoot', label: 'Troubleshooting', count: troubleshootingTotal },
+    { key: 'history', label: 'History', count: historyRecords.length },
+  ];
+
+  function renderSlice(key: FilterKey): ReactNode {
+    switch (key) {
+      case 'scheduled': {
+        if (scheduledTotal === 0) {
           return (
             <SliceEmpty
-              title="Nothing needs action"
-              body={
-                nextItem
-                  ? `Next: "${nextItem.label}" ${formatDaysUntil(nextItem.days)}.`
-                  : 'Check back later or pick another card.'
-              }
+              title="Nothing scheduled"
+              body="No PM in the planning window for this asset."
             />
           );
         }
@@ -554,17 +486,14 @@ export function MaintenanceTab({
             {overdueBuckets
               .slice()
               .sort(
-                (a, b) =>
-                  statusRank(a.bucket.status) - statusRank(b.bucket.status),
+                (a, b) => statusRank(a.bucket.status) - statusRank(b.bucket.status),
               )
               .map((row) => (
                 <PlanBucketCard
                   key={`${row.plan.id}:${row.bucket.frequency}`}
                   planName={row.plan.name}
                   bucket={row.bucket}
-                  marking={
-                    marking === `${row.plan.id}:${row.bucket.frequency}`
-                  }
+                  marking={marking === `${row.plan.id}:${row.bucket.frequency}`}
                   onRun={() =>
                     launchInline(
                       `${row.plan.name} · ${row.bucket.frequencyLabel}`,
@@ -586,40 +515,6 @@ export function MaintenanceTab({
                   }
                 />
               ))}
-          </div>
-        );
-      }
-      case 'removal':
-        if (rrProcedures.length === 0) {
-          return (
-            <SliceEmpty
-              title="No removal & replacement procedures"
-              body="None authored for this asset model yet."
-            />
-          );
-        }
-        return (
-          <ul className="flex flex-col">
-            {rrProcedures.map((p) => (
-              <ProcedureRow
-                key={p.id}
-                doc={p}
-                onLaunch={() => launchDoc(p.id)}
-              />
-            ))}
-          </ul>
-        );
-      case 'upcoming':
-        if (upcomingCount === 0) {
-          return (
-            <SliceEmpty
-              title="Nothing upcoming"
-              body="No scheduled maintenance in the planning window."
-            />
-          );
-        }
-        return (
-          <div className="flex flex-col gap-2">
             {upcoming.map((s) => (
               <ScheduleCard
                 key={s.schedule.id}
@@ -647,9 +542,7 @@ export function MaintenanceTab({
                   key={`${row.plan.id}:${row.bucket.frequency}`}
                   planName={row.plan.name}
                   bucket={row.bucket}
-                  marking={
-                    marking === `${row.plan.id}:${row.bucket.frequency}`
-                  }
+                  marking={marking === `${row.plan.id}:${row.bucket.frequency}`}
                   onRun={() =>
                     launchInline(
                       `${row.plan.name} - ${row.bucket.frequencyLabel}`,
@@ -673,16 +566,13 @@ export function MaintenanceTab({
               ))}
           </div>
         );
-      case 'walkthroughs': {
-        // PM plan checklists + non-R&R authored procedures. R&R
-        // procedures (removal / replacement / swap / rebuild titles)
-        // live in their own card; everything else routine —
-        // inspections, calibrations, diagnostics — surfaces here.
-        if (allBuckets.length === 0 && nonRrProcedures.length === 0) {
+      }
+      case 'procedures': {
+        if (allBuckets.length === 0 && libraryProcedures.length === 0) {
           return (
             <SliceEmpty
-              title="No preventive maintenance"
-              body="No PM checklists or routine procedures for this model yet."
+              title="No procedures"
+              body="No PM checklists or authored procedures for this model yet."
             />
           );
         }
@@ -702,9 +592,7 @@ export function MaintenanceTab({
                       key={`${row.plan.id}:${row.bucket.frequency}`}
                       planName={row.plan.name}
                       bucket={row.bucket}
-                      marking={
-                        marking === `${row.plan.id}:${row.bucket.frequency}`
-                      }
+                      marking={marking === `${row.plan.id}:${row.bucket.frequency}`}
                       onRun={() =>
                         launchInline(
                           `${row.plan.name} · ${row.bucket.frequencyLabel}`,
@@ -726,6 +614,20 @@ export function MaintenanceTab({
                       }
                     />
                   ))}
+              </div>
+            )}
+            {rrProcedures.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <p className="cap">Removal & replacement</p>
+                <ul className="flex flex-col">
+                  {rrProcedures.map((p) => (
+                    <ProcedureRow
+                      key={p.id}
+                      doc={p}
+                      onLaunch={() => launchDoc(p.id)}
+                    />
+                  ))}
+                </ul>
               </div>
             )}
             {nonRrProcedures.length > 0 && (
@@ -756,17 +658,11 @@ export function MaintenanceTab({
         }
         return (
           <div className="flex flex-col gap-3">
-            <p className="cap">Symptom-driven triage</p>
             {troubleshooting.map((g) => (
               <TroubleshootingGuideCard
                 key={g.guide.id}
                 guide={g}
                 onRunItem={(item) => {
-                  // Each symptom is its own click-through job-aid.
-                  // If the row has a single linked procedure and no
-                  // structured cause/remedy data, launch that doc
-                  // directly — otherwise synthesize inline steps from
-                  // the structured causes / remedies.
                   const inlineSteps = troubleshootingToSteps(item);
                   if (inlineSteps.length > 0) {
                     launchInline(item.symptom, inlineSteps);
@@ -781,7 +677,7 @@ export function MaintenanceTab({
           </div>
         );
       case 'history':
-        if (data.history.length === 0) {
+        if (historyRecords.length === 0) {
           return (
             <SliceEmpty
               title="No service history yet"
@@ -791,46 +687,339 @@ export function MaintenanceTab({
         }
         return (
           <div className="flex flex-col gap-2">
-            {data.history.map((h) => (
+            {historyRecords.map((h) => (
               <HistoryRow key={h.id} record={h} />
             ))}
           </div>
         );
     }
-  })();
+  }
 
   return (
     <div className="maintenance-page">
-      {/* Authoring entry points moved to the global center "+" FAB in
-          the bottom tabbar — both "Document a procedure" and "Submit a
-          walkthrough" live behind it now. The buttons that used to sit
-          on this row are gone to avoid two paths to the same flow. */}
-      {nothingScheduled && libraryProcedures.length === 0 ? (
-        <EmptyState
-          title="No PM schedules for this model"
-          body="An admin can author PM schedules from the asset model detail page. Once added, every instance of this model — including this one — will see what's due here."
+      <StatusStrip
+        overdueCount={overdueCount}
+        upcomingCount={upcomingCount}
+        proceduresCount={proceduresTotal}
+      />
+
+      {heroItem ? (
+        <HeroCard
+          item={heroItem}
+          marking={marking}
+          extraCount={overdueCount - 1}
+          onOpenScheduled={() => setExpanded('scheduled')}
+          onRunSchedule={(s) => {
+            if (!s.schedule.document) {
+              toast.error(
+                'No procedure attached',
+                'Attach a procedure to this PM schedule in the admin console.',
+              );
+              return;
+            }
+            launchDoc(s.schedule.document.id, () => void refresh());
+          }}
+          onMarkSchedule={(s) => void logServicePerformed(s)}
+          onRunBucket={(plan, bucket) =>
+            launchInline(
+              `${plan.name} · ${bucket.frequencyLabel}`,
+              planBucketToSteps(bucket),
+              () =>
+                void logPlanPerformed(
+                  plan.id,
+                  bucket.frequency,
+                  `${plan.name} · ${bucket.frequencyLabel}`,
+                ),
+            )
+          }
+          onMarkBucket={(plan, bucket) =>
+            void logPlanPerformed(
+              plan.id,
+              bucket.frequency,
+              `${plan.name} · ${bucket.frequencyLabel}`,
+            )
+          }
         />
       ) : (
-        <>
-          <CategoryGrid
-            cards={cards}
-            active={activeView}
-            onSelect={(k) => setActive(k)}
-          />
-
-          <section ref={panelRef} className="maintenance-panel">
-            <header className="maintenance-panel-header">
-              <h3>{activeCard.label}</h3>
-              <span className="maintenance-panel-count">
-                {activeCard.count}
-              </span>
-            </header>
-            {slice}
-          </section>
-        </>
+        <HeroEmpty nextItem={nextItem} />
       )}
 
+      <section className="maint-browse" aria-labelledby="maint-browse-h">
+        <h3 id="maint-browse-h" className="maint-browse-h">Browse</h3>
+        <div className="maint-browse-list">
+          {browseRows.map((row) => {
+            const isOpen = expanded === row.key;
+            return (
+              <div
+                key={row.key}
+                className="maint-browse-item"
+                data-expanded={isOpen ? 'true' : 'false'}
+              >
+                <button
+                  type="button"
+                  className="maint-browse-row"
+                  aria-expanded={isOpen}
+                  onClick={() => setExpanded(isOpen ? null : row.key)}
+                >
+                  <span className="maint-browse-row-label">{row.label}</span>
+                  <span className="maint-browse-row-count">{row.count}</span>
+                  <ChevronDown
+                    className="maint-browse-row-chevron"
+                    size={16}
+                    strokeWidth={2}
+                    aria-hidden
+                  />
+                </button>
+                {isOpen && (
+                  <div className="maint-browse-content" ref={expandedRef}>
+                    {renderSlice(row.key)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </section>
     </div>
+  );
+}
+
+// ─── header ────────────────────────────────────────────────────────
+function StatusStrip({
+  overdueCount,
+  upcomingCount,
+  proceduresCount,
+}: {
+  overdueCount: number;
+  upcomingCount: number;
+  proceduresCount: number;
+}) {
+  return (
+    <header className="maint-header">
+      <h2 className="maint-header-title">Maintenance</h2>
+      <p className="maint-status-strip">
+        <span
+          className="maint-status-metric"
+          data-tone={overdueCount > 0 ? 'warn' : 'idle'}
+        >
+          <strong>{overdueCount}</strong> overdue
+        </span>
+        <span className="maint-status-sep" aria-hidden>·</span>
+        <span className="maint-status-metric">
+          <strong>{upcomingCount}</strong> upcoming
+        </span>
+        <span className="maint-status-sep" aria-hidden>·</span>
+        <span className="maint-status-metric">
+          <strong>{proceduresCount}</strong> procedures
+        </span>
+      </p>
+    </header>
+  );
+}
+
+// ─── hero ──────────────────────────────────────────────────────────
+type HeroProps = {
+  item:
+    | { kind: 'schedule'; item: PmScheduleStatusItem }
+    | { kind: 'bucket'; plan: { id: string; name: string }; bucket: PmPlanBucket };
+  marking: string | null;
+  /** Items past this one — surfaces a quiet "+N more" link to Scheduled. */
+  extraCount: number;
+  onOpenScheduled: () => void;
+  onRunSchedule: (s: PmScheduleStatusItem) => void;
+  onMarkSchedule: (s: PmScheduleStatusItem) => void;
+  onRunBucket: (
+    plan: { id: string; name: string },
+    bucket: PmPlanBucket,
+  ) => void;
+  onMarkBucket: (
+    plan: { id: string; name: string },
+    bucket: PmPlanBucket,
+  ) => void;
+};
+
+function HeroCard(props: HeroProps) {
+  const { item, marking } = props;
+
+  if (item.kind === 'schedule') {
+    const s = item.item;
+    const severe = isPmScheduleSevere(s);
+    const basePill = STATUS_PILL[s.status];
+    const pill = severe
+      ? { label: 'Overdue', className: 'pill pill-alarm' }
+      : basePill;
+    const when =
+      s.status === 'overdue'
+        ? `Overdue ${formatDaysUntil(s.daysUntilDue)}`
+        : s.status === 'due'
+          ? 'Due today'
+          : `Due ${formatDaysUntil(s.daysUntilDue)} · ${formatNextDue(s.nextDueAt)}`;
+    const subtitleParts: string[] = [];
+    if (s.schedule.description) subtitleParts.push(s.schedule.description);
+    subtitleParts.push(formatCadenceDays(s.schedule.cadenceValue));
+    if (s.lastPerformedAt) {
+      subtitleParts.push(`last ${formatNextDue(s.lastPerformedAt)}`);
+    }
+    const isMarking = marking === s.schedule.id;
+    const hasDoc = !!s.schedule.document;
+    return (
+      <HeroShell
+        pillLabel={pill.label}
+        pillClass={pill.className}
+        whenText={when}
+        title={s.schedule.name}
+        subtitle={subtitleParts.join(' · ')}
+        primaryLabel={hasDoc ? 'Run procedure' : 'Mark performed'}
+        primaryIcon={
+          hasDoc ? (
+            <Play size={15} strokeWidth={2.25} />
+          ) : (
+            <Check size={15} strokeWidth={2.25} />
+          )
+        }
+        primaryLoading={!hasDoc && isMarking}
+        onPrimary={() =>
+          hasDoc ? props.onRunSchedule(s) : props.onMarkSchedule(s)
+        }
+        secondary={
+          hasDoc
+            ? {
+                label: isMarking ? 'Marking…' : 'Mark performed',
+                onClick: () => props.onMarkSchedule(s),
+                disabled: isMarking,
+              }
+            : null
+        }
+        extraCount={props.extraCount}
+        onOpenScheduled={props.onOpenScheduled}
+      />
+    );
+  }
+
+  const { plan, bucket } = item;
+  const severe = isPmPlanBucketSevere(bucket);
+  const basePill = STATUS_PILL[bucket.status];
+  const pill = severe
+    ? { label: 'Overdue', className: 'pill pill-alarm' }
+    : basePill;
+  const when =
+    bucket.status === 'overdue'
+      ? `Overdue ${formatDaysUntil(bucket.daysUntilDue)}`
+      : bucket.status === 'due'
+        ? 'Due today'
+        : `Due ${formatDaysUntil(bucket.daysUntilDue)} · ${formatNextDue(bucket.nextDueAt)}`;
+  const subtitle = `${bucket.itemCount} checklist item${
+    bucket.itemCount === 1 ? '' : 's'
+  } · ${bucket.frequencyLabel}`;
+  const isMarking = marking === `${plan.id}:${bucket.frequency}`;
+  return (
+    <HeroShell
+      pillLabel={pill.label}
+      pillClass={pill.className}
+      whenText={when}
+      title={plan.name}
+      subtitle={subtitle}
+      primaryLabel="Start checklist"
+      primaryIcon={<Play size={15} strokeWidth={2.25} />}
+      onPrimary={() => props.onRunBucket(plan, bucket)}
+      secondary={{
+        label: isMarking ? 'Marking…' : 'Mark performed',
+        onClick: () => props.onMarkBucket(plan, bucket),
+        disabled: isMarking,
+      }}
+      extraCount={props.extraCount}
+      onOpenScheduled={props.onOpenScheduled}
+    />
+  );
+}
+
+function HeroShell({
+  pillLabel,
+  pillClass,
+  whenText,
+  title,
+  subtitle,
+  primaryLabel,
+  primaryIcon,
+  primaryLoading,
+  onPrimary,
+  secondary,
+  extraCount,
+  onOpenScheduled,
+}: {
+  pillLabel: string;
+  pillClass: string;
+  whenText: string;
+  title: string;
+  subtitle: string;
+  primaryLabel: string;
+  primaryIcon: ReactNode;
+  primaryLoading?: boolean;
+  onPrimary: () => void;
+  secondary: {
+    label: string;
+    onClick: () => void;
+    disabled?: boolean;
+  } | null;
+  extraCount: number;
+  onOpenScheduled: () => void;
+}) {
+  return (
+    <article className="maint-hero">
+      <header className="maint-hero-head">
+        <span className={pillClass}>{pillLabel}</span>
+        <span className="maint-hero-when">{whenText}</span>
+      </header>
+      <h3 className="maint-hero-title">{title}</h3>
+      <p className="maint-hero-subtitle">{subtitle}</p>
+      <div className="maint-hero-actions">
+        <button
+          type="button"
+          onClick={onPrimary}
+          className={`btn btn-primary btn-lg maint-hero-primary ${primaryLoading ? 'btn-loading' : ''}`}
+        >
+          {primaryIcon}
+          {primaryLabel}
+        </button>
+        {secondary && (
+          <button
+            type="button"
+            onClick={secondary.onClick}
+            disabled={secondary.disabled}
+            className="maint-hero-ack"
+          >
+            <Check size={14} strokeWidth={2} aria-hidden />
+            {secondary.label}
+          </button>
+        )}
+      </div>
+      {extraCount > 0 && (
+        <button
+          type="button"
+          onClick={onOpenScheduled}
+          className="maint-hero-more"
+        >
+          +{extraCount} more in Scheduled
+        </button>
+      )}
+    </article>
+  );
+}
+
+function HeroEmpty({
+  nextItem,
+}: {
+  nextItem: { label: string; days: number } | null;
+}) {
+  return (
+    <article className="maint-hero maint-hero-empty">
+      <p className="maint-hero-empty-title">All caught up</p>
+      <p className="maint-hero-empty-body">
+        {nextItem
+          ? `Next: ${nextItem.label} ${formatDaysUntil(nextItem.days)}.`
+          : 'No PM in the planning window.'}
+      </p>
+    </article>
   );
 }
 
@@ -847,56 +1036,11 @@ function statusRank(s: PmPlanBucket['status']): number {
   }
 }
 
-// 2-column grid of category cards. Active card gets a brand-tinted
-// border; status urgency is communicated by tinting the count digit
-// (red on `fault`) — the rest of the tile stays neutral so the page
-// reads as instruments, not alarms.
-type CategoryTone = 'fault' | 'warn' | 'ok' | 'idle';
+// ─── shared row components used inside expanded slices ────────────
+// Same chrome as before — these only render inside the Scheduled /
+// Procedures slices now, never at top level. The hero owns its own
+// quieter card so the heavy task-card treatment is contained.
 
-type CategoryCard = {
-  key: FilterKey;
-  label: string;
-  count: number;
-  tone: CategoryTone;
-  icon: LucideIcon;
-};
-
-function CategoryGrid({
-  cards,
-  active,
-  onSelect,
-}: {
-  cards: CategoryCard[];
-  active: FilterKey;
-  onSelect: (k: FilterKey) => void;
-}) {
-  return (
-    <div className="maintenance-filter-grid">
-      {cards.map((c) => {
-        // Only Action and Upcoming surface a count — those represent
-        // open work the tech needs to see. The other categories
-        // (walkthroughs, removal, troubleshoot, history) are pure
-        // navigation; a count on them crowds the label and reads like
-        // an alarm where none exists.
-        const showCount = c.key === 'action' || c.key === 'upcoming';
-        return (
-          <SegmentCard
-            key={c.key}
-            icon={c.icon}
-            label={c.label}
-            active={c.key === active}
-            onClick={() => onSelect(c.key)}
-            tone={c.tone}
-            count={showCount ? c.count : undefined}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
-// PM schedule row — etched card, status pill via shared .pill tokens,
-// primary action via shared .btn classes.
 function ScheduleCard({
   schedule,
   compact,
@@ -911,8 +1055,6 @@ function ScheduleCard({
   onMarkDone: () => void;
 }) {
   const severe = isPmScheduleSevere(schedule);
-  // Severely-overdue rows escalate the pill from amber to red so the
-  // chip the tech reads first matches the row's outer treatment.
   const basePill = STATUS_PILL[schedule.status];
   const pill = severe
     ? { label: 'Overdue', className: 'pill pill-alarm' }
@@ -930,18 +1072,14 @@ function ScheduleCard({
       data-status={schedule.status}
       data-severe={severe ? 'true' : undefined}
     >
-      {/* Block 1 — STATUS */}
       <div className="task-card-status">
         <span className={pill.className}>{pill.label}</span>
         <span className="text-[12px] text-ink-tertiary">{dueText}</span>
       </div>
-      {/* Block 2 — TITLE */}
       <div className="task-card-title-block">
         <div className="task-card-name">{schedule.schedule.name}</div>
         {!compact && schedule.schedule.description && (
-          <p className="task-card-description">
-            {schedule.schedule.description}
-          </p>
+          <p className="task-card-description">{schedule.schedule.description}</p>
         )}
         <div className="task-card-cadence">
           <span className="inline-flex items-center gap-1">
@@ -953,7 +1091,6 @@ function ScheduleCard({
           )}
         </div>
       </div>
-      {/* Block 3 — ACTIONS */}
       <div className="maintenance-card-actions">
         {schedule.schedule.document ? (
           <>
@@ -989,11 +1126,6 @@ function ScheduleCard({
   );
 }
 
-// Plan bucket — one row per (plan, frequency). Tap launches the bucket
-// as a click-through job-aid (one step per checklist item). Completing
-// the last step auto-logs the bucket as performed via the onCompleted
-// callback the parent supplies; "Mark performed" stays as a quick way
-// to log without walking the checklist.
 function PlanBucketCard({
   planName,
   bucket,
@@ -1003,9 +1135,6 @@ function PlanBucketCard({
 }: {
   planName: string;
   bucket: PmPlanBucket;
-  /** When true the Mark performed button shows a spinner. Driven by
-   *  the parent's "currently marking" state so the click has visible
-   *  feedback even before the refresh fetch returns. */
   marking: boolean;
   onRun: () => void;
   onMarkPerformed: () => void;
@@ -1028,16 +1157,10 @@ function PlanBucketCard({
       data-status={bucket.status}
       data-severe={severe ? 'true' : undefined}
     >
-      {/* Block 1 — STATUS. Pill (Overdue/Due/etc) + relative time. The
-          "when is this" answer. */}
       <div className="task-card-status">
         <span className={pill.className}>{pill.label}</span>
         <span className="text-[12px] text-ink-tertiary">{dueText}</span>
       </div>
-      {/* Block 2 — TITLE. Plan name (small caption), frequency (heading),
-          item count. The "what is this" answer. Separated from Block 1
-          by the card's flex-gap so the eye reads three distinct groups
-          per the audit's proximity recommendation. */}
       <div className="task-card-title-block">
         <div className="task-card-plan">{planName}</div>
         <div className="task-card-frequency">{bucket.frequencyLabel}</div>
@@ -1045,13 +1168,8 @@ function PlanBucketCard({
           {bucket.itemCount} item{bucket.itemCount === 1 ? '' : 's'}
         </div>
       </div>
-      {/* Block 3 — ACTIONS. Primary CTA + secondary acknowledge. */}
       <div className="maintenance-card-actions">
-        <button
-          type="button"
-          onClick={onRun}
-          className="btn btn-primary"
-        >
+        <button type="button" onClick={onRun} className="btn btn-primary">
           <Play size={13} strokeWidth={2.25} />
           Start checklist
         </button>
@@ -1092,20 +1210,13 @@ function TroubleshootingGuideCard({
       </header>
       <ul className="divide-y divide-line-subtle">
         {guide.items.map((it) => (
-          <TroubleshootingRow
-            key={it.id}
-            item={it}
-            onRun={() => onRunItem(it)}
-          />
+          <TroubleshootingRow key={it.id} item={it} onRun={() => onRunItem(it)} />
         ))}
       </ul>
     </div>
   );
 }
 
-// Symptom row — tap launches the click-through diagnostic walkthrough
-// (the inline causes / remedies are synthesized into job-aid steps by
-// the parent before launching).
 function TroubleshootingRow({
   item,
   onRun,
@@ -1134,11 +1245,6 @@ function TroubleshootingRow({
 }
 
 // ─── synth helpers ──────────────────────────────────────────────────
-// Build a click-through step list from a plan-bucket's checklist items.
-// Each step shows the component + check; the body carries the remarks
-// and a hint about any linked procedure (the linked-procedure name is
-// surfaced as text rather than a tap target so the inline walkthrough
-// stays a single, completable flow).
 function planBucketToSteps(bucket: PmPlanBucket): Array<{
   title: string;
   bodyMarkdown?: string | null;
@@ -1154,11 +1260,6 @@ function planBucketToSteps(bucket: PmPlanBucket): Array<{
   });
 }
 
-// Build a click-through diagnostic walkthrough from a troubleshooting
-// row. One step per candidate cause; each step's body lists the remedy
-// steps as a markdown list so the tech can work through them in order.
-// Legacy unpaired data (causeItems / remedyItems / free-text) is
-// flattened into one summary step.
 function troubleshootingToSteps(
   item: TroubleshootingGuide['items'][number],
 ): Array<{ title: string; bodyMarkdown?: string | null }> {
@@ -1223,8 +1324,6 @@ function troubleshootingToSteps(
   return out;
 }
 
-// Procedure library row — uses the shared list-row chrome so this slice
-// looks identical to the parts list / document list.
 function ProcedureRow({
   doc,
   onLaunch,
@@ -1267,10 +1366,6 @@ function ProcedureRow({
 }
 
 function HistoryRow({ record }: { record: PmServiceRecordItem }) {
-  // Three kinds of history rows: schedule (pmSchedule), plan bucket
-  // (pmPlan), and ad-hoc (neither). Render them with a tiny mono-caps
-  // kind label so a tech scanning the list can tell which surface the
-  // mark came from.
   const kindLabel = record.pmSchedule
     ? 'SCHEDULE'
     : record.pmPlan
