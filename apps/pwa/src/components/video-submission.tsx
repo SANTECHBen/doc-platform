@@ -78,6 +78,12 @@ export function VideoSubmission({
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
   const uploadStartedAt = useRef<number | null>(null);
+  // Rolling samples of (timestamp, bytesUploaded) so the speed display
+  // reflects the recent ~3 seconds of throughput rather than the average
+  // since start. Mux/Edge TCP slow-start dominates the lifetime average
+  // for ~20s on a fresh connection, which made the displayed KB/s feel
+  // stuck. The rolling window updates the user honestly.
+  const uploadSamples = useRef<Array<{ t: number; bytes: number }>>([]);
 
   // Tear down object URLs when the captured video changes or the
   // component unmounts so we don't leak memory across re-records.
@@ -178,15 +184,25 @@ export function VideoSubmission({
         devOrgId,
       });
       uploadStartedAt.current = Date.now();
+      uploadSamples.current = [{ t: Date.now(), bytes: 0 }];
       setPhase({ kind: 'uploading', progress: 0, bytesPerSec: 0 });
       await uploadDraftVideoToMuxFromPwa(uploadUrl, captured.file, (frac) => {
-        const start = uploadStartedAt.current ?? Date.now();
-        const elapsed = Math.max(1, (Date.now() - start) / 1000);
+        const now = Date.now();
         const bytes = frac * captured.file.size;
+        const samples = uploadSamples.current;
+        samples.push({ t: now, bytes });
+        // Drop samples older than 3s. Keep at least 2 so we can compute
+        // a delta even when progress events arrive faster than 3s apart.
+        while (samples.length > 2 && now - samples[0]!.t > 3_000) {
+          samples.shift();
+        }
+        const first = samples[0]!;
+        const dt = Math.max(0.25, (now - first.t) / 1000);
+        const dBytes = Math.max(0, bytes - first.bytes);
         setPhase({
           kind: 'uploading',
           progress: frac,
-          bytesPerSec: bytes / elapsed,
+          bytesPerSec: dBytes / dt,
         });
       });
       setPhase({ kind: 'done', runId });
