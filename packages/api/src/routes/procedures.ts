@@ -1017,6 +1017,68 @@ export async function registerProcedureRoutes(app: FastifyInstance) {
         request,
       });
 
+      // Auto-clean orphan field-authoring placeholder docs. When the
+      // PWA manual wizard mounts it calls startFieldProcedure which
+      // creates an "Untitled procedure" document up-front; if the tech
+      // then cancels we abandon the run here. Without cleanup the
+      // empty doc lingers in Maintenance / Library lists forever and
+      // taps go nowhere (the migration 0040 deletes the historical
+      // accumulation; this block prevents new ones from showing up).
+      //
+      // Same predicate as the migration so the two paths can't drift:
+      // field_captures pack + literal "Untitled procedure" title +
+      // zero steps + no other active runs. We re-check inside the
+      // transaction implicitly via per-query reads — this isn't
+      // strictly atomic against a concurrent step-add, but field
+      // authoring is single-tech-per-doc by construction, so a race
+      // is vanishingly unlikely. Worst case: a doc with one freshly-
+      // added step would skip deletion on the next-check, which is
+      // exactly what we want.
+      try {
+        const doc = await db.query.documents.findFirst({
+          where: eq(schema.documents.id, ctx.document.id),
+          with: { packVersion: { with: { pack: true } } },
+        });
+        if (
+          doc &&
+          doc.kind === 'structured_procedure' &&
+          doc.title === 'Untitled procedure' &&
+          doc.packVersion?.pack?.kind === 'field_captures'
+        ) {
+          const stepCount = await db.query.procedureSteps.findFirst({
+            where: eq(schema.procedureSteps.documentId, doc.id),
+            columns: { id: true },
+          });
+          if (!stepCount) {
+            const otherActiveRun = await db.query.procedureRuns.findFirst({
+              where: and(
+                eq(schema.procedureRuns.documentId, doc.id),
+                inArray(schema.procedureRuns.status, ['in_progress', 'paused']),
+              ),
+              columns: { id: true },
+            });
+            if (!otherActiveRun) {
+              await db
+                .delete(schema.documents)
+                .where(eq(schema.documents.id, doc.id));
+              await audit(db, {
+                organizationId: ctx.ownerOrganizationId,
+                actorUserId: auth.userId,
+                eventType: 'document.field_capture_orphan_deleted',
+                targetId: doc.id,
+                payload: { reason: 'abandoned untitled field-author placeholder' },
+                request,
+              });
+            }
+          }
+        }
+      } catch (err) {
+        // Non-fatal — if the cleanup itself errors we still return a
+        // successful abandon to the caller. The 0040 migration runs on
+        // boot and will sweep stragglers on the next deploy.
+        app.log.warn({ err, runId: ctx.run.id }, 'orphan-doc cleanup failed');
+      }
+
       return runToDTO(updated);
     },
   );
