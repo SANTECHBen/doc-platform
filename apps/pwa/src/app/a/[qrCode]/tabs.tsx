@@ -26,6 +26,7 @@ import { ModeChooser, type ChosenMode } from '@/components/mode-chooser';
 import { VoiceSearch } from '@/components/voice-search';
 import { ImageZoom } from '@/components/image-zoom';
 import { CreateProcedureSheet } from '@/components/create-procedure-sheet';
+import { SegmentCard } from '@/components/segment-card';
 import { ProcedureDocWizard } from '@/components/procedure-runner/procedure-doc-wizard';
 import { VideoSubmission } from '@/components/video-submission';
 import { AuthPrompt } from '@/components/auth-prompt';
@@ -501,13 +502,13 @@ function LibraryTab({
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-2">
-        <LibrarySegmentButton
+        <SegmentCard
           icon={FileText}
           label="Documents"
           active={section === 'documents'}
           onClick={() => onSectionChange('documents')}
         />
-        <LibrarySegmentButton
+        <SegmentCard
           icon={GraduationCap}
           label="Training"
           active={section === 'training'}
@@ -524,40 +525,6 @@ function LibraryTab({
         <TrainingTab hub={hub} />
       )}
     </div>
-  );
-}
-
-function LibrarySegmentButton({
-  icon: Icon,
-  label,
-  active,
-  onClick,
-}: {
-  icon: LucideIcon;
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className="surface-etched flex items-center justify-center gap-2 py-2.5"
-      style={
-        active
-          ? {
-              borderColor: 'rgb(var(--brand))',
-              boxShadow:
-                'inset 0 1px 0 rgb(var(--surface-plate-top)), inset 0 -1px 0 rgba(0,0,0,0.18), 0 0 0 1px rgba(var(--brand) / 0.35)',
-              color: 'rgb(var(--ink-primary))',
-            }
-          : { color: 'rgb(var(--ink-secondary))' }
-      }
-    >
-      <Icon size={15} strokeWidth={2} />
-      <span className="text-sm font-medium">{label}</span>
-    </button>
   );
 }
 

@@ -2137,21 +2137,6 @@
   }
 
   /* ------------------------------------------------------------
-     CATEGORY CARD — Maintenance tab grid tile (icon · label · count).
-     Concrete styles live in .maintenance-filter-grid further down;
-     this base only provides shared button chrome.
-     ------------------------------------------------------------ */
-  .cat-card {
-    position: relative;
-    text-align: left;
-    cursor: pointer;
-    transition:
-      border-color 140ms ease,
-      box-shadow 200ms ease;
-    overflow: hidden;
-  }
-
-  /* ------------------------------------------------------------
      PART RESOURCE ROW — entries inside a PartResourceCard
      Used on the Part page's Procedure tab to list procedures, PMs,
      and troubleshooting items in a consistent row format.
@@ -2998,6 +2983,130 @@
   }
   .surface-etched:hover {
     border-color: rgba(var(--brand), 0.4);
+  }
+
+  /* ------------------------------------------------------------
+     SEGMENT-CARD — shared etched-tile button used by:
+       * Library page Documents/Training segmented control
+       * Maintenance page category grid (Action / Upcoming / etc.)
+     Layered on top of .surface-etched; this rule owns layout +
+     active/tone state. See the SegmentCard component for the API.
+     ------------------------------------------------------------ */
+  .segment-card {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    /* 12px vertical padding lands the 2×3 Maintenance grid cards at
+       roughly 50–56px tall — comfortably above the 44px touch-target
+       floor without the previous tile feeling boxy on a horizontal
+       Library segmented pair. */
+    padding: 12px 14px;
+    color: rgb(var(--ink-secondary));
+    cursor: pointer;
+    text-align: left;
+    transition:
+      border-color 140ms ease,
+      background 140ms ease,
+      color 140ms ease,
+      box-shadow 140ms ease;
+  }
+  /* Count-bearing cards justify between so the digit pins to the right
+     edge and the label spans the middle. Card without a count centers
+     icon+label in the cell (Library uses this). */
+  .segment-card[data-has-count='true'] {
+    justify-content: flex-start;
+  }
+  .segment-card-icon {
+    flex-shrink: 0;
+    color: currentColor;
+  }
+  .segment-card-label {
+    min-width: 0;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: currentColor;
+    /* Clamp to two lines for the 2x3 Maintenance grid on narrow phones
+       — "Walkthroughs" / "Troubleshoot" can otherwise truncate awkwardly. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: normal;
+  }
+  .segment-card[data-has-count='true'] .segment-card-label {
+    flex: 1 1 0;
+  }
+  .segment-card-count {
+    flex-shrink: 0;
+    font-family: var(--font-sans);
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    color: rgb(var(--ink-primary));
+  }
+
+  /* Active — brand-tinted border + slight outer ring. Reuses the
+     visual the prior LibrarySegmentButton inlined via style attribute
+     so the migration is visually transparent. */
+  .segment-card[data-active='true'] {
+    border-color: rgb(var(--brand));
+    background: rgb(var(--brand) / 0.06);
+    color: rgb(var(--ink-primary));
+    box-shadow:
+      inset 0 1px 0 rgb(var(--surface-plate-top)),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.18),
+      0 0 0 1px rgba(var(--brand) / 0.35);
+  }
+  .segment-card[data-active='true'] .segment-card-icon {
+    color: rgb(var(--brand));
+  }
+
+  /* TONES — only affect count color + a translucent background tint.
+     Border + chrome stay neutral so the active state remains the
+     dominant signal when both are present. */
+  .segment-card[data-tone='warn'] {
+    background: rgb(var(--signal-warn) / 0.07);
+    border-color: rgb(var(--signal-warn) / 0.3);
+  }
+  .segment-card[data-tone='warn'][data-active='true'] {
+    background: rgb(var(--signal-warn) / 0.12);
+    border-color: rgb(var(--signal-warn) / 0.55);
+  }
+  .segment-card[data-tone='warn'] .segment-card-icon,
+  .segment-card[data-tone='warn'] .segment-card-count {
+    color: rgb(var(--signal-warn));
+  }
+  .segment-card[data-tone='fault'] {
+    background: rgb(var(--signal-fault) / 0.07);
+    border-color: rgb(var(--signal-fault) / 0.3);
+  }
+  .segment-card[data-tone='fault'][data-active='true'] {
+    background: rgb(var(--signal-fault) / 0.1);
+    border-color: rgb(var(--signal-fault) / 0.55);
+  }
+  .segment-card[data-tone='fault'] .segment-card-icon,
+  .segment-card[data-tone='fault'] .segment-card-count {
+    color: rgb(var(--signal-fault));
+  }
+  /* Idle/OK tones don't tint the background — they just dim the count
+     so it doesn't compete with whichever card actually has data. */
+  .segment-card[data-tone='ok'] .segment-card-count,
+  .segment-card[data-tone='idle'] .segment-card-count {
+    color: rgb(var(--ink-tertiary));
+    font-weight: 500;
+  }
+  /* Bump the urgent-card count to the prior tile size — keeps the
+     "1 thing overdue" reading louder than "11 things to do later"
+     even when the magnitude is smaller. */
+  .segment-card[data-tone='warn'] .segment-card-count,
+  .segment-card[data-tone='fault'] .segment-card-count {
+    font-size: 22px;
+    font-weight: 700;
   }
 
   /* ------------------------------------------------------------
@@ -6091,123 +6200,11 @@
     justify-content: center;
   }
 
-  /* Nav cards — tinted surface, no border. Visually distinct from
-     content cards (white + border) and list rows (divider-only) so
-     the user's brain can sort "this is navigation" without reading.
-     Active state gets brand border + soft tint for clear focus. */
-  .maintenance-filter-grid .cat-card {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    grid-template-rows: 1fr;
-    align-items: center;
-    column-gap: 10px;
-    row-gap: 0;
-    min-height: 62px;
-    padding: 12px 14px;
-    background: rgb(var(--surface-inset));
-    border: 1px solid transparent;
-    border-radius: 10px;
-    box-shadow: none;
-    transition:
-      background 140ms ease,
-      border-color 140ms ease;
-  }
-  /* When a card has no count column the label gets the freed space.
-     Drops the trailing `auto` column so the label can grow to the
-     card's edge without empty padding on the right. */
-  .maintenance-filter-grid .cat-card[data-has-count='false'] {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-  .maintenance-filter-grid .cat-card:hover {
-    background: rgb(var(--surface-elevated));
-  }
-  .maintenance-filter-grid .cat-card[data-active='true'] {
-    background: rgb(var(--brand) / 0.06);
-    border-color: rgb(var(--brand) / 0.45);
-  }
-  /* Urgent (action with count > 0) — yellow/amber tint. Yellow reads as
-     "needs attention" without screaming "something is broken" — the
-     latter is what fault (red) means and the Action card never reaches
-     that severity by definition. The 0.07/0.10 alpha mirrors the prior
-     fault treatment so the active highlight still pops. */
-  .maintenance-filter-grid .cat-card[data-tone='warn'] {
-    background: rgb(var(--signal-warn) / 0.07);
-    border-color: rgb(var(--signal-warn) / 0.3);
-  }
-  .maintenance-filter-grid .cat-card[data-tone='warn'][data-active='true'] {
-    background: rgb(var(--signal-warn) / 0.12);
-    border-color: rgb(var(--signal-warn) / 0.55);
-  }
-  /* Fault tone retained for genuine error states (e.g., a future
-     "blocked" or "failed" category). Kept here in CSS so consumers
-     elsewhere in the app can still opt into it. */
-  .maintenance-filter-grid .cat-card[data-tone='fault'] {
-    background: rgb(var(--signal-fault) / 0.07);
-    border-color: rgb(var(--signal-fault) / 0.3);
-  }
-  .maintenance-filter-grid .cat-card[data-tone='fault'][data-active='true'] {
-    background: rgb(var(--signal-fault) / 0.1);
-    border-color: rgb(var(--signal-fault) / 0.55);
-  }
-  .maintenance-filter-grid .cat-card-icon {
-    flex-shrink: 0;
-    color: rgb(var(--ink-secondary));
-  }
-  .maintenance-filter-grid .cat-card[data-tone='warn'] .cat-card-icon {
-    color: rgb(var(--signal-warn));
-  }
-  .maintenance-filter-grid .cat-card[data-tone='fault'] .cat-card-icon {
-    color: rgb(var(--signal-fault));
-  }
-  .maintenance-filter-grid .cat-card[data-active='true'] .cat-card-icon {
-    color: rgb(var(--brand));
-  }
-  .maintenance-filter-grid .cat-card-label {
-    min-width: 0;
-    font-family: var(--font-sans);
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 0;
-    text-transform: none;
-    color: rgb(var(--ink-primary));
-    line-height: 1.2;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    word-break: normal;
-    overflow-wrap: normal;
-  }
-  .maintenance-filter-grid .cat-card-count {
-    flex-shrink: 0;
-    font-family: var(--font-sans);
-    font-size: 22px;
-    font-weight: 600;
-    line-height: 1;
-    letter-spacing: -0.02em;
-    color: rgb(var(--ink-primary));
-    font-variant-numeric: tabular-nums;
-  }
-  /* Urgent card dominates by BOTH color AND scale — the "1 thing
-     overdue (now)" needs to read louder than "11 things to do later"
-     even when the magnitude is smaller. Yellow for warn (the Action
-     card), red kept for fault (reserved for actual error states). */
-  .maintenance-filter-grid .cat-card[data-tone='warn'] .cat-card-count {
-    color: rgb(var(--signal-warn));
-    font-size: 28px;
-    font-weight: 700;
-  }
-  .maintenance-filter-grid .cat-card[data-tone='fault'] .cat-card-count {
-    color: rgb(var(--signal-fault));
-    font-size: 28px;
-    font-weight: 700;
-  }
-  /* Zero/idle counts dim down so they don't compete with whichever
-     card is non-zero. */
-  .maintenance-filter-grid .cat-card[data-tone='ok'] .cat-card-count {
-    color: rgb(var(--ink-tertiary));
-    font-weight: 500;
-  }
+  /* Card chrome now lives in .segment-card (apps/pwa/src/components/
+     segment-card.tsx) — Maintenance uses it via <SegmentCard tone …
+     count …> so Library's Documents/Training and Maintenance's 6-card
+     grid share the same etched-tile vocabulary. The filter grid here
+     only owns layout (column count + gap). */
 
   .maintenance-panel {
     display: flex;
@@ -6371,14 +6368,6 @@
     padding: 22px 16px;
   }
   @media (max-width: 520px) {
-    .maintenance-filter-grid .cat-card {
-      min-height: 56px;
-      padding: 10px 12px;
-      column-gap: 8px;
-    }
-    .maintenance-filter-grid .cat-card-count {
-      font-size: 20px;
-    }
     .maintenance-card-actions .btn {
       flex: 1 1 auto;
     }

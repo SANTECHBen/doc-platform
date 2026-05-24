@@ -38,6 +38,7 @@ import {
   type TroubleshootingGuide,
 } from '@/lib/api';
 import type { JobAidSource } from '@/components/virtual-job-aid';
+import { SegmentCard } from '@/components/segment-card';
 
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
 const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
@@ -871,52 +872,26 @@ function CategoryGrid({
 }) {
   return (
     <div className="maintenance-filter-grid">
-      {cards.map((c) => (
-        <CategoryCardButton
-          key={c.key}
-          card={c}
-          active={c.key === active}
-          onClick={() => onSelect(c.key)}
-        />
-      ))}
+      {cards.map((c) => {
+        // Only Action and Upcoming surface a count — those represent
+        // open work the tech needs to see. The other categories
+        // (walkthroughs, removal, troubleshoot, history) are pure
+        // navigation; a count on them crowds the label and reads like
+        // an alarm where none exists.
+        const showCount = c.key === 'action' || c.key === 'upcoming';
+        return (
+          <SegmentCard
+            key={c.key}
+            icon={c.icon}
+            label={c.label}
+            active={c.key === active}
+            onClick={() => onSelect(c.key)}
+            tone={c.tone}
+            count={showCount ? c.count : undefined}
+          />
+        );
+      })}
     </div>
-  );
-}
-
-function CategoryCardButton({
-  card,
-  active,
-  onClick,
-}: {
-  card: CategoryCard;
-  active: boolean;
-  onClick: () => void;
-}) {
-  const Icon = card.icon;
-  // Only Action and Upcoming surface a count — those represent open work
-  // the tech needs to see. The other category buttons (walkthroughs,
-  // removal, troubleshoot, history) are pure navigation; a count on
-  // them crowds the label and reads like an alarm where none exists.
-  const showCount = card.key === 'action' || card.key === 'upcoming';
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      data-tone={card.tone}
-      data-active={active ? 'true' : 'false'}
-      data-has-count={showCount ? 'true' : 'false'}
-      className="cat-card"
-    >
-      <Icon
-        size={18}
-        strokeWidth={1.75}
-        className="cat-card-icon"
-        aria-hidden
-      />
-      <span className="cat-card-label">{card.label}</span>
-      {showCount && <span className="cat-card-count">{card.count}</span>}
-    </button>
   );
 }
 
