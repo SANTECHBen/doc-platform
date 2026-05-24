@@ -21,6 +21,7 @@ import {
   submitProcedureDraft,
   uploadDraftVideoToMuxFromPwa,
 } from '@/lib/api';
+import { InAppCamera } from './in-app-camera';
 
 // VideoSubmission — full-screen overlay for filming + submitting a
 // walkthrough on the PWA.
@@ -75,7 +76,7 @@ export function VideoSubmission({
   const [notes, setNotes] = useState('');
   const [captured, setCaptured] = useState<CapturedVideo | null>(null);
   const [phase, setPhase] = useState<Phase>({ kind: 'coach' });
-  const cameraRef = useRef<HTMLInputElement>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
   const galleryRef = useRef<HTMLInputElement>(null);
   const uploadStartedAt = useRef<number | null>(null);
   // Rolling samples of (timestamp, bytesUploaded) so the speed display
@@ -293,7 +294,7 @@ export function VideoSubmission({
                   disabled={uploading}
                   onRetake={() => {
                     reset();
-                    cameraRef.current?.click();
+                    setCameraOpen(true);
                   }}
                   onPickAgain={() => {
                     reset();
@@ -302,18 +303,10 @@ export function VideoSubmission({
               ) : (
                 <CapturePicker
                   disabled={uploading}
-                  onRecord={() => cameraRef.current?.click()}
+                  onRecord={() => setCameraOpen(true)}
                   onPick={() => galleryRef.current?.click()}
                 />
               )}
-              <input
-                ref={cameraRef}
-                type="file"
-                accept="video/*"
-                capture="environment"
-                onChange={(e) => void pickFile(e.target.files?.[0] ?? null)}
-                className="hidden"
-              />
               <input
                 ref={galleryRef}
                 type="file"
@@ -382,6 +375,16 @@ export function VideoSubmission({
           />
         )}
       </main>
+
+      {cameraOpen && (
+        <InAppCamera
+          onCapture={(file) => {
+            setCameraOpen(false);
+            void pickFile(file);
+          }}
+          onClose={() => setCameraOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -485,7 +488,7 @@ function CapturePicker({
         <span className="flex flex-col items-start leading-tight">
           <span>Record now</span>
           <span className="text-[10px] font-normal text-white/55">
-            Opens device camera
+            1080p · upload-friendly
           </span>
         </span>
       </button>
