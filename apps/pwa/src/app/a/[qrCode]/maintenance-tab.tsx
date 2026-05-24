@@ -418,8 +418,10 @@ export function MaintenanceTab({
       key: 'action',
       label: 'Action',
       count: actionCount,
-      // Binary tone — anything actionable reads red, otherwise green.
-      tone: actionCount === 0 ? 'ok' : 'fault',
+      // Binary tone — anything actionable reads yellow (attention),
+      // otherwise green. "fault" red is reserved for actual error
+      // states; "needs action" is a warning, not a fault.
+      tone: actionCount === 0 ? 'ok' : 'warn',
       icon: AlertTriangle,
     },
     {

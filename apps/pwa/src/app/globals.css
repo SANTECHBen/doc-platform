@@ -6125,8 +6125,22 @@
     background: rgb(var(--brand) / 0.06);
     border-color: rgb(var(--brand) / 0.45);
   }
-  /* Urgent (action with count > 0) gets a faint red tint so the eye
-     finds the alarm card before the user even reads the label. */
+  /* Urgent (action with count > 0) — yellow/amber tint. Yellow reads as
+     "needs attention" without screaming "something is broken" — the
+     latter is what fault (red) means and the Action card never reaches
+     that severity by definition. The 0.07/0.10 alpha mirrors the prior
+     fault treatment so the active highlight still pops. */
+  .maintenance-filter-grid .cat-card[data-tone='warn'] {
+    background: rgb(var(--signal-warn) / 0.07);
+    border-color: rgb(var(--signal-warn) / 0.3);
+  }
+  .maintenance-filter-grid .cat-card[data-tone='warn'][data-active='true'] {
+    background: rgb(var(--signal-warn) / 0.12);
+    border-color: rgb(var(--signal-warn) / 0.55);
+  }
+  /* Fault tone retained for genuine error states (e.g., a future
+     "blocked" or "failed" category). Kept here in CSS so consumers
+     elsewhere in the app can still opt into it. */
   .maintenance-filter-grid .cat-card[data-tone='fault'] {
     background: rgb(var(--signal-fault) / 0.07);
     border-color: rgb(var(--signal-fault) / 0.3);
@@ -6138,6 +6152,9 @@
   .maintenance-filter-grid .cat-card-icon {
     flex-shrink: 0;
     color: rgb(var(--ink-secondary));
+  }
+  .maintenance-filter-grid .cat-card[data-tone='warn'] .cat-card-icon {
+    color: rgb(var(--signal-warn));
   }
   .maintenance-filter-grid .cat-card[data-tone='fault'] .cat-card-icon {
     color: rgb(var(--signal-fault));
@@ -6173,7 +6190,13 @@
   }
   /* Urgent card dominates by BOTH color AND scale — the "1 thing
      overdue (now)" needs to read louder than "11 things to do later"
-     even when the magnitude is smaller. */
+     even when the magnitude is smaller. Yellow for warn (the Action
+     card), red kept for fault (reserved for actual error states). */
+  .maintenance-filter-grid .cat-card[data-tone='warn'] .cat-card-count {
+    color: rgb(var(--signal-warn));
+    font-size: 28px;
+    font-weight: 700;
+  }
   .maintenance-filter-grid .cat-card[data-tone='fault'] .cat-card-count {
     color: rgb(var(--signal-fault));
     font-size: 28px;
