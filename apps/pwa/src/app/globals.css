@@ -526,18 +526,29 @@
    than a free-floating fixed-position element so it stays aligned with
    the tabs as the safe-area inset changes (notched devices, gesture
    bars). */
+/* Slot wrapper: takes the same flex share as a flat tab so the FAB
+   lands on exact screen center regardless of how the neighboring tab
+   labels measure out. Also gives the circle a stable vertical
+   centerline matching the icon row of the flat tabs. */
+.app-tabbar-fab-slot {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+}
 .app-tabbar-fab {
   appearance: none;
   border: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* Sized larger than the flat tabs and lifted upward so it visually
-     sits above the tabbar surface. Margin-top negative pulls into the
-     bar's padding; the bar's overflow stays visible so the lift reads. */
-  width: 52px;
-  height: 52px;
-  margin: -10px 4px 0 4px;
+  /* Slightly larger than a flat tab icon so the create affordance reads
+     elevated, but not so large that it crowds neighboring labels.
+     Lifted upward via translateY so it sits visually above the tabbar
+     surface — see YouTube / Instagram for the same idiom. */
+  width: 46px;
+  height: 46px;
   border-radius: 50%;
   background: rgb(var(--brand));
   color: rgb(var(--brand-on-primary, 255 255 255));
@@ -545,15 +556,13 @@
     0 6px 12px rgba(0, 0, 0, 0.22),
     0 1px 0 rgba(255, 255, 255, 0.18) inset;
   cursor: pointer;
+  transform: translateY(-6px);
   transition:
     transform 120ms ease,
     box-shadow 120ms ease;
-  /* Keep the FAB pinned to its slot — the surrounding tabs flex evenly,
-     but the FAB shouldn't grow. */
-  flex: 0 0 auto;
 }
 .app-tabbar-fab:active {
-  transform: translateY(1px);
+  transform: translateY(-4px);
   box-shadow:
     0 3px 6px rgba(0, 0, 0, 0.22),
     0 1px 0 rgba(255, 255, 255, 0.12) inset;

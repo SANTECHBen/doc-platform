@@ -840,14 +840,21 @@ function TabBar({
     return (
       <nav className={className} role="tablist" aria-label="Sections">
         {lead.map(renderTab)}
-        <button
-          type="button"
-          onClick={onCreateTap}
-          className="app-tabbar-fab"
-          aria-label="Document a procedure"
-        >
-          <Plus size={22} strokeWidth={2.5} />
-        </button>
+        {/* The FAB sits inside an equal-flex slot so it occupies the same
+            horizontal share as each flat tab — that's what keeps it on
+            exact screen center, even when neighboring labels have
+            different widths. The visible circle is sized independently
+            and centered within the slot. */}
+        <span className="app-tabbar-fab-slot">
+          <button
+            type="button"
+            onClick={onCreateTap}
+            className="app-tabbar-fab"
+            aria-label="Document a procedure"
+          >
+            <Plus size={20} strokeWidth={2.5} />
+          </button>
+        </span>
         {tail.map(renderTab)}
       </nav>
     );
