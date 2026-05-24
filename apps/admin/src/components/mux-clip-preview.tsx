@@ -1,17 +1,18 @@
 'use client';
 
-// MuxClipPreview — lightweight per-step clip preview for the admin
-// draft reviewer. Uses the Mux .mp4 rendition (low.mp4 is sufficient for
-// preview quality) clamped via currentTime to [startMs, endMs]. Reuses
-// hls.js when available but falls back cleanly to <video src=".mp4">.
+// MuxClipPreview — per-step clip preview for the admin draft reviewer.
+// Renders an animated GIF-like preview using Mux's image API (which is
+// always available; .mp4 renditions require static_renditions enabled
+// on the asset, which our uploads don't set). The animated GIF preview
+// loops through ~10 frames from inside the clip window, so the admin can
+// see what motion the step contains without setting up an HLS player.
 //
-// This is a deliberately smaller cousin of the PWA's mux-clip-player —
-// admins don't need autoplay loops, just a quick "is this the right cut?"
-// preview. Tap to play, taps end → seeks back to start, tap again to
-// replay. The compact frame respects the source orientation so portrait
-// clips render in a tall preview, matching what the tech will see.
+// On click, we swap to a real <video> playing the Mux .mp4 — which falls
+// back gracefully to the static thumbnail if mp4_support isn't enabled.
+// That keeps the admin able to "tap to play" when it works, without
+// blocking the preview when it doesn't.
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Play } from 'lucide-react';
 
 interface Props {
@@ -43,10 +44,11 @@ export function MuxClipPreview({
   aspectRatio,
   orientation,
 }: Props): React.ReactElement {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [playing, setPlaying] = useState(false);
-  const startSec = Math.max(0, startMs / 1000);
-  const endSec = Math.max(startSec + 0.1, endMs / 1000);
+  const [showPlayer, setShowPlayer] = useState(false);
+
+  const startSec = Math.max(0, Math.floor(startMs / 1000));
+  const endSec = Math.max(startSec + 1, Math.ceil(endMs / 1000));
+  const midSec = Math.floor((startSec + endSec) / 2);
 
   const isPortrait =
     orientation === 'portrait' ||
@@ -58,59 +60,14 @@ export function MuxClipPreview({
         })()
       : false);
 
-  // Set initial position once metadata is known. Re-runs on prop change
-  // so the admin can scrub the clip ends and the preview snaps to the
-  // new start.
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    const onMeta = () => {
-      try {
-        v.currentTime = startSec;
-      } catch {
-        // Some browsers throw if duration isn't ready yet.
-      }
-    };
-    if (v.readyState >= 1) onMeta();
-    v.addEventListener('loadedmetadata', onMeta);
-    return () => v.removeEventListener('loadedmetadata', onMeta);
-  }, [startSec]);
-
-  // Auto-pause when crossing the clip end.
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    const onTime = () => {
-      if (v.currentTime >= endSec - 0.02) {
-        v.pause();
-        setPlaying(false);
-        try {
-          v.currentTime = startSec;
-        } catch {
-          // ignore
-        }
-      }
-    };
-    v.addEventListener('timeupdate', onTime);
-    return () => v.removeEventListener('timeupdate', onTime);
-  }, [startSec, endSec]);
-
-  function onPlayClick() {
-    const v = videoRef.current;
-    if (!v) return;
-    try {
-      v.currentTime = startSec;
-    } catch {
-      // ignore
-    }
-    setPlaying(true);
-    void v.play().catch(() => setPlaying(false));
-  }
-
-  // .mp4 rendition keeps the admin reviewer simple — no hls.js, no MSE.
-  // Mux serves low/medium/high .mp4 for any asset; low is fine for a
-  // 200px-tall preview window.
-  const src = `https://stream.mux.com/${playbackId}/low.mp4`;
+  // Mux animated GIF endpoint — loops frames from [start, end] over `fps`
+  // captures. Doesn't require any asset config; works on every public
+  // playback id. Capped to ~10s window because longer animated GIFs are
+  // huge and slow to render.
+  const animSpan = Math.min(endSec - startSec, 10);
+  const animatedSrc = `https://image.mux.com/${playbackId}/animated.gif?start=${startSec}&end=${startSec + animSpan}&fps=6&width=480`;
+  const stillSrc = `https://image.mux.com/${playbackId}/thumbnail.jpg?time=${midSec}&width=480`;
+  const mp4Src = `https://stream.mux.com/${playbackId}/medium.mp4`;
 
   return (
     <div
@@ -122,27 +79,44 @@ export function MuxClipPreview({
           : { width: '100%' }),
       }}
     >
-      <video
-        ref={videoRef}
-        src={src}
-        muted
-        playsInline
-        preload="metadata"
-        controls={playing}
-        className="h-full w-full"
-        style={{ objectFit: 'contain' }}
-      />
-      {!playing && (
-        <button
-          type="button"
-          onClick={onPlayClick}
-          aria-label="Preview clip"
-          className="absolute inset-0 grid place-items-center bg-black/35 transition hover:bg-black/25"
-        >
-          <span className="grid h-10 w-10 place-items-center rounded-full bg-white text-black shadow">
-            <Play size={20} strokeWidth={2.5} fill="currentColor" />
-          </span>
-        </button>
+      {showPlayer ? (
+        // Tap-to-play: try the .mp4 rendition. If the asset doesn't have
+        // static renditions enabled (the default for our uploads), the
+        // video errors silently and we fall back to the animated preview.
+        <video
+          src={mp4Src + `#t=${startSec},${endSec}`}
+          controls
+          autoPlay
+          muted
+          playsInline
+          preload="metadata"
+          className="h-full w-full object-contain"
+          onError={() => setShowPlayer(false)}
+        />
+      ) : (
+        <>
+          <img
+            src={animatedSrc}
+            alt="Step preview"
+            className="h-full w-full object-cover"
+            // If the animated GIF fails to load, show the still keyframe
+            // instead of an empty box.
+            onError={(e) => {
+              const img = e.currentTarget;
+              if (img.src !== stillSrc) img.src = stillSrc;
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPlayer(true)}
+            aria-label="Play clip"
+            className="absolute inset-0 grid place-items-center bg-black/20 opacity-0 transition hover:opacity-100"
+          >
+            <span className="grid h-10 w-10 place-items-center rounded-full bg-white text-black shadow">
+              <Play size={20} strokeWidth={2.5} fill="currentColor" />
+            </span>
+          </button>
+        </>
       )}
     </div>
   );

@@ -82,6 +82,40 @@ export function InAppCamera({ onCapture, onClose }: Props): React.ReactElement {
   const [phase, setPhase] = useState<Phase>({ kind: 'initializing' });
   const [elapsedMs, setElapsedMs] = useState(0);
 
+  // Track viewport orientation so we can request a matching camera
+  // track. When the phone is in portrait, we ask for 1080×1920 (tall);
+  // landscape gets 1920×1080 (wide). Without this, getUserMedia hands
+  // back a landscape 1920×1080 track even on a phone held vertically,
+  // producing a sideways recording that Mux dutifully publishes as
+  // landscape.
+  const [isPortrait, setIsPortrait] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      return window.matchMedia('(orientation: portrait)').matches;
+    } catch {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(orientation: portrait)');
+    const update = (e: MediaQueryListEvent | MediaQueryList) =>
+      setIsPortrait('matches' in e ? e.matches : mq.matches);
+    update(mq);
+    if ('addEventListener' in mq) {
+      mq.addEventListener('change', update);
+      return () => mq.removeEventListener('change', update);
+    }
+    // Safari < 14 fallback — old MediaQueryList API.
+    const legacy = mq as MediaQueryList & {
+      addListener?: (cb: (e: MediaQueryListEvent) => void) => void;
+      removeListener?: (cb: (e: MediaQueryListEvent) => void) => void;
+    };
+    legacy.addListener?.(update);
+    return () => legacy.removeListener?.(update);
+  }, []);
+
   // Acquire (or re-acquire) the camera stream whenever facingMode changes.
   // We stop the prior stream first so a flip-camera doesn't leave the
   // old track running.
@@ -98,15 +132,20 @@ export function InAppCamera({ onCapture, onClose }: Props): React.ReactElement {
       }
 
       try {
+        // 1080p ceiling regardless of orientation — the long edge gets
+        // 1920 and the short edge gets 1080. Using `ideal` (not `exact`)
+        // so the browser picks the closest available mode when the
+        // exact resolution isn't supported.
+        const longEdge = 1920;
+        const shortEdge = 1080;
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { ideal: facingMode },
-            // 1080p ceiling — phones have higher sensors but anything
-            // beyond 1080p is wasted bandwidth for a maintenance clip.
-            // Using `ideal` (not `exact`) so the browser picks the
-            // closest mode if the exact resolution isn't supported.
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
+            width: { ideal: isPortrait ? shortEdge : longEdge },
+            height: { ideal: isPortrait ? longEdge : shortEdge },
+            // Backup constraint — some browsers honor aspectRatio even
+            // when they don't honor width/height directly.
+            aspectRatio: { ideal: isPortrait ? 9 / 16 : 16 / 9 },
             frameRate: { ideal: 30, max: 30 },
           },
           audio: {
@@ -149,7 +188,7 @@ export function InAppCamera({ onCapture, onClose }: Props): React.ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [facingMode]);
+  }, [facingMode, isPortrait]);
 
   // Tear down everything on unmount — including any in-flight recorder
   // so we don't leak a chunk buffer or hold the camera/mic open.

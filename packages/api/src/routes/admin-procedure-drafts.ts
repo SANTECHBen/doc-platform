@@ -372,19 +372,31 @@ export async function registerAdminProcedureDrafts(app: FastifyInstance) {
       // Mint the target document up-front so the executor has a stable
       // target. Auto-extracted summary becomes the doc bodyMarkdown for
       // the procedure intro.
+      const summaryText =
+        typeof (proposal.content as DraftProposalTree).summary === 'string'
+          ? ((proposal.content as DraftProposalTree).summary ?? '')
+          : '';
       const [doc] = await db
         .insert(schema.documents)
         .values({
           contentPackVersionId: run.targetContentPackVersionId,
           kind: 'structured_procedure',
           title: run.proposedTitle,
-          bodyMarkdown:
-            typeof (proposal.content as DraftProposalTree).summary === 'string'
-              ? ((proposal.content as DraftProposalTree).summary ?? '')
-              : '',
+          bodyMarkdown: summaryText,
           extractionStatus: 'ready',
           language: 'en',
           aiIndexed: true,
+          // Carry the draft's category onto the published procedure so
+          // the PWA's Maintenance tab files it into the correct card
+          // (PM / R&R / Troubleshooting / Walkthrough) without an admin
+          // having to Edit-procedure and re-pick it.
+          metadata: {
+            toolsRequired: { common: [], special: [], consumables: [] },
+            safety: { enabled: false, notes: null },
+            verification: { enabled: false, notes: null },
+            category: run.procedureCategory ?? null,
+            summary: summaryText || null,
+          },
         })
         .returning();
       if (!doc) return reply.internalServerError('failed to create target document');
