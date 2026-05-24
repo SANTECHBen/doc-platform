@@ -493,6 +493,12 @@ export async function submitProcedureDraft(input: {
   assetInstanceId: string;
   proposedTitle: string;
   notes?: string;
+  /** Tech-asserted orientation. Optional — when present, the player on
+   *  the runner uses this to frame the clip instead of whatever Mux
+   *  auto-detects from the asset. Lets the tech correct the published
+   *  shape when the auto-detection is wrong (e.g., a sideways
+   *  recording that didn't carry a rotation tag through Mux ingest). */
+  orientationOverride?: 'portrait' | 'landscape';
   /** Dev-auth credentials. Matches the rest of the PWA writers (start
    *  procedure run, submit feedback, etc.) — `x-dev-user` header is
    *  what the API auth middleware accepts in dev. Prod OIDC swap is a
@@ -510,6 +516,9 @@ export async function submitProcedureDraft(input: {
       assetInstanceId: input.assetInstanceId,
       proposedTitle: input.proposedTitle,
       notes: input.notes,
+      ...(input.orientationOverride
+        ? { orientationOverride: input.orientationOverride }
+        : {}),
     }),
   });
   if (res.status === 503) {

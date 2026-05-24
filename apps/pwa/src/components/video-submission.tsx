@@ -181,6 +181,11 @@ export function VideoSubmission({
         assetInstanceId,
         proposedTitle: title.trim(),
         notes: notes.trim() || undefined,
+        orientationOverride:
+          captured.orientation === 'portrait' ||
+          captured.orientation === 'landscape'
+            ? captured.orientation
+            : undefined,
         devUserId,
         devOrgId,
       });
@@ -298,6 +303,23 @@ export function VideoSubmission({
                   }}
                   onPickAgain={() => {
                     reset();
+                  }}
+                  onOrientationOverride={(next) => {
+                    // The tech is telling us the auto-detection was
+                    // wrong (or the recorded pixels are sideways and
+                    // they want the player to display in the other
+                    // shape). Swap width/height too so the preview
+                    // container immediately reflects the new shape.
+                    setCaptured((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            orientation: next,
+                            width: prev.height,
+                            height: prev.width,
+                          }
+                        : prev,
+                    );
                   }}
                 />
               ) : (
@@ -510,11 +532,13 @@ function CapturedPreview({
   disabled,
   onRetake,
   onPickAgain,
+  onOrientationOverride,
 }: {
   captured: CapturedVideo;
   disabled: boolean;
   onRetake: () => void;
   onPickAgain: () => void;
+  onOrientationOverride: (next: 'portrait' | 'landscape') => void;
 }) {
   const orientationLabel =
     captured.orientation === 'portrait'
@@ -524,6 +548,8 @@ function CapturedPreview({
         : captured.orientation === 'square'
           ? 'Square'
           : 'Unknown';
+  const canToggle =
+    captured.orientation === 'portrait' || captured.orientation === 'landscape';
 
   return (
     <div className="overflow-hidden rounded-xl border border-white/15 bg-white/[0.03]">
@@ -549,6 +575,21 @@ function CapturedPreview({
         <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white backdrop-blur">
           {orientationLabel}
         </span>
+        {canToggle && (
+          <button
+            type="button"
+            onClick={() =>
+              onOrientationOverride(
+                captured.orientation === 'portrait' ? 'landscape' : 'portrait',
+              )
+            }
+            disabled={disabled}
+            className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-1 text-[10px] font-semibold text-white backdrop-blur hover:bg-black/85 disabled:opacity-40"
+            title="If the preview is sideways or letterboxed, tap to flip the orientation hint we send to the AI."
+          >
+            <RotateCcw size={10} /> Flip orientation
+          </button>
+        )}
       </div>
       <div className="flex items-center justify-between gap-2 border-t border-white/10 px-3 py-2.5">
         <div className="min-w-0 flex-1">

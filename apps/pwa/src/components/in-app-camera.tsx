@@ -76,6 +76,22 @@ export function InAppCamera({ onCapture, onClose }: Props): React.ReactElement {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
+  // Canvas-rotation pipeline state. iOS Safari (and most browsers) hand
+  // back a landscape MediaStream regardless of how the phone is held —
+  // the <video> preview rotates correctly because WebKit honors the
+  // device orientation tag for display, but the underlying frames the
+  // MediaRecorder sees are still landscape. If we just record that
+  // stream, Mux ingests it as 16:9.
+  //
+  // To produce upright portrait frames when the user wants portrait,
+  // we draw the camera's video element onto a canvas at the desired
+  // orientation (rotating 90° if needed) and feed canvas.captureStream
+  // into the MediaRecorder instead of the raw camera stream. The audio
+  // track is mixed in from the original stream.
+  const rotationRafRef = useRef<number | null>(null);
+  const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const composedStreamRef = useRef<MediaStream | null>(null);
+
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>(
     'environment',
   );
@@ -132,20 +148,18 @@ export function InAppCamera({ onCapture, onClose }: Props): React.ReactElement {
       }
 
       try {
-        // 1080p ceiling regardless of orientation — the long edge gets
-        // 1920 and the short edge gets 1080. Using `ideal` (not `exact`)
-        // so the browser picks the closest available mode when the
-        // exact resolution isn't supported.
-        const longEdge = 1920;
-        const shortEdge = 1080;
+        // Don't pin width/height — iOS Safari ignores portrait
+        // constraints anyway and hands back a 1920×1080 landscape track
+        // even on a phone held vertically. We let the camera give its
+        // natural orientation (almost always landscape on phones) and
+        // do the rotation ourselves via canvas at record time. The
+        // long-edge cap stays at 1920 so we don't pull 4K/8K frames
+        // through the canvas pipeline.
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { ideal: facingMode },
-            width: { ideal: isPortrait ? shortEdge : longEdge },
-            height: { ideal: isPortrait ? longEdge : shortEdge },
-            // Backup constraint — some browsers honor aspectRatio even
-            // when they don't honor width/height directly.
-            aspectRatio: { ideal: isPortrait ? 9 / 16 : 16 / 9 },
+            width: { ideal: 1920, max: 1920 },
+            height: { ideal: 1080, max: 1920 },
             frameRate: { ideal: 30, max: 30 },
           },
           audio: {
@@ -188,7 +202,7 @@ export function InAppCamera({ onCapture, onClose }: Props): React.ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [facingMode, isPortrait]);
+  }, [facingMode]);
 
   // Tear down everything on unmount — including any in-flight recorder
   // so we don't leak a chunk buffer or hold the camera/mic open.
@@ -202,6 +216,14 @@ export function InAppCamera({ onCapture, onClose }: Props): React.ReactElement {
           // ignore
         }
       }
+      if (rotationRafRef.current !== null) {
+        cancelAnimationFrame(rotationRafRef.current);
+        rotationRafRef.current = null;
+      }
+      const composed = composedStreamRef.current;
+      if (composed) composed.getTracks().forEach((t) => t.stop());
+      composedStreamRef.current = null;
+      offscreenCanvasRef.current = null;
       const s = streamRef.current;
       if (s) s.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
@@ -225,7 +247,8 @@ export function InAppCamera({ onCapture, onClose }: Props): React.ReactElement {
 
   function startRecording() {
     const stream = streamRef.current;
-    if (!stream) return;
+    const previewEl = videoRef.current;
+    if (!stream || !previewEl) return;
     const { mime, ext } = pickMimeType();
     chunksRef.current = [];
 
@@ -239,17 +262,92 @@ export function InAppCamera({ onCapture, onClose }: Props): React.ReactElement {
     };
     if (mime) options.mimeType = mime;
 
+    // Decide whether to route through the canvas-rotation pipeline.
+    // The camera track is almost always landscape on phones (the
+    // sensor's physical orientation); when the user is filming with
+    // the phone held in portrait, we have to rotate the frames
+    // ourselves so the recorded file has upright portrait pixels.
+    // The <video> preview already shows the rotated view because
+    // WebKit/Chromium honor the device orientation tag for display
+    // — but MediaRecorder reads the raw track, so the file would be
+    // sideways without this rotation pass.
+    const videoTrack = stream.getVideoTracks()[0];
+    const trackSettings = videoTrack?.getSettings() ?? {};
+    const srcW = trackSettings.width ?? previewEl.videoWidth ?? 1920;
+    const srcH = trackSettings.height ?? previewEl.videoHeight ?? 1080;
+    const sourceIsLandscape = srcW >= srcH;
+    const needsRotation =
+      (isPortrait && sourceIsLandscape) || (!isPortrait && !sourceIsLandscape);
+
+    // The stream we hand to MediaRecorder. Either the raw camera
+    // stream, or a composed canvas + original-audio stream when we're
+    // doing rotation.
+    let recordStream: MediaStream = stream;
+
+    if (needsRotation) {
+      const outW = Math.min(srcW, srcH); // short edge → output width
+      const outH = Math.max(srcW, srcH); // long edge → output height
+      const canvas = document.createElement('canvas');
+      canvas.width = isPortrait ? outW : outH;
+      canvas.height = isPortrait ? outH : outW;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        setPhase({ kind: 'error', message: '2D canvas unavailable' });
+        return;
+      }
+      offscreenCanvasRef.current = canvas;
+
+      // 90° clockwise rotation for a phone held in portrait with the
+      // camera in landscape orientation. We translate to the canvas
+      // center, rotate, then draw the source frame offset so the
+      // origin lands at (-srcW/2, -srcH/2).
+      const angle = isPortrait ? Math.PI / 2 : -Math.PI / 2;
+      const drawFrame = () => {
+        if (
+          previewEl.readyState >= 2 &&
+          previewEl.videoWidth > 0 &&
+          previewEl.videoHeight > 0
+        ) {
+          ctx.save();
+          ctx.translate(canvas.width / 2, canvas.height / 2);
+          ctx.rotate(angle);
+          ctx.drawImage(previewEl, -srcW / 2, -srcH / 2, srcW, srcH);
+          ctx.restore();
+        }
+        rotationRafRef.current = requestAnimationFrame(drawFrame);
+      };
+      rotationRafRef.current = requestAnimationFrame(drawFrame);
+
+      const canvasStream = (canvas as HTMLCanvasElement & {
+        captureStream: (frameRate?: number) => MediaStream;
+      }).captureStream(30);
+      // Carry the original audio track through so we still record the
+      // tech's narration. canvas.captureStream() doesn't include audio.
+      const audioTrack = stream.getAudioTracks()[0];
+      if (audioTrack) canvasStream.addTrack(audioTrack);
+      composedStreamRef.current = canvasStream;
+      recordStream = canvasStream;
+    }
+
     let recorder: MediaRecorder;
     try {
-      recorder = new MediaRecorder(stream, options);
+      recorder = new MediaRecorder(recordStream, options);
     } catch (err) {
       // Some Androids reject the explicit mimeType — retry without it.
       try {
-        recorder = new MediaRecorder(stream, {
+        recorder = new MediaRecorder(recordStream, {
           videoBitsPerSecond: 5_000_000,
           audioBitsPerSecond: 128_000,
         });
       } catch (err2) {
+        // Tear down the rotation pipeline if we set one up.
+        if (rotationRafRef.current !== null) {
+          cancelAnimationFrame(rotationRafRef.current);
+          rotationRafRef.current = null;
+        }
+        composedStreamRef.current?.getTracks().forEach((t) => t.stop());
+        composedStreamRef.current = null;
+        offscreenCanvasRef.current = null;
         setPhase({
           kind: 'error',
           message:
@@ -265,6 +363,22 @@ export function InAppCamera({ onCapture, onClose }: Props): React.ReactElement {
     };
 
     recorder.onstop = () => {
+      // Tear down the rotation pipeline now that the recording's done.
+      // Leaving the RAF + composed stream running would burn battery
+      // and keep the camera frame-pump going for nothing.
+      if (rotationRafRef.current !== null) {
+        cancelAnimationFrame(rotationRafRef.current);
+        rotationRafRef.current = null;
+      }
+      composedStreamRef.current?.getTracks().forEach((t) => {
+        // Only stop the canvas-emitted video track; the audio track
+        // belongs to the original camera stream and gets stopped on
+        // unmount when the parent calls onCapture/onClose.
+        if (t.kind === 'video') t.stop();
+      });
+      composedStreamRef.current = null;
+      offscreenCanvasRef.current = null;
+
       const blobType = mime || chunksRef.current[0]?.type || 'video/webm';
       const blob = new Blob(chunksRef.current, { type: blobType });
       // 0-byte recording — happens if the user taps stop too fast,

@@ -26,6 +26,11 @@ const SubmitBody = z.object({
   assetInstanceId: UuidSchema,
   proposedTitle: z.string().min(1).max(200),
   notes: z.string().max(1000).optional(),
+  /** Tech-asserted orientation. When present, the executor uses this
+   *  for the per-step video_clip aspect instead of trusting Mux's
+   *  auto-detection. Handles the case where the recorded pixels are
+   *  sideways but the user knows they filmed in portrait. */
+  orientationOverride: z.enum(['portrait', 'landscape']).optional(),
 });
 
 export async function registerPwaProcedureDrafts(app: FastifyInstance) {
@@ -112,6 +117,13 @@ export async function registerPwaProcedureDrafts(app: FastifyInstance) {
           submittedByUserId: auth.userId,
           submittedFromAssetInstanceId: asset.id,
           submissionNotes: request.body.notes ?? null,
+          // Stash the tech's orientation hint into the existing
+          // sourceVideoOrientation column. The Mux webhook will only
+          // overwrite it if Mux reports a *different* orientation; the
+          // executor reads this column when building each step's clip
+          // metadata, so the runner ends up framing the clip the way
+          // the tech said it should be framed.
+          sourceVideoOrientation: request.body.orientationOverride ?? null,
           createdByUserId: auth.userId,
         })
         .returning();

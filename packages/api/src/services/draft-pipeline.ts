@@ -106,13 +106,25 @@ export async function onDraftMuxAssetReady(
   const durationMs = data.duration ? Math.round(data.duration * 1000) : null;
   const aspectRatio = data.aspect_ratio ?? null;
   const orientation = classifyOrientation(aspectRatio);
+
+  // Read the existing row before mutating so we can respect any
+  // tech-asserted orientation override the PWA submitted (we treat any
+  // pre-existing sourceVideoOrientation as authoritative — Mux's
+  // auto-detection only fills in when there's no explicit hint).
+  const existing = await app.ctx.db.query.procedureDraftRuns.findFirst({
+    where: eq(schema.procedureDraftRuns.id, runId),
+    columns: { sourceVideoOrientation: true },
+  });
+
   const updates: Record<string, unknown> = {
     muxPlaybackId: playbackId,
     updatedAt: new Date(),
   };
   if (durationMs != null) updates.sourceVideoDurationMs = durationMs;
   if (aspectRatio) updates.sourceVideoAspectRatio = aspectRatio;
-  if (orientation) updates.sourceVideoOrientation = orientation;
+  if (orientation && !existing?.sourceVideoOrientation) {
+    updates.sourceVideoOrientation = orientation;
+  }
   // Mux storyboard sprite is accessible at a deterministic URL given the
   // playbackId (Mux serves it as an animated sprite + JPEG; we use the
   // JPEG sprite for the LLM image attachment).
