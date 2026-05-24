@@ -494,6 +494,8 @@ function StepBlock({
                       caption={m.caption ?? null}
                       muted
                       autoplay={false}
+                      aspectRatio={m.clip.aspectRatio ?? null}
+                      orientation={m.clip.orientation ?? null}
                       playId={`viewer-${step.id ?? index}-${mi}`}
                     />
                   ) : (

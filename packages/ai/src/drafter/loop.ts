@@ -304,14 +304,36 @@ export async function runDrafterLoop(
     for await (const _chunk of result.textStream) {
       // no-op
     }
-    const finalUsage = await result.usage;
-    if (finalUsage) {
-      usage = {
-        inputTokens: Number(finalUsage.inputTokens ?? 0),
-        outputTokens: Number(finalUsage.outputTokens ?? 0),
-      };
+    // Aggregate usage across every step. The result-level `usage`
+    // returned by streamText sometimes reports only the FINAL call's
+    // usage on tool-calling loops, missing the bulk of the cost (each
+    // tool call is its own round trip with its own input/output). Sum
+    // over the steps array so the displayed total reflects what
+    // Anthropic actually charged.
+    const allSteps = await result.steps;
+    actualSteps = allSteps.length;
+    let summedInput = 0;
+    let summedOutput = 0;
+    for (const s of allSteps) {
+      const u = (s as { usage?: { inputTokens?: number; outputTokens?: number } })
+        .usage;
+      if (!u) continue;
+      summedInput += Number(u.inputTokens ?? 0);
+      summedOutput += Number(u.outputTokens ?? 0);
     }
-    actualSteps = (await result.steps).length;
+    if (summedInput > 0 || summedOutput > 0) {
+      usage = { inputTokens: summedInput, outputTokens: summedOutput };
+    } else {
+      // Fallback to the result-level usage if step-level usage is
+      // unavailable for some reason (older SDK, unusual provider).
+      const finalUsage = await result.usage;
+      if (finalUsage) {
+        usage = {
+          inputTokens: Number(finalUsage.inputTokens ?? 0),
+          outputTokens: Number(finalUsage.outputTokens ?? 0),
+        };
+      }
+    }
     modelUsed = (await result.response).modelId ?? modelUsed;
   } catch (err) {
     if (ac.signal.aborted) {

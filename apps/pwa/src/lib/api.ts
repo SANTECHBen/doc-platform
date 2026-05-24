@@ -1100,6 +1100,12 @@ export type ProcedureStepMedia =
         /** Server-derived HLS endpoint:
          *  https://stream.mux.com/<playbackId>.m3u8 */
         streamUrl: string;
+        /** Mux-reported aspect ratio ("16:9", "9:16"). Drives the
+         *  player's container framing — portrait clips get a tall
+         *  frame, landscape gets the standard 16:9 box. */
+        aspectRatio?: string;
+        /** Pre-classified orientation derived from aspectRatio. */
+        orientation?: 'portrait' | 'landscape' | 'square';
       };
     };
 

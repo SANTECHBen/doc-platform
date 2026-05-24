@@ -126,6 +126,8 @@ interface ResolvedJobAid {
             startMs: number;
             endMs: number;
             streamUrl: string;
+            aspectRatio?: string;
+            orientation?: 'portrait' | 'landscape' | 'square';
           };
         }
     >;
@@ -951,6 +953,8 @@ export function VirtualJobAid({
                           caption={m.caption ?? null}
                           muted
                           autoplay
+                          aspectRatio={m.clip.aspectRatio ?? null}
+                          orientation={m.clip.orientation ?? null}
                           playId={`step-${stepIdx}-${m.storageKey}`}
                         />
                       ) : (

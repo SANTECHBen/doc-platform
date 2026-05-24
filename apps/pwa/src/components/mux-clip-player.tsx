@@ -28,7 +28,7 @@
 // something rather than a black frame.
 
 import { useEffect, useRef, useState } from 'react';
-import { Maximize, Play } from 'lucide-react';
+import { Play } from 'lucide-react';
 
 interface Props {
   /** Mux HLS endpoint — typically https://stream.mux.com/<playbackId>.m3u8 */
@@ -107,7 +107,10 @@ export function MuxClipPlayer({
   posterUrl,
   alt,
   caption,
-  muted = true,
+  // muted is no longer read — the player force-mutes regardless,
+  // because the original walkthrough audio should never play (only
+  // the AI voiceover does, via a separate <audio> in the runner).
+  // Leaving the prop in the type for API stability across callers.
   autoplay = true,
   playId,
   aspectRatio,
@@ -322,22 +325,6 @@ export function MuxClipPlayer({
     });
   }
 
-  function enterFullscreen(e: React.MouseEvent) {
-    e.stopPropagation();
-    const v = videoRef.current as HTMLVideoElement | null;
-    if (!v) return;
-    const webkitVideo = v as HTMLVideoElement & {
-      webkitEnterFullscreen?: () => void;
-    };
-    if (typeof webkitVideo.webkitEnterFullscreen === 'function') {
-      webkitVideo.webkitEnterFullscreen();
-      return;
-    }
-    if (typeof v.requestFullscreen === 'function') {
-      void v.requestFullscreen().catch(() => {});
-    }
-  }
-
   const containerStyle = {
     aspectRatio: frameAspectRatio(aspectRatio, orientation),
   } as React.CSSProperties;
@@ -392,28 +379,40 @@ export function MuxClipPlayer({
       <video
         ref={videoRef}
         poster={posterUrl}
-        muted={muted}
+        // Always muted regardless of the caller's `muted` prop. The
+        // step clip is a silent demonstration loop — the AI voiceover
+        // plays from a separate <audio> element in the runner. If the
+        // native controls ever rendered (they shouldn't now, see
+        // below), unmuting them would surface the raw walkthrough
+        // narration on top of the synthesized voiceover.
+        muted
         playsInline
         autoPlay={autoplay}
         // Native loop is OFF — we loop the sub-range manually via
         // timeupdate so the wrap point matches endMs, not the full
         // asset duration.
         loop={false}
+        // Disable Picture-in-Picture and download/share affordances
+        // some browsers expose without controls. The clip is part of
+        // a procedure, not a standalone video.
+        disablePictureInPicture
+        controlsList="nodownload noplaybackrate noremoteplayback"
         // Always 'auto' so the browser begins fetching the manifest +
-        // first segment as soon as the element mounts. Even when
-        // autoplay=false (doc viewer), the user almost always plays
-        // shortly after — pre-warming the buffer trims first-tap
-        // latency without measurable network cost (clips are short).
+        // first segment as soon as the element mounts.
         preload="auto"
-        controls={started}
-        // Hint to the browser about the orientation so it doesn't
-        // over-eagerly request fullscreen rotation on iOS Safari.
-        // 'object-fit: contain' keeps the full frame visible regardless
-        // of the container's CSS aspect-ratio mismatch (defensive when
-        // legacy clips have no aspectRatio metadata).
+        // NEVER render the native HTML5 controls. They expose seek,
+        // mute, and (on some browsers) PiP — and the mute toggle is
+        // the path that would let a tech unmute and hear the original
+        // walkthrough audio instead of the AI voiceover. The clip is
+        // an autoplay-loop demonstration; no user-facing controls.
+        controls={false}
         style={{ width: '100%', height: '100%', objectFit: 'contain' }}
         onError={() => setFailed(true)}
       />
+      {/* Tap-to-play overlay only when autoplay didn't fire (rare —
+          browser autoplay policies allow muted autoplay almost
+          everywhere). Once playback starts we hide the overlay; we no
+          longer show a fullscreen button. */}
       {!started && (
         <button
           type="button"
@@ -424,16 +423,6 @@ export function MuxClipPlayer({
           <span className="step-video-play-circle" aria-hidden>
             <Play size={28} strokeWidth={2.5} fill="currentColor" />
           </span>
-        </button>
-      )}
-      {started && (
-        <button
-          type="button"
-          className="step-video-fs-btn"
-          onClick={enterFullscreen}
-          aria-label="Enter fullscreen"
-        >
-          <Maximize size={16} strokeWidth={2} />
         </button>
       )}
       {started && (
