@@ -41,6 +41,8 @@ import {
   type ProcedureStepDto,
   type StepCompletionPayload,
 } from '@/lib/api';
+import { PhaseProgressStrip } from './phase-progress-strip';
+import { CategoryIcon } from './category-icon';
 
 interface PhotoBuf {
   key: string;
@@ -668,6 +670,16 @@ export function ProcedureRunner({
         </button>
       </header>
 
+      {bundleSections.length > 0 && (
+        <PhaseProgressStrip
+          sections={bundleSections}
+          steps={steps}
+          completions={completions}
+          currentStepIndex={currentStepIndex}
+          onJumpToStepIndex={(i) => setCurrentStepIndex(i)}
+        />
+      )}
+
       <ProgressStrip
         steps={steps}
         completions={completions}
@@ -721,6 +733,37 @@ export function ProcedureRunner({
 
         <main className="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-6">
           <div className="flex flex-wrap items-center gap-2">
+            {(() => {
+              // Per-step category override takes precedence; otherwise we
+              // fall back to the parent section's category so the badge
+              // reinforces the strip's color in-context. The strip
+              // already groups by section, so re-rendering the section
+              // category as a badge here is redundant when the step has
+              // no override — keep showing it only when the step
+              // explicitly carries a different category (or has its own
+              // while the section has none). This keeps the chip
+              // meaningful rather than chrome.
+              const stepCat = step.category ?? null;
+              const sectionCat =
+                step.sectionId
+                  ? bundleSections.find((s) => s.id === step.sectionId)?.category ?? null
+                  : null;
+              const effective =
+                stepCat && (!sectionCat || stepCat.id !== sectionCat.id)
+                  ? stepCat
+                  : null;
+              if (!effective) return null;
+              return (
+                <span
+                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-white"
+                  style={{ backgroundColor: effective.color }}
+                  title={`Category: ${effective.name}`}
+                >
+                  <CategoryIcon name={effective.icon} size={11} />
+                  {effective.name}
+                </span>
+              );
+            })()}
             <KindBadge kind={step.kind} />
             {existingCompletion && (
               <span className="caption normal-case text-ink-tertiary">

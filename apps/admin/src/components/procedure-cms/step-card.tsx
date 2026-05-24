@@ -28,6 +28,7 @@ import {
   deleteProcedureStepMedia,
   type AdminProcedureSection,
   type AdminProcedureStep,
+  type AdminProcedureStepCategory,
   type AdminSiblingProcedure,
   type AdminStepMedia,
   type ProcedureStepKind,
@@ -36,6 +37,7 @@ import {
 } from '@/lib/api';
 import { VoiceoverPanel } from './voiceover-panel';
 import { BlockListEditor } from './block-editor';
+import { CategoryPicker } from './category-picker';
 
 interface Props {
   step: AdminProcedureStep;
@@ -69,6 +71,13 @@ interface Props {
    *  Populates the "Linked sub-procedure" picker so the author can wire
    *  this step to launch another procedure when the tech taps Run. */
   siblingProcedures?: AdminSiblingProcedure[];
+  /** Visible step categories (built-ins + this org's customs). Threaded
+   *  in from the editor — used by the per-step category picker in the
+   *  kebab menu so individual steps can carry a badge override even
+   *  when their parent section has its own (or no) category. */
+  categories?: AdminProcedureStepCategory[];
+  /** Open the category manager modal — relayed up from the editor. */
+  onManageCategories?: () => void;
 }
 
 const KIND_OPTIONS: Array<{ value: ProcedureStepKind; label: string; icon: typeof ClipboardCheck }> = [
@@ -96,6 +105,8 @@ export function StepCard({
   onMoveToSection,
   defaultExpanded = false,
   siblingProcedures,
+  categories,
+  onManageCategories,
 }: Props) {
   // Collapsed by default — see Props.defaultExpanded. Authors scan dozens
   // of steps; only one is being actively edited at any moment, so the
@@ -305,6 +316,17 @@ export function StepCard({
               </span>
             </span>
           )}
+          {step.category && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium text-white shrink-0"
+              style={{ backgroundColor: step.category.color }}
+              title={`Category: ${step.category.name}`}
+            >
+              <span className="max-w-[6rem] truncate">
+                {step.category.name}
+              </span>
+            </span>
+          )}
           {safetyCritical && (
             <ShieldAlert
               className="size-3.5 text-signal-warn shrink-0"
@@ -389,6 +411,17 @@ export function StepCard({
               ))}
             </select>
             <div className="ml-auto flex items-center gap-1">
+              {categories && categories.length > 0 && (
+                <CategoryPicker
+                  value={step.categoryId}
+                  options={categories}
+                  onChange={(next) => void onPatch({ categoryId: next })}
+                  onManage={onManageCategories}
+                  emptyLabel="Inherit"
+                  size="sm"
+                  ariaLabel="Step category override"
+                />
+              )}
               <button
                 type="button"
                 onClick={() => onSafetyToggle(!safetyCritical)}

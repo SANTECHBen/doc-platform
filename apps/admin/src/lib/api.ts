@@ -1950,6 +1950,89 @@ export type AdminStepMedia =
       };
     };
 
+// ---------------------------------------------------------------------------
+// Procedure step categories — author-extensible semantic tags applied to
+// sections (drives the PWA phase-progress strip's color/icon) and to
+// individual steps (drives an in-body badge). Built-ins are seeded by the
+// 0039 migration; orgs can also add custom categories.
+// ---------------------------------------------------------------------------
+export interface AdminProcedureStepCategory {
+  id: string;
+  /** NULL for built-in / platform-wide categories. */
+  organizationId: string | null;
+  name: string;
+  /** Hex color, e.g. "#EAB308". Rendered verbatim as a CSS color. */
+  color: string;
+  /** Lucide icon name from the curated allowlist (the runner falls back
+   *  to no icon for unknown values). */
+  icon: string | null;
+  sortOrder: number;
+  /** True for built-ins (organization_id IS NULL). Read-only for org admins. */
+  isBuiltIn: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateProcedureStepCategoryInput {
+  name: string;
+  color: string;
+  icon?: string | null;
+  sortOrder?: number;
+}
+
+export type UpdateProcedureStepCategoryInput = Partial<CreateProcedureStepCategoryInput>;
+
+export async function listProcedureStepCategories(
+  organizationId: string,
+): Promise<AdminProcedureStepCategory[]> {
+  const res = await fetch(
+    `${API_BASE}/admin/organizations/${encodeURIComponent(organizationId)}/procedure-step-categories`,
+    { cache: 'no-store', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminProcedureStepCategory[];
+}
+
+export async function createProcedureStepCategory(
+  organizationId: string,
+  input: CreateProcedureStepCategoryInput,
+): Promise<AdminProcedureStepCategory> {
+  const res = await fetch(
+    `${API_BASE}/admin/organizations/${encodeURIComponent(organizationId)}/procedure-step-categories`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminProcedureStepCategory;
+}
+
+export async function updateProcedureStepCategory(
+  id: string,
+  input: UpdateProcedureStepCategoryInput,
+): Promise<AdminProcedureStepCategory> {
+  const res = await fetch(
+    `${API_BASE}/admin/procedure-step-categories/${encodeURIComponent(id)}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminProcedureStepCategory;
+}
+
+export async function deleteProcedureStepCategory(id: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/procedure-step-categories/${encodeURIComponent(id)}`,
+    { method: 'DELETE', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
 // Section grouping above procedure steps. Optional — a procedure can have
 // zero sections (flat list) or N sections with steps grouped inside each.
 export interface AdminProcedureSection {
@@ -1958,6 +2041,12 @@ export interface AdminProcedureSection {
   title: string;
   description: string | null;
   orderingHint: number;
+  /** Optional semantic category — drives the PWA phase-progress strip's
+   *  color and icon for this section. Null = neutral coloring. */
+  categoryId: string | null;
+  /** Resolved category DTO when categoryId is set. Server inlines this
+   *  so the admin / runner can render without a second fetch. */
+  category: AdminProcedureStepCategory | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -2006,6 +2095,12 @@ export interface AdminProcedureStep {
   /** Snippet provenance — non-null whenever snippetId is set. Lets the
    *  step card render a "From snippet: X" pill without a second fetch. */
   snippetBadge: SnippetBadge | null;
+  /** Optional semantic category override for this individual step. Drives
+   *  an in-body badge above the step title. When null, the runner falls
+   *  back to the parent section's category (if any) for visual treatment. */
+  categoryId: string | null;
+  /** Resolved category DTO when categoryId is set. */
+  category: AdminProcedureStepCategory | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -2034,6 +2129,9 @@ export interface CreateProcedureSectionInput {
   title: string;
   description?: string | null;
   orderingHint?: number;
+  /** Optional category — drives the section's color/icon on the PWA
+   *  phase-progress strip. Null/omitted = neutral. */
+  categoryId?: string | null;
 }
 
 export type UpdateProcedureSectionInput = Partial<CreateProcedureSectionInput>;
@@ -2128,6 +2226,9 @@ export interface CreateProcedureStepInput {
    *  from procedure_snippets at read time. Server validates that the
    *  caller can read the snippet (org-scoped or platform-tier). */
   snippetId?: string | null;
+  /** Optional category — drives a per-step badge in the runner. Pass
+   *  null to clear; omit to leave unchanged on patches. */
+  categoryId?: string | null;
 }
 
 export type UpdateProcedureStepInput = Partial<CreateProcedureStepInput>;

@@ -25,6 +25,10 @@ import {
   loadSnippetMap,
   type SnippetBadge,
 } from '../services/snippet-expansion.js';
+import {
+  procedureStepCategoryToDTO,
+  type ProcedureStepCategoryDTO,
+} from './admin-procedure-step-categories.js';
 
 // ---------------------------------------------------------------------------
 // Zod schemas — request bodies
@@ -142,6 +146,11 @@ const StepCreateBody = z
     // becomes a per-step override; when blocks are provided they're
     // ignored at read time as long as snippet_detached=false.
     snippetId: UuidSchema.nullable().optional(),
+    // Optional semantic category. Server validates that the category is
+    // visible to the caller's scope (built-in or in-scope per-org). Null
+    // = no category badge on this individual step (the runner falls back
+    // to the section's own category for coloring).
+    categoryId: UuidSchema.nullable().optional(),
   })
   .refine(
     (b) =>
@@ -172,6 +181,8 @@ const StepPatchBody = z
     minPhotoCount: z.number().int().min(0).max(10).optional(),
     measurementSpec: MeasurementSpecSchema.nullable().optional(),
     blocks: BlocksArraySchema.optional(),
+    // Move a step's category (or clear with null).
+    categoryId: UuidSchema.nullable().optional(),
   })
   .refine((v) => Object.keys(v).length > 0, {
     message: 'At least one field is required.',
@@ -197,6 +208,9 @@ function rowToDTO(
     expanded?: { blocks: StepRow['blocks']; title: string };
     /** Snippet provenance badge — set when the step references a snippet. */
     snippetBadge?: SnippetBadge | null;
+    /** Resolved category DTO — set when the step references a category
+     *  visible to the caller. Null otherwise (no badge). */
+    category?: ProcedureStepCategoryDTO | null;
   },
 ) {
   // Expand each media item with a publicly-resolvable URL so the admin
@@ -246,6 +260,8 @@ function rowToDTO(
     snippetId: row.snippetId,
     snippetDetached: row.snippetDetached,
     snippetBadge: opts?.snippetBadge ?? null,
+    categoryId: row.categoryId,
+    category: opts?.category ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -268,6 +284,21 @@ async function rowsToExpandedDTO(
     db,
     rows.map((r) => r.snippetId),
   );
+  // Resolve every distinct category referenced by these rows in one shot
+  // so the editor sees the full DTO (color/icon/name) on each step card
+  // without an N+1 fetch.
+  const categoryIds = [
+    ...new Set(
+      rows.map((r) => r.categoryId).filter((id): id is string => id !== null),
+    ),
+  ];
+  const categoriesById = new Map<string, ProcedureStepCategoryDTO>();
+  if (categoryIds.length > 0) {
+    const catRows = await db.query.procedureStepCategories.findMany({
+      where: inArray(schema.procedureStepCategories.id, categoryIds),
+    });
+    for (const c of catRows) categoriesById.set(c.id, procedureStepCategoryToDTO(c));
+  }
   return rows.map((r) => {
     const expanded = expandStep(
       {
@@ -288,8 +319,31 @@ async function rowsToExpandedDTO(
       mediaPublicUrl: ctx.mediaPublicUrl,
       expanded: { blocks: expanded.blocks, title: expanded.title },
       snippetBadge: expanded._snippetBadge,
+      category: r.categoryId ? categoriesById.get(r.categoryId) ?? null : null,
     });
   });
+}
+
+/**
+ * Validate that a category id (when supplied) is visible to the caller:
+ * it must be a built-in (organization_id IS NULL) or owned by an org the
+ * caller has scope for. Returns the resolved row on success (callers can
+ * use it for audit-event payloads); throws via the supplied reply helper
+ * on failure.
+ */
+async function loadCategoryForUse(
+  db: Database,
+  categoryId: string,
+  scope: { all: boolean; orgIds: string[] },
+): Promise<typeof schema.procedureStepCategories.$inferSelect | null> {
+  const row = await db.query.procedureStepCategories.findFirst({
+    where: eq(schema.procedureStepCategories.id, categoryId),
+  });
+  if (!row) return null;
+  if (row.organizationId === null) return row; // built-in, visible to all
+  if (scope.all) return row;
+  if (!scope.orgIds.includes(row.organizationId)) return null;
+  return row;
 }
 
 // ---------------------------------------------------------------------------
@@ -532,6 +586,18 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         orderingHint = max + 100;
       }
 
+      // Category attach on create: verify the category is visible to the
+      // caller's scope. Built-ins (org_id IS NULL) are always visible;
+      // org-specific categories must belong to an org in scope.
+      if (body.categoryId) {
+        const cat = await loadCategoryForUse(db, body.categoryId, scope);
+        if (!cat) {
+          return reply.badRequest(
+            'categoryId is not visible to this caller (unknown or out of scope).',
+          );
+        }
+      }
+
       // Snippet attach on create: verify the snippet exists and the caller
       // can read it (platform snippets visible to all; org snippets must
       // be in scope). Reject early with a clear 400 — silently dropping a
@@ -569,6 +635,7 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           blocks: body.blocks ?? [],
           snippetId: body.snippetId ?? null,
           snippetDetached: false,
+          categoryId: body.categoryId ?? null,
           createdByUserId: auth.userId,
           // Newly-created step is searchable as soon as the sweeper picks
           // it up. Indexer is idempotent — it'll dedup on (version, type, id).
@@ -646,6 +713,18 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         });
         if (!sec || sec.documentId !== ctx.step.documentId) {
           return reply.badRequest('sectionId does not belong to this document.');
+        }
+      }
+
+      // categoryId patch: validate visibility (built-in or in-scope org).
+      // Null clears the category — the runner falls back to the section's
+      // own category for visual treatment on that step.
+      if (b.categoryId !== undefined && b.categoryId !== null) {
+        const cat = await loadCategoryForUse(db, b.categoryId, scope);
+        if (!cat) {
+          return reply.badRequest(
+            'categoryId is not visible to this caller (unknown or out of scope).',
+          );
         }
       }
 
@@ -735,6 +814,7 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
       if (b.safetyCritical !== undefined) patch.safetyCritical = b.safetyCritical;
       if (b.orderingHint !== undefined) patch.orderingHint = b.orderingHint;
       if (b.sectionId !== undefined) patch.sectionId = b.sectionId;
+      if (b.categoryId !== undefined) patch.categoryId = b.categoryId;
       if (b.linkedProcedureDocId !== undefined) {
         patch.linkedProcedureDocId = b.linkedProcedureDocId;
       }
@@ -1152,7 +1232,13 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           asc(schema.procedureSections.createdAt),
         ],
       });
-      return rows.map(sectionRowToDTO);
+      const categoriesById = await loadSectionCategoryMap(db, rows);
+      return rows.map((r) =>
+        sectionRowToDTO(
+          r,
+          r.categoryId ? categoriesById.get(r.categoryId) ?? null : null,
+        ),
+      );
     },
   );
 
@@ -1161,7 +1247,12 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
   // -------------------------------------------------------------------------
   app.post<{
     Params: { documentId: string };
-    Body: { title: string; description?: string | null; orderingHint?: number };
+    Body: {
+      title: string;
+      description?: string | null;
+      orderingHint?: number;
+      categoryId?: string | null;
+    };
   }>(
     '/admin/documents/:documentId/procedure-sections',
     {
@@ -1171,6 +1262,10 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           title: z.string().min(1).max(200),
           description: z.string().max(2000).nullable().optional(),
           orderingHint: z.number().int().optional(),
+          // Optional semantic category — drives the PWA phase-progress
+          // strip's color/icon for this section. Validated against the
+          // caller's scope (built-in or in-scope per-org).
+          categoryId: UuidSchema.nullable().optional(),
         }),
       },
     },
@@ -1184,6 +1279,15 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         return reply.badRequest(
           'Sections can only be authored on structured_procedure documents.',
         );
+      }
+
+      if (request.body.categoryId) {
+        const cat = await loadCategoryForUse(db, request.body.categoryId, scope);
+        if (!cat) {
+          return reply.badRequest(
+            'categoryId is not visible to this caller (unknown or out of scope).',
+          );
+        }
       }
 
       let orderingHint = request.body.orderingHint;
@@ -1206,6 +1310,7 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           title: request.body.title,
           description: request.body.description ?? null,
           orderingHint,
+          categoryId: request.body.categoryId ?? null,
           createdByUserId: auth.userId,
           searchIndexStaleAt: new Date(),
         })
@@ -1223,16 +1328,25 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         userAgent: request.headers['user-agent'] ?? null,
       });
 
-      return sectionRowToDTO(row);
+      const categoriesById = await loadSectionCategoryMap(db, [row]);
+      return sectionRowToDTO(
+        row,
+        row.categoryId ? categoriesById.get(row.categoryId) ?? null : null,
+      );
     },
   );
 
   // -------------------------------------------------------------------------
-  // PATCH /admin/procedure-sections/:sectionId — rename / reorder
+  // PATCH /admin/procedure-sections/:sectionId — rename / reorder / recategorize
   // -------------------------------------------------------------------------
   app.patch<{
     Params: { sectionId: string };
-    Body: { title?: string; description?: string | null; orderingHint?: number };
+    Body: {
+      title?: string;
+      description?: string | null;
+      orderingHint?: number;
+      categoryId?: string | null;
+    };
   }>(
     '/admin/procedure-sections/:sectionId',
     {
@@ -1243,6 +1357,9 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
             title: z.string().min(1).max(200).optional(),
             description: z.string().max(2000).nullable().optional(),
             orderingHint: z.number().int().optional(),
+            // Recategorize the section, or clear with null (falls back
+            // to neutral coloring on the PWA strip).
+            categoryId: UuidSchema.nullable().optional(),
           })
           .refine((v) => Object.keys(v).length > 0, {
             message: 'At least one field is required.',
@@ -1261,10 +1378,21 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
       if (!ctx) return reply.notFound();
 
       const b = request.body;
+
+      if (b.categoryId !== undefined && b.categoryId !== null) {
+        const cat = await loadCategoryForUse(db, b.categoryId, scope);
+        if (!cat) {
+          return reply.badRequest(
+            'categoryId is not visible to this caller (unknown or out of scope).',
+          );
+        }
+      }
+
       const patch: Record<string, unknown> = { updatedAt: new Date() };
       if (b.title !== undefined) patch.title = b.title;
       if (b.description !== undefined) patch.description = b.description;
       if (b.orderingHint !== undefined) patch.orderingHint = b.orderingHint;
+      if (b.categoryId !== undefined) patch.categoryId = b.categoryId;
       // A renamed section's title is part of every child step's indexed
       // text — mark the section stale so the sweeper re-embeds it. (The
       // child steps re-embed only when their own row changes; the slight
@@ -1291,7 +1419,11 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         userAgent: request.headers['user-agent'] ?? null,
       });
 
-      return sectionRowToDTO(updated);
+      const categoriesById = await loadSectionCategoryMap(db, [updated]);
+      return sectionRowToDTO(
+        updated,
+        updated.categoryId ? categoriesById.get(updated.categoryId) ?? null : null,
+      );
     },
   );
 
@@ -1426,8 +1558,16 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         }),
       ]);
 
+      const sectionCategoriesById = await loadSectionCategoryMap(db, sections);
       return {
-        sections: sections.map(sectionRowToDTO),
+        sections: sections.map((sec) =>
+          sectionRowToDTO(
+            sec,
+            sec.categoryId
+              ? sectionCategoriesById.get(sec.categoryId) ?? null
+              : null,
+          ),
+        ),
         steps: await rowsToExpandedDTO(db, steps, {
           audioPublicUrl: (k) => storage.publicUrl(k),
           mediaPublicUrl: (k) => storage.publicUrl(k),
@@ -1437,14 +1577,40 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
   );
 }
 
-function sectionRowToDTO(row: typeof schema.procedureSections.$inferSelect) {
+function sectionRowToDTO(
+  row: typeof schema.procedureSections.$inferSelect,
+  category?: ProcedureStepCategoryDTO | null,
+) {
   return {
     id: row.id,
     documentId: row.documentId,
     title: row.title,
     description: row.description,
     orderingHint: row.orderingHint,
+    categoryId: row.categoryId,
+    category: category ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+/**
+ * Resolve every category referenced by a list of section rows in one
+ * round-trip and return a Map keyed by id. Empty when no sections are
+ * categorized — common on legacy procedures.
+ */
+async function loadSectionCategoryMap(
+  db: Database,
+  sections: ReadonlyArray<typeof schema.procedureSections.$inferSelect>,
+): Promise<Map<string, ProcedureStepCategoryDTO>> {
+  const ids = [
+    ...new Set(
+      sections.map((s) => s.categoryId).filter((id): id is string => id !== null),
+    ),
+  ];
+  if (ids.length === 0) return new Map();
+  const rows = await db.query.procedureStepCategories.findMany({
+    where: inArray(schema.procedureStepCategories.id, ids),
+  });
+  return new Map(rows.map((r) => [r.id, procedureStepCategoryToDTO(r)]));
 }

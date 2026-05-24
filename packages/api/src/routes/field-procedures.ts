@@ -31,6 +31,10 @@ import { getScope, requireOrgInScope } from '../middleware/scope';
 import { ensureFieldCapturesVersion } from '../lib/field-captures-pack';
 import { enqueueExtraction } from '../lib/extraction';
 import { expandStep, loadSnippetMap } from '../services/snippet-expansion';
+import {
+  procedureStepCategoryToDTO,
+  type ProcedureStepCategoryDTO,
+} from './admin-procedure-step-categories';
 
 // ---------------------------------------------------------------------------
 // Zod schemas
@@ -1401,6 +1405,23 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
           })
         : [];
       const linkedById = new Map(linkedDocs.map((d) => [d.id, d]));
+      // Resolve every category referenced by any section or step on this
+      // doc in one round-trip, so the bundle can carry full category DTOs
+      // (color, icon) inline without the PWA fetching them separately.
+      const referencedCategoryIds = new Set<string>();
+      for (const sec of sections) if (sec.categoryId) referencedCategoryIds.add(sec.categoryId);
+      for (const step of steps) if (step.categoryId) referencedCategoryIds.add(step.categoryId);
+      const categoryRows = referencedCategoryIds.size
+        ? await db.query.procedureStepCategories.findMany({
+            where: inArray(
+              schema.procedureStepCategories.id,
+              [...referencedCategoryIds],
+            ),
+          })
+        : [];
+      const categoriesById = new Map<string, ProcedureStepCategoryDTO>(
+        categoryRows.map((r) => [r.id, procedureStepCategoryToDTO(r)]),
+      );
       // Resolve snippet content for any snippet-backed steps. Returned blocks
       // / title are replaced with the snippet's current content for attached
       // (non-detached) steps; detached steps render their own content with a
@@ -1482,6 +1503,10 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
           title: sec.title,
           description: sec.description,
           orderingHint: sec.orderingHint,
+          categoryId: sec.categoryId,
+          category: sec.categoryId
+            ? categoriesById.get(sec.categoryId) ?? null
+            : null,
         })),
         steps: steps.map((s) => {
           const expanded = expandStep(
@@ -1568,6 +1593,10 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
             bodyMarkdown: ss.bodyMarkdown,
             orderingHint: ss.orderingHint,
           })),
+          categoryId: s.categoryId,
+          category: s.categoryId
+            ? categoriesById.get(s.categoryId) ?? null
+            : null,
           };
         }),
       };

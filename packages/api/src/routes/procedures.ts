@@ -40,6 +40,10 @@ import {
   loadSnippetMap,
   type SnippetBadge,
 } from '../services/snippet-expansion';
+import {
+  procedureStepCategoryToDTO,
+  type ProcedureStepCategoryDTO,
+} from './admin-procedure-step-categories';
 
 // ---------------------------------------------------------------------------
 // Zod request schemas
@@ -124,6 +128,7 @@ function stepToDTO(
   opts?: {
     expanded?: { blocks: StepRow['blocks']; title: string };
     snippetBadge?: SnippetBadge | null;
+    category?: ProcedureStepCategoryDTO | null;
   },
 ) {
   return {
@@ -142,17 +147,22 @@ function stepToDTO(
     measurementSpec: s.measurementSpec,
     blocks: opts?.expanded ? opts.expanded.blocks : (s.blocks ?? []),
     snippetBadge: opts?.snippetBadge ?? null,
+    categoryId: s.categoryId,
+    category: opts?.category ?? null,
   };
 }
 
 /**
  * Map a list of step rows through snippet expansion. Used by the PWA run
  * routes so the Job Aid renders snippet-backed steps with current content
- * + a "From snippet: …" badge.
+ * + a "From snippet: …" badge. Also resolves the step's optional
+ * category DTO so the runner can render a per-step badge without a
+ * second round-trip.
  */
 async function stepsToDTOWithExpansion(
   db: Database,
   rows: StepRow[],
+  categoriesById: Map<string, ProcedureStepCategoryDTO>,
 ): Promise<ReturnType<typeof stepToDTO>[]> {
   const snippetMap = await loadSnippetMap(db, rows.map((r) => r.snippetId));
   return rows.map((s) => {
@@ -169,18 +179,47 @@ async function stepsToDTOWithExpansion(
     return stepToDTO(s, {
       expanded: { blocks: expanded.blocks, title: expanded.title },
       snippetBadge: expanded._snippetBadge,
+      category: s.categoryId ? categoriesById.get(s.categoryId) ?? null : null,
     });
   });
 }
 
-function sectionToDTO(s: typeof schema.procedureSections.$inferSelect) {
+function sectionToDTO(
+  s: typeof schema.procedureSections.$inferSelect,
+  category?: ProcedureStepCategoryDTO | null,
+) {
   return {
     id: s.id,
     documentId: s.documentId,
     title: s.title,
     description: s.description,
     orderingHint: s.orderingHint,
+    categoryId: s.categoryId,
+    category: category ?? null,
   };
+}
+
+/**
+ * Resolve every category referenced by a list of sections/steps in one
+ * round-trip. Returns a Map keyed by category id for O(1) lookup during
+ * DTO mapping. Returns an empty map when no categories are referenced
+ * (the common case for legacy / pre-categories procedures).
+ */
+async function loadCategoryMap(
+  db: Database,
+  sections: ReadonlyArray<typeof schema.procedureSections.$inferSelect>,
+  steps: ReadonlyArray<StepRow>,
+): Promise<Map<string, ProcedureStepCategoryDTO>> {
+  const ids = new Set<string>();
+  for (const sec of sections) if (sec.categoryId) ids.add(sec.categoryId);
+  for (const step of steps) if (step.categoryId) ids.add(step.categoryId);
+  if (ids.size === 0) return new Map();
+  const rows = await db.query.procedureStepCategories.findMany({
+    where: inArray(schema.procedureStepCategories.id, [...ids]),
+  });
+  const map = new Map<string, ProcedureStepCategoryDTO>();
+  for (const r of rows) map.set(r.id, procedureStepCategoryToDTO(r));
+  return map;
 }
 
 function runToDTO(r: RunRow) {
@@ -419,6 +458,7 @@ export async function registerProcedureRoutes(app: FastifyInstance) {
         where: eq(schema.procedureStepCompletions.runId, run.id),
       });
 
+      const categoriesById = await loadCategoryMap(db, sections, steps);
       return {
         run: runToDTO(run),
         document: {
@@ -427,8 +467,13 @@ export async function registerProcedureRoutes(app: FastifyInstance) {
           kind: doc.kind,
           safetyCritical: doc.safetyCritical,
         },
-        sections: sections.map(sectionToDTO),
-        steps: await stepsToDTOWithExpansion(db, steps),
+        sections: sections.map((sec) =>
+          sectionToDTO(
+            sec,
+            sec.categoryId ? categoriesById.get(sec.categoryId) ?? null : null,
+          ),
+        ),
+        steps: await stepsToDTOWithExpansion(db, steps, categoriesById),
         completions: completions.map(completionToDTO),
       };
     },
@@ -466,6 +511,7 @@ export async function registerProcedureRoutes(app: FastifyInstance) {
         }),
       ]);
 
+      const categoriesById = await loadCategoryMap(db, sections, steps);
       return {
         run: runToDTO(ctx.run),
         document: {
@@ -474,8 +520,13 @@ export async function registerProcedureRoutes(app: FastifyInstance) {
           kind: ctx.document.kind,
           safetyCritical: ctx.document.safetyCritical,
         },
-        sections: sections.map(sectionToDTO),
-        steps: await stepsToDTOWithExpansion(db, steps),
+        sections: sections.map((sec) =>
+          sectionToDTO(
+            sec,
+            sec.categoryId ? categoriesById.get(sec.categoryId) ?? null : null,
+          ),
+        ),
+        steps: await stepsToDTOWithExpansion(db, steps, categoriesById),
         completions: completions.map(completionToDTO),
       };
     },

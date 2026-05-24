@@ -37,6 +37,7 @@ import {
   deleteProcedureSection,
   deleteProcedureStep,
   generateProcedureStepAudio,
+  listProcedureStepCategories,
   listSiblingProcedures,
   reorderProcedureSteps,
   updateProcedureSection,
@@ -47,12 +48,15 @@ import {
   type AdminProcedureDocMetadata,
   type AdminProcedureSection,
   type AdminProcedureStep,
+  type AdminProcedureStepCategory,
   type AdminSiblingProcedure,
   type AdminSnippet,
   type CreateProcedureStepInput,
   type UpdateProcedureStepInput,
 } from '@/lib/api';
 import { SnippetPickerModal } from './snippet-picker-modal';
+import { CategoryManagerModal } from './category-manager-modal';
+import { CategoryPicker } from './category-picker';
 import {
   Clock,
   Film,
@@ -128,6 +132,22 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
       }
     })();
   }, [doc.id]);
+
+  // Step categories — built-ins + the doc's owner org's customs. Fetched
+  // once at the editor level and threaded through every CategoryPicker
+  // so we don't N+1 across sections + steps.
+  const [categories, setCategories] = useState<AdminProcedureStepCategory[]>([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        setCategories(await listProcedureStepCategories(doc.ownerOrganizationId));
+      } catch {
+        // Non-fatal — pickers degrade to "No categories yet" with the
+        // Manage… link to create some.
+      }
+    })();
+  }, [doc.ownerOrganizationId]);
+  const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
 
   const toast = useToast();
 
@@ -349,6 +369,26 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
       endSave(true);
     } catch (e) {
       endSave(false, e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function recategorizeSection(
+    sectionId: string,
+    categoryId: string | null,
+  ) {
+    beginSave();
+    try {
+      const updated = await updateProcedureSection(sectionId, { categoryId });
+      setLocalSections((prev) =>
+        prev.map((s) => (s.id === sectionId ? updated : s)),
+      );
+      endSave(true);
+    } catch (e) {
+      endSave(false, e instanceof Error ? e.message : String(e));
+      toast.error(
+        'Could not change section category',
+        e instanceof Error ? e.message : String(e),
+      );
     }
   }
 
@@ -631,6 +671,8 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
                     }
                     defaultExpanded={freshStepId === s.id}
                     siblingProcedures={siblingProcedures}
+                    categories={categories}
+                    onManageCategories={() => setCategoryManagerOpen(true)}
                   />
                 </div>
               ))}
@@ -653,6 +695,9 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
               onInsertSnippet={() => setSnippetPickerSectionId(g.section.id)}
               onRenameSection={(t) => renameSection(g.section.id, t)}
               onDeleteSection={() => removeSection(g.section.id)}
+              onRecategorizeSection={(cid) =>
+                recategorizeSection(g.section.id, cid)
+              }
               onPatchStep={patchStep}
               onDeleteStep={deleteStep}
               onMoveStep={moveStepToSection}
@@ -667,6 +712,8 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
               onDragEnd={onDragEnd}
               freshStepId={freshStepId}
               siblingProcedures={siblingProcedures}
+              categories={categories}
+              onManageCategories={() => setCategoryManagerOpen(true)}
             />
           ))}
         </div>
@@ -710,6 +757,13 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
         }}
         ownerOrganizationId={doc.ownerOrganizationId}
       />
+
+      <CategoryManagerModal
+        open={categoryManagerOpen}
+        onClose={() => setCategoryManagerOpen(false)}
+        organizationId={doc.ownerOrganizationId}
+        onChanged={(next) => setCategories(next)}
+      />
     </div>
   );
 }
@@ -729,6 +783,7 @@ function SectionGroup({
   onInsertSnippet,
   onRenameSection,
   onDeleteSection,
+  onRecategorizeSection,
   onPatchStep,
   onDeleteStep,
   onMoveStep,
@@ -739,6 +794,8 @@ function SectionGroup({
   onDragEnd,
   freshStepId,
   siblingProcedures,
+  categories,
+  onManageCategories,
 }: {
   section: AdminProcedureSection;
   steps: AdminProcedureStep[];
@@ -750,6 +807,7 @@ function SectionGroup({
   onInsertSnippet: () => void;
   onRenameSection: (title: string) => void;
   onDeleteSection: () => void;
+  onRecategorizeSection: (categoryId: string | null) => void;
   onPatchStep: (
     stepId: string,
     patch: UpdateProcedureStepInput,
@@ -767,6 +825,11 @@ function SectionGroup({
   /** Sibling structured_procedure docs in the same content pack version,
    *  surfaced to each step card's "Linked sub-procedure" picker. */
   siblingProcedures: AdminSiblingProcedure[];
+  /** Visible categories (built-ins + this org's). Pre-fetched at the
+   *  editor level and threaded down to avoid N+1 across sections. */
+  categories: AdminProcedureStepCategory[];
+  /** Opens the category manager modal — wired through from the editor. */
+  onManageCategories: () => void;
 }) {
   // Local title mirror with debounced PATCH — same pattern as step titles.
   const [title, setTitle] = useState(section.title);
@@ -801,6 +864,15 @@ function SectionGroup({
           onChange={(e) => onTitleInput(e.target.value)}
           className="flex-1 rounded-md border border-transparent bg-transparent px-2 py-1 text-base font-semibold text-ink-primary outline-none transition focus:border-accent focus:bg-surface"
           placeholder="Section name"
+        />
+        <CategoryPicker
+          value={section.categoryId}
+          options={categories}
+          onChange={onRecategorizeSection}
+          onManage={onManageCategories}
+          emptyLabel="No category"
+          size="sm"
+          ariaLabel={`Section category for ${section.title}`}
         />
         <span className="select-none text-xs text-ink-tertiary">
           {steps.length} step{steps.length === 1 ? '' : 's'} · numbering restarts at 1
@@ -841,6 +913,8 @@ function SectionGroup({
                 onMoveToSection={(target) => onMoveStep(s.id, target)}
                 defaultExpanded={freshStepId === s.id}
                 siblingProcedures={siblingProcedures}
+                categories={categories}
+                onManageCategories={onManageCategories}
               />
             </div>
           ))}

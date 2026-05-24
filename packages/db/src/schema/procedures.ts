@@ -20,6 +20,7 @@ import { agentRuns } from './agent';
 import { workOrders } from './workorders';
 import { procedureSnippets } from './snippets';
 import { procedureDraftRuns } from './procedure-drafts';
+import { procedureStepCategories } from './procedure-step-categories';
 import { procedureStepKindEnum, procedureRunStatusEnum } from './enums';
 
 // Procedure mode — turns kind=structured_procedure documents into
@@ -199,6 +200,15 @@ export const procedureSections = pgTable(
     title: text('title').notNull(),
     description: text('description'),
     orderingHint: integer('ordering_hint').notNull().default(0),
+    // Optional semantic category — drives the PWA phase-progress strip's
+    // color and icon for this section. NULL = neutral coloring (the
+    // strip uses a default accent). Categories are author-extensible
+    // per org with two built-ins (Safety, Verification) seeded by 0039.
+    // onDelete: SET NULL so a category deletion never silently drops a
+    // section's grouping — it just falls back to neutral.
+    categoryId: uuid('category_id').references(() => procedureStepCategories.id, {
+      onDelete: 'set null',
+    }),
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -216,6 +226,7 @@ export const procedureSections = pgTable(
       t.documentId,
       t.orderingHint,
     ),
+    categoryIdx: index('procedure_sections_category_idx').on(t.categoryId),
   }),
 );
 
@@ -259,6 +270,16 @@ export const procedureSteps = pgTable(
       .default([]),
 
     kind: procedureStepKindEnum('kind').notNull().default('instruction'),
+
+    // Optional semantic category — independent of the section's category.
+    // Drives a small badge above the step title in both the runner and
+    // the authoring view (e.g. a yellow Safety chip on a single step
+    // inside an otherwise-neutral Removal section). When the section's
+    // own category matches, the in-body badge is suppressed to avoid
+    // duplicate visual treatment. onDelete: SET NULL.
+    categoryId: uuid('category_id').references(() => procedureStepCategories.id, {
+      onDelete: 'set null',
+    }),
 
     // Display + per-step body. bodyMarkdown lets authors embed images,
     // lists, links to specs in a step. Doc-level bodyMarkdown stays
@@ -373,6 +394,7 @@ export const procedureSteps = pgTable(
     snippetIdx: index('procedure_steps_snippet_idx')
       .on(t.snippetId)
       .where(sql`snippet_id IS NOT NULL`),
+    categoryIdx: index('procedure_steps_category_idx').on(t.categoryId),
   }),
 );
 
@@ -566,6 +588,10 @@ export const procedureSectionsRelations = relations(procedureSections, ({ one, m
     fields: [procedureSections.createdByUserId],
     references: [users.id],
   }),
+  category: one(procedureStepCategories, {
+    fields: [procedureSections.categoryId],
+    references: [procedureStepCategories.id],
+  }),
   steps: many(procedureSteps),
 }));
 
@@ -589,6 +615,10 @@ export const procedureStepsRelations = relations(procedureSteps, ({ one, many })
   snippet: one(procedureSnippets, {
     fields: [procedureSteps.snippetId],
     references: [procedureSnippets.id],
+  }),
+  category: one(procedureStepCategories, {
+    fields: [procedureSteps.categoryId],
+    references: [procedureStepCategories.id],
   }),
   partLinks: many(partProcedureSteps),
   substeps: many(procedureSubsteps),

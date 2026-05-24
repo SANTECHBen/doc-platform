@@ -1168,6 +1168,22 @@ export type StepBlock =
     }
   | { kind: 'photo_inline'; storageKey: string; caption?: string };
 
+// Procedure step category — author-extensible semantic tag that drives
+// the PWA phase-progress strip's section color/icon and the per-step
+// in-body badge. Resolved server-side; the runner just renders.
+export interface ProcedureStepCategoryDto {
+  id: string;
+  /** NULL for built-in / platform-wide categories. */
+  organizationId: string | null;
+  name: string;
+  /** CSS color string (hex). Used verbatim. */
+  color: string;
+  /** Lucide icon name from the allowlist, or null. */
+  icon: string | null;
+  sortOrder: number;
+  isBuiltIn: boolean;
+}
+
 // Optional grouping above procedure steps. Sections render as headers in
 // the viewer / runner; step numbering restarts within each section.
 export interface ProcedureSectionDto {
@@ -1176,6 +1192,10 @@ export interface ProcedureSectionDto {
   title: string;
   description: string | null;
   orderingHint: number;
+  /** Optional category — drives the phase-progress strip's segment
+   *  color and icon. Null = neutral. */
+  categoryId?: string | null;
+  category?: ProcedureStepCategoryDto | null;
 }
 
 export interface ProcedureStepDto {
@@ -1216,6 +1236,11 @@ export interface ProcedureStepDto {
   /** Typed structured content. When non-empty, the runner renders these
    *  in order (template owns the visual style) and ignores bodyMarkdown. */
   blocks?: StepBlock[];
+  /** Optional category override for this step. When set, the runner
+   *  shows a badge above the step title in the category's color. When
+   *  null, the section's category drives the visual treatment. */
+  categoryId?: string | null;
+  category?: ProcedureStepCategoryDto | null;
 }
 
 export interface ProcedureRunDto {
