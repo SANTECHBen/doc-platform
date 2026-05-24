@@ -8,9 +8,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Film,
   FileText,
   GraduationCap,
   Info,
+  LayoutList,
   Lightbulb,
   ListChecks,
   RefreshCw,
@@ -28,6 +30,7 @@ import {
   type StepBlock,
 } from '@/lib/api';
 import { CategoryIcon } from './procedure-runner/category-icon';
+import { VirtualJobAidReels, type ReelsViewportHandle } from './virtual-job-aid-reels';
 import { StepVideoPlayer } from './step-video-player';
 import { HeroVideoEmbed } from './hero-video-embed';
 import { MuxClipPlayer } from './mux-clip-player';
@@ -409,6 +412,55 @@ export function VirtualJobAid({
   } | null>(null);
   const [speaking, setSpeaking] = useState(false);
   const [muted, setMuted] = useState(false);
+  // Layout mode toggle. 'classic' is the original step-card view; 'reels'
+  // is the vertical-swipe video-first reader. Defaults derive from:
+  //   1. localStorage preference (sticky across sessions)
+  //   2. Auto-engage when every step has a video clip
+  //   3. 'classic' otherwise
+  // Source of truth is the user's most recent toggle once they've
+  // touched it — `userToggledMode` flips the auto-engage off so the
+  // detection doesn't override their choice on the next mount.
+  const [mode, setMode] = useState<'classic' | 'reels'>('classic');
+  const userToggledModeRef = useRef(false);
+  const reelsHandleRef = useRef<ReelsViewportHandle | null>(null);
+  // One-time read of the persisted preference. Runs after mount to keep
+  // SSR-safety (no localStorage during the server render).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const stored = window.localStorage.getItem('eh:vja:mode:v1');
+      if (stored === 'reels' || stored === 'classic') {
+        setMode(stored);
+        userToggledModeRef.current = true;
+      }
+    } catch {
+      // Storage disabled / quota — silently use the default.
+    }
+  }, []);
+  // Auto-engage Reels when the procedure resolves and every step has a
+  // video. Only fires when the user hasn't manually toggled (we don't
+  // want to override a deliberate choice).
+  useEffect(() => {
+    if (!resolved || userToggledModeRef.current) return;
+    const everyStepHasVideo =
+      resolved.steps.length > 0 &&
+      resolved.steps.every((s) =>
+        s.media.some((m) => m.kind === 'video' || m.kind === 'video_clip'),
+      );
+    if (everyStepHasVideo) setMode('reels');
+  }, [resolved]);
+  function toggleMode() {
+    setMode((cur) => {
+      const next = cur === 'reels' ? 'classic' : 'reels';
+      userToggledModeRef.current = true;
+      try {
+        window.localStorage.setItem('eh:vja:mode:v1', next);
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }
   // When the procedure has a hero video, we show a "Step 0" intro panel
   // before the first real step. true = on the intro, false = stepIdx
   // governs. We initialize true at top level and drop it once we know
@@ -809,6 +861,20 @@ export function VirtualJobAid({
         <button
           type="button"
           className="vja-mute"
+          onClick={toggleMode}
+          aria-label={mode === 'reels' ? 'Switch to classic view' : 'Switch to Reels mode'}
+          aria-pressed={mode === 'reels'}
+          title={mode === 'reels' ? 'Classic view' : 'Reels mode (vertical swipe)'}
+        >
+          {mode === 'reels' ? (
+            <LayoutList size={18} strokeWidth={2} />
+          ) : (
+            <Film size={18} strokeWidth={2} />
+          )}
+        </button>
+        <button
+          type="button"
+          className="vja-mute"
           onClick={toggleMute}
           aria-label={muted ? 'Unmute' : 'Mute'}
           title={muted ? 'Unmute' : 'Mute'}
@@ -896,7 +962,47 @@ export function VirtualJobAid({
         </div>
       )}
 
-      <main className="vja-main">
+      {/* Reels mode — vertical-swipe video reader. Only renders when:
+          (a) the user is in reels mode, (b) we're past the hero intro,
+          (c) we're not on the completion screen. The intro + completion
+          surfaces stay in their classic single-screen layout — neither
+          one fits the reel model (the intro is pre-procedure orientation;
+          completion is a confirmation, not a step). */}
+      {mode === 'reels' && !showHeroIntro && !showCompletion && (
+        <VirtualJobAidReels
+          ref={reelsHandleRef}
+          steps={resolved.steps}
+          phases={resolved.phases}
+          stepIdx={stepIdx}
+          onStepChange={(next) => {
+            // Settle from the reels viewport — fires after scroll stops.
+            // stopPlayback so any in-flight voiceover for the previous
+            // step doesn't bleed into the new one; the speakCurrent
+            // useEffect will then auto-trigger fresh narration for the
+            // new active step.
+            if (next === stepIdx) return;
+            stopPlayback();
+            setStepIdx(next);
+          }}
+          onReplayVoiceover={replay}
+          speaking={speaking}
+          muted={muted}
+          activePhaseColor={
+            resolved.phases.find((p) => stepIdx >= p.start && stepIdx < p.end)?.color ?? null
+          }
+        />
+      )}
+
+      <main
+        className="vja-main"
+        // Hide the classic main when Reels mode owns the viewport so the
+        // reel container can occupy the full vertical space. Still
+        // mounted so the intro + completion branches inside this block
+        // can keep their classic single-screen treatments.
+        data-hidden={
+          mode === 'reels' && !showHeroIntro && !showCompletion ? 'true' : undefined
+        }
+      >
         {showCompletion && (
           <section className="vja-completion" aria-label="Procedure complete">
             <div className="vja-completion-mark" aria-hidden>
@@ -1218,7 +1324,17 @@ export function VirtualJobAid({
         )}
       </main>
 
-      <footer className="vja-controls">
+      <footer
+        className="vja-controls"
+        // Reels mode hides the bottom button bar — vertical swipes drive
+        // step changes, the per-reel replay button handles voiceover.
+        // Keep the bar visible on the hero intro panel and the
+        // completion screen, both of which need explicit "Start" /
+        // "Mark complete" affordances regardless of mode.
+        data-hidden={
+          mode === 'reels' && !showHeroIntro && !showCompletion ? 'true' : undefined
+        }
+      >
         {showCompletion ? (
           <>
             <button
