@@ -50,43 +50,11 @@ import {
 } from '@/lib/api';
 import { MicButton } from '@/components/voice-input';
 import { PhotoEditor } from '@/components/photo-editor';
+import { ProcedureIntake } from '@/components/procedure-intake';
 
-type WizardMode = 'category' | 'title' | 'step' | 'review';
-
-// Order, label, description, and icon for each pickable category. The
-// 4-tile picker grid renders in this order; the wizard refuses to
-// advance past mode='category' until one is selected.
-const CATEGORY_OPTIONS: Array<{
-  key: AuthoredProcedureCategory;
-  label: string;
-  description: string;
-  icon: LucideIcon;
-}> = [
-  {
-    key: 'preventive_maintenance',
-    label: 'Preventive maintenance',
-    description: 'Inspections, lube, calibration, scheduled checks.',
-    icon: ListChecks,
-  },
-  {
-    key: 'troubleshooting',
-    label: 'Troubleshooting',
-    description: 'Diagnosing a symptom, fault, or alarm.',
-    icon: ShieldAlert,
-  },
-  {
-    key: 'removal_replacement',
-    label: 'Removal & Replacement',
-    description: 'Swapping a part or assembly out.',
-    icon: RotateCcw,
-  },
-  {
-    key: 'walkthrough',
-    label: 'Walkthrough',
-    description: 'Anything else — orientation, demos, one-offs.',
-    icon: Wrench,
-  },
-];
+// 'intake' covers the shared category + title screens that ProcedureIntake
+// owns; 'step' and 'review' are the wizard's own capture surfaces.
+type WizardMode = 'intake' | 'step' | 'review';
 
 interface CapturedStep {
   // null until the step is saved server-side (first media upload OR Next tap).
@@ -117,7 +85,7 @@ export function ProcedureDocWizard({
     useState<AuthoredProcedureCategory | null>(null);
   const [steps, setSteps] = useState<CapturedStep[]>([freshStep()]);
   const [currentIdx, setCurrentIdx] = useState(0);
-  const [mode, setMode] = useState<WizardMode>('category');
+  const [mode, setMode] = useState<WizardMode>('intake');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Bottom-sheet picker: null = closed, otherwise the user is choosing
@@ -386,16 +354,13 @@ export function ProcedureDocWizard({
 
   async function onFinishProcedure() {
     if (!bundle) return;
-    if (!procedureCategory) {
-      // Should be impossible — the category step is the first wizard
-      // mode and we never advance without picking. Defensive only.
-      setError('Pick a procedure type first.');
-      setMode('category');
-      return;
-    }
-    if (!procedureTitle.trim()) {
-      setError('Add a title for the procedure first.');
-      setMode('title');
+    if (!procedureCategory || !procedureTitle.trim()) {
+      // Should be impossible — intake is the first wizard mode and we
+      // never advance without both. Defensive: bounce back to intake.
+      setError(
+        !procedureCategory ? 'Pick a procedure type first.' : 'Add a title for the procedure first.',
+      );
+      setMode('intake');
       return;
     }
     const savedSteps = steps.filter((s) => s.id);
@@ -480,122 +445,25 @@ export function ProcedureDocWizard({
     );
   }
 
-  // ---- CATEGORY screen ----------------------------------------------
-  // Picked first — drives which Maintenance bucket the saved procedure
-  // appears under (PM card, R&R card, Troubleshooting card). The same
-  // categories admin authoring uses, so field-captured procedures route
-  // through the same Maintenance UI as OEM-authored ones.
-  if (mode === 'category') {
+  // ---- INTAKE (category + title) — delegated to the shared component
+  // so the manual wizard and the AI walkthrough flow present these two
+  // screens identically. Commit transitions us into capture; cancel
+  // tears down the whole wizard.
+  if (mode === 'intake') {
     return (
-      <FullScreenShell
+      <ProcedureIntake
+        kicker="DOCUMENT A PROCEDURE"
         title="Document a procedure"
-        onClose={onCancelAll}
-        rightActionLabel="Cancel"
-      >
-        <div className="flex flex-1 flex-col items-center gap-6 px-6 pb-8 pt-2">
-          <div className="w-full max-w-md text-center">
-            <p className="caption mb-2">Step 1 of 3</p>
-            <h2 className="text-2xl font-bold text-ink-primary">
-              What kind of procedure?
-            </h2>
-            <p className="mt-2 text-sm text-ink-tertiary">
-              This decides where the procedure shows up in Maintenance.
-            </p>
-          </div>
-          <div className="w-full max-w-md flex flex-col gap-2.5">
-            {CATEGORY_OPTIONS.map((opt) => {
-              const Icon = opt.icon;
-              const active = procedureCategory === opt.key;
-              return (
-                <button
-                  key={opt.key}
-                  type="button"
-                  onClick={() => setProcedureCategory(opt.key)}
-                  aria-pressed={active}
-                  className="category-pick-card"
-                  data-active={active}
-                >
-                  <span className="category-pick-icon" aria-hidden>
-                    <Icon size={22} strokeWidth={2} />
-                  </span>
-                  <span className="category-pick-text">
-                    <span className="category-pick-label">{opt.label}</span>
-                    <span className="category-pick-description">
-                      {opt.description}
-                    </span>
-                  </span>
-                  <span className="category-pick-check" aria-hidden>
-                    {active && <Check size={18} strokeWidth={2.5} />}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          {error && <p className="text-sm text-signal-fault">{error}</p>}
-          <button
-            type="button"
-            onClick={() => setMode('title')}
-            disabled={!procedureCategory || busy}
-            className="btn btn-primary btn-lg w-full max-w-md"
-          >
-            Next <ChevronRight size={18} strokeWidth={2} />
-          </button>
-        </div>
-      </FullScreenShell>
-    );
-  }
-
-  // ---- TITLE screen -------------------------------------------------
-
-  if (mode === 'title') {
-    const canAdvance = procedureTitle.trim().length > 0;
-    const categoryLabel = procedureCategory
-      ? CATEGORY_OPTIONS.find((c) => c.key === procedureCategory)?.label ?? null
-      : null;
-    return (
-      <FullScreenShell
-        title="Document a procedure"
-        // The title screen is now reachable FROM the category screen,
-        // so back goes there instead of to the implicit close.
-        onBack={() => setMode('category')}
-        onClose={onCancelAll}
-        rightActionLabel="Cancel"
-      >
-        <div className="flex flex-1 flex-col items-center justify-center gap-8 px-6 pb-12">
-          <div className="w-full max-w-md">
-            <p className="caption mb-3 text-center">
-              Step 2 of 3
-              {categoryLabel ? ` · ${categoryLabel}` : ''}
-            </p>
-            <h2 className="text-center text-2xl font-bold text-ink-primary">
-              What procedure are you documenting?
-            </h2>
-            <p className="mt-2 text-center text-sm text-ink-tertiary">
-              Replace bearing assembly · Lubricate gearbox · Calibrate drum
-            </p>
-            <div className="mt-6 flex items-center gap-2">
-              <input
-                type="text"
-                value={procedureTitle}
-                onChange={(e) => setProcedureTitle(e.target.value)}
-                placeholder="Type a title, or tap the mic"
-                className="flex-1 rounded-md border border-line bg-surface-raised p-4 text-lg font-medium"
-                autoFocus
-              />
-              <MicButton size="md" appendMode={false} onTranscript={(t) => setProcedureTitle(t)} />
-            </div>
-            {error && <p className="mt-3 text-sm text-signal-fault">{error}</p>}
-          </div>
-          <button
-            type="button"
-            onClick={() => setMode('step')}
-            disabled={!canAdvance || busy}
-            className="btn btn-primary btn-lg w-full max-w-md"
-          >
-            Next <ChevronRight size={18} strokeWidth={2} />
-          </button>
-        </div>
-      </FullScreenShell>
+        totalSteps={3}
+        initialCategory={procedureCategory}
+        initialTitle={procedureTitle}
+        onCancel={onCancelAll}
+        onCommit={({ category, title }) => {
+          setProcedureCategory(category);
+          setProcedureTitle(title);
+          setMode('step');
+        }}
+      />
     );
   }
 
@@ -690,7 +558,8 @@ export function ProcedureDocWizard({
       title={procedureTitle.trim() || 'Untitled procedure'}
       onBack={() => {
         if (currentIdx === 0) {
-          setMode('title');
+          // Step 1 → back to intake so the tech can edit category/title.
+          setMode('intake');
         } else {
           setCurrentIdx(currentIdx - 1);
         }

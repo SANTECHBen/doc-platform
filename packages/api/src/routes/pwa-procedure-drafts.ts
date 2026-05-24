@@ -31,6 +31,14 @@ const SubmitBody = z.object({
    *  auto-detection. Handles the case where the recorded pixels are
    *  sideways but the user knows they filmed in portrait. */
   orientationOverride: z.enum(['portrait', 'landscape']).optional(),
+  /** Tech-picked category — drives the Maintenance bucket the promoted
+   *  procedure ends up under AND lets the drafter executor pre-select
+   *  a matching template. Collected by the shared ProcedureIntake
+   *  screens on the PWA. Optional for back-compat with older clients
+   *  that may not send it. */
+  procedureCategory: z
+    .enum(['preventive_maintenance', 'removal_replacement', 'troubleshooting', 'walkthrough'])
+    .optional(),
 });
 
 export async function registerPwaProcedureDrafts(app: FastifyInstance) {
@@ -124,6 +132,10 @@ export async function registerPwaProcedureDrafts(app: FastifyInstance) {
           // metadata, so the runner ends up framing the clip the way
           // the tech said it should be framed.
           sourceVideoOrientation: request.body.orientationOverride ?? null,
+          // Tech-picked category from the intake screens. Surfaces on
+          // the admin reviewer's UI and gates which executor template
+          // the drafter uses.
+          procedureCategory: request.body.procedureCategory ?? null,
           createdByUserId: auth.userId,
         })
         .returning();
@@ -147,6 +159,7 @@ export async function registerPwaProcedureDrafts(app: FastifyInstance) {
           proposedTitle: run.proposedTitle,
           assetInstanceId: asset.id,
           notes: request.body.notes ?? null,
+          procedureCategory: request.body.procedureCategory ?? null,
         },
         ipAddress: request.ip,
         userAgent: request.headers['user-agent'] ?? null,

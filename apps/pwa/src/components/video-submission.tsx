@@ -20,8 +20,10 @@ import {
 import {
   submitProcedureDraft,
   uploadDraftVideoToMuxFromPwa,
+  type AuthoredProcedureCategory,
 } from '@/lib/api';
 import { InAppCamera } from './in-app-camera';
+import { ProcedureIntake } from './procedure-intake';
 
 // VideoSubmission — full-screen overlay for filming + submitting a
 // walkthrough on the PWA.
@@ -43,6 +45,11 @@ import { InAppCamera } from './in-app-camera';
 const MAX_BYTES = 2 * 1024 * 1024 * 1024;
 
 type Phase =
+  // 'intake' is the shared category + title screens (ProcedureIntake).
+  // Once committed we know which Maintenance bucket this walkthrough
+  // belongs to and what to call it — both flow downstream to the
+  // server-side draft record so admin review surfaces them.
+  | { kind: 'intake' }
   | { kind: 'coach' }
   | { kind: 'capture' }
   | { kind: 'submitting' }
@@ -74,8 +81,13 @@ export function VideoSubmission({
 }: Props) {
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
+  // Picked in the intake step; sent to the API on submit so the
+  // draft lands in the right Maintenance bucket and the admin can
+  // review with full context.
+  const [procedureCategory, setProcedureCategory] =
+    useState<AuthoredProcedureCategory | null>(null);
   const [captured, setCaptured] = useState<CapturedVideo | null>(null);
-  const [phase, setPhase] = useState<Phase>({ kind: 'coach' });
+  const [phase, setPhase] = useState<Phase>({ kind: 'intake' });
   const [cameraOpen, setCameraOpen] = useState(false);
   const galleryRef = useRef<HTMLInputElement>(null);
   const uploadStartedAt = useRef<number | null>(null);
@@ -181,6 +193,12 @@ export function VideoSubmission({
         assetInstanceId,
         proposedTitle: title.trim(),
         notes: notes.trim() || undefined,
+        // Category was picked in intake; surfacing it to the API lets
+        // the admin reviewer see what bucket the tech intended this for
+        // and the drafter executor can pre-select a matching template.
+        ...(procedureCategory
+          ? { procedureCategory }
+          : {}),
         orientationOverride:
           captured.orientation === 'portrait' ||
           captured.orientation === 'landscape'
@@ -257,6 +275,26 @@ export function VideoSubmission({
       </header>
 
       <main className="flex-1 overflow-y-auto">
+        {phase.kind === 'intake' && (
+          // Shared intake — category + title — mounted as the entry
+          // point so the AI walkthrough's first two screens match the
+          // manual wizard exactly. ProcedureIntake renders its own
+          // overlay shell (which sits above this component's outer
+          // black panel until commit, then unmounts cleanly).
+          <ProcedureIntake
+            kicker="SUBMIT A WALKTHROUGH"
+            title="Submit a walkthrough"
+            totalSteps={3}
+            initialCategory={procedureCategory}
+            initialTitle={title}
+            onCancel={onClose}
+            onCommit={({ category, title: t }) => {
+              setProcedureCategory(category);
+              setTitle(t);
+              setPhase({ kind: 'coach' });
+            }}
+          />
+        )}
         {phase.kind === 'coach' && (
           <CoachScreen onContinue={() => setPhase({ kind: 'capture' })} />
         )}
@@ -266,18 +304,18 @@ export function VideoSubmission({
           phase.kind === 'submitting' ||
           phase.kind === 'uploading') && (
           <div className="mx-auto flex max-w-md flex-col gap-4 px-4 py-5">
-            <Field label="Title" required>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                disabled={uploading}
-                maxLength={200}
-                autoFocus
-                placeholder="e.g. Replace the take-up belt"
-                className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-3 text-base text-white outline-none placeholder:text-white/40 focus:border-[rgb(var(--brand))]"
-              />
-            </Field>
+            {/* Title was collected upfront in the intake step — show it
+                here as read-only context so the tech knows what they're
+                recording without re-typing. Tapping the back arrow on
+                the coach screen returns to intake to edit it. */}
+            <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5">
+              <p className="text-[10px] uppercase tracking-wider text-white/40">
+                Recording
+              </p>
+              <p className="mt-0.5 truncate text-sm font-medium text-white">
+                {title || 'Untitled walkthrough'}
+              </p>
+            </div>
             <Field
               label="Notes"
               hint="Anything specific the admin should know — context, follow-ups."

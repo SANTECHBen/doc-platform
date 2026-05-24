@@ -499,6 +499,10 @@ export async function submitProcedureDraft(input: {
    *  shape when the auto-detection is wrong (e.g., a sideways
    *  recording that didn't carry a rotation tag through Mux ingest). */
   orientationOverride?: 'portrait' | 'landscape';
+  /** Procedure category — drives both which Maintenance bucket the
+   *  promoted procedure ends up under AND the drafter's template
+   *  selection. Set by the shared ProcedureIntake screens. */
+  procedureCategory?: AuthoredProcedureCategory;
   /** Dev-auth credentials. Matches the rest of the PWA writers (start
    *  procedure run, submit feedback, etc.) — `x-dev-user` header is
    *  what the API auth middleware accepts in dev. Prod OIDC swap is a
@@ -518,6 +522,9 @@ export async function submitProcedureDraft(input: {
       notes: input.notes,
       ...(input.orientationOverride
         ? { orientationOverride: input.orientationOverride }
+        : {}),
+      ...(input.procedureCategory
+        ? { procedureCategory: input.procedureCategory }
         : {}),
     }),
   });
