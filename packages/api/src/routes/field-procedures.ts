@@ -28,6 +28,10 @@ import {
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth';
 import { getScope, requireOrgInScope } from '../middleware/scope';
+import {
+  requireAuthOrScan,
+  getEffectiveOrgScope,
+} from '../middleware/scan-session.js';
 import { sniffMime } from '../lib/mime-sniff';
 import { ensureFieldCapturesVersion } from '../lib/field-captures-pack';
 import { enqueueExtraction } from '../lib/extraction';
@@ -1359,17 +1363,18 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
   // and for resuming an in-progress authoring session. Returns metadata,
   // steps, substeps, and media in one shot.
   //
-  // Auth: requireAuthOrScan-equivalent — same access as the standard doc
-  // listing. Reading procedures stays scan-friendly; only writes need
-  // auth.
+  // Auth: requireAuthOrScan — reading procedures is scan-friendly (a tech
+  // viewing a procedure via the PWA has only a scan-session cookie, no
+  // logged-in user). Only writes (PATCH/POST) require full auth.
   // -------------------------------------------------------------------------
   app.get<{ Params: { docId: string } }>(
     '/procedure-docs/:docId',
     { schema: { params: z.object({ docId: UuidSchema }) } },
     async (request, reply) => {
       const { db, storage } = app.ctx;
-      const auth = requireAuth(request);
-      const scope = await getScope(request, db);
+      requireAuthOrScan(request);
+      const scope = await getEffectiveOrgScope(request, db);
+      if (!scope) return reply.unauthorized();
       const doc = await db.query.documents.findFirst({
         where: eq(schema.documents.id, request.params.docId),
         with: { packVersion: { with: { pack: true } } },
