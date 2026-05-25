@@ -509,16 +509,13 @@ export function MuxClipPlayer({
       )}
       {/* Shorts-style flash icon. Renders only briefly (~700ms) after
           each toggle and is purely decorative — the underlying video
-          is the source of truth for play/pause state. */}
+          is the source of truth for play/pause state. The unmount/
+          remount cycle that restarts the CSS animation is driven by
+          togglePlayback's null → value transition via rAF, NOT by a
+          per-render key (which would re-fire the animation every time
+          timeupdate caused a re-render). */}
       {flash && (
-        <span
-          className="step-video-flash"
-          aria-hidden
-          data-kind={flash}
-          // Keying the element on flash forces React to remount on
-          // consecutive taps so the CSS animation always restarts.
-          key={`${flash}-${Date.now()}`}
-        >
+        <span className="step-video-flash" aria-hidden data-kind={flash}>
           {flash === 'pause' ? (
             <Pause size={36} strokeWidth={2.25} fill="currentColor" />
           ) : (
