@@ -31,7 +31,7 @@ const CSP_DIRECTIVES = [
   "frame-ancestors 'self'",
   "object-src 'none'",
   `img-src 'self' data: blob: ${API_ORIGIN} https://*.r2.cloudflarestorage.com https://*.r2.dev https://image.mux.com`,
-  `media-src 'self' blob: ${API_ORIGIN} https://stream.mux.com`,
+  `media-src 'self' blob: ${API_ORIGIN} https://*.r2.cloudflarestorage.com https://*.r2.dev https://stream.mux.com`,
   "frame-src 'self' https://stream.mux.com",
   "font-src 'self' data:",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net",

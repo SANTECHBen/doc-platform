@@ -63,7 +63,7 @@ const nextConfig = {
       "frame-ancestors 'self'",
       "object-src 'none'",
       `img-src 'self' data: blob: ${apiOrigin} https://*.r2.cloudflarestorage.com https://*.r2.dev https://image.mux.com`,
-      `media-src 'self' blob: ${apiOrigin} https://stream.mux.com`,
+      `media-src 'self' blob: ${apiOrigin} https://*.r2.cloudflarestorage.com https://*.r2.dev https://stream.mux.com`,
       "frame-src 'self' https://stream.mux.com",
       "font-src 'self' data:",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net",
