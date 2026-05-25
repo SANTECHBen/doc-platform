@@ -42,20 +42,34 @@ const nextConfig = {
     //   - R2 PDF/image fetch                          → img-src, connect-src
     //   - pdfjs worker (CDN until self-host lands)    → worker-src, script-src
     //   - Microsoft sign-in not needed (PWA is anon)  → no login.microsoftonline.com
+    //
+    // connect-src includes the API origin so the PWA's client-side fetches
+    // to https://equipment-hub-api.fly.dev/* work. Most PWA traffic goes
+    // through the same-origin /api/* proxy, but a handful of direct calls
+    // (streaming endpoints, voice) still hit the API host directly.
+    const apiOrigin = (() => {
+      const raw = process.env.NEXT_PUBLIC_API_BASE ?? '';
+      if (!raw) return 'https://equipment-hub-api.fly.dev';
+      try {
+        return new URL(raw).origin;
+      } catch {
+        return 'https://equipment-hub-api.fly.dev';
+      }
+    })();
     const csp = [
       "default-src 'self'",
       "base-uri 'self'",
       "form-action 'self'",
       "frame-ancestors 'self'",
       "object-src 'none'",
-      "img-src 'self' data: blob: https://*.r2.cloudflarestorage.com https://*.r2.dev https://image.mux.com",
-      "media-src 'self' blob: https://stream.mux.com",
+      `img-src 'self' data: blob: ${apiOrigin} https://*.r2.cloudflarestorage.com https://*.r2.dev https://image.mux.com`,
+      `media-src 'self' blob: ${apiOrigin} https://stream.mux.com`,
       "frame-src 'self' https://stream.mux.com",
       "font-src 'self' data:",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net",
       "worker-src 'self' blob: https://cdn.jsdelivr.net",
       "style-src 'self' 'unsafe-inline'",
-      "connect-src 'self' https://*.ingest.sentry.io https://*.r2.cloudflarestorage.com https://*.r2.dev https://image.mux.com https://stream.mux.com",
+      `connect-src 'self' ${apiOrigin} https://*.ingest.sentry.io https://*.r2.cloudflarestorage.com https://*.r2.dev https://image.mux.com https://stream.mux.com`,
       "manifest-src 'self'",
       process.env.NODE_ENV === 'production' ? 'upgrade-insecure-requests' : null,
     ]

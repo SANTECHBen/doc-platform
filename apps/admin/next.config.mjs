@@ -10,20 +10,34 @@
 // nonces require route-level middleware to mint per request — flagged as
 // a follow-up. The current policy still blocks attacker-controlled remote
 // scripts via the host allowlist.
+//
+// `connect-src` includes the API origin so the admin's client-side fetches
+// to https://equipment-hub-api.fly.dev/* work. Read from
+// NEXT_PUBLIC_API_BASE at build time so preview deploys with non-prod
+// APIs still function; defaults to the prod origin when unset.
+const API_ORIGIN = (() => {
+  const raw = process.env.NEXT_PUBLIC_API_BASE ?? '';
+  if (!raw) return 'https://equipment-hub-api.fly.dev';
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return 'https://equipment-hub-api.fly.dev';
+  }
+})();
 const CSP_DIRECTIVES = [
   "default-src 'self'",
   "base-uri 'self'",
   "form-action 'self' https://login.microsoftonline.com",
   "frame-ancestors 'self'",
   "object-src 'none'",
-  "img-src 'self' data: blob: https://*.r2.cloudflarestorage.com https://*.r2.dev https://image.mux.com",
-  "media-src 'self' blob: https://stream.mux.com",
+  `img-src 'self' data: blob: ${API_ORIGIN} https://*.r2.cloudflarestorage.com https://*.r2.dev https://image.mux.com`,
+  `media-src 'self' blob: ${API_ORIGIN} https://stream.mux.com`,
   "frame-src 'self' https://stream.mux.com",
   "font-src 'self' data:",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net",
   "worker-src 'self' blob: https://cdn.jsdelivr.net",
   "style-src 'self' 'unsafe-inline'",
-  "connect-src 'self' https://*.ingest.sentry.io https://login.microsoftonline.com https://*.r2.cloudflarestorage.com https://*.r2.dev https://image.mux.com https://stream.mux.com",
+  `connect-src 'self' ${API_ORIGIN} https://*.ingest.sentry.io https://login.microsoftonline.com https://*.r2.cloudflarestorage.com https://*.r2.dev https://image.mux.com https://stream.mux.com`,
   "manifest-src 'self'",
   // Refuse to load resources over insecure HTTP in production.
   process.env.NODE_ENV === 'production' ? 'upgrade-insecure-requests' : null,
