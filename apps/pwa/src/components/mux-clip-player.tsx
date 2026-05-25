@@ -140,6 +140,15 @@ export function MuxClipPlayer({
   const [userPaused, setUserPaused] = useState(false);
   const [flash, setFlash] = useState<'pause' | 'play' | null>(null);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Has playback actually rendered a frame for the current playId yet?
+  // Used to keep a poster image visible over the <video> until the
+  // browser has finished its initial seek-to-startMs and is decoding
+  // frames in the requested range. Without this overlay, iOS Safari
+  // briefly shows frame-0 of the source video between `loadedmetadata`
+  // and the first decoded frame at `startMs` — which is the "flashing"
+  // a Reels swipe surfaces when the player is reused across step
+  // changes. Resets on every playId change.
+  const [revealed, setRevealed] = useState(false);
 
   const startSec = Math.max(0, startMs / 1000);
   const endSec = Math.max(startSec + 0.1, endMs / 1000);
@@ -330,11 +339,40 @@ export function MuxClipPlayer({
     // the tech chose to do on the prior reel.
     setUserPaused(false);
     setFlash(null);
+    // Hide the video behind the poster again — we'll reveal it once
+    // the new clip range has actually started rendering (see the
+    // listener effect below).
+    setRevealed(false);
     if (flashTimerRef.current) {
       clearTimeout(flashTimerRef.current);
       flashTimerRef.current = null;
     }
   }, [playId, autoplay]);
+
+  // Reveal the video as soon as it's actually painting frames inside
+  // the requested clip range. We listen for both `playing` (fires once
+  // playback resumes after a play() call) and `timeupdate` (fires as
+  // the decoder produces frames). Whichever lands first flips the
+  // reveal — `timeupdate` is the more reliable signal on iOS where
+  // `playing` occasionally fires before a frame is actually composited.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    let done = false;
+    const reveal = () => {
+      if (done) return;
+      done = true;
+      setRevealed(true);
+    };
+    v.addEventListener('playing', reveal);
+    v.addEventListener('timeupdate', reveal);
+    v.addEventListener('seeked', reveal);
+    return () => {
+      v.removeEventListener('playing', reveal);
+      v.removeEventListener('timeupdate', reveal);
+      v.removeEventListener('seeked', reveal);
+    };
+  }, [playId]);
 
   // Always clear the flash timer on unmount; otherwise a fast unmount
   // mid-flash leaves a stale callback firing setState on a dead tree.
@@ -477,6 +515,22 @@ export function MuxClipPlayer({
         style={{ width: '100%', height: '100%', objectFit: 'contain' }}
         onError={() => setFailed(true)}
       />
+      {/* Poster cover — sits over the <video> until the first frame
+          at startMs is composited. The image is the same JPEG Mux
+          generated for the clip's poster, so once the seek lands the
+          fade-out is invisible. Keyed by the poster URL so React
+          remounts the <img> on step changes (forcing the browser to
+          paint immediately rather than fading a stale frame). */}
+      {posterUrl && !revealed && (
+        <img
+          key={posterUrl}
+          src={posterUrl}
+          alt=""
+          aria-hidden
+          draggable={false}
+          className="step-video-poster-cover"
+        />
+      )}
       {/* Tap-to-play overlay only when autoplay didn't fire (rare —
           browser autoplay policies allow muted autoplay almost
           everywhere). Once playback starts we hide the overlay; we no
