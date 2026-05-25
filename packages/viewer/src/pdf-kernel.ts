@@ -31,10 +31,34 @@ let workerSrcConfigured = false;
 // Default worker URL — pinned to the version installed in this workspace.
 // pdfjs-dist v5 always tries to load a worker module (even disableWorker
 // mode dynamic-imports the fake worker), so we need a resolvable URL even
-// when the host app's bundler doesn't bundle the worker as an asset. CDN
-// has reliable CORS for cross-origin script imports.
-const DEFAULT_WORKER_URL =
+// when the host app's bundler doesn't bundle the worker as an asset.
+//
+// Resolution order:
+//   1. Host app calls setupPdfjsWorker(url) — preferred; allows same-origin
+//      hosting which removes the third-party CDN supply-chain dependency.
+//   2. NEXT_PUBLIC_PDFJS_WORKER_URL env var (inlined into the client bundle).
+//      Set this to a same-origin URL in production.
+//   3. CDN fallback — pinned to a specific npm version so silent re-publish
+//      doesn't change the bytes. CSP `script-src`/`worker-src` should
+//      include this host explicitly.
+const CDN_WORKER_URL =
   'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/build/pdf.worker.min.mjs';
+
+function readEnvWorkerUrl(): string | null {
+  // `process.env` is statically replaced by Next.js at build time, so this
+  // only resolves the configured value — no runtime mutation possible.
+  try {
+    const url =
+      typeof process !== 'undefined' &&
+      process.env &&
+      process.env.NEXT_PUBLIC_PDFJS_WORKER_URL;
+    return typeof url === 'string' && url.length > 0 ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+const DEFAULT_WORKER_URL = readEnvWorkerUrl() ?? CDN_WORKER_URL;
 
 let workerUrl: string | null = DEFAULT_WORKER_URL;
 

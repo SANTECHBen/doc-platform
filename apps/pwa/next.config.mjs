@@ -36,13 +36,52 @@ const nextConfig = {
     // typedRoutes: true,
   },
   async headers() {
+    // CSP — same pattern as the admin app. The PWA needs:
+    //   - Mic + camera (voice search + photo upload)  → Permissions-Policy
+    //   - Mux HLS playback                            → frame-src, media-src
+    //   - R2 PDF/image fetch                          → img-src, connect-src
+    //   - pdfjs worker (CDN until self-host lands)    → worker-src, script-src
+    //   - Microsoft sign-in not needed (PWA is anon)  → no login.microsoftonline.com
+    const csp = [
+      "default-src 'self'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "frame-ancestors 'self'",
+      "object-src 'none'",
+      "img-src 'self' data: blob: https://*.r2.cloudflarestorage.com https://*.r2.dev https://image.mux.com",
+      "media-src 'self' blob: https://stream.mux.com",
+      "frame-src 'self' https://stream.mux.com",
+      "font-src 'self' data:",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net",
+      "worker-src 'self' blob: https://cdn.jsdelivr.net",
+      "style-src 'self' 'unsafe-inline'",
+      "connect-src 'self' https://*.ingest.sentry.io https://*.r2.cloudflarestorage.com https://*.r2.dev https://image.mux.com https://stream.mux.com",
+      "manifest-src 'self'",
+      process.env.NODE_ENV === 'production' ? 'upgrade-insecure-requests' : null,
+    ]
+      .filter(Boolean)
+      .join('; ');
     return [
       {
         source: '/:path*',
         headers: [
+          { key: 'Content-Security-Policy', value: csp },
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          {
+            key: 'Strict-Transport-Security',
+            value: 'max-age=31536000; includeSubDomains',
+          },
+          {
+            key: 'Permissions-Policy',
+            // Mic + camera allowed on this origin only; everything else
+            // disabled. Geolocation is allowed because field techs scan
+            // QR codes which sometimes capture geotag context.
+            value:
+              'camera=(self), microphone=(self), geolocation=(self), payment=(), usb=(), midi=(), xr-spatial-tracking=()',
+          },
+          { key: 'X-Permitted-Cross-Domain-Policies', value: 'none' },
         ],
       },
     ];

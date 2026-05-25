@@ -7,14 +7,32 @@
 import { signIn, auth } from '@/auth';
 import { redirect } from 'next/navigation';
 
+// Open-redirect guard. The callbackUrl querystring is attacker-controllable
+// (anyone can craft a link to /sign-in?callbackUrl=https://evil.com/), so we
+// constrain it to a same-origin relative path before either redirect() or
+// signIn() consumes it. Anything that looks like an absolute URL, a protocol-
+// relative URL (//evil.com), or a backslash-trick (\\evil.com) collapses to '/'.
+function sanitizeCallbackUrl(raw: string | undefined): string {
+  if (!raw) return '/';
+  // Reject anything that isn't a leading single slash followed by a non-slash.
+  // Disallows '//host', '/\\host', '/', empty, absolute URLs, javascript:, etc.
+  if (raw.length < 2) return '/';
+  if (raw[0] !== '/') return '/';
+  if (raw[1] === '/' || raw[1] === '\\') return '/';
+  // Reject URLs with embedded credentials or schemes — defensive.
+  if (/^\/[a-z]+:/i.test(raw)) return '/';
+  return raw;
+}
+
 export default async function SignInPage({
   searchParams,
 }: {
   searchParams: Promise<{ callbackUrl?: string; reason?: string }>;
 }) {
-  const { callbackUrl, reason } = await searchParams;
+  const { callbackUrl: rawCallback, reason } = await searchParams;
+  const callbackUrl = sanitizeCallbackUrl(rawCallback);
   const session = await auth();
-  if (session) redirect(callbackUrl ?? '/');
+  if (session) redirect(callbackUrl);
 
   const signedOutForInactivity = reason === 'inactive';
 
@@ -49,7 +67,7 @@ export default async function SignInPage({
           action={async () => {
             'use server';
             await signIn('microsoft-entra-id', {
-              redirectTo: callbackUrl ?? '/',
+              redirectTo: callbackUrl,
             });
           }}
         >

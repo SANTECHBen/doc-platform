@@ -38,6 +38,21 @@ const HOP_BY_HOP = new Set([
   'cookie',
 ]);
 
+// Identity headers the browser must NEVER be allowed to set. The PWA is an
+// anonymous trust boundary — anything an attacker can put in browser memory
+// (XSS, extension, SW compromise) would otherwise pivot to admin identity
+// upstream. We unconditionally drop these from the inbound request and let
+// the proxy rebuild identity exclusively from server-side cookie state.
+const IDENTITY_HEADERS = new Set([
+  'authorization',
+  'x-dev-user',
+  'x-scan-session',
+  // Defense-in-depth: some Microsoft client libraries set proprietary auth
+  // headers — strip them too.
+  'x-ms-token-aad-id-token',
+  'x-ms-token-aad-access-token',
+]);
+
 // Response headers to strip in addition to hop-by-hop. Node's fetch auto-
 // decompresses the upstream body, so forwarding content-encoding/content-
 // length as-is would make the browser try to decode already-decoded bytes
@@ -50,9 +65,16 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
 
   const headers = new Headers();
   for (const [k, v] of request.headers.entries()) {
-    if (!HOP_BY_HOP.has(k.toLowerCase())) headers.set(k, v);
+    const lk = k.toLowerCase();
+    if (HOP_BY_HOP.has(lk)) continue;
+    if (IDENTITY_HEADERS.has(lk)) continue;
+    headers.set(k, v);
   }
 
+  // Rebuild identity exclusively from server-side cookie state. The browser
+  // cannot read the HttpOnly scan cookie, so reading it here and minting the
+  // upstream header is the *only* path to scan-session identity through the
+  // proxy.
   const jar = await cookies();
   const scan = jar.get(SCAN_COOKIE_NAME);
   if (scan) headers.set('x-scan-session', scan.value);

@@ -32,12 +32,47 @@ declare const self: ServiceWorkerGlobalScope & {
   __SW_MANIFEST: (PrecacheEntry | string)[] | undefined;
 };
 
+// Filter Serwist's defaultCache to remove any rule that would cache tenant-
+// scoped or cross-origin opaque responses. On shared shop iPads, two techs
+// can hit the same PWA from different scan sessions — anything the SW caches
+// is potentially visible cross-user because the cache key is URL-only and
+// does not vary by HttpOnly scan cookie.
+//
+// What we keep:
+//   - Next.js static assets (precache + same-origin _next/static)
+//   - App icons + own-origin static images
+//   - Font files
+//
+// What we strip:
+//   - All `/api/*` responses (tenant scoped)
+//   - All cross-origin requests (R2 PDFs, Mux .m3u8, Sentry — caching opaque
+//     responses defeats revocation and leaks across sessions)
+function isTenantUnsafeRule(entry: { matcher: unknown }): boolean {
+  // defaultCache rule matchers are functions or regex; we don't have a stable
+  // identifier, so we tag by string-form of the matcher. The set below is
+  // taken from @serwist/next/worker defaults.
+  const src = String(entry.matcher);
+  return (
+    src.includes('/api/') ||
+    src.includes('cross-origin') ||
+    src.includes('crossOrigin') ||
+    src.includes('image.mux.com') ||
+    src.includes('stream.mux.com') ||
+    src.includes('r2.dev') ||
+    src.includes('cloudflarestorage.com')
+  );
+}
+
+const safeRuntimeCaching = defaultCache.filter(
+  (entry) => !isTenantUnsafeRule(entry as { matcher: unknown }),
+);
+
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
   skipWaiting: true,
   clientsClaim: true,
   navigationPreload: true,
-  runtimeCaching: defaultCache,
+  runtimeCaching: safeRuntimeCaching,
   fallbacks: {
     entries: [
       {
@@ -46,6 +81,16 @@ const serwist = new Serwist({
       },
     ],
   },
+});
+
+// Belt-and-suspenders: install a fetch listener that bypasses the SW for
+// /api/* responses entirely. If a future defaultCache rule slips past the
+// filter above, this guarantees no `/api/*` response ever enters any cache.
+self.addEventListener('fetch', (event: FetchEvent) => {
+  const url = new URL(event.request.url);
+  if (url.origin === self.location.origin && url.pathname.startsWith('/api/')) {
+    event.respondWith(fetch(event.request));
+  }
 });
 
 serwist.addEventListeners();
