@@ -1472,6 +1472,79 @@ export const DEFAULT_LABEL_TEMPLATE_FIELDS: QrLabelFieldsPayload = {
 };
 
 // ---------------------------------------------------------------------------
+// QR designs — saved styled QR designs from /qr-codes/designer.
+// ---------------------------------------------------------------------------
+
+export interface AdminQrDesign {
+  id: string;
+  organizationId: string;
+  organizationName: string;
+  ownerUserId: string | null;
+  ownerDisplayName: string | null;
+  ownerEmail: string | null;
+  /** True when the current viewer can update/delete this design. */
+  canEdit: boolean;
+  name: string;
+  /** Opaque JSON — the full QrStyleSpec the designer renders. */
+  spec: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function listQrDesigns(): Promise<AdminQrDesign[]> {
+  const res = await fetch(`${API_BASE}/admin/qr-designs`, {
+    cache: 'no-store',
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminQrDesign[];
+}
+
+export async function getQrDesign(id: string): Promise<AdminQrDesign> {
+  const res = await fetch(`${API_BASE}/admin/qr-designs/${encodeURIComponent(id)}`, {
+    cache: 'no-store',
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminQrDesign;
+}
+
+export async function createQrDesign(body: {
+  name: string;
+  spec: Record<string, unknown>;
+  organizationId?: string;
+}): Promise<AdminQrDesign> {
+  const res = await fetch(`${API_BASE}/admin/qr-designs`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminQrDesign;
+}
+
+export async function updateQrDesign(
+  id: string,
+  body: { name?: string; spec?: Record<string, unknown> },
+): Promise<AdminQrDesign> {
+  const res = await fetch(`${API_BASE}/admin/qr-designs/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminQrDesign;
+}
+
+export async function deleteQrDesign(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/admin/qr-designs/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+// ---------------------------------------------------------------------------
 // Document Sections
 // ---------------------------------------------------------------------------
 

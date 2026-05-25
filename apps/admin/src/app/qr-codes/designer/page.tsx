@@ -40,9 +40,10 @@ import {
 } from '@/components/qr-designer/panels';
 import { SaveDesignModal } from '@/components/qr-designer/save-design-modal';
 import { SavedDesignsPanel } from '@/components/qr-designer/saved-designs-panel';
+import { LegacyMigrationBanner } from '@/components/qr-designer/legacy-migration-banner';
 import {
   defaultDesignName,
-  listSavedDesigns,
+  fetchSavedDesigns,
   type SavedDesign,
 } from '@/lib/qr-designer-storage';
 
@@ -72,16 +73,31 @@ function QrDesignerInner() {
   const [busyFormat, setBusyFormat] = useState<QrExportFormat | null>(null);
   const previewRef = useRef<QrStylePreviewHandle>(null);
 
-  // Persistence state — list of saved designs (read once on mount, then
-  // mirrored into React state), id of the currently loaded design if any,
-  // and a modal-open flag for the Save dialog.
+  // Persistence state — list of designs fetched from the server, the id of
+  // the currently-loaded design (so subsequent Save updates that entry),
+  // loading + error state for the initial fetch, and a Save modal flag.
   const [savedDesigns, setSavedDesigns] = useState<SavedDesign[]>([]);
+  const [savedLoading, setSavedLoading] = useState(true);
+  const [savedError, setSavedError] = useState<string | null>(null);
   const [activeSavedId, setActiveSavedId] = useState<string | null>(null);
   const [saveOpen, setSaveOpen] = useState(false);
 
-  useEffect(() => {
-    setSavedDesigns(listSavedDesigns());
+  const refreshSaved = useCallback(async () => {
+    setSavedLoading(true);
+    setSavedError(null);
+    try {
+      const rows = await fetchSavedDesigns();
+      setSavedDesigns(rows);
+    } catch (e) {
+      setSavedError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavedLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void refreshSaved();
+  }, [refreshSaved]);
 
   // If the query param changes after mount (rare — would only happen on
   // client-side navigation back into the designer with a different code),
@@ -239,6 +255,8 @@ function QrDesignerInner() {
         </div>
       </div>
 
+      <LegacyMigrationBanner onCompleted={() => void refreshSaved()} />
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[320px_1fr]">
         {/* Left sidebar — control panels. Scrollable independently from the
             preview area on tall pages. */}
@@ -251,6 +269,8 @@ function QrDesignerInner() {
           <FramePanel spec={spec} onPatch={onPatch} />
           <SavedDesignsPanel
             designs={savedDesigns}
+            loading={savedLoading}
+            loadError={savedError}
             activeId={activeSavedId}
             onLoad={onLoadSaved}
             onChange={(next) => {
@@ -261,7 +281,9 @@ function QrDesignerInner() {
                 setActiveSavedId(null);
               }
             }}
+            onError={(msg) => toast.error(msg)}
             onOpenSaveDialog={() => setSaveOpen(true)}
+            onRetry={() => void refreshSaved()}
           />
           <AdvancedPanel onReset={onReset} />
         </aside>
@@ -331,10 +353,11 @@ function QrDesignerInner() {
           defaultName={defaultDesignName(spec)}
           onClose={() => setSaveOpen(false)}
           onSaved={(design) => {
-            // Re-read the full list so a new entry appears in the right
-            // sort position; remember the active id so subsequent Save
-            // clicks default to updating this entry.
-            setSavedDesigns(listSavedDesigns());
+            // Re-fetch the full list so a new entry appears in the right
+            // sort position (sorted by server-side updatedAt) and remember
+            // the active id so subsequent Save clicks default to updating
+            // this entry.
+            void refreshSaved();
             setActiveSavedId(design.id);
             setSaveOpen(false);
             toast.success('Saved', design.name);

@@ -11,6 +11,7 @@ export * from './ai';
 export * from './audit';
 export * from './qr';
 export * from './qr-label-templates';
+export * from './qr-designs';
 export * from './embeddings';
 export * from './agent';
 export * from './document-sections';

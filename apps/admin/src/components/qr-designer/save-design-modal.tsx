@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from 'react';
 import { Loader2, Save, X } from 'lucide-react';
-import { saveDesign, type SavedDesign } from '@/lib/qr-designer-storage';
+import { saveDesignToServer, type SavedDesign } from '@/lib/qr-designer-storage';
 import type { QrStyleSpec } from '@/lib/qr-style';
 
 export interface SaveDesignModalProps {
@@ -45,7 +45,7 @@ export function SaveDesignModal({
     setBusy(true);
     setError(null);
     try {
-      const saved = saveDesign({
+      const saved = await saveDesignToServer({
         id: mode === 'update' && existing ? existing.id : undefined,
         name,
         spec,

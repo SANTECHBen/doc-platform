@@ -302,6 +302,13 @@
       "when": 1785000001000,
       "tag": "0043_document_chunks_owner_org",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1785000002000,
+      "tag": "0044_qr_designs",
+      "breakpoints": true
     }
   ]
 }

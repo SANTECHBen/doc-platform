@@ -23,6 +23,7 @@ import {
 } from './routes/admin';
 import { registerWorkOrderRoutes } from './routes/workorders';
 import { registerQrTemplateRoutes } from './routes/qr-templates';
+import { registerQrDesignRoutes } from './routes/qr-designs';
 import { registerFileRoutes } from './routes/files';
 import { registerAdminAgent } from './routes/admin-agent';
 import { registerAdminSections } from './routes/admin-sections';
@@ -207,6 +208,7 @@ export async function buildApp(ctx: AppContext) {
   await registerAdminTrainingAuthoring(app);
   await registerWorkOrderRoutes(app);
   await registerQrTemplateRoutes(app);
+  await registerQrDesignRoutes(app);
   await registerFileRoutes(app);
   await registerAIRoutes(app);
   await registerAdminAgent(app);

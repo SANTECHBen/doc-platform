@@ -1,61 +1,83 @@
 'use client';
 
-// Sidebar panel listing every QR design the user has saved to local
-// storage. Each row shows a tiny dot-grid thumbnail tinted with the
-// design's primary color, the name, and the last-saved time. Click-row
-// to load; trash icon to delete.
+// Sidebar panel listing every QR design saved to the platform. Lists are
+// org-scoped — anyone in the same organization shares the same library, so
+// branded artwork created by one teammate is immediately available to the
+// others. Each row shows a tiny dot-grid thumbnail tinted with the design's
+// primary color, the name, who saved it (when it wasn't you), and the
+// last-saved time. Click-row to load; pencil/trash on hover (own designs
+// only) to rename or delete.
 
 import { useState } from 'react';
 import { BookmarkPlus, Folder, Loader2, Pencil, Trash2 } from 'lucide-react';
 import { PanelSection } from './panels';
-import { deleteSavedDesign, renameSavedDesign, type SavedDesign } from '@/lib/qr-designer-storage';
+import {
+  deleteSavedDesignFromServer,
+  renameSavedDesignOnServer,
+  type SavedDesign,
+} from '@/lib/qr-designer-storage';
 import type { ColorSpec, QrStyleSpec } from '@/lib/qr-style';
 
 export interface SavedDesignsPanelProps {
   designs: SavedDesign[];
+  /** True while the initial server fetch is in flight. */
+  loading: boolean;
+  /** Non-null when the initial server fetch failed. */
+  loadError: string | null;
   activeId: string | null;
   onLoad: (design: SavedDesign) => void;
+  /** Optimistic update path — caller swaps the list when one entry changes. */
   onChange: (designs: SavedDesign[]) => void;
+  /** Surface server errors via the same toast layer as the rest of the
+   *  designer instead of returning errors. */
+  onError: (message: string) => void;
   onOpenSaveDialog: () => void;
+  onRetry: () => void;
 }
 
 export function SavedDesignsPanel({
   designs,
+  loading,
+  loadError,
   activeId,
   onLoad,
   onChange,
+  onError,
   onOpenSaveDialog,
+  onRetry,
 }: SavedDesignsPanelProps) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   function startRename(d: SavedDesign) {
     setRenamingId(d.id);
     setRenameValue(d.name);
   }
 
-  function commitRename(id: string) {
-    setBusy(true);
+  async function commitRename(id: string) {
+    setBusyId(id);
     try {
-      const updated = renameSavedDesign(id, renameValue);
-      if (updated) {
-        onChange(designs.map((d) => (d.id === id ? updated : d)));
-      }
+      const updated = await renameSavedDesignOnServer(id, renameValue);
+      onChange(designs.map((d) => (d.id === id ? updated : d)));
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
     } finally {
       setRenamingId(null);
-      setBusy(false);
+      setBusyId(null);
     }
   }
 
-  function onDelete(d: SavedDesign) {
+  async function onDelete(d: SavedDesign) {
     if (!confirm(`Delete "${d.name}"? This can't be undone.`)) return;
-    setBusy(true);
+    setBusyId(d.id);
     try {
-      deleteSavedDesign(d.id);
+      await deleteSavedDesignFromServer(d.id);
       onChange(designs.filter((x) => x.id !== d.id));
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      setBusyId(null);
     }
   }
 
@@ -70,16 +92,34 @@ export function SavedDesignsPanel({
         Save current design…
       </button>
 
-      {designs.length === 0 ? (
+      {loading ? (
+        <p className="flex items-center justify-center gap-2 py-3 text-[11px] text-ink-tertiary">
+          <Loader2 size={11} className="animate-spin" strokeWidth={2} />
+          Loading designs…
+        </p>
+      ) : loadError ? (
+        <div className="rounded border border-signal-fault/40 bg-signal-fault/10 p-2 text-[11px] text-signal-fault">
+          <p>Couldn&rsquo;t load saved designs.</p>
+          <p className="mt-1 text-ink-tertiary">{loadError}</p>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-2 rounded border border-line bg-surface px-2 py-1 text-[10px] text-ink-primary hover:bg-surface-inset"
+          >
+            Retry
+          </button>
+        </div>
+      ) : designs.length === 0 ? (
         <p className="text-center text-[11px] leading-snug text-ink-tertiary">
-          Nothing saved yet. Save the current design to come back to it later
-          — it stays in this browser.
+          Nothing saved yet. Designs are stored on the server and shared with
+          your organization, so anyone on the team can reuse them.
         </p>
       ) : (
         <ul className="space-y-1.5">
           {designs.map((d) => {
             const isActive = d.id === activeId;
             const isRenaming = d.id === renamingId;
+            const isBusy = d.id === busyId;
             return (
               <li
                 key={d.id}
@@ -93,7 +133,7 @@ export function SavedDesignsPanel({
                   type="button"
                   onClick={() => !isRenaming && onLoad(d)}
                   className="flex flex-1 items-center gap-2 text-left"
-                  disabled={busy || isRenaming}
+                  disabled={isBusy || isRenaming}
                   title={`Load "${d.name}"`}
                 >
                   <DesignThumb spec={d.spec} />
@@ -118,10 +158,13 @@ export function SavedDesignsPanel({
                     )}
                     <span className="block truncate text-[10px] text-ink-tertiary">
                       {formatWhen(d.savedAt)}
+                      {!d.canEdit && d.ownerDisplayName && (
+                        <> · saved by {d.ownerDisplayName}</>
+                      )}
                     </span>
                   </div>
                 </button>
-                {!isRenaming && (
+                {!isRenaming && d.canEdit && (
                   <div className="hidden items-center gap-0.5 group-hover:flex">
                     <button
                       type="button"
@@ -129,6 +172,7 @@ export function SavedDesignsPanel({
                       title="Rename"
                       aria-label="Rename design"
                       className="rounded p-1 text-ink-tertiary hover:bg-surface-inset hover:text-ink-primary"
+                      disabled={isBusy}
                     >
                       <Pencil size={11} strokeWidth={2} />
                     </button>
@@ -138,12 +182,13 @@ export function SavedDesignsPanel({
                       title="Delete"
                       aria-label="Delete design"
                       className="rounded p-1 text-ink-tertiary hover:bg-signal-fault/10 hover:text-signal-fault"
+                      disabled={isBusy}
                     >
                       <Trash2 size={11} strokeWidth={2} />
                     </button>
                   </div>
                 )}
-                {busy && isActive && (
+                {isBusy && (
                   <Loader2 size={11} strokeWidth={2} className="animate-spin text-ink-tertiary" />
                 )}
               </li>
@@ -171,7 +216,12 @@ function DesignThumb({ spec }: { spec: QrStyleSpec }) {
     [0, 1, 1, 1, 0],
   ];
   const cell = 100 / 5;
-  const r = spec.dotShape === 'extra-rounded' ? cell * 0.4 : spec.dotShape === 'rounded' || spec.dotShape.startsWith('classy') ? cell * 0.2 : 0;
+  const r =
+    spec.dotShape === 'extra-rounded'
+      ? cell * 0.4
+      : spec.dotShape === 'rounded' || spec.dotShape.startsWith('classy')
+        ? cell * 0.2
+        : 0;
   return (
     <svg
       viewBox="0 0 100 100"
