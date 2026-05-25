@@ -297,14 +297,19 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
                 changeTab('library');
               }}
             />
+            {/* Details disclosure sits directly under the tiles so the
+                expand affordance is the obvious next thing a tech sees
+                after the action summary — keeping it collapsed by
+                default preserves the clean hero, and the chevron is
+                reachable without scrolling past Issues + Parts. */}
+            <DetailsDisclosure>
+              <OverviewSpecs hub={hub} openIssueCount={openIssueCount} />
+            </DetailsDisclosure>
             <IssuesPanel assetInstanceId={hub.assetInstance.id} onCountChange={setOpenIssueCount} />
             <PartsQuickActions
               assetModelId={hub.assetModel.id}
               onOpenPart={(partId) => setInspectingPartId(partId)}
             />
-            <DetailsDisclosure>
-              <OverviewSpecs hub={hub} openIssueCount={openIssueCount} />
-            </DetailsDisclosure>
           </div>
         ) : active === 'library' ? (
           /* Library renders directly into the scroll region — its
