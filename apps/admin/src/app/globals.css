@@ -458,12 +458,37 @@
     border: 1px solid rgb(var(--line));
     border-radius: 5px;
     color: rgb(var(--ink-primary));
+    /* Chromium / Safari sometimes paint typed text through
+       -webkit-text-fill-color (it wins over `color` when set) — pin
+       it explicitly so the field can't render text in the user-
+       agent default or an extension's override (which has shown up
+       as invisible white-on-white on at least one tester's setup). */
+    -webkit-text-fill-color: rgb(var(--ink-primary));
+    caret-color: rgb(var(--ink-primary));
     font-family: inherit;
     font-size: 13px;
     transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
   }
   .form-textarea { min-height: 72px; padding: 8px 12px; line-height: 1.5; resize: vertical; }
   .form-input::placeholder, .form-textarea::placeholder { color: rgb(var(--ink-tertiary)); }
+  /* Chromium's autofill paints its own light-yellow background AND
+     overrides text via -webkit-text-fill-color, which on dark theme
+     reads as visually broken (yellow box, faint text). Re-pin both
+     so autofilled fields look the same as user-typed ones. The
+     inset box-shadow trick is the spec-canonical way to mask the
+     yellow without losing the field's own background. */
+  .form-input:-webkit-autofill,
+  .form-input:-webkit-autofill:hover,
+  .form-input:-webkit-autofill:focus,
+  .form-textarea:-webkit-autofill,
+  .form-textarea:-webkit-autofill:hover,
+  .form-textarea:-webkit-autofill:focus,
+  .form-select:-webkit-autofill {
+    -webkit-text-fill-color: rgb(var(--ink-primary));
+    -webkit-box-shadow: 0 0 0 1000px rgb(var(--surface-raised)) inset;
+    caret-color: rgb(var(--ink-primary));
+    transition: background-color 9999s ease-out 0s;
+  }
   .form-input:focus, .form-select:focus, .form-textarea:focus {
     outline: none;
     border-color: rgb(var(--brand));
