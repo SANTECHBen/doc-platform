@@ -35,6 +35,7 @@ import {
 import { sniffMime } from '../lib/mime-sniff';
 import { ensureFieldCapturesVersion } from '../lib/field-captures-pack';
 import { enqueueExtraction } from '../lib/extraction';
+import { muxClipUrlFor } from '../lib/mux';
 import { expandStep, loadSnippetMap } from '../services/snippet-expansion';
 import {
   procedureStepCategoryToDTO,
@@ -1593,14 +1594,30 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
               url: storage.publicUrl(m.storageKey),
             };
             if (m.kind === 'video_clip') {
+              // Mux instant-clipping URL. The manifest served at this
+              // URL represents only [startMs..endMs] of the source
+              // asset, so the player just treats it as a small native
+              // HLS stream — no JS seek/loop bookkeeping required.
+              // Signed-playback deployments bake the clip bounds into
+              // the JWT so they can't be widened by URL tampering;
+              // muxClipUrlFor handles that decision internally based
+              // on the configured playback policy. The `mux` client is
+              // optional on app.ctx (some deployments run without
+              // Mux), but video_clip media can only have been created
+              // on a Mux-enabled deployment in the first place — the
+              // fallback URL is for type-safety, not runtime use.
+              const streamUrl = app.ctx.mux
+                ? muxClipUrlFor(app.ctx.mux, {
+                    playbackId: m.clip.playbackId,
+                    startMs: m.clip.startMs,
+                    endMs: m.clip.endMs,
+                  })
+                : `https://stream.mux.com/${m.clip.playbackId}.m3u8`;
               return {
                 ...base,
                 clip: {
                   ...m.clip,
-                  // Mux HLS endpoint. iOS Safari plays this natively;
-                  // hls.js handles other browsers. The client clamps
-                  // playback to [startMs, endMs] and loops.
-                  streamUrl: `https://stream.mux.com/${m.clip.playbackId}.m3u8`,
+                  streamUrl,
                 },
               };
             }

@@ -1378,25 +1378,21 @@ export function VirtualJobAid({
                           label={m.caption ?? 'Image unavailable'}
                         />
                       ) : m.kind === 'video_clip' ? (
-                        // AI-drafted clip range — streams from Mux
-                        // HLS, looped between [startMs..endMs]. In the
-                        // hands-free Job Aid this autoplays so the
-                        // motion is visible the moment the step lands;
-                        // the playId keyed on stepIdx auto-resets the
-                        // loop on navigation so audio doesn't leak
-                        // across steps.
+                        // AI-drafted clip — streamUrl is the Mux
+                        // instant-clip URL pre-trimmed to the step's
+                        // range, so the player just treats it as a
+                        // standalone looping HLS source. Autoplays
+                        // when the step lands; navigating to a new
+                        // step unmounts this <video> element and
+                        // mounts the next one.
                         <MuxClipPlayer
                           streamUrl={m.clip.streamUrl}
-                          startMs={m.clip.startMs}
-                          endMs={m.clip.endMs}
                           posterUrl={m.url ?? undefined}
                           alt={m.caption ?? step.title}
                           caption={m.caption ?? null}
-                          muted
                           autoplay
                           aspectRatio={m.clip.aspectRatio ?? null}
                           orientation={m.clip.orientation ?? null}
-                          playId={`step-${stepIdx}-${m.storageKey}`}
                         />
                       ) : (
                         // Job Aid view: muted by default so step videos

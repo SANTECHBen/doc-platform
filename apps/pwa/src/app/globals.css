@@ -4600,66 +4600,8 @@
   /* Reels mode — vertical snap-scroll, video-first step reader.   */
   /* ============================================================ */
 
-  .vja-reels-frame {
-    /* Hosts the shared video stage + the scrollable reels list. Owns
-       the flex slot that the bare .vja-reels used to occupy. The
-       `position: relative` here is the containing block for the
-       absolutely-positioned .vja-reels-stage child. */
-    flex: 1 1 0;
-    min-height: 0;
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    /* Base color — barely visible because the stage and the reel
-       sections cover it, but it prevents a flash of page background
-       during initial mount of the reels viewport. */
-    background: #0b0d14;
-  }
-  .vja-reels-stage {
-    /* Single persistent <video> that re-seeks across step changes
-       instead of remounting per reel. Sits behind the scrollable
-       reels list; the active reel becomes transparent (via the
-       [data-shared-stage] selector below) so this layer shows in
-       its slot. */
-    position: absolute;
-    inset: 0;
-    z-index: 0;
-    display: flex;
-    align-items: stretch;
-    justify-content: stretch;
-    background: #000;
-  }
-  .vja-reels-stage .step-video-frame {
-    /* The stage hosts a MuxClipPlayer whose figure normally sizes
-       itself to an inline aspect-ratio. In the stage we want it to
-       fill the frame instead — the per-clip aspect ratio is honored
-       by `object-fit: contain` on the <video> below. */
-    width: 100%;
-    height: 100%;
-    max-width: none;
-    margin-inline: 0;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
-    aspect-ratio: auto !important;
-  }
-  .vja-reels-stage .step-video-frame video {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    background: #000;
-  }
-  .vja-reels-stage .step-video-progress,
-  .vja-reels-stage .step-video-fs-btn {
-    /* Reels mode owns the viewport — no per-frame chrome inside the
-       stage. The reels overlay (replay button, title block) lives in
-       the reel sections layered above. */
-    display: none;
-  }
-
   .vja-reels {
-    flex: 1 1 auto;
+    flex: 1 1 0;
     min-height: 0;
     overflow-y: auto;
     scroll-snap-type: y mandatory;
@@ -4672,26 +4614,11 @@
        indicators already communicate position. */
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
-    /* Transparent so the stage shows through the active reel's slot
-       (the per-reel section provides its own opaque poster background
-       when it isn't the active reel). The frame's base color above is
-       the fallback when nothing covers it. */
-    background: transparent;
+    /* Deep brand-aware neutral instead of pure black so the surround
+       reads as a deliberate surface, not a void. Per-reel phase tints
+       layer on top of this. */
+    background: #0b0d14;
     position: relative;
-    z-index: 1;
-  }
-  /* The active reel section while the shared stage is driving the
-     <video>. Transparent so the stage shows through; the section
-     keeps pointer-events: auto so its child buttons (title, replay)
-     receive taps the normal way and the section's own onClick
-     handles bare-area taps (forwarded to the stage's pause/resume
-     via an imperative handle — see VirtualJobAidReels). */
-  .vja-reel[data-shared-stage='true'] {
-    background: transparent;
-    /* Disable iOS double-tap zoom on bare-area taps so the forwarded
-       pause/resume fires immediately rather than after the 300ms
-       double-tap delay. */
-    touch-action: manipulation;
   }
   .vja-reels::-webkit-scrollbar {
     display: none;
@@ -5889,24 +5816,6 @@
        steppy look. */
     transition: transform 120ms linear;
     box-shadow: 0 0 6px rgb(var(--brand) / 0.6);
-  }
-  /* Poster cover. Sits over the <video> until MuxClipPlayer's
-     `revealed` state flips — that is, until the browser has actually
-     decoded a frame inside the requested [startMs..endMs] window.
-     Without this, iOS Safari briefly shows frame-0 of the source
-     video between `loadedmetadata` and the first decoded frame at
-     `startMs` (the "flash" a Reels swipe surfaces when the player is
-     reused across step changes). pointer-events: none so the
-     tap-to-pause overlay below it still receives taps. */
-  .step-video-poster-cover {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    background: #000;
-    pointer-events: none;
-    z-index: 1;
   }
   /* Reels tap-to-pause overlay. Fills the video frame but is visually
      transparent — it exists only to capture the tap. Sits beneath the

@@ -25,6 +25,7 @@ import {
   loadSnippetMap,
   type SnippetBadge,
 } from '../services/snippet-expansion.js';
+import { muxClipUrlFor, type MuxClient } from '../lib/mux.js';
 import {
   procedureStepCategoryToDTO,
   type ProcedureStepCategoryDTO,
@@ -203,6 +204,13 @@ function rowToDTO(
   opts?: {
     audioPublicUrl?: string | null;
     mediaPublicUrl?: (storageKey: string) => string;
+    /** Mux client — used to build per-step instant-clip URLs for
+     *  video_clip media entries (handles signed-token minting when
+     *  the deployment uses signed playback). Optional; when omitted,
+     *  video_clip entries fall back to the unbounded source URL,
+     *  which is safe for callers that don't render playback (e.g.,
+     *  introspection / debug endpoints). */
+    mux?: MuxClient;
     /** Override for blocks/title after snippet expansion. When set, these
      *  replace the row's own blocks/title in the returned DTO. */
     expanded?: { blocks: StepRow['blocks']; title: string };
@@ -216,18 +224,27 @@ function rowToDTO(
   // Expand each media item with a publicly-resolvable URL so the admin
   // editor and PWA runner can render thumbnails without a second round-
   // trip per item. For drafter-produced video_clip entries, also derive
-  // the Mux HLS endpoint so the reviewer can preview the clip range.
+  // the Mux instant-clip HLS endpoint (per-step `?asset_start_time=…
+  // &asset_end_time=…` URL or signed-JWT equivalent) so the player can
+  // stream just the step's clip range natively.
   const media = (row.media ?? []).map((m) => {
     const base = {
       ...m,
       url: opts?.mediaPublicUrl ? opts.mediaPublicUrl(m.storageKey) : null,
     };
     if (m.kind === 'video_clip') {
+      const streamUrl = opts?.mux
+        ? muxClipUrlFor(opts.mux, {
+            playbackId: m.clip.playbackId,
+            startMs: m.clip.startMs,
+            endMs: m.clip.endMs,
+          })
+        : `https://stream.mux.com/${m.clip.playbackId}.m3u8`;
       return {
         ...base,
         clip: {
           ...m.clip,
-          streamUrl: `https://stream.mux.com/${m.clip.playbackId}.m3u8`,
+          streamUrl,
         },
       };
     }
@@ -278,6 +295,13 @@ async function rowsToExpandedDTO(
   ctx: {
     audioPublicUrl: (storageKey: string) => string;
     mediaPublicUrl: (storageKey: string) => string;
+    /** Mux client — used to build per-step instant-clip URLs for
+     *  video_clip media entries. Optional because the platform supports
+     *  Mux-less deployments; video_clip media can only have been
+     *  authored on a Mux-enabled deployment, so this is effectively
+     *  required in practice but typed as optional for parity with
+     *  `app.ctx.mux`. */
+    mux?: MuxClient;
   },
 ): Promise<ReturnType<typeof rowToDTO>[]> {
   const snippetMap = await loadSnippetMap(
@@ -317,6 +341,7 @@ async function rowsToExpandedDTO(
     return rowToDTO(r, {
       audioPublicUrl: effectiveAudioKey ? ctx.audioPublicUrl(effectiveAudioKey) : null,
       mediaPublicUrl: ctx.mediaPublicUrl,
+      mux: ctx.mux,
       expanded: { blocks: expanded.blocks, title: expanded.title },
       snippetBadge: expanded._snippetBadge,
       category: r.categoryId ? categoriesById.get(r.categoryId) ?? null : null,
@@ -453,6 +478,7 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
       return rowsToExpandedDTO(db, rows, {
         audioPublicUrl: (k) => storage.publicUrl(k),
         mediaPublicUrl: (k) => storage.publicUrl(k),
+        mux: app.ctx.mux,
       });
     },
   );
@@ -664,6 +690,7 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
       const [dto] = await rowsToExpandedDTO(db, [row], {
         audioPublicUrl: (k) => app.ctx.storage.publicUrl(k),
         mediaPublicUrl: (k) => app.ctx.storage.publicUrl(k),
+        mux: app.ctx.mux,
       });
       return dto;
     },
@@ -916,6 +943,7 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
       const [dto] = await rowsToExpandedDTO(db, [updated], {
         audioPublicUrl: (k) => app.ctx.storage.publicUrl(k),
         mediaPublicUrl: (k) => app.ctx.storage.publicUrl(k),
+        mux: app.ctx.mux,
       });
       return dto;
     },
@@ -1571,6 +1599,7 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         steps: await rowsToExpandedDTO(db, steps, {
           audioPublicUrl: (k) => storage.publicUrl(k),
           mediaPublicUrl: (k) => storage.publicUrl(k),
+          mux: app.ctx.mux,
         }),
       };
     },

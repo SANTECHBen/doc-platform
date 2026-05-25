@@ -24,28 +24,20 @@
 //   * Parent owns stepIdx + muted + voiceover orchestration. We notify on
 //     scroll-stop via onStepChange; the parent's useEffect on stepIdx
 //     handles speak/stop.
-//   * One persistent <video> drives the entire viewport — see the
-//     "Shared stage" note below. Per-reel sections render only their
-//     own poster image (when not the active step) and UI overlays.
-//
-// Shared stage:
-//   The reels viewport mounts a single MuxClipPlayer behind the
-//   scrolling reel sections. Whenever the active step changes, the
-//   stage's props re-target (new playId / startMs / endMs / posterUrl)
-//   and the underlying <video> seeks — no remount, no fresh HLS load.
-//   This delivers two things at once:
-//     1. Swipes are smooth: the next clip plays from the new range
-//        within ~100ms (a single seek on an already-buffered source)
-//        instead of waiting on a fresh HLS manifest + segment fetch
-//        + seek-to-startMs first-paint sequence (~300-500ms).
-//     2. iOS Safari only sees one <video> element pointed at the
-//        shared .m3u8 manifest, so the shared-decoder contention that
-//        previously caused the wrong frame to render on neighboring
-//        reels can't happen.
-//   The stage is sized to cover the entire reels frame; non-active
-//   reel sections render an opaque poster image that masks the stage
-//   in their slot. The active reel's section is transparent so the
-//   stage video shows through.
+//   * Each reel section owns its own MuxClipPlayer. The active reel +
+//     its ±1 neighbors mount the real <video> element; reels farther
+//     away render just their poster JPEG. Three concurrent decoders
+//     on mobile is the sweet spot — enough to prefetch the next/prev
+//     swipe target so the transition is instant, not so many that
+//     memory pressure becomes a problem.
+//   * Per-step clip URLs (Mux instant-clipping — see muxClipUrlFor
+//     server-side) give each <video> element a unique .m3u8 URL even
+//     when all steps come from the same source. That means iOS Safari
+//     allocates separate decoders per reel — no shared-decoder
+//     contention, no wrong-frame artifacts. It also means each clip
+//     is a self-contained native HLS stream from the browser's
+//     perspective, so `<video loop>` and `currentTime` work naturally
+//     and we don't need JS seek/wrap bookkeeping.
 
 import {
   forwardRef,
@@ -59,7 +51,7 @@ import {
 import { ChevronUp, ChevronDown, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { MuxClipPlayer, type MuxClipPlayerHandle } from './mux-clip-player';
+import { MuxClipPlayer } from './mux-clip-player';
 import { StepVideoPlayer } from './step-video-player';
 import { CategoryIcon } from './procedure-runner/category-icon';
 import type { ProcedureStepCategoryDto, StepBlock } from '@/lib/api';
@@ -163,13 +155,6 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
   ) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const reelRefs = useRef<(HTMLElement | null)[]>([]);
-    // Imperative handle on the shared-stage player. Lets the active
-    // reel section's bare-area tap forward to pause/resume on the
-    // <video> that actually lives in the stage layer below.
-    const stageRef = useRef<MuxClipPlayerHandle | null>(null);
-    const toggleStagePlayback = useCallback(() => {
-      stageRef.current?.togglePlayback();
-    }, []);
     const [sheetOpenIdx, setSheetOpenIdx] = useState<number | null>(null);
     // Index whose intersection most recently became dominant. Decoupled
     // from the parent's stepIdx so a momentum scroll can pass through
@@ -269,63 +254,26 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
       setSheetOpenIdx(null);
     }, [stepIdx]);
 
-    // Resolve the active step's video clip (if any) to drive the shared
-    // stage. Memoizing isn't worth it — a step object's media array is
-    // stable per step and the `.find` is O(media.length) which is
-    // typically 1-2 items.
-    const activeStep = steps[stepIdx];
-    const activeClipMedia =
-      activeStep?.media.find(
-        (m): m is Extract<ReelMediaItem, { kind: 'video_clip' }> =>
-          m.kind === 'video_clip',
-      ) ?? null;
-    const activeClipPoster =
-      (activeClipMedia as unknown as { url?: string | null })?.url ?? null;
-    // The stage owns playback whenever the active step actually has a
-    // clip. For steps without a clip (image-only or text-only) the per-
-    // reel ReelMedia continues to render as before.
-    const stageActive = activeClipMedia != null;
-
     return (
-      <div className="vja-reels-frame">
-        {/* Shared video stage — one persistent <video> behind the
-            scrolling sections. Stays mounted across step changes; the
-            prop updates seek the underlying element instead of
-            remounting it. */}
-        {stageActive && activeClipMedia && (
-          <div className="vja-reels-stage" aria-hidden>
-            <MuxClipPlayer
-              ref={stageRef}
-              streamUrl={activeClipMedia.clip.streamUrl}
-              startMs={activeClipMedia.clip.startMs}
-              endMs={activeClipMedia.clip.endMs}
-              posterUrl={activeClipPoster ?? undefined}
-              autoplay
-              playId={`reels-stage-${activeStep?.id ?? stepIdx}`}
-              aspectRatio={activeClipMedia.clip.aspectRatio ?? null}
-              orientation={activeClipMedia.clip.orientation ?? null}
-              // tapToPause is intentionally OFF — the active reel
-              // section above intercepts taps; we forward bare-area
-              // taps to the stage via the imperative handle below.
-              className="vja-reels-stage-clip"
-            />
-          </div>
-        )}
-        <div
-          ref={containerRef}
-          className="vja-reels"
-          // The parent renders the close + topbar above this; we don't
-          // need our own. Body scroll is locked by the parent.
-          role="region"
-          aria-label="Procedure steps (vertical swipe)"
-        >
-          {steps.map((step, i) => {
+      <div
+        ref={containerRef}
+        className="vja-reels"
+        // The parent renders the close + topbar above this; we don't
+        // need our own. Body scroll is locked by the parent.
+        role="region"
+        aria-label="Procedure steps (vertical swipe)"
+      >
+        {steps.map((step, i) => {
           const isActive = i === stepIdx;
-          // Per-reel video rendering only applies when the shared stage
-          // isn't driving the active step (e.g., the step has a regular
-          // <video> instead of a video_clip, so there's nothing for the
-          // stage to render). Non-active reels always show a poster.
-          const renderVideo = isActive && !stageActive;
+          // Mount the real <video> for the active reel and its ±1
+          // neighbors. Three concurrent decoders is the mobile sweet
+          // spot: enough to prefetch the next/prev swipe target so
+          // the transition is instant, not so many that memory pressure
+          // bites. Per-step instant-clip URLs (Mux URL-time clipping
+          // — see muxClipUrlFor on the server) give each <video> a
+          // unique source URL, so iOS Safari allocates a separate
+          // decoder per reel and there's no shared-decoder contention.
+          const renderVideo = Math.abs(i - stepIdx) <= 1;
           const isSheetOpen = sheetOpenIdx === i;
           // Step's pill color: step-specific override > phase color >
           // neutral. The parent passes the active phase color; for
@@ -364,30 +312,10 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
             !isTextOnly && step.category
               ? { color: 'white', backgroundColor: step.category.color }
               : undefined;
-          // When the shared stage is driving the active step's video,
-          // this section becomes a transparent overlay (so the stage
-          // shows through) and skips its own media render. Non-active
-          // reels still paint their poster as usual to mask the stage
-          // until the user swipes them into focus.
-          const stageOwnsActive = isActive && stageActive;
-          // Bare-area tap on the active+stage section toggles the
-          // shared <video> pause/resume — restoring tap-to-pause now
-          // that the section (rather than the player) owns the tap
-          // target. The check `e.target === e.currentTarget` filters
-          // out bubbling clicks from interactive children (title
-          // button, replay button, sheet, etc.) so those continue to
-          // do their own thing without also pausing the video.
-          const onSectionTap = stageOwnsActive
-            ? (e: React.MouseEvent<HTMLElement>) => {
-                if (e.target !== e.currentTarget) return;
-                toggleStagePlayback();
-              }
-            : undefined;
           return (
             <section
               key={step.id ?? `inline-${i}`}
               data-reel-idx={i}
-              data-shared-stage={stageOwnsActive ? 'true' : undefined}
               ref={(el) => {
                 reelRefs.current[i] = el;
               }}
@@ -396,16 +324,14 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
               }`}
               style={sectionStyle}
               aria-current={isActive ? 'step' : undefined}
-              onClick={onSectionTap}
             >
               {isTextOnly ? (
                 <div aria-hidden className="vja-reel-textonly-bg" />
-              ) : stageOwnsActive ? null : (
+              ) : (
                 <ReelMedia
                   media={step.media}
                   renderVideo={renderVideo}
                   isActive={isActive}
-                  playId={step.id ?? `reel-${i}`}
                 />
               )}
               {/* Phase pill — small chip at the top of each reel showing
@@ -547,13 +473,12 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
             </section>
           );
         })}
-          {/* First-time swipe hint. Shows briefly on initial mount of
-              the Reels viewport then fades. We use a CSS animation
-              that runs once; no JS state to manage. */}
-          <div className="vja-reels-swipe-hint" aria-hidden>
-            <ChevronUp size={18} strokeWidth={2.5} />
-            <span>Swipe up for the next step</span>
-          </div>
+        {/* First-time swipe hint. Shows briefly on initial mount of
+            the Reels viewport then fades. We use a CSS animation
+            that runs once; no JS state to manage. */}
+        <div className="vja-reels-swipe-hint" aria-hidden>
+          <ChevronUp size={18} strokeWidth={2.5} />
+          <span>Swipe up for the next step</span>
         </div>
       </div>
     );
@@ -562,19 +487,17 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
 
 // One reel's media surface. Renders the first video / video_clip when
 // available; otherwise the first image; otherwise a colored placeholder.
-// Lazy: when `renderVideo` is false (i.e. step is not the active one),
-// we render only the poster image. See the module-header note on the
-// iOS HLS shared-decoder issue.
+// Lazy: when `renderVideo` is false (reel is more than ±1 away from
+// the active step), we render only the poster image to keep memory
+// pressure manageable on mobile.
 function ReelMedia({
   media,
   renderVideo,
   isActive,
-  playId,
 }: {
   media: ReelMediaItem[];
   renderVideo: boolean;
   isActive: boolean;
-  playId: string;
 }) {
   // Pick a "hero" media item. Preference:
   //   1. video_clip (Mux HLS with looped range — best fit for reels)
@@ -600,14 +523,11 @@ function ReelMedia({
         <div className="vja-reel-media">
           <MuxClipPlayer
             streamUrl={clip.streamUrl}
-            startMs={clip.startMs}
-            endMs={clip.endMs}
             posterUrl={heroUrl ?? undefined}
             // Only the active reel autoplays — keeps the neighboring
             // reels primed (HLS attached, first segment prefetched) but
-            // paused on a poster frame until the tech swipes to them.
+            // paused on the poster frame until the tech swipes to them.
             autoplay={isActive}
-            playId={playId}
             aspectRatio={clip.aspectRatio ?? null}
             orientation={clip.orientation ?? null}
             // Reels viewport: tap anywhere on the video to pause /
@@ -626,7 +546,12 @@ function ReelMedia({
         <StepVideoPlayer
           src={heroUrl}
           autoplay={isActive}
-          playId={playId}
+          // StepVideoPlayer keys its internal play/reset state on
+          // playId. We use the heroStorageKey (which is stable per
+          // step's media item) since each reel section gets its own
+          // StepVideoPlayer instance and only re-renders when the
+          // underlying media changes.
+          playId={heroStorageKey ?? heroUrl}
           muted
           className="vja-reel-clip"
         />

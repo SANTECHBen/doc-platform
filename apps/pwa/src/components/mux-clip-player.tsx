@@ -1,23 +1,29 @@
 'use client';
 
-// MuxClipPlayer — renders a Mux HLS stream clamped to a [startMs, endMs]
-// window and loops it on the step card. Produced by the AI walkthrough
-// drafter: the drafter picks per-step clip ranges from the source video
-// instead of cutting separate files, and this component plays the
-// referenced range as if it were a baked clip.
+// MuxClipPlayer — plays a Mux instant-clip HLS stream natively.
+//
+// The server hands us a per-step URL like
+//   https://stream.mux.com/<id>.m3u8?asset_start_time=10&asset_end_time=20
+// (or the signed-JWT equivalent). The manifest at that URL represents
+// ONLY the clip range — Mux's edge does the slicing. So from this
+// component's perspective the stream is a small standalone HLS file:
+// the `loop` attribute loops the clip, `currentTime` is relative to
+// the clip's start, and there is no per-step seek/wrap bookkeeping.
+// Everything that used to live here for that — startMs/endMs props,
+// the seek-to-startMs effect, the timeupdate wrap, the poster cover
+// that masked iOS Safari's seek artifacts, the forwardRef imperative
+// pause handle — went away when we moved server-side to instant clip
+// URLs in `packages/api/src/lib/mux.ts`. The result is a thin wrapper
+// over `<video>`, with just the HLS-attach plumbing (Safari uses the
+// .m3u8 directly; everything else needs hls.js).
 //
 // Playback strategy
 // -----------------
-// 1. Safari / iOS / iPadOS: HTMLMediaElement plays HLS natively (Mux's
-//    .m3u8 URL is the src directly). No JS library needed.
-// 2. Other browsers (Chrome / Firefox / Edge / Android Chrome): hls.js
-//    is lazy-loaded on first render and attached via MediaSource
-//    Extensions. The lazy import keeps the dep out of the initial PWA
-//    bundle for HLS-native devices.
-// 3. Range clamping is uniform across both paths: seek to startSec on
-//    loadedmetadata, and a timeupdate listener seeks back to startSec
-//    when currentTime crosses endSec. Native loop attribute is NOT used
-//    because it loops the full asset; we loop the sub-range manually.
+// 1. Safari / iOS / iPadOS: HTMLMediaElement plays HLS natively. We
+//    just assign `<video src>`.
+// 2. Other browsers: hls.js is lazy-loaded on first render and
+//    attached via MediaSource Extensions. The lazy import keeps the
+//    dep out of the initial PWA bundle for HLS-native devices.
 //
 // Poster + fallback
 // -----------------
@@ -27,47 +33,26 @@
 // and the stream fail, we render a labeled placeholder so the tech sees
 // something rather than a black frame.
 
-import {
-  forwardRef,
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pause, Play } from 'lucide-react';
 
-export interface MuxClipPlayerHandle {
-  /** Pause / resume the underlying <video>. Used by the Reels viewport
-   *  to wire the bare-area tap-to-pause when the player lives in the
-   *  shared stage (where the section above it intercepts taps and
-   *  there's no path for the player's own tap-to-pause overlay to
-   *  receive them). */
-  togglePlayback: () => void;
-}
-
 interface Props {
-  /** Mux HLS endpoint — typically https://stream.mux.com/<playbackId>.m3u8 */
+  /** Per-step Mux instant-clip HLS URL (see muxClipUrlFor on the
+   *  server). The manifest is pre-trimmed to the clip range, so we
+   *  treat this as a normal standalone HLS source. */
   streamUrl: string;
-  /** Inclusive clip start, milliseconds into the source video. */
-  startMs: number;
-  /** Exclusive clip end. Playback wraps back to startMs at this point. */
-  endMs: number;
-  /** Storage-resolved JPEG URL. Shown as poster and as fallback. */
+  /** Storage-resolved JPEG URL. Shown as poster while HLS loads and
+   *  as the fallback if HLS fails. */
   posterUrl?: string;
   alt?: string;
   caption?: string | null;
-  /** Muted on mount. Required for autoplay on mobile per browser policy.
-   *  Default true. */
-  muted?: boolean;
   /** Autoplay + loop on mount. Default true — step clips behave like
    *  animated GIFs. Authors can opt out (e.g., on the doc viewer page
    *  where step cards stack and we don't want a dozen simultaneous
-   *  videos) by passing false. */
+   *  videos) by passing false. When this prop flips at runtime
+   *  (active step changes in the Reels viewport), the player calls
+   *  play() or pause() accordingly. */
   autoplay?: boolean;
-  /** Identifier whose change triggers an auto-pause + reset. Pass the
-   *  step id when one player exists per step. */
-  playId: string;
   /** Source aspect ratio Mux reported ("16:9", "9:16", "4:3", "1:1"). When
    *  provided, the container frames the clip in matching aspect — portrait
    *  clips render in a tall frame instead of a letterboxed wide one. Falls
@@ -121,74 +106,52 @@ function loadHlsModule(): Promise<unknown> {
   return hlsModulePromise;
 }
 
-export const MuxClipPlayer = forwardRef<MuxClipPlayerHandle, Props>(
-  function MuxClipPlayer(
-    {
-      streamUrl,
-      startMs,
-      endMs,
-      posterUrl,
-      alt,
-      caption,
-      // muted is no longer read — the player force-mutes regardless,
-      // because the original walkthrough audio should never play (only
-      // the AI voiceover does, via a separate <audio> in the runner).
-      // Leaving the prop in the type for API stability across callers.
-      autoplay = true,
-      playId,
-      aspectRatio,
-      orientation,
-      tapToPause = false,
-      className,
-    },
-    ref,
-  ) {
+export function MuxClipPlayer({
+  streamUrl,
+  posterUrl,
+  alt,
+  caption,
+  autoplay = true,
+  aspectRatio,
+  orientation,
+  tapToPause = false,
+  className,
+}: Props): React.ReactElement {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   // hls.js instance — captured for cleanup. Null on Safari / before
   // first attach.
   const hlsRef = useRef<unknown>(null);
+  // Whether playback has started (or we expect it to imminently). When
+  // false, the tap-to-play overlay is shown. Set true at mount when
+  // autoplay is requested; flipped back to false if the browser refuses
+  // the autoplay request, so the user has a clear "tap to play" affordance.
   const [started, setStarted] = useState(autoplay);
+  // Whether the HLS source or the poster has failed. When `failed` is
+  // set and we still have a poster, we render the poster JPEG as a
+  // static fallback. When both fail, we render a labeled placeholder.
   const [failed, setFailed] = useState(false);
-  // Progress within the [startMs..endMs] window, 0..1. Drives the thin
-  // bottom bar so techs see where in the loop they are without unmuting
-  // or scrubbing.
+  // Loop-progress within the clip, 0..1. Drives the thin bottom bar
+  // so techs see where in the (looping) clip they are without unmuting
+  // or scrubbing. Resets to 0 each loop wrap because the browser
+  // resets `currentTime` to 0.
   const [progress, setProgress] = useState(0);
   // Tap-to-pause state. `userPaused` tracks whether the *tech* paused
-  // playback (vs. autoplay never firing, which is a different state we
-  // already cover). `flash` paints the YouTube-Shorts-style transient
-  // icon on every toggle and clears itself via a single timer.
+  // playback. `flash` paints the YouTube-Shorts-style transient icon
+  // on every toggle and clears itself via a single timer.
   const [userPaused, setUserPaused] = useState(false);
   const [flash, setFlash] = useState<'pause' | 'play' | null>(null);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Has playback ever rendered a frame for this player yet? Drives a
-  // poster cover that hides the <video> during the initial HLS load
-  // and any subsequent src swap, so the user doesn't see the
-  // intermediate black/frame-0 state iOS Safari emits between
-  // `loadedmetadata` and the first decoded frame at `startMs`. Reset
-  // ONLY by the streamUrl effect — pure step navigations within the
-  // same source keep the same loaded element and re-use the already-
-  // revealed video (the ~50ms seek would otherwise be hidden behind
-  // a static poster, which the user perceives as a stall).
-  const [revealed, setRevealed] = useState(false);
-
-  const startSec = Math.max(0, startMs / 1000);
-  const endSec = Math.max(startSec + 0.1, endMs / 1000);
-  const spanSec = Math.max(0.1, endSec - startSec);
 
   // Attach the HLS source. On Safari / iOS we set src directly (native
   // HLS); elsewhere we dynamic-import hls.js and pipe MSE buffers in.
-  // We re-attach when streamUrl changes (e.g., reviewer navigates between
-  // drafts with different source videos).
+  // We re-attach when streamUrl changes — including when the parent
+  // swaps the per-step clip URL for a new step in classic-mode media
+  // galleries that render different clips for different steps.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     let cancelled = false;
     setFailed(false);
-    // True src swap — hide the <video> behind the poster while the
-    // new manifest + first segment fetch in. Pure step navigations
-    // keep the same streamUrl and don't hit this branch (their reset
-    // effect intentionally leaves `revealed` alone).
-    setRevealed(false);
 
     // Tear down any prior hls.js instance from a previous mount/url.
     const teardownHls = () => {
@@ -245,33 +208,16 @@ export const MuxClipPlayer = forwardRef<MuxClipPlayerHandle, Props>(
           return;
         }
         const inst = new Hls({
-          // Lower the live-edge tolerance and start delay for short
-          // clips. We're not playing live content; default settings
-          // are fine but tweaking these keeps the loop snappy.
+          // The instant-clip manifest is short and we want it to play
+          // immediately — keep buffers tight to cut startup latency.
           maxBufferLength: 8,
           maxMaxBufferLength: 16,
-          // Only load the first variant if there are multiple — short
-          // clips don't need ABR ramp-up.
           startLevel: 0,
-          // Aggressive startup tuning. The clip is short and we already
-          // know we want it to play immediately; these knobs cut ~300-
-          // 600ms off first-frame on Chrome by skipping speculative
-          // higher-level probes and shrinking the parser window.
           maxBufferSize: 8 * 1000 * 1000, // 8 MB
-          // Begin playback as soon as the first segment is buffered
-          // rather than waiting for the default 3-second prebuffer.
-          // We loop the same range, so initial buffer pressure is low.
           maxStarvationDelay: 1,
           maxLoadingDelay: 1,
-          // Mux HLS chunks are short — load two ahead so the loop's
-          // wrap-around doesn't stutter.
           backBufferLength: 4,
-          // Snap startup to the requested clip start, avoiding the
-          // double seek (play → seek → buffer) that adds latency.
-          startPosition: Math.max(0, startMs / 1000),
-          // Lower-latency loading even though this isn't a live stream;
-          // gives faster first-frame because hls.js doesn't wait for a
-          // full ABR cycle before declaring the stream "started."
+          // Source is VOD; no live tuning needed.
           lowLatencyMode: false,
           progressive: true,
         });
@@ -295,115 +241,56 @@ export const MuxClipPlayer = forwardRef<MuxClipPlayerHandle, Props>(
     };
   }, [streamUrl]);
 
-  // Range clamp + autoplay arming. Re-runs when playId changes (e.g.,
-  // the runner advances steps) or the window itself changes. We don't
-  // use the native loop attribute because it loops the full asset, not
-  // the sub-range — instead, a timeupdate listener resets currentTime
-  // to startSec when it crosses endSec.
+  // Honor the autoplay prop dynamically. The Reels viewport flips this
+  // when the active step changes — the new active reel goes autoplay
+  // true, the previously-active reel (now ±1 prefetch) goes false. We
+  // call play()/pause() explicitly because just toggling the attribute
+  // doesn't affect a video that's already mounted.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
-
-    const seekToStart = () => {
+    if (autoplay) {
+      // Clear any user-paused state when this reel becomes active again
+      // so the play() actually runs (and the tap-to-pause overlay below
+      // shows the right icon next time the user taps).
+      setUserPaused(false);
+      setStarted(true);
+      void v.play().catch(() => {
+        // Browser refused autoplay (rare with muted=true). Show the
+        // tap-to-play overlay so the user can start playback manually.
+        setStarted(false);
+      });
+    } else {
       try {
-        v.currentTime = startSec;
+        v.pause();
       } catch {
-        // Some browsers throw if duration isn't known yet; the
-        // loadedmetadata listener below catches that case.
+        // best-effort — element may have detached
       }
-    };
-
-    const onMeta = () => {
-      seekToStart();
-      if (autoplay) {
-        setStarted(true);
-        void v.play().catch(() => {
-          // Autoplay policy refused (rare with muted=true). Show the
-          // tap-to-play overlay instead of a frozen poster.
-          setStarted(false);
-        });
-      }
-    };
-
-    const onTime = () => {
-      if (!v) return;
-      // Wrap when we cross endSec. A small epsilon (-0.05s) covers
-      // browsers that fire timeupdate slightly past the boundary.
-      if (v.currentTime >= endSec - 0.02) {
-        try {
-          v.currentTime = startSec;
-        } catch {
-          // ignore
-        }
-      }
-      const elapsed = Math.max(0, v.currentTime - startSec);
-      setProgress(Math.min(1, elapsed / spanSec));
-    };
-
-    // If metadata is already loaded (e.g., src didn't change but playId
-    // did), seek immediately. Otherwise wait for loadedmetadata.
-    if (v.readyState >= 1) {
-      onMeta();
     }
-    v.addEventListener('loadedmetadata', onMeta);
-    v.addEventListener('timeupdate', onTime);
-    return () => {
-      v.removeEventListener('loadedmetadata', onMeta);
-      v.removeEventListener('timeupdate', onTime);
-    };
-  }, [playId, startSec, endSec, spanSec, autoplay]);
+  }, [autoplay]);
 
-  // Reset visible progress + playback position when the step changes.
-  // Kept separate from the HLS attach effect so it runs even when
-  // streamUrl is stable across step navigations (a single source video
-  // backs every step of an AI-drafted procedure).
-  useEffect(() => {
-    setProgress(0);
-    setStarted(autoplay);
-    // A pause from the previous step shouldn't carry over. The new step
-    // should autoplay (subject to the autoplay prop) regardless of what
-    // the tech chose to do on the prior reel.
-    setUserPaused(false);
-    setFlash(null);
-    // Hide the video behind the poster while iOS Safari does the seek.
-    // Without this, the user sees the previous clip's last frame held
-    // for ~50-200ms before the new range pops in — the "frame
-    // jumping" symptom. The reveal listener (separate effect) flips
-    // this back to true on the first `seeked` / `playing` / `timeupdate`
-    // event indicating the new frame is actually composited; the
-    // poster image is generated from the same clip startMs as the
-    // <video>, so the swap is invisible to the eye.
-    setRevealed(false);
-    if (flashTimerRef.current) {
-      clearTimeout(flashTimerRef.current);
-      flashTimerRef.current = null;
-    }
-  }, [playId, autoplay]);
-
-  // Reveal the video as soon as it's actually painting frames inside
-  // the requested clip range. We listen for both `playing` (fires once
-  // playback resumes after a play() call) and `timeupdate` (fires as
-  // the decoder produces frames). Whichever lands first flips the
-  // reveal — `timeupdate` is the more reliable signal on iOS where
-  // `playing` occasionally fires before a frame is actually composited.
+  // Track playback position for the loop-progress bar. `timeupdate`
+  // fires ~4×/sec which is plenty for a visual indicator. The browser
+  // resets `currentTime` to 0 on each loop wrap, so progress naturally
+  // resets too — no manual reset needed.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
-    let done = false;
-    const reveal = () => {
-      if (done) return;
-      done = true;
-      setRevealed(true);
-    };
-    v.addEventListener('playing', reveal);
-    v.addEventListener('timeupdate', reveal);
-    v.addEventListener('seeked', reveal);
+    function onTime() {
+      const el = videoRef.current;
+      if (!el || !isFinite(el.duration) || el.duration <= 0) {
+        setProgress(0);
+        return;
+      }
+      setProgress(Math.min(1, Math.max(0, el.currentTime / el.duration)));
+    }
+    v.addEventListener('timeupdate', onTime);
+    v.addEventListener('loadedmetadata', onTime);
     return () => {
-      v.removeEventListener('playing', reveal);
-      v.removeEventListener('timeupdate', reveal);
-      v.removeEventListener('seeked', reveal);
+      v.removeEventListener('timeupdate', onTime);
+      v.removeEventListener('loadedmetadata', onTime);
     };
-  }, [playId]);
+  }, []);
 
   // Always clear the flash timer on unmount; otherwise a fast unmount
   // mid-flash leaves a stale callback firing setState on a dead tree.
@@ -423,8 +310,9 @@ export const MuxClipPlayer = forwardRef<MuxClipPlayerHandle, Props>(
     setStarted(true);
     void v.play().catch(() => {
       // Some browsers reject play() if the gesture didn't satisfy
-      // policy. Native controls become visible regardless, so the
-      // user can retry with the native play button.
+      // policy. Native controls don't render here (we never show
+      // them), so leave `started` true and let the user try again
+      // with the visible play overlay.
     });
   }
 
@@ -461,12 +349,6 @@ export const MuxClipPlayer = forwardRef<MuxClipPlayerHandle, Props>(
       flashTimerRef.current = setTimeout(() => setFlash(null), 700);
     });
   }, []);
-
-  // Imperative handle for callers that need to drive playback without
-  // owning the DOM — currently the Reels viewport's shared-stage
-  // tap-through, which catches bare-area taps on the active reel
-  // section and forwards them here.
-  useImperativeHandle(ref, () => ({ togglePlayback }), [togglePlayback]);
 
   const containerStyle = {
     aspectRatio: frameAspectRatio(aspectRatio, orientation),
@@ -522,52 +404,29 @@ export const MuxClipPlayer = forwardRef<MuxClipPlayerHandle, Props>(
       <video
         ref={videoRef}
         poster={posterUrl}
-        // Always muted regardless of the caller's `muted` prop. The
-        // step clip is a silent demonstration loop — the AI voiceover
-        // plays from a separate <audio> element in the runner. If the
-        // native controls ever rendered (they shouldn't now, see
-        // below), unmuting them would surface the raw walkthrough
+        // Always muted regardless of caller preference. The step clip
+        // is a silent demonstration loop — the AI voiceover plays from
+        // a separate <audio> element in the runner. Native controls are
+        // never shown (see `controls={false}` below), so there's no
+        // path for the user to unmute and hear the original walkthrough
         // narration on top of the synthesized voiceover.
         muted
         playsInline
         autoPlay={autoplay}
-        // Native loop is OFF — we loop the sub-range manually via
-        // timeupdate so the wrap point matches endMs, not the full
-        // asset duration.
-        loop={false}
-        // Disable Picture-in-Picture and download/share affordances
-        // some browsers expose without controls. The clip is part of
-        // a procedure, not a standalone video.
+        // Native loop on the trimmed manifest. The clip wraps cleanly
+        // back to its own start because the manifest IS just the clip.
+        loop
         disablePictureInPicture
         controlsList="nodownload noplaybackrate noremoteplayback"
-        // Always 'auto' so the browser begins fetching the manifest +
-        // first segment as soon as the element mounts.
         preload="auto"
-        // NEVER render the native HTML5 controls. They expose seek,
-        // mute, and (on some browsers) PiP — and the mute toggle is
-        // the path that would let a tech unmute and hear the original
-        // walkthrough audio instead of the AI voiceover. The clip is
-        // an autoplay-loop demonstration; no user-facing controls.
+        // NEVER render native HTML5 controls. They expose seek, mute,
+        // and (on some browsers) PiP — and the mute toggle is the path
+        // that would let a tech unmute and hear the original walkthrough
+        // audio instead of the AI voiceover.
         controls={false}
         style={{ width: '100%', height: '100%', objectFit: 'contain' }}
         onError={() => setFailed(true)}
       />
-      {/* Poster cover — sits over the <video> until the first frame
-          at startMs is composited. The image is the same JPEG Mux
-          generated for the clip's poster, so once the seek lands the
-          fade-out is invisible. Keyed by the poster URL so React
-          remounts the <img> on step changes (forcing the browser to
-          paint immediately rather than fading a stale frame). */}
-      {posterUrl && !revealed && (
-        <img
-          key={posterUrl}
-          src={posterUrl}
-          alt=""
-          aria-hidden
-          draggable={false}
-          className="step-video-poster-cover"
-        />
-      )}
       {/* Tap-to-play overlay only when autoplay didn't fire (rare —
           browser autoplay policies allow muted autoplay almost
           everywhere). Once playback starts we hide the overlay; we no
@@ -584,11 +443,9 @@ export const MuxClipPlayer = forwardRef<MuxClipPlayerHandle, Props>(
           </span>
         </button>
       )}
-      {/* Tap-anywhere pause/resume — transparent overlay positioned
-          beneath the reel's pill row, replay button, and bottom title
-          block (those sit at higher z-index in the Reels viewport and
-          keep their own click handlers). Only enabled when the caller
-          opts in; the classic step card never wires this on. */}
+      {/* Tap-anywhere pause/resume — transparent overlay that captures
+          taps on the active reel. The Reels viewport opts in; the
+          classic stacked-card view does not. */}
       {tapToPause && started && (
         <button
           type="button"
@@ -600,11 +457,7 @@ export const MuxClipPlayer = forwardRef<MuxClipPlayerHandle, Props>(
       )}
       {/* Shorts-style flash icon. Renders only briefly (~700ms) after
           each toggle and is purely decorative — the underlying video
-          is the source of truth for play/pause state. The unmount/
-          remount cycle that restarts the CSS animation is driven by
-          togglePlayback's null → value transition via rAF, NOT by a
-          per-render key (which would re-fire the animation every time
-          timeupdate caused a re-render). */}
+          is the source of truth for play/pause state. */}
       {flash && (
         <span className="step-video-flash" aria-hidden data-kind={flash}>
           {flash === 'pause' ? (
@@ -627,5 +480,4 @@ export const MuxClipPlayer = forwardRef<MuxClipPlayerHandle, Props>(
       )}
     </figure>
   );
-  },
-);
+}

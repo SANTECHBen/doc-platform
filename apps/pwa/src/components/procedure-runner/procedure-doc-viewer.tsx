@@ -487,16 +487,12 @@ function StepBlock({
                     // autoplays the active step's clip; see below.
                     <MuxClipPlayer
                       streamUrl={m.clip.streamUrl}
-                      startMs={m.clip.startMs}
-                      endMs={m.clip.endMs}
                       posterUrl={m.url ?? undefined}
                       alt={m.caption ?? step.title}
                       caption={m.caption ?? null}
-                      muted
                       autoplay={false}
                       aspectRatio={m.clip.aspectRatio ?? null}
                       orientation={m.clip.orientation ?? null}
-                      playId={`viewer-${step.id ?? index}-${mi}`}
                     />
                   ) : (
                     <video

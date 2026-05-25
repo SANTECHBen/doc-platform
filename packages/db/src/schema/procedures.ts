@@ -88,13 +88,19 @@ export type ProcedureStepMedia =
       mime: string;
       caption?: string;
       clip: {
-        /** Mux playback id (public or signed). The runner streams from
-         *  https://stream.mux.com/<playbackId>.m3u8 — HLS on Safari/iOS
-         *  natively, hls.js elsewhere. */
+        /** Mux playback id (public or signed) of the SOURCE asset.
+         *  The runner streams from a per-step instant-clip URL built
+         *  on the read path — see muxClipUrlFor in
+         *  packages/api/src/lib/mux.ts. The URL adds
+         *  `?asset_start_time=...&asset_end_time=...` (or signs the
+         *  same bounds into a playback JWT) so Mux's edge returns a
+         *  manifest representing just this clip range. */
         playbackId: string;
-        /** Inclusive start of the clip range, in ms. */
+        /** Inclusive start of the clip range, in ms. Source for the
+         *  URL's `asset_start_time` parameter (seconds, 3dp). */
         startMs: number;
-        /** Exclusive end of the clip range, in ms. */
+        /** Exclusive end of the clip range, in ms. Source for the
+         *  URL's `asset_end_time` parameter (seconds, 3dp). */
         endMs: number;
         /** Source aspect ratio reported by Mux (e.g. "16:9", "9:16"). The
          *  runner uses this to frame the clip in matching orientation

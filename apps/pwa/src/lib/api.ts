@@ -1126,8 +1126,15 @@ export type ProcedureStepMedia =
         playbackId: string;
         startMs: number;
         endMs: number;
-        /** Server-derived HLS endpoint:
-         *  https://stream.mux.com/<playbackId>.m3u8 */
+        /** Mux instant-clip HLS endpoint — the manifest at this URL
+         *  is pre-trimmed by Mux to the clip's [startMs..endMs] range,
+         *  so the player consumes it as a small standalone HLS
+         *  stream. Shape varies by deployment playback policy:
+         *    * public:  https://stream.mux.com/<id>.m3u8
+         *               ?asset_start_time=<s>&asset_end_time=<s>
+         *    * signed:  https://stream.mux.com/<id>.m3u8?token=<JWT>
+         *               (clip bounds are baked into the JWT claims).
+         *  See muxClipUrlFor / muxClipStreamUrl in packages/api/src/lib/mux.ts. */
         streamUrl: string;
         /** Mux-reported aspect ratio ("16:9", "9:16"). Drives the
          *  player's container framing — portrait clips get a tall
