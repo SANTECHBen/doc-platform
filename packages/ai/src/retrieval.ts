@@ -38,12 +38,19 @@ export interface Retriever {
    * Used by the part-scoped chat so answers cite only author-curated docs
    * for the selected part. An empty array means "no docs to retrieve from"
    * (returns nothing); `undefined` means "no additional filter".
+   *
+   * `ownerOrganizationIds` is defense-in-depth: callers pass the same set
+   * of orgs derived from search-scope.ts. The retriever WHEREs on BOTH
+   * contentPackVersionId AND owner_organization_id, so a single mistake
+   * in version-id derivation can't leak cross-tenant chunks. An empty
+   * array means "no orgs to retrieve from" (returns nothing).
    */
   retrieve(input: {
     query: string;
     contentPackVersionIds: string[];
     topK: number;
     documentIds?: string[];
+    ownerOrganizationIds: string[];
   }): Promise<RetrievedChunk[]>;
 }
 
@@ -56,10 +63,12 @@ export interface Retriever {
 export function createPgTextSearchRetriever(params: { db: Database }): Retriever {
   const { db } = params;
   return {
-    async retrieve({ query, contentPackVersionIds, topK, documentIds }) {
+    async retrieve({ query, contentPackVersionIds, topK, documentIds, ownerOrganizationIds }) {
       if (contentPackVersionIds.length === 0) return [];
+      if (ownerOrganizationIds.length === 0) return [];
       if (documentIds && documentIds.length === 0) return [];
       const versionsLiteral = `{${contentPackVersionIds.join(',')}}`;
+      const orgsLiteral = `{${ownerOrganizationIds.join(',')}}`;
       const docsLiteral = documentIds ? `{${documentIds.join(',')}}` : null;
 
       // documents JOIN + ai_indexed gate — chunks whose parent doc is opted
@@ -75,6 +84,7 @@ export function createPgTextSearchRetriever(params: { db: Database }): Retriever
                 FROM document_chunks c
                 JOIN documents d ON d.id = c.document_id
                 WHERE c.content_pack_version_id = ANY(${versionsLiteral}::uuid[])
+                  AND c.owner_organization_id = ANY(${orgsLiteral}::uuid[])
                   AND c.document_id = ANY(${docsLiteral}::uuid[])
                   AND d.ai_indexed = true
                   AND to_tsvector('english', c.content) @@ websearch_to_tsquery('english', ${query})
@@ -89,6 +99,7 @@ export function createPgTextSearchRetriever(params: { db: Database }): Retriever
                 FROM document_chunks c
                 JOIN documents d ON d.id = c.document_id
                 WHERE c.content_pack_version_id = ANY(${versionsLiteral}::uuid[])
+                  AND c.owner_organization_id = ANY(${orgsLiteral}::uuid[])
                   AND d.ai_indexed = true
                   AND to_tsvector('english', c.content) @@ websearch_to_tsquery('english', ${query})
                 ORDER BY score DESC
@@ -107,6 +118,7 @@ export function createPgTextSearchRetriever(params: { db: Database }): Retriever
                   FROM document_chunks c
                   JOIN documents d ON d.id = c.document_id
                   WHERE c.content_pack_version_id = ANY(${versionsLiteral}::uuid[])
+                    AND c.owner_organization_id = ANY(${orgsLiteral}::uuid[])
                     AND c.document_id = ANY(${docsLiteral}::uuid[])
                     AND d.ai_indexed = true
                   ORDER BY c.chunk_index
@@ -118,6 +130,7 @@ export function createPgTextSearchRetriever(params: { db: Database }): Retriever
                   FROM document_chunks c
                   JOIN documents d ON d.id = c.document_id
                   WHERE c.content_pack_version_id = ANY(${versionsLiteral}::uuid[])
+                    AND c.owner_organization_id = ANY(${orgsLiteral}::uuid[])
                     AND d.ai_indexed = true
                   ORDER BY c.chunk_index
                   LIMIT ${topK}`,
@@ -142,13 +155,15 @@ export function createPgVectorRetriever(params: {
 }): Retriever {
   const { db, embed: embedFn } = params;
   return {
-    async retrieve({ query, contentPackVersionIds, topK, documentIds }) {
+    async retrieve({ query, contentPackVersionIds, topK, documentIds, ownerOrganizationIds }) {
       if (contentPackVersionIds.length === 0) return [];
+      if (ownerOrganizationIds.length === 0) return [];
       if (documentIds && documentIds.length === 0) return [];
 
       const vec = await embedFn(query);
       const vectorLiteral = `[${vec.join(',')}]`;
       const versionsLiteral = `{${contentPackVersionIds.join(',')}}`;
+      const orgsLiteral = `{${ownerOrganizationIds.join(',')}}`;
       const docsLiteral = documentIds ? `{${documentIds.join(',')}}` : null;
 
       // Same ai_indexed JOIN gate as the FTS retriever — chunks from
@@ -161,6 +176,7 @@ export function createPgVectorRetriever(params: {
                 FROM document_chunks c
                 JOIN documents d ON d.id = c.document_id
                 WHERE c.content_pack_version_id = ANY(${versionsLiteral}::uuid[])
+                  AND c.owner_organization_id = ANY(${orgsLiteral}::uuid[])
                   AND c.document_id = ANY(${docsLiteral}::uuid[])
                   AND d.ai_indexed = true
                   AND c.embedding IS NOT NULL
@@ -174,6 +190,7 @@ export function createPgVectorRetriever(params: {
                 FROM document_chunks c
                 JOIN documents d ON d.id = c.document_id
                 WHERE c.content_pack_version_id = ANY(${versionsLiteral}::uuid[])
+                  AND c.owner_organization_id = ANY(${orgsLiteral}::uuid[])
                   AND d.ai_indexed = true
                   AND c.embedding IS NOT NULL
                 ORDER BY c.embedding <=> ${vectorLiteral}::vector
@@ -218,16 +235,17 @@ export function createHybridRetriever(params: {
   const vec = createPgVectorRetriever({ db, embed: (q) => embed(q, 'query') });
 
   return {
-    async retrieve({ query, contentPackVersionIds, topK: _ignoredTopK, documentIds }) {
+    async retrieve({ query, contentPackVersionIds, topK: _ignoredTopK, documentIds, ownerOrganizationIds }) {
       if (contentPackVersionIds.length === 0) return [];
+      if (ownerOrganizationIds.length === 0) return [];
       if (documentIds && documentIds.length === 0) return [];
 
       // Run both legs in parallel. If vector search fails (e.g., VOYAGE_API_KEY
       // missing or all chunks unembedded), fall back gracefully to FTS alone.
       const [ftsResults, vecResults] = await Promise.all([
-        fts.retrieve({ query, contentPackVersionIds, topK: candidatesPerLeg, documentIds }),
+        fts.retrieve({ query, contentPackVersionIds, topK: candidatesPerLeg, documentIds, ownerOrganizationIds }),
         vec
-          .retrieve({ query, contentPackVersionIds, topK: candidatesPerLeg, documentIds })
+          .retrieve({ query, contentPackVersionIds, topK: candidatesPerLeg, documentIds, ownerOrganizationIds })
           .catch(() => [] as RetrievedChunk[]),
       ]);
 

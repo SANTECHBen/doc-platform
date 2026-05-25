@@ -24,7 +24,7 @@ import {
 import { schema, type Database, type SearchSourceType } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { requireAuthOrScan } from '../middleware/scan-session.js';
-import { getScope } from '../middleware/scope.js';
+import { getScope, requireOrgInScope } from '../middleware/scope.js';
 import {
   resolveSearchScopeForAssetInstance,
   resolveSearchScopeForUser,
@@ -92,6 +92,31 @@ async function resolveScope(
           message: 'scan session does not match assetInstanceId',
         },
       };
+    }
+    // Authenticated callers (no scan session) can still pass an
+    // assetInstanceId — verify the asset's owning org is in the caller's
+    // scope. Previously this branch was unchecked: a dealer-admin could
+    // pass any UUID and receive RAG-retrieved snippets from a foreign
+    // tenant's procedures and PDFs.
+    if (request.auth && !sessionAsset) {
+      const instance = await db.query.assetInstances.findFirst({
+        where: eq(schema.assetInstances.id, assetInstanceId),
+        with: { site: { columns: { organizationId: true } } },
+      });
+      if (!instance) {
+        // 404 not 403 — avoid existence oracle.
+        return {
+          reply: { statusCode: 404, message: 'Asset instance not found' },
+        };
+      }
+      const scope = await getScope(request, db);
+      try {
+        requireOrgInScope(scope, instance.site.organizationId);
+      } catch {
+        return {
+          reply: { statusCode: 404, message: 'Asset instance not found' },
+        };
+      }
     }
     const orgIdForQuota =
       request.auth?.organizationId ?? request.scanSession?.organizationId;

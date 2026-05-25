@@ -55,10 +55,12 @@ export async function processDocument(params: PipelineParams): Promise<PipelineR
 
   const doc = await db.query.documents.findFirst({
     where: eq(schema.documents.id, documentId),
+    with: { packVersion: { with: { pack: true } } },
   });
   if (!doc) {
     return { status: 'failed', chunksWritten: 0, error: 'document not found' };
   }
+  const ownerOrganizationId = doc.packVersion.pack.ownerOrganizationId;
 
   // Markdown-native docs don't need extraction — they chunk directly from
   // bodyMarkdown. External videos don't chunk at all.
@@ -207,6 +209,7 @@ export async function processDocument(params: PipelineParams): Promise<PipelineR
             chunks.map((c, i) => ({
               documentId,
               contentPackVersionId: doc.contentPackVersionId,
+              ownerOrganizationId,
               chunkIndex: i,
               content: c.content,
               charStart: c.charStart,
@@ -295,8 +298,11 @@ function sanitizeFilename(name: string | null | undefined): string | null {
 
 async function processMarkdownDocument(
   db: Database,
-  doc: typeof schema.documents.$inferSelect,
+  doc: typeof schema.documents.$inferSelect & {
+    packVersion: { pack: { ownerOrganizationId: string } };
+  },
 ): Promise<PipelineResult> {
+  const ownerOrganizationId = doc.packVersion.pack.ownerOrganizationId;
   if (!doc.bodyMarkdown || doc.bodyMarkdown.trim().length === 0) {
     await markStatus(db, doc.id, 'not_applicable');
     return { status: 'not_applicable', chunksWritten: 0 };
@@ -346,6 +352,7 @@ async function processMarkdownDocument(
             chunks.map((c, i) => ({
               documentId: doc.id,
               contentPackVersionId: doc.contentPackVersionId,
+              ownerOrganizationId,
               chunkIndex: i,
               content: c.content,
               charStart: c.charStart,

@@ -7,6 +7,7 @@ import {
   extractCitedChunkIds,
   buildSafetyDirective,
   buildSystemPrompt,
+  buildRetrievedSourcesBlock,
   type SafetyFlaggedChunk,
 } from '@platform/ai';
 import { AIChatRequestSchema } from '@platform/shared';
@@ -19,6 +20,7 @@ import {
   recordVoiceUsage,
   resolveQuota,
 } from '../lib/voice-quota';
+import { sniffMime } from '../lib/mime-sniff';
 
 export async function registerAIRoutes(app: FastifyInstance) {
   // Server-Sent Events stream of a grounded troubleshooter turn.
@@ -86,6 +88,37 @@ export async function registerAIRoutes(app: FastifyInstance) {
     let retrievalQuery = body.message ?? '';
     let imageDescription: string | null = null;
     if (body.imageStorageKey) {
+      // Cross-tenant image-read defense. The key must correspond to a
+      // recent upload by *this* user (or by a SANTECH platform-admin) and
+      // not yet be consumed/expired. Without this check, any authenticated
+      // caller could pass a guessed/leaked storage key belonging to
+      // another tenant and have Claude vision describe the bytes. Returns
+      // notFound (not forbidden) to avoid functioning as an existence
+      // oracle for storage keys.
+      const grant = await db.query.chatImageUploads.findFirst({
+        where: and(
+          eq(schema.chatImageUploads.storageKey, body.imageStorageKey),
+          eq(schema.chatImageUploads.userId, auth.userId),
+        ),
+      });
+      const now = new Date();
+      if (
+        !grant ||
+        grant.consumedAt !== null ||
+        grant.expiresAt.getTime() < now.getTime() ||
+        // Belt-and-suspenders: the upload's org must also be in the
+        // caller's scope. Prevents a stale grant from being reused if the
+        // user has since left the org.
+        grant.organizationId !== auth.organizationId
+      ) {
+        return reply.notFound('Image upload not found or expired.');
+      }
+      // Mark the grant consumed so a single uploaded image can't be
+      // replayed across many vision calls (token-cost containment).
+      await db
+        .update(schema.chatImageUploads)
+        .set({ consumedAt: now })
+        .where(eq(schema.chatImageUploads.id, grant.id));
       try {
         const stream = await storage.stream(body.imageStorageKey);
         if (stream) {
@@ -248,11 +281,18 @@ Do not speculate about CAUSE or RECOMMEND action — just describe what's in the
         skipRerank: !process.env.VOYAGE_API_KEY,
       },
     });
+    // Defense-in-depth tenant scope for retrieval. The chat is already
+    // bound to the asset's pinned content pack (versionIds), but we also
+    // pass the asset's owning org as a hard WHERE filter on the chunks
+    // table. A bug in versionId derivation can no longer leak across
+    // tenants because both filters must agree.
+    const retrievalOwnerOrgIds = [instance.site.organizationId];
     const retrieved = await retriever.retrieve({
       query: retrievalQuery,
       contentPackVersionIds: versionIds,
       topK: 12,
       documentIds: scopedDocumentIds,
+      ownerOrganizationIds: retrievalOwnerOrgIds,
     });
     const chunks: SafetyFlaggedChunk[] = await enrichSafety(db, retrieved);
 
@@ -501,6 +541,13 @@ If no authored procedure plausibly matches, do NOT improvise a step list. Answer
       const chatModel =
         body.mode === 'voice' ? env.ANTHROPIC_VOICE_MODEL : env.ANTHROPIC_MODEL;
 
+      // Build the retrieved-sources block as a separate user-role message
+      // so the (untrusted) chunk text never sits in the high-trust system
+      // role. Chunk content is also sanitized inside buildRetrievedSourcesBlock
+      // so wrapper-closing tokens and role headers can't escape the
+      // envelope. See C-AI-3 in the security audit.
+      const retrievedSourcesBlock = buildRetrievedSourcesBlock(chunks);
+
       const stream = anthropic.messages.stream({
         model: chatModel,
         max_tokens: 1024,
@@ -512,6 +559,15 @@ If no authored procedure plausibly matches, do NOT improvise a step list. Answer
             role: m.role === 'assistant' ? ('assistant' as const) : ('user' as const),
             content: m.content,
           })),
+          // Untrusted retrieved-sources block first, then the user's actual
+          // question. Putting the sources earlier in the message stream
+          // keeps them in cache as the conversation grows. (cache_control
+          // is currently only set on the system block above; ephemeral
+          // caching on user-role content is SDK-version-gated.)
+          {
+            role: 'user' as const,
+            content: retrievedSourcesBlock,
+          },
           { role: 'user' as const, content: currentUserContent },
         ],
       });
@@ -528,8 +584,14 @@ If no authored procedure plausibly matches, do NOT improvise a step list. Answer
 
       const finalMsg = await stream.finalMessage();
 
-      // Resolve citations from the accumulated text.
-      const referencedChunkIds = extractCitedChunkIds(accumulated);
+      // Resolve citations from the accumulated text. Restrict to the set of
+      // chunk IDs that were actually retrieved this turn — a prompt-injected
+      // PDF that emitted a foreign UUID can't surface another tenant's
+      // chunk via the [cite:UUID] regex. See M-AI-2 in the security audit.
+      const retrievedIdSet = new Set(retrieved.map((r) => r.id));
+      const referencedChunkIds = extractCitedChunkIds(accumulated).filter(
+        (id) => retrievedIdSet.has(id),
+      );
       const citedChunks = referencedChunkIds.length
         ? await db.query.documentChunks.findMany({
             where: inArray(schema.documentChunks.id, referencedChunkIds),
@@ -556,6 +618,10 @@ If no authored procedure plausibly matches, do NOT improvise a step list. Answer
         ...(c.page !== null ? { page: c.page } : {}),
       }));
 
+      // Persist citations. We restrict `referencedChunkIds` above to the
+      // retrieved set, so the persisted quote is always for a chunk the
+      // caller was authorized to see this turn — closes the historical-
+      // leak path even though we still write the quote text. See H-AI-4.
       const persistedCitations = citations.map(
         ({ documentId, contentPackVersionId, quote, charStart, charEnd, page }) => ({
           documentId,
@@ -752,6 +818,88 @@ If no authored procedure plausibly matches, do NOT improvise a step list. Answer
       reply.raw.end();
     }
   });
+
+  // -------------------------------------------------------------------------
+  // POST /ai/chat-images/upload — multipart image upload bound to caller.
+  //
+  // The /ai/chat endpoint requires that any imageStorageKey it receives
+  // belongs to a row in chat_image_uploads owned by the calling user (see
+  // C-AI-1 in the security audit). This endpoint is the only path that
+  // mints such a row.
+  //
+  // Bounded: 10 MB body, image/png|image/jpeg|image/webp only (verified
+  // with magic-byte sniff at the storage layer); per-user rate limit
+  // applied by the global limiter. Grants expire after 1 hour and can be
+  // consumed exactly once.
+  // -------------------------------------------------------------------------
+  app.post('/ai/chat-images/upload', async (request, reply) => {
+    const { db, storage } = app.ctx;
+    const auth = requireAuth(request);
+    if (!request.isMultipart()) {
+      return reply.badRequest('Expected multipart/form-data.');
+    }
+    const file = await request.file({ limits: { fileSize: 10 * 1024 * 1024 } });
+    if (!file) return reply.badRequest('Missing "file" field.');
+    const mime = file.mimetype.toLowerCase();
+    const ALLOWED = new Set(['image/png', 'image/jpeg', 'image/webp']);
+    if (!ALLOWED.has(mime)) {
+      return reply.badRequest('Unsupported image type. Use PNG, JPEG, or WebP.');
+    }
+    const buf = await file.toBuffer();
+    if (buf.length === 0) return reply.badRequest('Empty file.');
+    // Server-side magic-byte sniff so we don't trust the client's mimetype
+    // claim. Mismatch = reject. (Common formats only — extending this is
+    // tracked in the storage hardening pass.)
+    const sniff = sniffImageMime(buf);
+    if (!sniff || sniff !== mime) {
+      return reply.badRequest('File contents do not match the declared image type.');
+    }
+    const filename = sanitizeFilename(file.filename ?? 'image');
+    const stored = await storage.putBuffer({
+      buffer: buf,
+      contentType: mime,
+      filename,
+      ownerOrganizationId: auth.organizationId,
+    });
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1h
+    const [row] = await db
+      .insert(schema.chatImageUploads)
+      .values({
+        storageKey: stored.storageKey,
+        userId: auth.userId,
+        organizationId: auth.organizationId,
+        contentType: mime,
+        sizeBytes: String(buf.length),
+        expiresAt,
+      })
+      .returning();
+    if (!row) return reply.internalServerError('Failed to register upload.');
+    return reply.send({
+      storageKey: stored.storageKey,
+      sha256: stored.sha256,
+      size: buf.length,
+      contentType: mime,
+      originalFilename: filename,
+      // URL is included so the PWA can preview the image client-side
+      // between selection and send. Once private buckets land (task #7),
+      // this is replaced by a short-lived presigned GET.
+      url: storage.publicUrl(stored.storageKey),
+      expiresAt: expiresAt.toISOString(),
+    });
+  });
+}
+
+// Wraps the shared mime-sniff helper for the chat-image allowlist.
+function sniffImageMime(buf: Buffer): 'image/png' | 'image/jpeg' | 'image/webp' | null {
+  const m = sniffMime(buf);
+  if (m === 'image/png' || m === 'image/jpeg' || m === 'image/webp') return m;
+  return null;
+}
+
+function sanitizeFilename(name: string): string {
+  // Strip path components, normalize to ASCII alnum + . _ -; cap length.
+  const base = name.replace(/^.*[\\/]/, '').replace(/[^A-Za-z0-9._-]+/g, '_');
+  return base.slice(0, 128) || 'image';
 }
 
 async function enrichSafety(
@@ -765,6 +913,7 @@ async function enrichSafety(
     charEnd: number | null;
     page: number | null;
     score: number;
+    source: 'authored' | 'extracted';
   }>,
 ): Promise<SafetyFlaggedChunk[]> {
   if (chunks.length === 0) return [];

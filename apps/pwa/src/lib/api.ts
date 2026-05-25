@@ -601,7 +601,11 @@ export async function uploadFile(
 ): Promise<UploadResult> {
   const form = new FormData();
   form.append('file', file, file.name);
-  const res = await fetch(`${CLIENT_API_BASE}/admin/uploads`, {
+  // Use the dedicated chat-image endpoint so the upload is bound to the
+  // calling user — required by /ai/chat's ownership check (see C-AI-1 in
+  // the security audit). The generic /admin/uploads endpoint still exists
+  // for admin authoring flows but is no longer the chat upload path.
+  const res = await fetch(`${CLIENT_API_BASE}/ai/chat-images/upload`, {
     method: 'POST',
     headers: { 'x-dev-user': `${devUserId}:${devOrgId}` },
     body: form,

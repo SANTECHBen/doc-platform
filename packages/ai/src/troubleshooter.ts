@@ -98,6 +98,11 @@ export async function answerGrounded(params: {
   history: TroubleshooterInput['history'];
   grounding: Omit<TroubleshooterInput['grounding'], 'chunks'>;
   contentPackVersionIds: string[];
+  /** Defense-in-depth tenant scope for retrieval. Pass the orgs whose
+   *  chunks the caller is authorized to see (typically the asset's owning
+   *  org plus its ancestor chain for overlay packs). The retriever WHEREs
+   *  on both contentPackVersionId AND owner_organization_id. */
+  ownerOrganizationIds: string[];
   // Takes raw retrieved chunks and decorates them with safety_critical by joining
   // to documents in the API layer. Wiring is done where the DB lives.
   enrichWithSafetyFlags: (chunks: Awaited<ReturnType<Retriever['retrieve']>>) => Promise<
@@ -108,6 +113,7 @@ export async function answerGrounded(params: {
   const retrieved = await params.retriever.retrieve({
     query: params.userMessage,
     contentPackVersionIds: params.contentPackVersionIds,
+    ownerOrganizationIds: params.ownerOrganizationIds,
     topK: params.topK ?? 12,
   });
   const chunks = await params.enrichWithSafetyFlags(retrieved);

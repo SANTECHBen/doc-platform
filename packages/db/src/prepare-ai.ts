@@ -57,7 +57,9 @@ if (!devUser) {
 }
 
 // Chunk every document's markdown body. Idempotent per document via delete+insert.
-const docs = await db.select().from(schema.documents);
+const docs = await db.query.documents.findMany({
+  with: { packVersion: { with: { pack: true } } },
+});
 let totalChunks = 0;
 for (const doc of docs) {
   if (!doc.bodyMarkdown) continue;
@@ -74,6 +76,7 @@ for (const doc of docs) {
     chunks.map((c, i) => ({
       documentId: doc.id,
       contentPackVersionId: doc.contentPackVersionId,
+      ownerOrganizationId: doc.packVersion.pack.ownerOrganizationId,
       chunkIndex: i,
       content: c.content,
       charStart: c.start,

@@ -9,6 +9,7 @@ import {
   index,
 } from 'drizzle-orm/pg-core';
 import { contentPackVersions, documents } from './content';
+import { organizations } from './organizations';
 
 // pgvector column type. Dimension matches the embedding model (voyage-3 = 1024).
 // Change here AND run a re-embed if the model changes.
@@ -38,6 +39,14 @@ export const documentChunks = pgTable(
     contentPackVersionId: uuid('content_pack_version_id')
       .notNull()
       .references(() => contentPackVersions.id, { onDelete: 'cascade' }),
+    // Denormalized owner org for defense-in-depth tenant scoping. The chat
+    // retriever WHEREs on both contentPackVersionId AND ownerOrganizationId
+    // so a bug in the version-id calculation can't leak chunks across
+    // tenants. Mirrors the same column on search_index_items. Backfilled
+    // by migration 0043.
+    ownerOrganizationId: uuid('owner_organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
     // Sequence within the document (for reconstructing context windows).
     chunkIndex: integer('chunk_index').notNull(),
     content: text('content').notNull(),
@@ -54,6 +63,7 @@ export const documentChunks = pgTable(
   (t) => ({
     packVersionIdx: index('document_chunks_pack_version_idx').on(t.contentPackVersionId),
     documentIdx: index('document_chunks_document_idx').on(t.documentId),
+    ownerOrgIdx: index('document_chunks_owner_org_idx').on(t.ownerOrganizationId),
   }),
 );
 
