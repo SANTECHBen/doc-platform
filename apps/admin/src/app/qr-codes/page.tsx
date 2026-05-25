@@ -13,6 +13,7 @@ import {
   Plus,
   Printer,
   QrCode as QrCodeIcon,
+  Sparkles,
   Trash2,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
@@ -191,13 +192,22 @@ export default function QrCodesPage() {
         title="QR codes"
         description={`Labels resolve via ${PUBLIC_PWA_ORIGIN}/q/<code>. Generate one per instance, then print a sheet to apply on equipment.`}
         actions={
-          <Link
-            href="/qr-codes/templates"
-            className="inline-flex items-center gap-1.5 rounded border border-line px-3 py-1.5 text-sm text-ink-secondary hover:bg-surface-inset"
-          >
-            <Layers size={14} strokeWidth={2} />
-            Label templates
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/qr-codes/templates"
+              className="inline-flex items-center gap-1.5 rounded border border-line px-3 py-1.5 text-sm text-ink-secondary hover:bg-surface-inset"
+            >
+              <Layers size={14} strokeWidth={2} />
+              Label templates
+            </Link>
+            <Link
+              href="/qr-codes/designer"
+              className="inline-flex items-center gap-1.5 rounded btn-primary px-3 py-1.5 text-sm"
+            >
+              <Sparkles size={14} strokeWidth={2} />
+              Open designer
+            </Link>
+          </div>
         }
       />
 

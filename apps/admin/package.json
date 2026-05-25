@@ -27,6 +27,7 @@
     "lucide-react": "^0.460.0",
     "next": "^15.5.18",
     "next-auth": "5.0.0-beta.31",
+    "qr-code-styling": "^1.9.2",
     "qrcode.react": "^4.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
