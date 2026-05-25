@@ -303,7 +303,25 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
                   changeTab('library');
                 }}
               />
-              <DetailsDisclosure>
+              <DetailsDisclosure
+                preview={
+                  <>
+                    <span className="details-disclosure-preview-mono">
+                      SN {hub.assetInstance.serialNumber}
+                    </span>
+                    {hub.assetInstance.installedAt && (
+                      <>
+                        <span className="details-disclosure-preview-sep" aria-hidden>
+                          ·
+                        </span>
+                        <span>
+                          Installed {formatInstalledAt(hub.assetInstance.installedAt)}
+                        </span>
+                      </>
+                    )}
+                  </>
+                }
+              >
                 <OverviewSpecs hub={hub} openIssueCount={openIssueCount} />
               </DetailsDisclosure>
             </div>
@@ -761,7 +779,18 @@ function IdentityBand({ hub }: { hub: AssetHubPayload }) {
 // installed date) lives behind a chevron so the Overview surface
 // stays focused on action — none of these change during a service
 // call. Defaults closed.
-function DetailsDisclosure({ children }: { children: React.ReactNode }) {
+function DetailsDisclosure({
+  children,
+  preview,
+}: {
+  children: React.ReactNode;
+  /** Optional muted snippet shown to the right of "Details" when the
+   *  disclosure is closed — fills what would otherwise be empty space
+   *  on a full-width row with the most-asked-about facts (typically
+   *  serial + installed date). Hidden when the disclosure is open
+   *  since the full content is visible below. */
+  preview?: React.ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <div className="details-disclosure" data-open={open}>
@@ -771,7 +800,12 @@ function DetailsDisclosure({ children }: { children: React.ReactNode }) {
         aria-expanded={open}
         className="details-disclosure-summary"
       >
-        Details
+        <span className="details-disclosure-label">Details</span>
+        {!open && preview && (
+          <span className="details-disclosure-preview" aria-hidden="true">
+            {preview}
+          </span>
+        )}
         <ChevronDown size={12} strokeWidth={2.5} className="details-disclosure-chevron" />
       </button>
       {open && <div className="details-disclosure-content">{children}</div>}

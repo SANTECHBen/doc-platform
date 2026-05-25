@@ -2240,8 +2240,38 @@
   .details-disclosure-summary:hover {
     color: rgb(var(--ink-primary));
   }
+  .details-disclosure-label {
+    flex-shrink: 0;
+  }
+  /* Closed-state preview snippet — fills the otherwise-empty middle of
+     the row with the most-asked-about facts (serial, installed date).
+     Muted so the affordance reads as a hint, not a separate UI element. */
+  .details-disclosure-preview {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: rgb(var(--ink-tertiary));
+    font-size: 12px;
+    font-weight: 400;
+    margin-left: 12px;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .details-disclosure-preview-mono {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: rgb(var(--ink-secondary));
+  }
+  .details-disclosure-preview-sep {
+    color: rgb(var(--ink-tertiary));
+    opacity: 0.6;
+  }
   .details-disclosure-chevron {
-    margin-left: auto;
+    flex-shrink: 0;
+    margin-left: 8px;
     transition: transform 160ms ease;
   }
   .details-disclosure[data-open='true'] .details-disclosure-chevron {
