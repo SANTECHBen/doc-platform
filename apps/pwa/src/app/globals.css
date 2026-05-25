@@ -4681,22 +4681,17 @@
     z-index: 1;
   }
   /* The active reel section while the shared stage is driving the
-     <video>. Transparent so the stage shows through, and
-     pointer-events: none on the bare section so taps reach the
-     stage's tap-to-pause overlay. Interactive children re-enable
-     pointer events explicitly below. */
+     <video>. Transparent so the stage shows through; the section
+     keeps pointer-events: auto so its child buttons (title, replay)
+     receive taps the normal way and the section's own onClick
+     handles bare-area taps (forwarded to the stage's pause/resume
+     via an imperative handle — see VirtualJobAidReels). */
   .vja-reel[data-shared-stage='true'] {
     background: transparent;
-    pointer-events: none;
-  }
-  .vja-reel[data-shared-stage='true'] .vja-reel-top,
-  .vja-reel[data-shared-stage='true'] .vja-reel-title-block,
-  .vja-reel[data-shared-stage='true'] .vja-reel-textonly-card,
-  .vja-reel[data-shared-stage='true'] .vja-reel-replay,
-  .vja-reel[data-shared-stage='true'] .vja-reel-empty,
-  .vja-reel[data-shared-stage='true'] .vja-reel-sheet,
-  .vja-reel[data-shared-stage='true'] .vja-reel-sheet-backdrop {
-    pointer-events: auto;
+    /* Disable iOS double-tap zoom on bare-area taps so the forwarded
+       pause/resume fires immediately rather than after the 300ms
+       double-tap delay. */
+    touch-action: manipulation;
   }
   .vja-reels::-webkit-scrollbar {
     display: none;

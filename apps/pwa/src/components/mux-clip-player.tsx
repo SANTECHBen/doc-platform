@@ -27,8 +27,24 @@
 // and the stream fail, we render a labeled placeholder so the tech sees
 // something rather than a black frame.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react';
 import { Pause, Play } from 'lucide-react';
+
+export interface MuxClipPlayerHandle {
+  /** Pause / resume the underlying <video>. Used by the Reels viewport
+   *  to wire the bare-area tap-to-pause when the player lives in the
+   *  shared stage (where the section above it intercepts taps and
+   *  there's no path for the player's own tap-to-pause overlay to
+   *  receive them). */
+  togglePlayback: () => void;
+}
 
 interface Props {
   /** Mux HLS endpoint — typically https://stream.mux.com/<playbackId>.m3u8 */
@@ -105,24 +121,28 @@ function loadHlsModule(): Promise<unknown> {
   return hlsModulePromise;
 }
 
-export function MuxClipPlayer({
-  streamUrl,
-  startMs,
-  endMs,
-  posterUrl,
-  alt,
-  caption,
-  // muted is no longer read — the player force-mutes regardless,
-  // because the original walkthrough audio should never play (only
-  // the AI voiceover does, via a separate <audio> in the runner).
-  // Leaving the prop in the type for API stability across callers.
-  autoplay = true,
-  playId,
-  aspectRatio,
-  orientation,
-  tapToPause = false,
-  className,
-}: Props): React.ReactElement {
+export const MuxClipPlayer = forwardRef<MuxClipPlayerHandle, Props>(
+  function MuxClipPlayer(
+    {
+      streamUrl,
+      startMs,
+      endMs,
+      posterUrl,
+      alt,
+      caption,
+      // muted is no longer read — the player force-mutes regardless,
+      // because the original walkthrough audio should never play (only
+      // the AI voiceover does, via a separate <audio> in the runner).
+      // Leaving the prop in the type for API stability across callers.
+      autoplay = true,
+      playId,
+      aspectRatio,
+      orientation,
+      tapToPause = false,
+      className,
+    },
+    ref,
+  ) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   // hls.js instance — captured for cleanup. Null on Safari / before
   // first attach.
@@ -140,14 +160,15 @@ export function MuxClipPlayer({
   const [userPaused, setUserPaused] = useState(false);
   const [flash, setFlash] = useState<'pause' | 'play' | null>(null);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Has playback actually rendered a frame for the current playId yet?
-  // Used to keep a poster image visible over the <video> until the
-  // browser has finished its initial seek-to-startMs and is decoding
-  // frames in the requested range. Without this overlay, iOS Safari
-  // briefly shows frame-0 of the source video between `loadedmetadata`
-  // and the first decoded frame at `startMs` — which is the "flashing"
-  // a Reels swipe surfaces when the player is reused across step
-  // changes. Resets on every playId change.
+  // Has playback ever rendered a frame for this player yet? Drives a
+  // poster cover that hides the <video> during the initial HLS load
+  // and any subsequent src swap, so the user doesn't see the
+  // intermediate black/frame-0 state iOS Safari emits between
+  // `loadedmetadata` and the first decoded frame at `startMs`. Reset
+  // ONLY by the streamUrl effect — pure step navigations within the
+  // same source keep the same loaded element and re-use the already-
+  // revealed video (the ~50ms seek would otherwise be hidden behind
+  // a static poster, which the user perceives as a stall).
   const [revealed, setRevealed] = useState(false);
 
   const startSec = Math.max(0, startMs / 1000);
@@ -163,6 +184,11 @@ export function MuxClipPlayer({
     if (!v) return;
     let cancelled = false;
     setFailed(false);
+    // True src swap — hide the <video> behind the poster while the
+    // new manifest + first segment fetch in. Pure step navigations
+    // keep the same streamUrl and don't hit this branch (their reset
+    // effect intentionally leaves `revealed` alone).
+    setRevealed(false);
 
     // Tear down any prior hls.js instance from a previous mount/url.
     const teardownHls = () => {
@@ -339,10 +365,13 @@ export function MuxClipPlayer({
     // the tech chose to do on the prior reel.
     setUserPaused(false);
     setFlash(null);
-    // Hide the video behind the poster again — we'll reveal it once
-    // the new clip range has actually started rendering (see the
-    // listener effect below).
-    setRevealed(false);
+    // Deliberately do NOT reset `revealed` here. Pure step navigations
+    // (same streamUrl, just a new clip range) keep the same loaded
+    // <video> element and only need a seek — hiding the video behind
+    // the poster for that ~50ms seek window adds a perceived static
+    // frame for no real benefit. The poster cover is reserved for true
+    // first-load (initial `useState(false)`) and for streamUrl swaps,
+    // which the streamUrl effect resets explicitly below.
     if (flashTimerRef.current) {
       clearTimeout(flashTimerRef.current);
       flashTimerRef.current = null;
@@ -430,6 +459,12 @@ export function MuxClipPlayer({
       flashTimerRef.current = setTimeout(() => setFlash(null), 700);
     });
   }, []);
+
+  // Imperative handle for callers that need to drive playback without
+  // owning the DOM — currently the Reels viewport's shared-stage
+  // tap-through, which catches bare-area taps on the active reel
+  // section and forwards them here.
+  useImperativeHandle(ref, () => ({ togglePlayback }), [togglePlayback]);
 
   const containerStyle = {
     aspectRatio: frameAspectRatio(aspectRatio, orientation),
@@ -590,4 +625,5 @@ export function MuxClipPlayer({
       )}
     </figure>
   );
-}
+  },
+);

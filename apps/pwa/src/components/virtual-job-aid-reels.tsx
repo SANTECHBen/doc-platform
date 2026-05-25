@@ -59,7 +59,7 @@ import {
 import { ChevronUp, ChevronDown, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { MuxClipPlayer } from './mux-clip-player';
+import { MuxClipPlayer, type MuxClipPlayerHandle } from './mux-clip-player';
 import { StepVideoPlayer } from './step-video-player';
 import { CategoryIcon } from './procedure-runner/category-icon';
 import type { ProcedureStepCategoryDto, StepBlock } from '@/lib/api';
@@ -163,6 +163,13 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
   ) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const reelRefs = useRef<(HTMLElement | null)[]>([]);
+    // Imperative handle on the shared-stage player. Lets the active
+    // reel section's bare-area tap forward to pause/resume on the
+    // <video> that actually lives in the stage layer below.
+    const stageRef = useRef<MuxClipPlayerHandle | null>(null);
+    const toggleStagePlayback = useCallback(() => {
+      stageRef.current?.togglePlayback();
+    }, []);
     const [sheetOpenIdx, setSheetOpenIdx] = useState<number | null>(null);
     // Index whose intersection most recently became dominant. Decoupled
     // from the parent's stepIdx so a momentum scroll can pass through
@@ -288,6 +295,7 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
         {stageActive && activeClipMedia && (
           <div className="vja-reels-stage" aria-hidden>
             <MuxClipPlayer
+              ref={stageRef}
               streamUrl={activeClipMedia.clip.streamUrl}
               startMs={activeClipMedia.clip.startMs}
               endMs={activeClipMedia.clip.endMs}
@@ -296,7 +304,9 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
               playId={`reels-stage-${activeStep?.id ?? stepIdx}`}
               aspectRatio={activeClipMedia.clip.aspectRatio ?? null}
               orientation={activeClipMedia.clip.orientation ?? null}
-              tapToPause
+              // tapToPause is intentionally OFF — the active reel
+              // section above intercepts taps; we forward bare-area
+              // taps to the stage via the imperative handle below.
               className="vja-reels-stage-clip"
             />
           </div>
@@ -360,6 +370,19 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
           // reels still paint their poster as usual to mask the stage
           // until the user swipes them into focus.
           const stageOwnsActive = isActive && stageActive;
+          // Bare-area tap on the active+stage section toggles the
+          // shared <video> pause/resume — restoring tap-to-pause now
+          // that the section (rather than the player) owns the tap
+          // target. The check `e.target === e.currentTarget` filters
+          // out bubbling clicks from interactive children (title
+          // button, replay button, sheet, etc.) so those continue to
+          // do their own thing without also pausing the video.
+          const onSectionTap = stageOwnsActive
+            ? (e: React.MouseEvent<HTMLElement>) => {
+                if (e.target !== e.currentTarget) return;
+                toggleStagePlayback();
+              }
+            : undefined;
           return (
             <section
               key={step.id ?? `inline-${i}`}
@@ -373,6 +396,7 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
               }`}
               style={sectionStyle}
               aria-current={isActive ? 'step' : undefined}
+              onClick={onSectionTap}
             >
               {isTextOnly ? (
                 <div aria-hidden className="vja-reel-textonly-bg" />
