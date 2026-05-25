@@ -15,6 +15,7 @@ import {
   Link2,
   Loader2,
   RotateCcw,
+  Save,
   Sparkles,
 } from 'lucide-react';
 import { PageShell } from '@/components/page-shell';
@@ -37,6 +38,13 @@ import {
   LogoPanel,
   ModulesPanel,
 } from '@/components/qr-designer/panels';
+import { SaveDesignModal } from '@/components/qr-designer/save-design-modal';
+import { SavedDesignsPanel } from '@/components/qr-designer/saved-designs-panel';
+import {
+  defaultDesignName,
+  listSavedDesigns,
+  type SavedDesign,
+} from '@/lib/qr-designer-storage';
 
 const PREVIEW_PX = 360;
 
@@ -64,6 +72,17 @@ function QrDesignerInner() {
   const [busyFormat, setBusyFormat] = useState<QrExportFormat | null>(null);
   const previewRef = useRef<QrStylePreviewHandle>(null);
 
+  // Persistence state — list of saved designs (read once on mount, then
+  // mirrored into React state), id of the currently loaded design if any,
+  // and a modal-open flag for the Save dialog.
+  const [savedDesigns, setSavedDesigns] = useState<SavedDesign[]>([]);
+  const [activeSavedId, setActiveSavedId] = useState<string | null>(null);
+  const [saveOpen, setSaveOpen] = useState(false);
+
+  useEffect(() => {
+    setSavedDesigns(listSavedDesigns());
+  }, []);
+
   // If the query param changes after mount (rare — would only happen on
   // client-side navigation back into the designer with a different code),
   // sync the data field. We don't touch the rest of the spec so any styling
@@ -87,8 +106,23 @@ function QrDesignerInner() {
 
   const onReset = useCallback(() => {
     setSpec(DEFAULT_QR_SPEC);
+    setActiveSavedId(null);
     toast.success('Reset to defaults');
   }, [toast]);
+
+  const onLoadSaved = useCallback(
+    (design: SavedDesign) => {
+      setSpec(design.spec);
+      setActiveSavedId(design.id);
+      toast.success('Loaded', design.name);
+    },
+    [toast],
+  );
+
+  const activeSavedDesign = useMemo(
+    () => (activeSavedId ? savedDesigns.find((d) => d.id === activeSavedId) ?? null : null),
+    [activeSavedId, savedDesigns],
+  );
 
   const geometry = useMemo(() => computeFrameGeometry(spec, PREVIEW_PX), [spec]);
 
@@ -152,6 +186,15 @@ function QrDesignerInner() {
             <RotateCcw size={13} strokeWidth={2} />
             Reset
           </button>
+          <button
+            type="button"
+            onClick={() => setSaveOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded border border-line bg-surface px-3 py-1.5 text-sm text-ink-secondary hover:bg-surface-inset"
+            title={activeSavedDesign ? `Save changes to "${activeSavedDesign.name}"` : 'Save this design'}
+          >
+            <Save size={13} strokeWidth={2} />
+            {activeSavedDesign ? 'Save' : 'Save…'}
+          </button>
           <div className="relative">
             <button
               type="button"
@@ -206,6 +249,20 @@ function QrDesignerInner() {
           <ColorsPanel spec={spec} onPatch={onPatch} />
           <LogoPanel spec={spec} onPatch={onPatch} />
           <FramePanel spec={spec} onPatch={onPatch} />
+          <SavedDesignsPanel
+            designs={savedDesigns}
+            activeId={activeSavedId}
+            onLoad={onLoadSaved}
+            onChange={(next) => {
+              setSavedDesigns(next);
+              // If the active design was deleted from the list, drop the
+              // active marker so the Save button reverts to "Save…".
+              if (activeSavedId && !next.find((d) => d.id === activeSavedId)) {
+                setActiveSavedId(null);
+              }
+            }}
+            onOpenSaveDialog={() => setSaveOpen(true)}
+          />
           <AdvancedPanel onReset={onReset} />
         </aside>
 
@@ -266,6 +323,24 @@ function QrDesignerInner() {
           </section>
         </div>
       </div>
+
+      {saveOpen && (
+        <SaveDesignModal
+          spec={spec}
+          existing={activeSavedDesign}
+          defaultName={defaultDesignName(spec)}
+          onClose={() => setSaveOpen(false)}
+          onSaved={(design) => {
+            // Re-read the full list so a new entry appears in the right
+            // sort position; remember the active id so subsequent Save
+            // clicks default to updating this entry.
+            setSavedDesigns(listSavedDesigns());
+            setActiveSavedId(design.id);
+            setSaveOpen(false);
+            toast.success('Saved', design.name);
+          }}
+        />
+      )}
     </PageShell>
   );
 }

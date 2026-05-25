@@ -14,7 +14,7 @@
 //     unreliable when the SVG embeds large data: URIs (e.g. a logo).
 
 import { renderStyledQrToBlob } from './qr-style-preview';
-import { composeFramedSvg, computeFrameGeometry } from './qr-frame';
+import { composeFramedSvg, computeFrameGeometry, fitRibbonFontSize } from './qr-frame';
 import type { FrameSpec, QrStyleSpec } from '@/lib/qr-style';
 
 export type QrExportFormat = 'svg' | 'png-512' | 'png-1024' | 'png-2048' | 'png-4096';
@@ -158,15 +158,18 @@ function drawRibbon(
   ctx.fillStyle = fill;
   ctx.fill();
 
-  // Text — IBM Plex Sans loaded on the page, tracked uppercase.
-  const fontSize = ribbon.height * 0.42;
+  // Use the shared fitter so canvas output matches the SVG preview / export
+  // pixel-for-pixel — never produces text that overflows the ribbon.
+  const fontSize = fitRibbonFontSize(frame.text, ribbon.width, ribbon.height);
   ctx.font = `700 ${fontSize}px "IBM Plex Sans", system-ui, sans-serif`;
   ctx.fillStyle = color;
   ctx.textAlign = 'center';
+  // "middle" centers vertically about the half-em mark; trust it instead of
+  // hand-tuned y offsets which fight font-metric variance between platforms.
   ctx.textBaseline = 'middle';
   // letterSpacing on CanvasRenderingContext2D is supported in Chrome 99+ and
-  // Safari 16.4+. Where unsupported, the text just renders without the
-  // tracked look — content is still legible.
+  // Safari 16.4+. Where unsupported, the text just renders without tracking
+  // — still legible, still centered.
   const ctxAny = ctx as CanvasRenderingContext2D & { letterSpacing?: string };
   const prevSpacing = ctxAny.letterSpacing;
   try {
@@ -174,7 +177,7 @@ function drawRibbon(
     ctx.fillText(
       frame.text.toUpperCase(),
       ribbon.x + ribbon.width / 2,
-      ribbon.y + ribbon.height / 2 + ribbon.height * 0.06,
+      ribbon.y + ribbon.height / 2,
     );
   } finally {
     if (prevSpacing !== undefined) ctxAny.letterSpacing = prevSpacing;

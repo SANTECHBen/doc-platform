@@ -146,12 +146,16 @@ export function FrameChrome({
           />
           <text
             x={geometry.ribbon.x + geometry.ribbon.width / 2}
-            y={geometry.ribbon.y + geometry.ribbon.height / 2 + geometry.ribbon.height * 0.12}
+            y={geometry.ribbon.y + geometry.ribbon.height / 2}
             textAnchor="middle"
-            dominantBaseline="middle"
+            dominantBaseline="central"
             fontFamily="'IBM Plex Sans', system-ui, sans-serif"
             fontWeight={700}
-            fontSize={geometry.ribbon.height * 0.42}
+            fontSize={fitRibbonFontSize(
+              frame.text,
+              geometry.ribbon.width,
+              geometry.ribbon.height,
+            )}
             letterSpacing="0.22em"
             fill={frame.kind === 'callout' ? frame.fill : frame.accent}
           >
@@ -161,6 +165,39 @@ export function FrameChrome({
       )}
     </svg>
   );
+}
+
+// -----------------------------------------------------------------------------
+// Text fitting
+//
+// Compute a font size that keeps the (uppercase, tracked) tagline inside the
+// ribbon. Uses a deterministic glyph-width estimator instead of DOM
+// measurement so SVG preview, SVG export, and canvas export all produce the
+// same result — the user never sees the preview disagree with the file.
+//
+// Empirically (IBM Plex Sans 700, tracked 0.22em):
+//   - average uppercase glyph ≈ 0.62 × fontSize
+//   - inter-letter gap        ≈ 0.22 × fontSize between each pair
+//   - line width(F) ≈ F × (0.84·N − 0.22)
+// We aim to fill ~88 % of the ribbon's interior width and never exceed the
+// base size (0.42 × ribbon height), and never shrink below 5pt-equivalent
+// regardless of length — at which point we just let it clip rather than
+// produce illegible micro-type.
+// -----------------------------------------------------------------------------
+
+export function fitRibbonFontSize(text: string, ribbonWidth: number, ribbonHeight: number): number {
+  const baseSize = ribbonHeight * 0.42;
+  const trimmed = text.trim();
+  if (!trimmed) return baseSize;
+  const n = trimmed.length;
+  const targetWidth = ribbonWidth * 0.88;
+  const glyphFactor = Math.max(0.84 * n - 0.22, 0.1);
+  const fitted = targetWidth / glyphFactor;
+  return clamp(Math.min(baseSize, fitted), Math.min(baseSize, 5), baseSize);
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
 }
 
 /**
@@ -205,12 +242,12 @@ function renderRibbon(
 ): string {
   const fill = f.kind === 'callout' ? f.accent : f.fill;
   const color = f.kind === 'callout' ? f.fill : f.accent;
-  const fontSize = r.height * 0.42;
+  const fontSize = fitRibbonFontSize(f.text, r.width, r.height);
   const cx = r.x + r.width / 2;
-  const cy = r.y + r.height / 2 + r.height * 0.12;
+  const cy = r.y + r.height / 2;
   return (
     `<rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" rx="${r.height * 0.18}" fill="${fill}"/>` +
-    `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="middle" ` +
+    `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" ` +
     `font-family="'IBM Plex Sans', system-ui, sans-serif" font-weight="700" ` +
     `font-size="${fontSize}" letter-spacing="0.22em" fill="${color}">` +
     escapeXml(f.text.toUpperCase()) +
