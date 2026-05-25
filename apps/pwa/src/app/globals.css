@@ -4682,6 +4682,115 @@
       linear-gradient(180deg, #0b0d12 0%, #050608 100%);
   }
 
+  /* Text-only reel — when a step has no video AND no image, the classic
+     video-first layout (empty gradient + bottom-pinned title) reads as
+     "the video failed to load." We instead render a centered text card
+     so the absence of media is deliberate, not accidental. The bg is
+     tinted with the phase/category color when one is present so the
+     reel still feels like part of its section. */
+  .vja-reel-textonly-bg {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(
+        ellipse at 50% 22%,
+        rgb(var(--brand) / 0.22),
+        transparent 62%
+      ),
+      linear-gradient(180deg, #0c0e14 0%, #050608 100%);
+  }
+  /* Color-mix lets the tint pick up the phase/category hue without
+     forcing the author to pick a "background" version of their pill
+     color. Falls back to the brand-tinted default above on browsers
+     without color-mix support, which is fine — the layout still reads. */
+  .vja-reel-textonly-bg[style*='--reel-tint'] {
+    background:
+      radial-gradient(
+        ellipse at 50% 22%,
+        color-mix(in oklab, var(--reel-tint) 32%, transparent),
+        transparent 66%
+      ),
+      linear-gradient(180deg, #0c0e14 0%, #050608 100%);
+  }
+  .vja-reel-textonly-card {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: white;
+    position: absolute;
+    /* Top padding clears the pill row (12 + ~26 + breathing room);
+       bottom padding clears the swipe-up hint at the viewport bottom. */
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 96px 28px 112px 28px;
+    gap: 16px;
+    cursor: pointer;
+    z-index: 3;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .vja-reel-textonly-card:focus-visible {
+    outline: 2px solid rgb(var(--brand));
+    outline-offset: -8px;
+    border-radius: 14px;
+  }
+  .vja-reel-textonly-title {
+    margin: 0;
+    font-size: clamp(26px, 7.4vw, 34px);
+    line-height: 1.18;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    color: white;
+    text-shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
+    max-width: 22ch;
+  }
+  .vja-reel-textonly-preview {
+    margin: 0;
+    font-size: clamp(15px, 4vw, 17px);
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.86);
+    max-width: 34ch;
+    /* Clamp prevents long bodies from pushing the CTA off-screen on
+       short viewports. The full text lives in the bottom sheet. */
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+  }
+  .vja-reel-textonly-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 4px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.1);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+  .vja-reel-textonly-cta--quiet {
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 12px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.65);
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    padding: 4px 0;
+  }
+
   /* Top-of-reel pill row: section label + category badge + safety. */
   .vja-reel-top {
     position: absolute;

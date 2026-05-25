@@ -262,6 +262,27 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
           // neutral. The parent passes the active phase color; for
           // inactive reels we just use the step's own category if any.
           const pillColor = step.category?.color ?? (isActive ? activePhaseColor : null);
+          // Media classification — drives whether we render the classic
+          // video-first layout or the new text-forward layout. A step
+          // with no video AND no image leaves the video-first layout
+          // looking broken (empty gradient + bottom-pinned text), so we
+          // pivot to a centered text card instead.
+          const hasVideo = step.media.some(
+            (m) => m.kind === 'video' || m.kind === 'video_clip',
+          );
+          const hasImage = step.media.some((m) => m.kind === 'image');
+          const isTextOnly = !hasVideo && !hasImage;
+          // Body preview shown on text-only reels. Cheap to compute and
+          // memoization adds little since reels mount lazily — keep inline.
+          const previewText = isTextOnly
+            ? extractPreviewText(step.blocks, step.bodyMarkdown)
+            : '';
+          // Phase/category tint for the text-only background. CSS reads
+          // the var; falls back to a neutral gradient if absent.
+          const textOnlyBgStyle: React.CSSProperties | undefined =
+            isTextOnly && pillColor
+              ? ({ ['--reel-tint' as string]: pillColor } as React.CSSProperties)
+              : undefined;
           return (
             <section
               key={step.id ?? `inline-${i}`}
@@ -269,15 +290,25 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
               ref={(el) => {
                 reelRefs.current[i] = el;
               }}
-              className={`vja-reel ${step.safetyCritical ? 'vja-reel--safety' : ''}`}
+              className={`vja-reel ${step.safetyCritical ? 'vja-reel--safety' : ''} ${
+                isTextOnly ? 'vja-reel--textonly' : ''
+              }`}
               aria-current={isActive ? 'step' : undefined}
             >
-              <ReelMedia
-                media={step.media}
-                renderVideo={renderVideo}
-                isActive={isActive}
-                playId={step.id ?? `reel-${i}`}
-              />
+              {isTextOnly ? (
+                <div
+                  aria-hidden
+                  className="vja-reel-textonly-bg"
+                  style={textOnlyBgStyle}
+                />
+              ) : (
+                <ReelMedia
+                  media={step.media}
+                  renderVideo={renderVideo}
+                  isActive={isActive}
+                  playId={step.id ?? `reel-${i}`}
+                />
+              )}
               {/* Phase pill — small chip at the top of each reel showing
                   the section context. Mirrors the colored pill in the
                   classic view so navigating between modes stays oriented. */}
@@ -321,21 +352,52 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
                   </span>
                 )}
               </div>
-              {/* Title pinned bottom-center. Tap-target sized so it acts
-                  as an alternate "open sheet" affordance. */}
-              <button
-                type="button"
-                className="vja-reel-title-block"
-                onClick={() => setSheetOpenIdx(i)}
-                aria-expanded={isSheetOpen}
-                aria-controls={`vja-reel-sheet-${i}`}
-              >
-                <h2 className="vja-reel-title">{step.title}</h2>
-                <span className="vja-reel-title-hint">
-                  <ChevronUp size={14} strokeWidth={2.5} />
-                  Tap for details
-                </span>
-              </button>
+              {isTextOnly ? (
+                // Text-forward layout — the title and a preview snippet
+                // own the screen instead of clinging to the bottom edge.
+                // The whole card is the tap target for the full sheet,
+                // matching the gesture users learned from media reels.
+                <button
+                  type="button"
+                  className="vja-reel-textonly-card"
+                  onClick={() => setSheetOpenIdx(i)}
+                  aria-expanded={isSheetOpen}
+                  aria-controls={`vja-reel-sheet-${i}`}
+                >
+                  <h2 className="vja-reel-textonly-title">{step.title}</h2>
+                  {previewText && (
+                    <p className="vja-reel-textonly-preview">{previewText}</p>
+                  )}
+                  {previewText ? (
+                    <span className="vja-reel-textonly-cta">
+                      <ChevronUp size={14} strokeWidth={2.5} />
+                      Tap for full step
+                    </span>
+                  ) : (
+                    // No body text either — surface that explicitly so
+                    // the tech doesn't tap looking for hidden detail.
+                    <span className="vja-reel-textonly-cta vja-reel-textonly-cta--quiet">
+                      Listen to the voiceover, or tap for notes
+                    </span>
+                  )}
+                </button>
+              ) : (
+                // Title pinned bottom-center over the media. Tap-target
+                // sized so it acts as an alternate "open sheet" affordance.
+                <button
+                  type="button"
+                  className="vja-reel-title-block"
+                  onClick={() => setSheetOpenIdx(i)}
+                  aria-expanded={isSheetOpen}
+                  aria-controls={`vja-reel-sheet-${i}`}
+                >
+                  <h2 className="vja-reel-title">{step.title}</h2>
+                  <span className="vja-reel-title-hint">
+                    <ChevronUp size={14} strokeWidth={2.5} />
+                    Tap for details
+                  </span>
+                </button>
+              )}
               {/* Replay-voiceover button — small, top-right of the reel.
                   Lets the tech re-hear without scrolling away. Only on
                   the active reel; inactive ones don't have audio. */}
@@ -354,17 +416,14 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
                   />
                 </button>
               )}
-              {/* No-video hint — when the step has no video AND the user
-                  is muted, the reel is essentially empty. Make that
-                  visible so they don't think the app froze. */}
-              {step.media.every(
-                (m) => m.kind !== 'video' && m.kind !== 'video_clip',
-              ) &&
-                muted && (
-                  <p className="vja-reel-empty">
-                    Tap the title to read this step, or unmute to hear it.
-                  </p>
-                )}
+              {/* No-video hint — only meaningful for the image-only +
+                  muted case. Text-only reels already render the text,
+                  so the hint would be redundant noise there. */}
+              {!hasVideo && hasImage && muted && (
+                <p className="vja-reel-empty">
+                  Tap the title to read this step, or unmute to hear it.
+                </p>
+              )}
               {/* Text sheet — slides up from the bottom; backdrop dims
                   the video. Tap backdrop or chevron-down to close. */}
               <TextSheet
@@ -638,6 +697,79 @@ type SheetSection =
   | { kind: 'list'; ordered: boolean; items: string[] }
   | { kind: 'callout'; tone: 'safety' | 'warning' | 'tip' | 'note'; title?: string; text: string }
   | { kind: 'kv'; columns: [string, string]; rows: Array<[string, string]> };
+
+// Lightweight markdown stripper for preview snippets. We render preview
+// text inside a line-clamped paragraph (no markdown parser), so we need
+// the raw words without `**emphasis**`, `[link](href)`, or heading marks
+// leaking through. This is deliberately not a full parser — it handles
+// the inline marks our authoring UI produces and leaves anything exotic
+// (raw HTML, footnotes) close enough to display as preview.
+function stripMarkdownInline(input: string): string {
+  return input
+    // images first so their alt text doesn't survive the link pass below
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    // links → keep just the link text
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    // code spans → drop the backticks but keep the inner text
+    .replace(/`([^`]+)`/g, '$1')
+    // emphasis / strikethrough / heading markers
+    .replace(/[*_~]+/g, '')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    // block-quote prefix
+    .replace(/^\s*>\s?/gm, '')
+    // collapse whitespace including the newlines we just exposed
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// First-block preview for the text-only reel layout. Returns the most
+// representative slice of the step's body — first paragraph, first few
+// list items, or callout text — stripped to plain text. Tables and
+// inline photos don't preview well in a centered card, so we skip them
+// and check the next block. Returns '' when there's nothing to show
+// (the caller renders a different CTA in that case).
+function extractPreviewText(
+  blocks: StepBlock[] | undefined,
+  bodyMarkdown: string | null | undefined,
+): string {
+  if (blocks && blocks.length > 0) {
+    for (const b of blocks) {
+      switch (b.kind) {
+        case 'paragraph': {
+          const t = stripMarkdownInline(b.text);
+          if (t) return t;
+          break;
+        }
+        case 'bullet_list':
+        case 'numbered_list': {
+          if (b.items.length > 0) {
+            return b.items
+              .slice(0, 3)
+              .map(stripMarkdownInline)
+              .filter(Boolean)
+              .join(' · ');
+          }
+          break;
+        }
+        case 'callout': {
+          const head = b.title ? `${b.title}: ` : '';
+          const t = stripMarkdownInline(b.text);
+          if (t) return `${head}${t}`;
+          break;
+        }
+        case 'key_value':
+        case 'photo_inline':
+          // Don't preview tables or inline photos — they need their own
+          // surface to be useful. Fall through to the next block.
+          break;
+      }
+    }
+  }
+  if (bodyMarkdown && bodyMarkdown.trim()) {
+    return stripMarkdownInline(bodyMarkdown);
+  }
+  return '';
+}
 
 function collapseBlocks(
   blocks: StepBlock[] | undefined,
