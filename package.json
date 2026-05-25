@@ -25,5 +25,12 @@
     "typescript": "^5.6.3",
     "prettier": "^3.3.3",
     "@types/node": "^22.7.5"
+  },
+  "pnpm": {
+    "overrides": {
+      "fast-uri": ">=3.1.2",
+      "fast-xml-builder": ">=1.1.7",
+      "fast-xml-parser": ">=4.5.4"
+    }
   }
 }
