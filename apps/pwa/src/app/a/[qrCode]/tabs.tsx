@@ -423,11 +423,6 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
       {jobAidRequest && DEV_USER_ID && DEV_ORG_ID && (
         <VirtualJobAid
           source={jobAidRequest.source}
-          // PM checklists + troubleshooting are synthesized as inline
-          // step lists; those are quick-reference walkthroughs and
-          // shouldn't auto-narrate. Authored doc procedures keep the
-          // default voice-over behavior.
-          autoSpeak={jobAidRequest.source.kind !== 'inline'}
           initialStepId={jobAidRequest.initialStepId}
           onClose={({ completed }) => {
             if (completed) jobAidRequest.onCompleted?.();
