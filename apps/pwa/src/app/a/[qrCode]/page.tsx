@@ -42,7 +42,13 @@ function looksLikeOperationalSignal(rgb: [number, number, number]): boolean {
 
 export default async function AssetHubPage({ params }: { params: Promise<{ qrCode: string }> }) {
   const { qrCode } = await params;
-  const hub = await resolveAssetHub(qrCode);
+  // Read the scan-session cookie up-front and pass it to every
+  // resolveAssetHub call. The /assets/resolve endpoint now requires
+  // auth or a scan session; without forwarding the cookie that /q/<code>
+  // just minted, the server-side lookup 401s and the page crashes.
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get(SCAN_COOKIE_NAME)?.value;
+  const hub = await resolveAssetHub(qrCode, 'direct', sessionCookie);
   if (!hub) notFound();
 
   // Scan-gate enforcement. If the owning org has opted in, a valid scan
@@ -51,13 +57,11 @@ export default async function AssetHubPage({ params }: { params: Promise<{ qrCod
   // lacks the cookie and sees a scan-wall instead of the hub. Blocked
   // attempts are audit-logged so customers can see URL-sharing attempts.
   if (hub.organization.requireScanAccess) {
-    const cookieStore = await cookies();
-    const session = cookieStore.get(SCAN_COOKIE_NAME)?.value;
-    if (!session || !verifyScanSessionValue(session, qrCode)) {
+    if (!sessionCookie || !verifyScanSessionValue(sessionCookie, qrCode)) {
       // Fire-and-forget blocked audit event. Surface failures to the server
       // log so a silent API outage doesn't leave compliance gaps invisible —
       // customers rely on this audit trail to investigate URL-sharing.
-      void resolveAssetHub(qrCode, 'blocked').catch((err) => {
+      void resolveAssetHub(qrCode, 'blocked', sessionCookie).catch((err) => {
         console.error('[audit] failed to log blocked scan-wall event', {
           qrCode,
           error: err instanceof Error ? err.message : String(err),

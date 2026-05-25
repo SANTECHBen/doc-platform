@@ -1,5 +1,4 @@
 import { AssetHubPayloadSchema, type AssetHubPayload } from './shared-schema';
-import { SCAN_COOKIE_NAME } from './scan-session';
 
 // Two base URLs by intent:
 //   SERVER_API_BASE — used by server components / route handlers that can
@@ -16,28 +15,26 @@ const CLIENT_API_BASE = '/api';
 
 export type AssetResolveSource = 'qr' | 'direct' | 'blocked';
 
+/**
+ * Look up the asset hub payload for a QR code. Called from Server
+ * Components — the caller MUST pass `scanSession` (the raw signed cookie
+ * value) when one is present, otherwise the security-hardened
+ * /assets/resolve endpoint refuses the call with 401.
+ *
+ * Why a param instead of `next/headers` here: this module is imported by
+ * many `'use client'` components, and Next's bundler refuses to compile
+ * any file that references `next/headers` (server-only) when it can be
+ * reached from a client bundle. Passing the cookie in keeps the shared
+ * lib client-safe.
+ */
 export async function resolveAssetHub(
   qrCode: string,
   source: AssetResolveSource = 'direct',
+  scanSession?: string,
 ): Promise<AssetHubPayload | null> {
   const qs = source === 'direct' ? '' : `?source=${source}`;
-  // Forward the scan-session cookie to the upstream API so the security-
-  // hardened /assets/resolve (now requireAuthOrScan) accepts the call.
-  // The cookie is set on /q/<code> immediately before the redirect to
-  // /a/<code>, so by the time this Server Component renders the cookie
-  // is present. URL-share visits without a scan get 401 → null → notFound.
   const headers: HeadersInit = {};
-  try {
-    const { cookies } = await import('next/headers');
-    const jar = await cookies();
-    const scan = jar.get(SCAN_COOKIE_NAME);
-    if (scan) headers['x-scan-session'] = scan.value;
-  } catch {
-    // next/headers is only available inside a Server Component / Route
-    // Handler. If this function is ever called outside that context, fall
-    // through without the cookie — the API call will get 401, which we
-    // convert to null below.
-  }
+  if (scanSession) headers['x-scan-session'] = scanSession;
   const res = await fetch(
     `${SERVER_API_BASE}/assets/resolve/${encodeURIComponent(qrCode)}${qs}`,
     {
@@ -46,6 +43,8 @@ export async function resolveAssetHub(
       cache: 'no-store',
     },
   );
+  // 401 is the unauthenticated/no-scan case (URL share without /q/scan).
+  // 404 is unknown QR. Both surface as "not found" to the caller.
   if (res.status === 404 || res.status === 401) return null;
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   const json = await res.json();
