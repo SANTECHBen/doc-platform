@@ -307,12 +307,16 @@
   }
 }
 
-/* Right-side action cluster (density, theme). Tight gap so two
-   36×36 buttons feel like one control group. */
+/* Right-side action cluster. Holds the Powered-by wordmark and the
+   voice-search trigger as a single tight group on the right edge of
+   the topbar. The 8px gap separates the wordmark from the icon
+   button comfortably without re-opening the dead-space we got when
+   PoweredBy and the actions sat as two siblings with the topbar's
+   default 8px gap between them. */
 .app-topbar-actions {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 8px;
   flex-shrink: 0;
 }
 
