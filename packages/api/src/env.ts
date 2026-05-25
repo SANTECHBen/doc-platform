@@ -73,21 +73,29 @@ const EnvSchema = z.object({
   S3_BUCKET: optionalNonEmptyString,
   S3_PUBLIC_URL: optionalUrl,
 
-  // Permit x-dev-user header even when NODE_ENV=production. Interim until
-  // full auth lands — set to '1' on the production API until then.
+  // Permit x-dev-user header even when NODE_ENV=production. DEPRECATED — the
+  // env switch was removed in the security hardening pass; this field is
+  // retained only so that pre-existing env files don't fail Zod parse. The
+  // dev-auth path is now gated *exclusively* on NODE_ENV !== 'production' so
+  // no runtime env can re-enable it in prod.
   ALLOW_DEV_AUTH: z.string().optional(),
 
   // Microsoft Entra ID OIDC. The API validates Bearer tokens against
   // Microsoft's JWKS; tokens must have audience = AUTH_MICROSOFT_CLIENT_ID.
-  // AUTH_ALLOWED_TENANTS is an optional comma-separated allow-list of MS
-  // tenant IDs (restricts admin to your own + invited customer tenants).
-  // Empty allows any validated MS tenant.
+  // AUTH_ALLOWED_TENANTS is a comma-separated allow-list of MS tenant IDs
+  // (restricts admin to your own + invited customer tenants). MANDATORY in
+  // production — loadEnv() refuses to start with an empty list.
   AUTH_MICROSOFT_CLIENT_ID: z.string().optional(),
   AUTH_ALLOWED_TENANTS: z.string().optional(),
-  // Comma-separated email allow-list. Users signing in with one of these
-  // emails get platform_admin=true set on every sign-in — grants "see all
-  // orgs" override. Bootstraps SANTECH staff access without a chicken-and-
-  // egg UI.
+  // SANTECH's own Microsoft Entra tenant ID. Required in production. The
+  // platform-admin grant is pinned to this tenant — a token from any other
+  // Microsoft tenant whose preferred_username/email happens to match
+  // PLATFORM_ADMIN_EMAILS is NOT granted platform-admin.
+  AUTH_SANTECH_TENANT_ID: z.string().optional(),
+  // Comma-separated email allow-list. Users signing in from
+  // AUTH_SANTECH_TENANT_ID with one of these emails get platform_admin=true
+  // set on every sign-in — grants "see all orgs" override. Bootstraps
+  // SANTECH staff access without a chicken-and-egg UI.
   PLATFORM_ADMIN_EMAILS: z.string().optional(),
 
   // Shared HMAC secret with the PWA for verifying scan-session cookies.
@@ -129,7 +137,19 @@ const EnvSchema = z.object({
   MUX_TOKEN_ID: z.string().optional(),
   MUX_TOKEN_SECRET: z.string().optional(),
   MUX_WEBHOOK_SECRET: z.string().optional(),
-  MUX_PLAYBACK_POLICY: z.enum(['public', 'signed']).default('public'),
+  // Mux playback policy. Default is 'signed' — public Mux playback IDs
+  // act as perpetual, off-platform stream tokens (anyone who scrapes the
+  // ID can stream the video forever). Operators who genuinely want
+  // public videos can opt back in by setting MUX_PLAYBACK_POLICY=public.
+  MUX_PLAYBACK_POLICY: z.enum(['public', 'signed']).default('signed'),
+  // Mux signing keys (Mux Dashboard → Settings → API Access → Signing
+  // Keys). Required when MUX_PLAYBACK_POLICY=signed. The token mint
+  // endpoint produces JWTs that authorize specific (playbackId, kid)
+  // pairs for a short window.
+  MUX_SIGNING_KEY_ID: optionalNonEmptyString,
+  /** RS256 private key (PEM body, base64-encoded — same format Mux ships
+   *  in the Dashboard). The mint route base64-decodes before signing. */
+  MUX_SIGNING_KEY_PRIVATE: optionalNonEmptyString,
 
   // Optional Slack incoming-webhook URL. When set, every /feedback POST
   // also pings this webhook so SANTECH gets real-time visibility during
@@ -158,6 +178,44 @@ export function loadEnv(): Env {
     process.exit(1);
   }
   const env = parsed.data;
+  // Production auth hardening: refuse to start with a dev-auth backdoor or
+  // an empty tenant allow-list. These checks make insecure-default config
+  // a boot-time error rather than a silent runtime hole.
+  if (env.NODE_ENV === 'production') {
+    const fatal: string[] = [];
+    if (env.ALLOW_DEV_AUTH === '1') {
+      fatal.push(
+        'ALLOW_DEV_AUTH=1 is forbidden in production. The dev x-dev-user header bypasses ' +
+          'all authentication; remove the env var from Fly secrets (`fly secrets unset ALLOW_DEV_AUTH`) ' +
+          'and redeploy.',
+      );
+    }
+    const tenants = (env.AUTH_ALLOWED_TENANTS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (tenants.length === 0) {
+      fatal.push(
+        'AUTH_ALLOWED_TENANTS must be non-empty in production. An empty list previously ' +
+          'allowed any Microsoft tenant — set the list to the comma-separated tenant IDs you ' +
+          'have explicitly on-boarded (`fly secrets set AUTH_ALLOWED_TENANTS=tid1,tid2,...`).',
+      );
+    }
+    if (!env.AUTH_SANTECH_TENANT_ID) {
+      fatal.push(
+        'AUTH_SANTECH_TENANT_ID is required in production. The platform-admin grant is ' +
+          'pinned to this tenant; without it any matched email from any tenant would be granted.',
+      );
+    } else if (tenants.length > 0 && !tenants.includes(env.AUTH_SANTECH_TENANT_ID)) {
+      fatal.push(
+        'AUTH_SANTECH_TENANT_ID must appear in AUTH_ALLOWED_TENANTS — SANTECH staff cannot sign in otherwise.',
+      );
+    }
+    if (fatal.length > 0) {
+      for (const msg of fatal) console.error(`[env] FATAL: ${msg}`);
+      process.exit(1);
+    }
+  }
   if (env.S3_BUCKET) {
     const missing: string[] = [];
     if (!env.S3_ACCESS_KEY_ID) missing.push('S3_ACCESS_KEY_ID');

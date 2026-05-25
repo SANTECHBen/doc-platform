@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { createRemoteJWKSet, decodeJwt, jwtVerify, type JWTPayload } from 'jose';
 import { schema } from '@platform/db';
 
@@ -17,18 +17,34 @@ import { schema } from '@platform/db';
  * using curl/scripts without spinning up the whole MS flow.
  */
 export async function registerAuth(app: FastifyInstance) {
-  const allowDevAuth =
-    app.ctx.env.NODE_ENV !== 'production' || app.ctx.env.ALLOW_DEV_AUTH === '1';
+  // Dev auth is build-gated on NODE_ENV — no runtime env can re-enable it in
+  // production. The legacy ALLOW_DEV_AUTH env switch was removed in the
+  // security hardening pass (loadEnv() now refuses to start if it's set to
+  // '1' in production).
+  const allowDevAuth = app.ctx.env.NODE_ENV !== 'production';
   const audience = app.ctx.env.AUTH_MICROSOFT_CLIENT_ID;
-  // Optional tenant allow-list. When set, tokens from other Microsoft tenants
-  // are rejected even if otherwise valid — restricts admin access to the
-  // listed customer orgs. Comma-separated. Empty = any validated tenant.
+  // Tenant allow-list. Comma-separated MS tenant IDs. In production this is
+  // mandatory (enforced by env.ts loadEnv) and we treat an empty list as
+  // fail-closed (no tenant accepted). In development, an empty list means
+  // "any validated tenant" so local Microsoft work-account testing is easy.
   const allowedTenants = (app.ctx.env.AUTH_ALLOWED_TENANTS ?? '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  const tenantAllowed = (tid: string) =>
-    allowedTenants.length === 0 || allowedTenants.includes(tid);
+  const tenantAllowed = (tid: string) => {
+    if (allowedTenants.length === 0) {
+      // Fail-open ONLY in non-production environments where the operator
+      // explicitly omitted the allow-list. Production loadEnv rejects this
+      // config so this branch is unreachable in prod.
+      return app.ctx.env.NODE_ENV !== 'production';
+    }
+    return allowedTenants.includes(tid);
+  };
+  // SANTECH's own Microsoft Entra tenant. Required in production. The
+  // platform-admin elevation grant is pinned to this tenant — a token from
+  // any other tenant whose preferred_username/email happens to match an
+  // entry in PLATFORM_ADMIN_EMAILS is NOT granted platform-admin.
+  const santechTenantId = app.ctx.env.AUTH_SANTECH_TENANT_ID;
 
   // Kick off JWKS prewarm for known tenants so the first user request
   // after boot doesn't race a cold MS connection. Async, fire-and-forget.
@@ -209,21 +225,37 @@ async function upsertUserFromClaims(
   claims: MsClaims,
 ): Promise<{ userId: string; organizationId: string; platformAdmin: boolean } | null> {
   const { db } = app.ctx;
-  const email = claims.email ?? claims.preferred_username;
-  if (!email) {
-    app.log.warn('auth: token has no email / preferred_username');
+  // Prefer the verified `email` claim. preferred_username is a UPN and is
+  // attacker-controllable on tenants the attacker owns (Microsoft does not
+  // validate cross-tenant UPN uniqueness), so we no longer fall back to it
+  // for identity. If `email` is missing entirely, refuse to provision.
+  const rawEmail = claims.email;
+  if (!rawEmail) {
+    app.log.warn(
+      { tid: claims.tid, oid: claims.oid },
+      'auth: token has no verified email claim — refusing to provision user',
+    );
     return null;
   }
+  // Normalize email to lowercase. Microsoft can return mixed case across
+  // tokens; lowercasing prevents shadow accounts and makes admin-elevation
+  // comparisons stable.
+  const email = rawEmail.toLowerCase();
   const displayName = claims.name ?? email;
 
-  // Bootstrap platform admins: emails in this env list get platform_admin=true
-  // on every sign-in. This is the chicken-and-egg workaround for setting up
-  // the first SANTECH admin — no UI required to grant admin to myself.
+  // Platform-admin grant. Pinned to (a) the SANTECH tenant and (b) the email
+  // allow-list. Both conditions must hold. This closes the prior fail-open
+  // where any attacker tenant containing a user with UPN
+  // 'bnichols@santechservices.com' would be auto-elevated.
+  const santechTenantId = app.ctx.env.AUTH_SANTECH_TENANT_ID;
   const platformAdminEmails = (app.ctx.env.PLATFORM_ADMIN_EMAILS ?? '')
     .split(',')
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
-  const isPlatformAdmin = platformAdminEmails.includes(email.toLowerCase());
+  const isFromSantech =
+    !!santechTenantId && !!claims.tid && claims.tid === santechTenantId;
+  const isPlatformAdmin =
+    isFromSantech && platformAdminEmails.includes(email);
 
   // Resolve the user's home org from their Microsoft tenant ID when a
   // matching organizations.msft_tenant_id row exists. This is how customer
@@ -237,21 +269,41 @@ async function upsertUserFromClaims(
     if (tenantMatch) resolvedHomeOrgId = tenantMatch.id;
   }
 
-  // Lookup existing user by email.
+  // Lookup existing user by email (case-insensitive — the email is already
+  // lowercased above, so an existing row inserted before lowercasing was
+  // enforced will only match if we LOWER(email) on both sides).
   let user = await db.query.users.findFirst({
-    where: eq(schema.users.email, email),
+    where: sql`LOWER(${schema.users.email}) = ${email}`,
   });
 
   if (!user) {
-    // First sign-in — create a user record. Home org preference:
-    //   1. Tenant-mapped org (claims.tid → organizations.msft_tenant_id)
-    //   2. First end_customer org (placeholder — unmapped tenant fallback)
-    const fallback = await db.query.organizations.findFirst({
-      where: eq(schema.organizations.type, 'end_customer'),
-    });
-    const homeOrgId = resolvedHomeOrgId ?? fallback?.id;
+    // No tenant mapping AND no platform-admin grant ⇒ refuse the sign-in.
+    // Previously we auto-mapped unknown tenants into the "first end_customer
+    // org" which silently dropped strangers into a real customer's data.
+    // The replacement flow is an admin-issued invite (see tenant_invites);
+    // until that lands, unmapped tenants get a clean 401 rather than a
+    // confused-deputy provisioning.
+    if (!resolvedHomeOrgId && !isPlatformAdmin) {
+      app.log.warn(
+        { tid: claims.tid, email },
+        'auth: refusing to provision — tenant has no organization mapping and email is not platform admin',
+      );
+      // Audit the rejected sign-in so security has a record. We log
+      // against the SANTECH org if known (so the event is queryable);
+      // otherwise we fall back to the first organization row available.
+      // Either way the event records who tried and why.
+      void recordSignInRejection(app, { tid: claims.tid ?? null, email });
+      return null;
+    }
+    // SANTECH staff with no explicit tenant-mapped org: provision into the
+    // SANTECH home org if one is tagged with the SANTECH tenant id; otherwise
+    // refuse — we won't silently mint a SANTECH user into a customer org.
+    const homeOrgId = resolvedHomeOrgId;
     if (!homeOrgId) {
-      app.log.error('auth: no home org available — cannot auto-provision user');
+      app.log.error(
+        { tid: claims.tid, email, isPlatformAdmin },
+        'auth: no home org available — SANTECH tenant must be tagged on its own organization row',
+      );
       return null;
     }
     const [created] = await db
@@ -266,7 +318,7 @@ async function upsertUserFromClaims(
     if (!created) return null;
     user = created;
     app.log.info(
-      { userId: user.id, email, platformAdmin: isPlatformAdmin, homeOrgId },
+      { userId: user.id, email, platformAdmin: isPlatformAdmin, homeOrgId, tid: claims.tid },
       'auth: provisioned new user from MS sign-in',
     );
   } else {
@@ -276,6 +328,20 @@ async function upsertUserFromClaims(
     if (user.platformAdmin !== isPlatformAdmin) updates.platformAdmin = isPlatformAdmin;
     if (resolvedHomeOrgId && user.homeOrganizationId !== resolvedHomeOrgId) {
       updates.homeOrganizationId = resolvedHomeOrgId;
+    }
+    // Audit the platform-admin grant/revoke — silent role changes via env
+    // mutation are a quiet escalation path; visibility is the defense.
+    if (user.platformAdmin !== isPlatformAdmin) {
+      void db.insert(schema.auditEvents).values({
+        organizationId: user.homeOrganizationId,
+        actorUserId: user.id,
+        eventType: isPlatformAdmin
+          ? 'auth.platform_admin.granted'
+          : 'auth.platform_admin.revoked',
+        targetType: 'user',
+        targetId: user.id,
+        payload: { email, tid: claims.tid ?? null, source: 'PLATFORM_ADMIN_EMAILS' },
+      }).catch((err) => app.log.warn({ err }, 'audit: platform-admin change write failed'));
     }
     if (Object.keys(updates).length > 0) {
       const [updated] = await db
@@ -292,4 +358,36 @@ async function upsertUserFromClaims(
     organizationId: user.homeOrganizationId,
     platformAdmin: user.platformAdmin,
   };
+}
+
+/**
+ * Record a sign-in rejection in the audit log. Best-effort — failures
+ * here must not break the auth path. Used when an MS token verifies but
+ * the user has no tenant mapping and no platform-admin grant (the
+ * confused-deputy auto-provisioning was removed in the security pass).
+ */
+async function recordSignInRejection(
+  app: FastifyInstance,
+  info: { tid: string | null; email: string },
+): Promise<void> {
+  try {
+    const fallbackOrg = await app.ctx.db.query.organizations.findFirst({
+      columns: { id: true },
+    });
+    if (!fallbackOrg) return;
+    await app.ctx.db.insert(schema.auditEvents).values({
+      organizationId: fallbackOrg.id,
+      actorUserId: null,
+      eventType: 'auth.sign_in.rejected',
+      targetType: 'user',
+      targetId: null,
+      payload: {
+        reason: 'unmapped_tenant_no_admin_grant',
+        tid: info.tid,
+        email: info.email,
+      },
+    });
+  } catch (err) {
+    app.log.warn({ err }, 'audit: sign-in rejection write failed');
+  }
 }
