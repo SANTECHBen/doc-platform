@@ -24,9 +24,17 @@
 //   * Parent owns stepIdx + muted + voiceover orchestration. We notify on
 //     scroll-stop via onStepChange; the parent's useEffect on stepIdx
 //     handles speak/stop.
-//   * Only the active step ± 1 mount their actual video element. Beyond
-//     that we render the poster image. Keeps memory below ~3 video
-//     decoders concurrent on a typical mobile browser.
+//   * Only the active step mounts a real video element. Every neighbor
+//     renders the poster image. We previously prefetched ± 1, but iOS
+//     Safari shares one HLS decoder between video elements that point
+//     at the same .m3u8 manifest (the AI-drafted case — every step is
+//     a range of one source video). With 3 elements mounted, frames
+//     from the active step's clip would bleed into neighbors and, on
+//     wrap-around, the neighbor's seek would visibly land on the wrong
+//     frame. Active-only mount sidesteps that entirely. The cost is a
+//     ~300ms poster-to-video transition on each swipe, but the HLS
+//     manifest is already cached from the first step so subsequent
+//     mounts only fetch segments.
 
 import {
   forwardRef,
@@ -254,9 +262,11 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
       >
         {steps.map((step, i) => {
           const isActive = i === stepIdx;
-          // Render real video only for active ± 1 so we keep ≤ 3 video
-          // decoders simultaneous on mobile.
-          const renderVideo = Math.abs(i - stepIdx) <= 1;
+          // Render the real video element ONLY for the active step.
+          // See the module-header note: iOS Safari shares one HLS
+          // decoder per .m3u8 URL across video elements, so prefetching
+          // neighbors causes the wrong frame to render.
+          const renderVideo = isActive;
           const isSheetOpen = sheetOpenIdx === i;
           // Step's pill color: step-specific override > phase color >
           // neutral. The parent passes the active phase color; for
@@ -458,8 +468,9 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
 
 // One reel's media surface. Renders the first video / video_clip when
 // available; otherwise the first image; otherwise a colored placeholder.
-// Lazy: when `renderVideo` is false (i.e. step is outside ±1 of current),
-// we render only the poster image to keep memory under control.
+// Lazy: when `renderVideo` is false (i.e. step is not the active one),
+// we render only the poster image. See the module-header note on the
+// iOS HLS shared-decoder issue.
 function ReelMedia({
   media,
   renderVideo,

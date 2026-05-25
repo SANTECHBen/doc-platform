@@ -505,7 +505,31 @@ export function VirtualJobAid({
   // Only one path runs at a time; stopPlayback tears down whichever is live.
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
+  // Shared <audio> element reused across every step. iOS Safari only
+  // honors the page's media-playback activation for elements that
+  // existed at the time of the original user gesture (the tap that
+  // opened the runner). Creating a fresh `new Audio()` for each step
+  // — particularly inside an async callback fired off the scroll-
+  // settle timer, several hops removed from the swipe gesture — gets
+  // its `.play()` silently rejected after a handful of swipes, which
+  // is exactly the "voiceover stops working" symptom. Re-pointing one
+  // long-lived element's `.src` keeps the activation alive.
+  const sharedAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Marks whichever audio element is the "currently speaking" one. With
+  // the shared element above this is almost always === sharedAudioRef,
+  // but the indirection lets stopPlayback null it out without touching
+  // the shared element so the next speakCurrent can re-attach cleanly.
   const htmlAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  function getOrCreateSharedAudio(): HTMLAudioElement {
+    if (!sharedAudioRef.current) {
+      const a = new Audio();
+      a.preload = 'auto';
+      a.crossOrigin = 'anonymous';
+      sharedAudioRef.current = a;
+    }
+    return sharedAudioRef.current;
+  }
   // Epoch counter — incremented every time playback is stopped. Each
   // speakCurrent invocation captures its epoch on entry and checks after
   // every await; if a newer epoch has taken over (e.g. user pressed Next
@@ -546,6 +570,16 @@ export function VirtualJobAid({
   useEffect(() => {
     return () => {
       stopPlayback();
+      if (sharedAudioRef.current) {
+        try {
+          sharedAudioRef.current.pause();
+          sharedAudioRef.current.removeAttribute('src');
+          sharedAudioRef.current.load();
+        } catch {
+          // ignore
+        }
+        sharedAudioRef.current = null;
+      }
       if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
         audioCtxRef.current.close().catch(() => {});
       }
@@ -570,15 +604,15 @@ export function VirtualJobAid({
       } catch {
         // ignore
       }
-      // removeAttribute + load() is the spec-correct way to fully detach
-      // the source — `src = ''` can leave the element in a "loading"
-      // state on some browsers where playback resumes after a delay.
-      htmlAudioRef.current.removeAttribute('src');
-      try {
-        htmlAudioRef.current.load();
-      } catch {
-        // ignore
-      }
+      // Detach the listeners we attached in speakCurrent so a paused
+      // playback doesn't fire onended/onerror against a stale handler.
+      // We deliberately do NOT clear `src` or call `load()` on the
+      // shared element here — those operations on iOS can drop the
+      // element's playback activation, which is the very thing we are
+      // trying to preserve by reusing one element across steps. Just
+      // pause + detach listeners; the next speakCurrent will swap src.
+      htmlAudioRef.current.onended = null;
+      htmlAudioRef.current.onerror = null;
       htmlAudioRef.current = null;
     }
     setSpeaking(false);
@@ -597,36 +631,77 @@ export function VirtualJobAid({
 
     // Path 1 — authored voiceover. Always preferred when present: better
     // fidelity (custom emphasis, your shop voice), zero per-play cost,
-    // streams from CDN. We use HTMLAudioElement rather than WebAudio so
-    // browsers do their normal preload/seek/codec handling.
+    // streams from CDN. We reuse one long-lived <audio> element across
+    // every step so iOS Safari preserves the media-playback activation
+    // from the original tap (see sharedAudioRef note).
     if (step.audioUrl) {
-      let audio: HTMLAudioElement | null = null;
+      let authoredOk = false;
+      const audio = getOrCreateSharedAudio();
       try {
-        setSpeaking(true);
-        audio = new Audio(step.audioUrl);
-        audio.preload = 'auto';
-        audio.crossOrigin = 'anonymous';
+        // Detach any listeners from a prior step's playback before we
+        // swap the src — otherwise an in-flight onended from the old
+        // src could fire against the new track.
+        audio.onended = null;
+        audio.onerror = null;
+        try {
+          audio.pause();
+        } catch {
+          // ignore
+        }
+        // Only re-assign src when it actually changes. Re-setting an
+        // identical URL is a free no-op in Chrome but can trigger a
+        // full reload on iOS, which we want to avoid for the replay
+        // button case.
+        if (audio.src !== step.audioUrl) {
+          audio.src = step.audioUrl;
+        } else {
+          // Same URL (replay tap): explicitly seek to 0 so it restarts
+          // instead of resuming from wherever the previous play stopped.
+          try {
+            audio.currentTime = 0;
+          } catch {
+            // ignore
+          }
+        }
         if (isStale()) {
-          // Superseded between the muted-check and now (extremely unlikely,
-          // but defensive). Don't even start playback.
+          // Superseded between the muted-check and now (extremely
+          // unlikely, but defensive). Don't even start playback.
           return;
         }
         htmlAudioRef.current = audio;
+        setSpeaking(true);
         await new Promise<void>((resolve, reject) => {
-          audio!.onended = () => resolve();
-          audio!.onerror = () => reject(new Error('audio load failed'));
-          audio!.play().catch(reject);
+          audio.onended = () => {
+            authoredOk = true;
+            resolve();
+          };
+          audio.onerror = () => reject(new Error('audio load failed'));
+          audio.play().then(
+            () => {
+              // play() resolved — playback has started. Resolve via
+              // onended when the track finishes naturally.
+            },
+            (err) => reject(err),
+          );
         });
       } catch (err) {
-        console.warn('[virtual-job-aid] authored audio failed, falling back to TTS', err);
-        // Fall through to TTS path below.
+        console.warn(
+          '[virtual-job-aid] authored audio failed, falling back to TTS',
+          err,
+        );
       } finally {
+        audio.onended = null;
+        audio.onerror = null;
         if (htmlAudioRef.current === audio) {
           htmlAudioRef.current = null;
         }
         setSpeaking(false);
       }
-      return;
+      // If we successfully played the authored track — or another
+      // speakCurrent invocation has taken over — stop here. Otherwise
+      // fall through to the TTS fallback so the tech still hears the
+      // step.
+      if (authoredOk || isStale()) return;
     }
 
     // Path 2 — live TTS fallback (used when no authored audio exists).
