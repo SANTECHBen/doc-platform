@@ -26,6 +26,7 @@ import { schema } from '@platform/db';
 import { z } from 'zod';
 import { ManifestSchema, ProposalTreeSchema } from '@platform/ai';
 import { requireAuth } from '../middleware/auth.js';
+import { sniffMime } from '../lib/mime-sniff.js';
 import { startSse } from '../lib/sse.js';
 import { agentBus, runChannel } from '../lib/agent-bus.js';
 import { runProposePhase } from '../lib/agent-runner.js';
@@ -174,10 +175,23 @@ export async function registerAdminAgent(app: FastifyInstance) {
 
     const file = await request.file();
     if (!file) return reply.badRequest('No file provided');
-    const relativePath = (file.fields['relativePath'] as { value?: string } | undefined)?.value;
-    if (!relativePath) {
+    const relativePathRaw = (file.fields['relativePath'] as { value?: string } | undefined)?.value;
+    if (!relativePathRaw) {
       return reply.badRequest('Missing relativePath form field');
     }
+    // Path-traversal hardening (C-FILES-4): the relativePath is rendered
+    // by the agent executor and surfaced in SSE — it must be a safe
+    // segment-only string. Reject absolute paths, traversal, NUL,
+    // backslashes, and pathological length.
+    if (
+      relativePathRaw.length > 512 ||
+      !/^[A-Za-z0-9._\-/]+$/.test(relativePathRaw) ||
+      relativePathRaw.startsWith('/') ||
+      relativePathRaw.split('/').some((seg) => seg === '' || seg === '.' || seg === '..')
+    ) {
+      return reply.badRequest('relativePath contains invalid characters or path traversal.');
+    }
+    const relativePath = relativePathRaw;
 
     const mime = file.mimetype ?? 'application/octet-stream';
     if (mime.startsWith('video/')) {
@@ -190,10 +204,35 @@ export async function registerAdminAgent(app: FastifyInstance) {
     if (buffer.length > 100 * 1024 * 1024) {
       return reply.code(413).send({ error: 'file exceeds 100MB; use Mux for large media' });
     }
+    // Magic-byte verification — never trust the client-asserted MIME on
+    // uploads. Agents accept a broader allowlist than user-uploads
+    // because they're SANTECH-admin curating arbitrary OEM media — PDFs,
+    // images, audio, Office docs. SVG remains disallowed (stored-XSS
+    // risk via the /files/* serve path).
+    const sniffed = sniffMime(buffer);
+    const AGENT_ALLOWED = new Set([
+      'image/png', 'image/jpeg', 'image/webp', 'image/gif',
+      'application/pdf',
+      'audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/ogg', 'audio/webm',
+      'application/zip',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'text/plain', 'text/markdown',
+    ]);
+    if (!sniffed || !AGENT_ALLOWED.has(sniffed)) {
+      return reply.unsupportedMediaType('File content does not match any accepted format.');
+    }
+    const verifiedMime = sniffed;
+    // Tenant prefix for agent uploads. Prefer the run's target customer
+    // org; fall back to the platform-admin's home org (SANTECH) when
+    // the run doesn't have a target yet.
+    const uploadOrgId = run.targetOrganizationId ?? auth.organizationId;
     const stored = await app.ctx.storage.putBuffer({
       buffer,
       filename: file.filename ?? 'file',
-      contentType: mime,
+      contentType: verifiedMime,
+      ownerOrganizationId: uploadOrgId,
     });
 
     const [row] = await app.ctx.db

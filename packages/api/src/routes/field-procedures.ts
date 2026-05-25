@@ -28,6 +28,7 @@ import {
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth';
 import { getScope, requireOrgInScope } from '../middleware/scope';
+import { sniffMime } from '../lib/mime-sniff';
 import { ensureFieldCapturesVersion } from '../lib/field-captures-pack';
 import { enqueueExtraction } from '../lib/extraction';
 import { expandStep, loadSnippetMap } from '../services/snippet-expansion';
@@ -1171,10 +1172,22 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
       }
 
       const buffer = await file.toBuffer();
+      // Magic-byte verification — refuse anything whose bytes don't match
+      // the asserted MIME. SVG explicitly disallowed.
+      const sniffed = sniffMime(buffer);
+      const SAFE_IMG = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+      const SAFE_VID = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
+      const okImage = isImage && sniffed && SAFE_IMG.has(sniffed);
+      const okVideo = isVideo && sniffed && SAFE_VID.has(sniffed);
+      if (!okImage && !okVideo) {
+        return reply.badRequest('File content does not match a supported image or video format.');
+      }
+      const verifiedMime = sniffed as string;
       const result = await storage.putBuffer({
         buffer,
         filename: file.filename ?? (isVideo ? 'video.mp4' : 'photo.jpg'),
-        contentType: mime,
+        contentType: verifiedMime,
+        ownerOrganizationId: ctx.ownerOrganizationId,
       });
 
       return {
@@ -1220,6 +1233,7 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
         body: file.file,
         filename: file.filename ?? 'hero.mp4',
         contentType: mime,
+        ownerOrganizationId: ctx.ownerOrganizationId,
       });
       if (result.size > MAX_HERO_BYTES) {
         return reply.payloadTooLarge(

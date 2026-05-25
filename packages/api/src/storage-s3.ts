@@ -6,8 +6,10 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Upload } from '@aws-sdk/lib-storage';
 import type { Storage } from './storage';
+import { ownerOrgFromStorageKey } from './storage';
 
 export interface S3StorageConfig {
   endpoint?: string; // R2/MinIO need this; AWS S3 leaves it undefined.
@@ -33,11 +35,14 @@ export function createS3Storage(cfg: S3StorageConfig): Storage {
   });
 
   return {
-    async putBuffer({ buffer, filename, contentType }) {
+    async putBuffer({ buffer, filename, contentType, ownerOrganizationId }) {
+      assertOrgId(ownerOrganizationId);
       const sha = createHash('sha256').update(buffer).digest('hex');
+      // Tenant prefix first, then sha shard. Two tenants with identical
+      // bytes get two distinct objects; same-tenant dupes still dedup.
       const prefix = sha.slice(0, 2);
       const safeName = sanitizeFilename(filename);
-      const storageKey = `${prefix}/${sha}/${safeName}`;
+      const storageKey = `org/${ownerOrganizationId}/${prefix}/${sha}/${safeName}`;
       await client.send(
         new PutObjectCommand({
           Bucket: cfg.bucket,
@@ -45,20 +50,23 @@ export function createS3Storage(cfg: S3StorageConfig): Storage {
           Body: buffer,
           ContentType: contentType,
           // Set cache headers: content-addressed keys are immutable.
+          // Cache-Control still applies to the underlying object; the
+          // signed URL it's fetched via (signedUrl()) carries its own TTL.
           CacheControl: 'public, max-age=31536000, immutable',
         }),
       );
       return { storageKey, size: buffer.length, sha256: sha };
     },
 
-    async putStream({ body, filename, contentType }) {
+    async putStream({ body, filename, contentType, ownerOrganizationId }) {
+      assertOrgId(ownerOrganizationId);
       // Multipart upload — sha256 isn't known until the body finishes,
       // so the key is UUID-based (no content-addressing). Hash is still
       // computed in-flight through a pass-through tap.
       const id = randomUUID();
       const prefix = id.slice(0, 2);
       const safeName = sanitizeFilename(filename);
-      const storageKey = `${prefix}/${id}/${safeName}`;
+      const storageKey = `org/${ownerOrganizationId}/${prefix}/${id}/${safeName}`;
       const hash = createHash('sha256');
       let size = 0;
       const tap = new Transform({
@@ -105,9 +113,38 @@ export function createS3Storage(cfg: S3StorageConfig): Storage {
     },
 
     publicUrl(storageKey) {
+      // DEPRECATED for tenant-sensitive content — left in place so existing
+      // call sites continue to function for non-sensitive assets and during
+      // the migration. Callers serving tenant content MUST migrate to
+      // signedUrl().
       return `${cfg.publicBaseUrl.replace(/\/$/, '')}/${storageKey}`;
     },
+
+    async signedUrl(storageKey, options) {
+      const ttl = Math.max(60, Math.min(options?.ttlSeconds ?? 900, 3600));
+      const cmd = new GetObjectCommand({
+        Bucket: cfg.bucket,
+        Key: storageKey,
+        ...(options?.contentDisposition
+          ? { ResponseContentDisposition: options.contentDisposition }
+          : {}),
+      });
+      // Presigned GETs are time-limited, key-scoped, and don't grant any
+      // other capability. The bucket itself should be private (no
+      // public-read ACL) so unsigned URLs return 403.
+      return getSignedUrl(client, cmd, { expiresIn: ttl });
+    },
+
+    ownerOrgFromKey(storageKey) {
+      return ownerOrgFromStorageKey(storageKey);
+    },
   };
+}
+
+function assertOrgId(id: string): void {
+  if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) {
+    throw new Error('storage: ownerOrganizationId must be a UUID');
+  }
 }
 
 function sanitizeFilename(name: string): string {

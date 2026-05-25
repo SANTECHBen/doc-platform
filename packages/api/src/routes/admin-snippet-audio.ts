@@ -19,6 +19,7 @@ import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth.js';
 import { getScope, requireOrgInScope, type Scope } from '../middleware/scope.js';
 import { synthesizeStepTts } from '../services/step-tts.js';
+import { sniffMime } from '../lib/mime-sniff.js';
 
 const ACCEPT_MIMES = new Set([
   'audio/mpeg',
@@ -145,17 +146,27 @@ export async function registerAdminSnippetAudioRoutes(app: FastifyInstance) {
       if (buf.byteLength > MAX_AUDIO_BYTES) {
         return reply.payloadTooLarge('Audio exceeds 25 MB limit.');
       }
+      // Magic-byte check — refuse anything that doesn't match an audio format.
+      const sniffed = sniffMime(buf);
+      const SAFE_AUDIO = new Set([
+        'audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/ogg', 'audio/webm',
+      ]);
+      if (!sniffed || !SAFE_AUDIO.has(sniffed)) {
+        return reply.unsupportedMediaType('File content does not match a supported audio format.');
+      }
+      const verifiedMime = sniffed;
       const stored = await storage.putBuffer({
         buffer: buf,
         filename: file.filename || `snippet-${ctx.snippet.id}.audio`,
-        contentType: mime,
+        contentType: verifiedMime,
+        ownerOrganizationId: ctx.auditOrgId,
       });
 
       const [updated] = await db
         .update(schema.procedureSnippets)
         .set({
           audioStorageKey: stored.storageKey,
-          audioContentType: mime,
+          audioContentType: verifiedMime,
           audioSizeBytes: stored.size,
           audioDurationMs: null,
           audioSource: 'uploaded',
@@ -217,6 +228,7 @@ export async function registerAdminSnippetAudioRoutes(app: FastifyInstance) {
         openaiApiKey: env.OPENAI_API_KEY,
         storage,
         filenameStem: `snippet-${ctx.snippet.id}-tts`,
+        ownerOrganizationId: ctx.auditOrgId,
       });
 
       const [updated] = await db

@@ -773,6 +773,7 @@ export async function runDrafterExecution(params: {
       buffer: buf,
       filename: `draft-${runId}-keyframe-${seconds}.jpg`,
       contentType: 'image/jpeg',
+      ownerOrganizationId: run.ownerOrganizationId,
     });
     return {
       storageKey: stored.storageKey,
@@ -792,6 +793,7 @@ export async function runDrafterExecution(params: {
       openaiApiKey: env.OPENAI_API_KEY,
       storage,
       filenameStem: `draft-${runId}-tts`,
+      ownerOrganizationId: run.ownerOrganizationId,
     });
   };
 

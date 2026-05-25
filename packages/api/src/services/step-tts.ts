@@ -18,6 +18,9 @@ export interface SynthesizeStepTtsParams {
   /** Used as the storage filename prefix. Should already be sanitized
    *  (no path separators); the indexer appends a content discriminator. */
   filenameStem: string;
+  /** Owner organization for tenant-prefixed key. Required — derived from
+   *  the procedure / pack the step belongs to. */
+  ownerOrganizationId: string;
 }
 
 export interface SynthesizeStepTtsResult {
@@ -33,7 +36,7 @@ export interface SynthesizeStepTtsResult {
 export async function synthesizeStepTts(
   params: SynthesizeStepTtsParams,
 ): Promise<SynthesizeStepTtsResult> {
-  const { text, voice, model, openaiApiKey, storage, filenameStem } = params;
+  const { text, voice, model, openaiApiKey, storage, filenameStem, ownerOrganizationId } = params;
   const resp = await fetch('https://api.openai.com/v1/audio/speech', {
     method: 'POST',
     headers: {
@@ -54,6 +57,7 @@ export async function synthesizeStepTts(
     buffer: buf,
     filename: `${filenameStem}.mp3`,
     contentType: 'audio/mpeg',
+    ownerOrganizationId,
   });
   return {
     storageKey: stored.storageKey,

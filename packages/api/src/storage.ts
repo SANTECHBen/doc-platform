@@ -10,11 +10,19 @@ import { Transform } from 'node:stream';
 // hash (immutable, dedup-friendly); `putStream` uses a UUID key because the
 // hash isn't known until the stream ends — used for large uploads where
 // buffering the whole file in RAM is not viable.
+//
+// **Tenant scoping**: every storage key is prefixed with `org/<ownerOrgId>/`
+// so two tenants cannot share an object even if their bytes happen to hash
+// to the same value. Reads validate the prefix matches the caller's scope
+// before serving. See storage-key shape in keyParts() below.
 export interface Storage {
   putBuffer(input: {
     buffer: Buffer;
     filename: string;
     contentType: string;
+    /** Owner org for tenant-prefixed key. Required — callers must derive
+     *  this from request.auth or scan-session scope. */
+    ownerOrganizationId: string;
   }): Promise<{ storageKey: string; size: number; sha256: string }>;
 
   /** Stream-friendly variant for large uploads. The body is piped straight
@@ -24,13 +32,44 @@ export interface Storage {
     body: NodeJS.ReadableStream;
     filename: string;
     contentType: string;
+    ownerOrganizationId: string;
   }): Promise<{ storageKey: string; size: number; sha256: string }>;
 
   stream(
     storageKey: string,
   ): Promise<{ stream: NodeJS.ReadableStream; size: number; contentType?: string } | null>;
 
+  /** Public/perpetual URL — DEPRECATED for tenant-sensitive assets. Use
+   *  `signedUrl()` for anything that should not be world-readable. Kept
+   *  for FS adapter compatibility (dev) and for assets that are
+   *  intentionally public (e.g., generic icons). */
   publicUrl(storageKey: string): string;
+
+  /** Short-lived signed GET URL (preferred for tenant-sensitive assets).
+   *  TTL defaults to 15 min; callers can override. The signed URL is
+   *  scoped to GET on a single key — no listing, no PUT, no other key. */
+  signedUrl(
+    storageKey: string,
+    options?: { ttlSeconds?: number; contentDisposition?: string },
+  ): Promise<string>;
+
+  /**
+   * Extract the owner-org segment from a storage key produced by
+   * putBuffer/putStream. Returns null when the key is missing the
+   * tenant prefix (legacy keys created before the security pass).
+   */
+  ownerOrgFromKey(storageKey: string): string | null;
+}
+
+/**
+ * Parse storage key tenant prefix. Keys are `org/<uuid>/<rest>`. Legacy
+ * keys without the prefix return null (the caller must decide whether to
+ * deny or grandfather the read). Used by both adapters so the parsing
+ * stays consistent.
+ */
+export function ownerOrgFromStorageKey(storageKey: string): string | null {
+  const match = /^org\/([0-9a-f-]{36})\//i.exec(storageKey);
+  return match ? match[1]! : null;
 }
 
 export function createFsStorage(params: { rootDir: string; publicBaseUrl: string }): Storage {
@@ -45,26 +84,29 @@ export function createFsStorage(params: { rootDir: string; publicBaseUrl: string
   }
 
   return {
-    async putBuffer({ buffer, filename, contentType: _ct }) {
+    async putBuffer({ buffer, filename, contentType: _ct, ownerOrganizationId }) {
       await ensureRoot();
+      assertOrgId(ownerOrganizationId);
       const sha = createHash('sha256').update(buffer).digest('hex');
-      // Path: <sha prefix>/<sha>/<filename>. Prefix spreads files across
-      // directories to avoid one giant folder.
+      // Path: org/<uuid>/<sha prefix>/<sha>/<filename>. Tenant prefix
+      // first so two tenants with identical bytes don't share an object;
+      // content-hash second so same-tenant duplicates still dedup.
       const prefix = sha.slice(0, 2);
-      const dir = path.join(rootDir, prefix, sha);
+      const dir = path.join(rootDir, 'org', ownerOrganizationId, prefix, sha);
       await fs.mkdir(dir, { recursive: true });
       const safeName = sanitizeFilename(filename);
       const fullPath = path.join(dir, safeName);
       await fs.writeFile(fullPath, buffer);
-      const storageKey = [prefix, sha, safeName].join('/');
+      const storageKey = ['org', ownerOrganizationId, prefix, sha, safeName].join('/');
       return { storageKey, size: buffer.length, sha256: sha };
     },
 
-    async putStream({ body, filename, contentType: _ct }) {
+    async putStream({ body, filename, contentType: _ct, ownerOrganizationId }) {
       await ensureRoot();
+      assertOrgId(ownerOrganizationId);
       const id = randomUUID();
       const prefix = id.slice(0, 2);
-      const dir = path.join(rootDir, prefix, id);
+      const dir = path.join(rootDir, 'org', ownerOrganizationId, prefix, id);
       await fs.mkdir(dir, { recursive: true });
       const safeName = sanitizeFilename(filename);
       const fullPath = path.join(dir, safeName);
@@ -79,7 +121,7 @@ export function createFsStorage(params: { rootDir: string; publicBaseUrl: string
       });
       await pipeline(body, tap, createWriteStream(fullPath));
       return {
-        storageKey: [prefix, id, safeName].join('/'),
+        storageKey: ['org', ownerOrganizationId, prefix, id, safeName].join('/'),
         size,
         sha256: hash.digest('hex'),
       };
@@ -97,9 +139,28 @@ export function createFsStorage(params: { rootDir: string; publicBaseUrl: string
     },
 
     publicUrl(storageKey) {
+      // Dev-only: serves through the API's /files handler which enforces
+      // auth + scope before reading from disk.
       return `${publicBaseUrl}/files/${storageKey}`;
     },
+
+    // FS adapter has no notion of "signed" URLs — the /files handler does
+    // the auth check at request time. Return the same URL; the handler's
+    // gate is what enforces scope.
+    async signedUrl(storageKey) {
+      return `${publicBaseUrl}/files/${storageKey}`;
+    },
+
+    ownerOrgFromKey(storageKey) {
+      return ownerOrgFromStorageKey(storageKey);
+    },
   };
+}
+
+function assertOrgId(id: string): void {
+  if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) {
+    throw new Error('storage: ownerOrganizationId must be a UUID');
+  }
 }
 
 function sanitizeFilename(name: string): string {

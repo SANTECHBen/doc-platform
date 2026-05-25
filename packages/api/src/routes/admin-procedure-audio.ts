@@ -17,6 +17,7 @@ import { schema, type Database } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth.js';
 import { getScope, requireOrgInScope } from '../middleware/scope.js';
+import { sniffMime } from '../lib/mime-sniff.js';
 
 const ACCEPT_MIMES = new Set([
   'audio/mpeg',
@@ -137,11 +138,24 @@ export async function registerAdminProcedureAudioRoutes(app: FastifyInstance) {
       if (buf.byteLength > MAX_AUDIO_BYTES) {
         return reply.payloadTooLarge('Audio exceeds 25 MB limit.');
       }
+      // Magic-byte verification — never trust client-asserted MIME.
+      const sniffed = sniffMime(buf);
+      const SAFE_AUDIO = new Set([
+        'audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/ogg', 'audio/webm',
+      ]);
+      if (!sniffed || !SAFE_AUDIO.has(sniffed)) {
+        return reply.unsupportedMediaType(
+          `File content does not match a supported audio format.`,
+        );
+      }
+      // Use the sniffed MIME for storage — disregards the client claim.
+      const verifiedMime = sniffed;
 
       const stored = await storage.putBuffer({
         buffer: buf,
         filename: file.filename || `step-${ctx.step.id}.audio`,
-        contentType: mime,
+        contentType: verifiedMime,
+        ownerOrganizationId: ctx.ownerOrganizationId,
       });
 
       const [updated] = await db
@@ -248,6 +262,7 @@ export async function registerAdminProcedureAudioRoutes(app: FastifyInstance) {
         buffer: buf,
         filename: `step-${ctx.step.id}-tts.mp3`,
         contentType: 'audio/mpeg',
+        ownerOrganizationId: ctx.ownerOrganizationId,
       });
 
       const [updated] = await db
@@ -376,6 +391,7 @@ export async function registerAdminProcedureAudioRoutes(app: FastifyInstance) {
         buffer: buf,
         filename: file.filename || `step-${ctx.step.id}-media`,
         contentType: mime,
+        ownerOrganizationId: ctx.ownerOrganizationId,
       });
 
       const next = [
