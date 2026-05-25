@@ -277,11 +277,23 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
           const previewText = isTextOnly
             ? extractPreviewText(step.blocks, step.bodyMarkdown)
             : '';
-          // Phase/category tint for the text-only background. CSS reads
-          // the var; falls back to a neutral gradient if absent.
-          const textOnlyBgStyle: React.CSSProperties | undefined =
-            isTextOnly && pillColor
-              ? ({ ['--reel-tint' as string]: pillColor } as React.CSSProperties)
+          // Phase/category tint exposed as a CSS var on the section so
+          // every nested layer can read it: the reel's edge vignette
+          // (video reels) and the saturated chapter-card bg (text-only).
+          const sectionStyle: React.CSSProperties | undefined = pillColor
+            ? ({ ['--reel-tint' as string]: pillColor } as React.CSSProperties)
+            : undefined;
+          // On text-only reels the section *is* the phase color, so
+          // re-stating it on the pill would erase the label. Suppress
+          // the inline color there and let the CSS rule paint a neutral
+          // translucent chip instead. Video reels keep the colored pill.
+          const sectionPillStyle: React.CSSProperties | undefined =
+            !isTextOnly && pillColor
+              ? { color: 'white', backgroundColor: pillColor }
+              : undefined;
+          const categoryPillStyle: React.CSSProperties | undefined =
+            !isTextOnly && step.category
+              ? { color: 'white', backgroundColor: step.category.color }
               : undefined;
           return (
             <section
@@ -293,14 +305,11 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
               className={`vja-reel ${step.safetyCritical ? 'vja-reel--safety' : ''} ${
                 isTextOnly ? 'vja-reel--textonly' : ''
               }`}
+              style={sectionStyle}
               aria-current={isActive ? 'step' : undefined}
             >
               {isTextOnly ? (
-                <div
-                  aria-hidden
-                  className="vja-reel-textonly-bg"
-                  style={textOnlyBgStyle}
-                />
+                <div aria-hidden className="vja-reel-textonly-bg" />
               ) : (
                 <ReelMedia
                   media={step.media}
@@ -314,17 +323,7 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
                   classic view so navigating between modes stays oriented. */}
               <div className="vja-reel-top">
                 {step.sectionLabel && (
-                  <span
-                    className="vja-reel-section"
-                    style={
-                      pillColor
-                        ? {
-                            color: 'white',
-                            backgroundColor: pillColor,
-                          }
-                        : undefined
-                    }
-                  >
+                  <span className="vja-reel-section" style={sectionPillStyle}>
                     {step.sectionLabel}
                     <span className="vja-reel-section-num">
                       {' '}
@@ -335,10 +334,7 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
                 {step.category && (
                   <span
                     className="vja-reel-section"
-                    style={{
-                      color: 'white',
-                      backgroundColor: step.category.color,
-                    }}
+                    style={categoryPillStyle}
                     title={`Category: ${step.category.name}`}
                   >
                     <CategoryIcon name={step.category.icon} size={11} strokeWidth={2.25} />
@@ -364,6 +360,19 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
                   aria-expanded={isSheetOpen}
                   aria-controls={`vja-reel-sheet-${i}`}
                 >
+                  {step.category && (
+                    // Category icon centered above the title. The icon
+                    // ringed against the colored surface gives the card
+                    // a focal point and reinforces section identity
+                    // without needing decorative ornament.
+                    <span className="vja-reel-textonly-icon" aria-hidden>
+                      <CategoryIcon
+                        name={step.category.icon}
+                        size={28}
+                        strokeWidth={1.75}
+                      />
+                    </span>
+                  )}
                   <h2 className="vja-reel-textonly-title">{step.title}</h2>
                   {previewText && (
                     <p className="vja-reel-textonly-preview">{previewText}</p>

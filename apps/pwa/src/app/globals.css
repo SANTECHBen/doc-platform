@@ -4614,7 +4614,10 @@
        indicators already communicate position. */
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
-    background: #000;
+    /* Deep brand-aware neutral instead of pure black so the surround
+       reads as a deliberate surface, not a void. Per-reel phase tints
+       layer on top of this. */
+    background: #0b0d14;
     position: relative;
   }
   .vja-reels::-webkit-scrollbar {
@@ -4639,9 +4642,23 @@
     width: 100%;
     position: relative;
     overflow: hidden;
-    /* Use the full reel as a black-letterbox background — landscape
-       clips end up centered with bars top + bottom, portrait fills. */
-    background: #000;
+    /* Deep neutral base + phase-color vignette at top and bottom.
+       --reel-tint is set on the section when a phase/category color
+       exists; when absent it falls back to transparent and only the
+       base color shows. Letterboxed landscape video reveals the tint
+       as gently colored bars rather than dead black ones. */
+    background:
+      radial-gradient(
+        ellipse 110% 50% at 50% 100%,
+        color-mix(in oklab, var(--reel-tint, transparent) 16%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 80% 35% at 50% 0%,
+        color-mix(in oklab, var(--reel-tint, transparent) 9%, transparent),
+        transparent 70%
+      ),
+      #0a0c12;
     display: flex;
     align-items: stretch;
     justify-content: stretch;
@@ -4666,7 +4683,9 @@
     object-fit: contain;
   }
   .vja-reel-media--still {
-    background: linear-gradient(180deg, #0b0d12 0%, #050608 100%);
+    /* Image-only reels — match the reel surround so the still photo
+       sits on the same deep neutral instead of a separate gradient. */
+    background: transparent;
   }
   .vja-reel-still {
     width: 100%;
@@ -4682,35 +4701,30 @@
       linear-gradient(180deg, #0b0d12 0%, #050608 100%);
   }
 
-  /* Text-only reel — when a step has no video AND no image, the classic
-     video-first layout (empty gradient + bottom-pinned title) reads as
-     "the video failed to load." We instead render a centered text card
-     so the absence of media is deliberate, not accidental. The bg is
-     tinted with the phase/category color when one is present so the
-     reel still feels like part of its section. */
+  /* Text-only reel — when a step has no video AND no image, the reel
+     becomes a saturated colored "chapter card" rather than an empty
+     dark gradient. The phase/category color owns the screen, white
+     text sits on top, and a subtle top-left highlight + bottom shadow
+     give the surface depth. Falls back to the brand color when no
+     phase/category is set. */
   .vja-reel-textonly-bg {
     position: absolute;
     inset: 0;
     background:
+      /* Soft ambient highlight, top-left */
       radial-gradient(
-        ellipse at 50% 22%,
-        rgb(var(--brand) / 0.22),
-        transparent 62%
+        ellipse 90% 65% at 28% 18%,
+        rgba(255, 255, 255, 0.14),
+        transparent 60%
       ),
-      linear-gradient(180deg, #0c0e14 0%, #050608 100%);
-  }
-  /* Color-mix lets the tint pick up the phase/category hue without
-     forcing the author to pick a "background" version of their pill
-     color. Falls back to the brand-tinted default above on browsers
-     without color-mix support, which is fine — the layout still reads. */
-  .vja-reel-textonly-bg[style*='--reel-tint'] {
-    background:
+      /* Subtle bottom shadow for grounding */
       radial-gradient(
-        ellipse at 50% 22%,
-        color-mix(in oklab, var(--reel-tint) 32%, transparent),
-        transparent 66%
+        ellipse 100% 70% at 50% 110%,
+        rgba(0, 0, 0, 0.32),
+        transparent 65%
       ),
-      linear-gradient(180deg, #0c0e14 0%, #050608 100%);
+      /* The saturated surface itself */
+      var(--reel-tint, rgb(var(--brand)));
   }
   .vja-reel-textonly-card {
     appearance: none;
@@ -4718,40 +4732,60 @@
     background: transparent;
     color: white;
     position: absolute;
-    /* Top padding clears the pill row (12 + ~26 + breathing room);
-       bottom padding clears the swipe-up hint at the viewport bottom. */
+    /* Top padding clears the pill row; bottom padding clears the
+       swipe-up hint at the viewport bottom. */
     inset: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     text-align: center;
-    padding: 96px 28px 112px 28px;
-    gap: 16px;
+    padding: 88px 28px 108px 28px;
+    gap: 14px;
     cursor: pointer;
     z-index: 3;
     -webkit-tap-highlight-color: transparent;
   }
   .vja-reel-textonly-card:focus-visible {
-    outline: 2px solid rgb(var(--brand));
+    outline: 2px solid rgba(255, 255, 255, 0.6);
     outline-offset: -8px;
     border-radius: 14px;
   }
+  /* Category icon medallion — sits above the title and gives the card
+     a single focal point. The translucent ring lifts it off the
+     colored bg without restating the section color. */
+  .vja-reel-textonly-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    color: white;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      0 6px 18px rgba(0, 0, 0, 0.18);
+    margin-bottom: 2px;
+  }
   .vja-reel-textonly-title {
     margin: 0;
-    font-size: clamp(26px, 7.4vw, 34px);
-    line-height: 1.18;
+    font-size: clamp(28px, 7.6vw, 36px);
+    line-height: 1.16;
     font-weight: 700;
-    letter-spacing: -0.015em;
+    letter-spacing: -0.018em;
     color: white;
-    text-shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
+    text-shadow: 0 2px 14px rgba(0, 0, 0, 0.32);
     max-width: 22ch;
   }
   .vja-reel-textonly-preview {
     margin: 0;
     font-size: clamp(15px, 4vw, 17px);
     line-height: 1.5;
-    color: rgba(255, 255, 255, 0.86);
+    color: rgba(255, 255, 255, 0.92);
     max-width: 34ch;
     /* Clamp prevents long bodies from pushing the CTA off-screen on
        short viewports. The full text lives in the bottom sheet. */
@@ -4761,34 +4795,46 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
     text-overflow: ellipsis;
-    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.22);
   }
   .vja-reel-textonly-cta {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    margin-top: 4px;
-    padding: 6px 12px;
+    margin-top: 6px;
+    padding: 7px 14px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.34);
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.85);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
+    color: white;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
   }
   .vja-reel-textonly-cta--quiet {
     text-transform: none;
     letter-spacing: 0;
     font-size: 12px;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.65);
+    color: rgba(255, 255, 255, 0.72);
     background: transparent;
+    border-color: transparent;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     padding: 4px 0;
+  }
+  /* Pills on text-only reels override the colored-on-colored default
+     that would erase the label. Translucent dark chip reads cleanly
+     against any phase/category color, including light ones. */
+  .vja-reel--textonly .vja-reel-section {
+    background: rgba(0, 0, 0, 0.32);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
   }
 
   /* Top-of-reel pill row: section label + category badge + safety. */
@@ -4842,17 +4888,17 @@
   }
 
   /* Title pinned bottom — also the primary "tap for details" affordance.
-     A gentle gradient behind it keeps the title legible regardless of
-     the underlying video's frame. */
+     The gradient uses the reel's neutral base color (rather than pure
+     black) so it blends with the surround on letterboxed video. */
   .vja-reel-title-block {
     appearance: none;
     border: 0;
     background: linear-gradient(
       180deg,
       transparent 0%,
-      rgba(0, 0, 0, 0.0) 30%,
-      rgba(0, 0, 0, 0.72) 75%,
-      rgba(0, 0, 0, 0.92) 100%
+      rgba(10, 12, 18, 0) 32%,
+      rgba(10, 12, 18, 0.62) 72%,
+      rgba(10, 12, 18, 0.92) 100%
     );
     color: white;
     position: absolute;
