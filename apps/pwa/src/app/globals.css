@@ -5548,6 +5548,82 @@
     font-size: 13px;
     line-height: 1.4;
   }
+
+  /* Section divider — single-screen "starting [section]" interstitial
+     shown when the tech advances across a phase boundary. Same vertical
+     layout as completion (centered column) but uses the entering
+     section's category color as an accent via the --vja-divider-accent
+     custom property set inline on the section element. */
+  .vja-section-divider {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    text-align: center;
+    max-width: 480px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 40px 24px 24px;
+  }
+  .vja-section-divider-prev {
+    margin: 0 0 4px;
+    color: rgb(var(--ink-tertiary));
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+  .vja-section-divider-prev strong {
+    color: rgb(var(--ink-secondary));
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .vja-section-divider-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 88px;
+    height: 88px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--vja-divider-accent, rgb(var(--accent))) 12%, transparent);
+    color: var(--vja-divider-accent, rgb(var(--accent)));
+    border: 1px solid color-mix(in srgb, var(--vja-divider-accent, rgb(var(--accent))) 40%, transparent);
+    margin-top: 8px;
+  }
+  .vja-section-divider-eyebrow {
+    margin: 14px 0 0;
+    color: rgb(var(--ink-tertiary));
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .vja-section-divider-title {
+    margin: 4px 0 0;
+    font-size: 28px;
+    font-weight: 700;
+    color: rgb(var(--ink-primary));
+    letter-spacing: -0.01em;
+    line-height: 1.15;
+  }
+  .vja-section-divider-meta {
+    margin: 6px 0 0;
+    color: rgb(var(--ink-secondary));
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+  }
+  .vja-section-divider-hint {
+    margin: 16px 0 0;
+    color: rgb(var(--ink-tertiary));
+    font-size: 13px;
+    line-height: 1.45;
+    max-width: 320px;
+  }
+  .vja-section-divider-hint strong {
+    color: rgb(var(--ink-secondary));
+    font-weight: 600;
+  }
   .vja-hero-intro-meta {
     display: flex;
     flex-direction: column;

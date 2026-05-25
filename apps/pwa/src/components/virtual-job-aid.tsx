@@ -412,6 +412,13 @@ export function VirtualJobAid({
   } | null>(null);
   const [speaking, setSpeaking] = useState(false);
   const [muted, setMuted] = useState(false);
+  // Section transition divider. When the tech advances *forward* into a
+  // step that begins a new phase (e.g., from the last Removal step into
+  // the first Replacement step), we interpose a one-screen divider that
+  // names the section they're entering. Gives a clear "you finished X,
+  // starting Y" beat. Cleared by Next (reveal the step) or Prev (drop
+  // back to the last step of the previous section).
+  const [showSectionDivider, setShowSectionDivider] = useState(false);
   // Layout mode toggle. 'classic' is the original step-card view; 'reels'
   // is the vertical-swipe video-first reader. Defaults derive from:
   //   1. localStorage preference (sticky across sessions)
@@ -722,12 +729,19 @@ export function VirtualJobAid({
       // Skip the per-step TTS path; intro narration is handled below.
       return;
     }
+    if (showSectionDivider) {
+      // While the divider is visible, don't auto-speak the step it
+      // precedes — the voiceover would land before the tech can read
+      // the section name. Auto-speak fires naturally on the next
+      // stepIdx-change cycle after the tech taps Next.
+      return;
+    }
     void speakCurrent();
     return () => stopPlayback();
     // intentional: speakCurrent is stable enough; we want this to fire on
     // step change, not on every re-render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resolved, stepIdx, autoSpeak, muted, showHeroIntro]);
+  }, [resolved, stepIdx, autoSpeak, muted, showHeroIntro, showSectionDivider]);
 
   // No auto-narration on the intro panel — author overview content (or
   // the hero video itself) carries the orientation. Per-step TTS still
@@ -735,6 +749,11 @@ export function VirtualJobAid({
 
   function next() {
     if (!resolved) return;
+    // Section divider → reveal the step it precedes.
+    if (showSectionDivider) {
+      setShowSectionDivider(false);
+      return;
+    }
     // Hero intro → first real step.
     if (showHeroIntro) {
       stopPlayback();
@@ -749,7 +768,16 @@ export function VirtualJobAid({
       return;
     }
     stopPlayback();
-    setStepIdx((i) => i + 1);
+    const nextIdx = stepIdx + 1;
+    setStepIdx(nextIdx);
+    // Interpose the divider when the next step starts a new section run.
+    // We skip the very first phase (start=0) since there's nothing to
+    // "finish" yet — the hero intro already serves that orientation
+    // role. Single-section procedures never trigger.
+    const startsNewPhase = resolved.phases.some(
+      (p) => p.start === nextIdx && p.start > 0,
+    );
+    if (startsNewPhase) setShowSectionDivider(true);
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
       try {
         navigator.vibrate(8);
@@ -759,6 +787,15 @@ export function VirtualJobAid({
     }
   }
   function prev() {
+    // Section divider → drop back into the last step of the previous
+    // section. The tech wanted to go back across the boundary, so the
+    // divider clears in the same tap (no need to show it twice).
+    if (showSectionDivider) {
+      setShowSectionDivider(false);
+      stopPlayback();
+      setStepIdx((i) => Math.max(0, i - 1));
+      return;
+    }
     // Completion screen → back to last step.
     if (showCompletion) {
       setShowCompletion(false);
@@ -990,6 +1027,11 @@ export function VirtualJobAid({
             if (next === stepIdx) return;
             stopPlayback();
             setStepIdx(next);
+            // Jumping via the phase strip is a deliberate navigation —
+            // it would be confusing to land on a divider screen when the
+            // tech explicitly tapped a phase pill. Clear any pending
+            // divider so the destination step renders directly.
+            setShowSectionDivider(false);
           }}
           onReplayVoiceover={replay}
           speaking={speaking}
@@ -1099,7 +1141,61 @@ export function VirtualJobAid({
             })()}
           </section>
         )}
-        {!showCompletion && !showHeroIntro && step && (
+        {!showCompletion && !showHeroIntro && showSectionDivider && step && (() => {
+          // Render the section-transition divider in place of the step.
+          // The footer's standard Prev/Next buttons handle navigation
+          // (Next dismisses the divider; Prev drops back to the last
+          // step of the previous section).
+          const enteringPhase = resolved.phases.find(
+            (p) => p.start === stepIdx,
+          );
+          const leavingPhase = resolved.phases.find(
+            (p) => p.end === stepIdx,
+          );
+          const enteringLabel = enteringPhase?.label ?? step.sectionLabel ?? 'Next section';
+          const enteringColor = enteringPhase?.color ?? null;
+          const enteringIcon = enteringPhase?.icon ?? null;
+          const leavingLabel = leavingPhase?.label ?? null;
+          return (
+            <section
+              key={`divider-${stepIdx}`}
+              className="vja-section-divider"
+              role="status"
+              aria-live="polite"
+              aria-label={`Starting section: ${enteringLabel}`}
+              style={
+                enteringColor
+                  ? ({ ['--vja-divider-accent' as string]: enteringColor } as Record<string, string>)
+                  : undefined
+              }
+            >
+              {leavingLabel && (
+                <p className="vja-section-divider-prev">
+                  Finished <strong>{leavingLabel}</strong>
+                </p>
+              )}
+              <div className="vja-section-divider-mark" aria-hidden>
+                {enteringIcon ? (
+                  <CategoryIcon name={enteringIcon} size={36} strokeWidth={2} />
+                ) : (
+                  <ChevronRight size={36} strokeWidth={2} />
+                )}
+              </div>
+              <p className="vja-section-divider-eyebrow">Starting</p>
+              <h1 className="vja-section-divider-title">{enteringLabel}</h1>
+              {enteringPhase && (
+                <p className="vja-section-divider-meta">
+                  {enteringPhase.end - enteringPhase.start} step
+                  {enteringPhase.end - enteringPhase.start === 1 ? '' : 's'} in this section
+                </p>
+              )}
+              <p className="vja-section-divider-hint">
+                Tap <strong>Next</strong> to begin, or <strong>Back</strong> to revisit the previous section.
+              </p>
+            </section>
+          );
+        })()}
+        {!showCompletion && !showHeroIntro && !showSectionDivider && step && (
           <article
             key={stepIdx}
             className={`vja-step ${step.safetyCritical ? 'vja-step-safety' : ''}`}
