@@ -152,6 +152,14 @@ export function toEngineOptions(spec: QrStyleSpec, width: number): EngineOptions
       errorCorrectionLevel: spec.errorCorrection,
     },
     imageOptions: {
+      // Critical: the library defaults to saveAsBlob: true, which fetches the
+      // image URI to convert it to a blob before embedding. With a data:
+      // URI that's a self-fetch — and the admin app's CSP connect-src does
+      // not include `data:`, so the request is blocked and the engine
+      // throws. Disabling saveAsBlob lets the library use the image URI
+      // directly via <img src> / <image href>, which goes through img-src
+      // (where data: is allowed by default).
+      saveAsBlob: false,
       hideBackgroundDots: spec.logo.hideBackgroundDots,
       imageSize: spec.logo.size * 2, // engine scales differently — empirically *2 matches Bitly-like sizing
       margin: spec.logo.margin,
