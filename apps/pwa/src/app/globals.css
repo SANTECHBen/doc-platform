@@ -4676,11 +4676,23 @@
     height: 100%;
     border-radius: 0;
     background: transparent;
+    /* Strip the classic step-card chrome — the 1px brand border and
+       inset drop-shadow read as a stray blue outline when the frame
+       fills the reel edge-to-edge. */
+    border: 0;
+    box-shadow: none;
   }
   .vja-reel-media :where(.step-video-frame video) {
     width: 100%;
     height: 100%;
     object-fit: contain;
+  }
+  /* The classic step-card's looping-clip progress bar competes with the
+     title text at the bottom of every reel and is one more line of
+     visual noise in a Shorts-style view. Hide it inside the reel; the
+     Reels viewport already conveys "in progress" via autoplay. */
+  .vja-reel-media :where(.step-video-progress) {
+    display: none;
   }
   .vja-reel-media--still {
     /* Image-only reels — match the reel surround so the still photo
@@ -4732,19 +4744,27 @@
     background: transparent;
     color: white;
     position: absolute;
-    /* Top padding clears the pill row; bottom padding clears the
-       swipe-up hint at the viewport bottom. */
+    /* Top padding clears the pill row; bottom padding clears the swipe
+       hint AND the iOS home indicator on PWA install. Sides reserve
+       room for landscape safe-area insets. */
     inset: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     text-align: center;
-    padding: 88px 28px 108px 28px;
+    padding:
+      max(88px, calc(env(safe-area-inset-top) + 76px))
+      max(28px, calc(env(safe-area-inset-right) + 20px))
+      max(108px, calc(env(safe-area-inset-bottom) + 88px))
+      max(28px, calc(env(safe-area-inset-left) + 20px));
     gap: 14px;
     cursor: pointer;
     z-index: 3;
     -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
   }
   .vja-reel-textonly-card:focus-visible {
     outline: 2px solid rgba(255, 255, 255, 0.6);
@@ -4837,12 +4857,14 @@
     -webkit-backdrop-filter: blur(10px);
   }
 
-  /* Top-of-reel pill row: section label + category badge + safety. */
+  /* Top-of-reel pill row: section label + category badge + safety.
+     Right inset reserves room for the 44×44 replay button (44 + 8 gap
+     = 52). Left/right pick up landscape safe-area insets. */
   .vja-reel-top {
     position: absolute;
-    top: 12px;
-    left: 12px;
-    right: 12px;
+    top: max(12px, calc(env(safe-area-inset-top) + 4px));
+    left: max(12px, calc(env(safe-area-inset-left) + 4px));
+    right: max(64px, calc(env(safe-area-inset-right) + 56px));
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -4888,69 +4910,123 @@
   }
 
   /* Title pinned bottom — also the primary "tap for details" affordance.
-     The gradient uses the reel's neutral base color (rather than pure
-     black) so it blends with the surround on letterboxed video. */
+     The gradient is a smooth multi-stop ramp from transparent (so the
+     video stays unobscured up top) down to ~94% of the reel's neutral
+     base at the bottom. Multi-stop is intentional: a 2-stop linear
+     ramp banded visibly on dark video content. The bottom padding
+     respects iOS PWA safe-area so the title clears the home indicator
+     instead of being squashed against it. */
   .vja-reel-title-block {
     appearance: none;
     border: 0;
     background: linear-gradient(
       180deg,
-      transparent 0%,
-      rgba(10, 12, 18, 0) 32%,
-      rgba(10, 12, 18, 0.62) 72%,
-      rgba(10, 12, 18, 0.92) 100%
+      rgba(10, 12, 18, 0) 0%,
+      rgba(10, 12, 18, 0) 22%,
+      rgba(10, 12, 18, 0.18) 42%,
+      rgba(10, 12, 18, 0.5) 62%,
+      rgba(10, 12, 18, 0.78) 82%,
+      rgba(10, 12, 18, 0.94) 100%
     );
     color: white;
     position: absolute;
     inset: auto 0 0 0;
-    padding: 80px 18px 28px 18px;
+    /* 140px top: room for a tall, soft gradient ramp + multi-line titles
+       without pinching the video frame.
+       Horizontal padding picks up landscape safe-area insets so the
+       title clears notches when the device rotates.
+       Bottom padding floors at 40px and grows for the home indicator. */
+    padding:
+      clamp(96px, 22vh, 150px)
+      max(22px, calc(env(safe-area-inset-right) + 18px))
+      max(40px, calc(env(safe-area-inset-bottom) + 28px))
+      max(22px, calc(env(safe-area-inset-left) + 18px));
     text-align: left;
     cursor: pointer;
     z-index: 3;
+    /* Suppress iOS tap highlight + double-tap zoom on the title button;
+       we own the interaction. */
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+    transition: background 160ms ease;
+  }
+  .vja-reel-title-block:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.55);
+    outline-offset: -10px;
+    border-radius: 14px;
+  }
+  .vja-reel-title-block:active .vja-reel-title-hint {
+    color: rgba(255, 255, 255, 0.9);
   }
   .vja-reel-title {
     margin: 0;
-    font-size: 22px;
-    line-height: 1.25;
+    /* Responsive scale: 22 on small phones, up to 26 on large phones /
+       tablets. Tighter line-height than classic mode because multi-line
+       titles read tighter when surrounded by a gradient surface. */
+    font-size: clamp(22px, 5.4vw, 26px);
+    line-height: 1.22;
     font-weight: 700;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.012em;
     color: white;
-    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
+    /* Softer, larger-blur shadow reads cleaner than the previous tight
+       shadow on light video frames without darkening too aggressively. */
+    text-shadow: 0 1px 14px rgba(0, 0, 0, 0.55);
+    max-width: 30ch;
   }
   .vja-reel-title-hint {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    margin-top: 8px;
-    font-size: 11px;
-    letter-spacing: 0.06em;
+    gap: 5px;
+    margin-top: 10px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgba(255, 255, 255, 0.65);
+    transition: color 160ms ease;
   }
 
-  /* Replay-voiceover button — small, top-right of the active reel. */
+  /* Replay-voiceover button — bumped to 44×44 (iOS HIG min touch target)
+     and given a subtle shadow + ring so it reads as a control on bright
+     video frames. Sits above the title block via z-index. */
   .vja-reel-replay {
     appearance: none;
-    border: 0;
+    border: 1px solid rgba(255, 255, 255, 0.18);
     position: absolute;
-    top: 12px;
-    right: 12px;
+    top: max(12px, calc(env(safe-area-inset-top) + 4px));
+    right: max(12px, calc(env(safe-area-inset-right) + 4px));
     z-index: 4;
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
     border-radius: 50%;
     background: rgba(0, 0, 0, 0.55);
     color: white;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      0 4px 14px rgba(0, 0, 0, 0.32);
     cursor: pointer;
-    transition: transform 120ms ease;
+    transition:
+      transform 140ms cubic-bezier(0.22, 1, 0.36, 1),
+      background 140ms ease;
+    -webkit-tap-highlight-color: transparent;
   }
   .vja-reel-replay:hover {
-    transform: scale(1.05);
+    transform: scale(1.06);
+    background: rgba(0, 0, 0, 0.65);
+  }
+  .vja-reel-replay:active {
+    transform: scale(0.96);
+  }
+  .vja-reel-replay:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.7);
+    outline-offset: 2px;
   }
   .vja-reel-replay-spin {
     animation: vjaReelReplaySpin 1.5s linear infinite;
@@ -4960,39 +5036,55 @@
       transform: rotate(360deg);
     }
   }
+  @media (prefers-reduced-motion: reduce) {
+    .vja-reel-replay-spin {
+      animation: none;
+    }
+  }
 
+  /* Image-only-muted hint. Position floors above the title block + home
+     indicator on iOS so it doesn't end up tucked behind the title. */
   .vja-reel-empty {
     position: absolute;
-    inset: auto 18px 96px 18px;
+    inset: auto 22px calc(160px + env(safe-area-inset-bottom)) 22px;
     text-align: center;
-    color: rgba(255, 255, 255, 0.78);
+    color: rgba(255, 255, 255, 0.82);
     font-size: 13px;
+    line-height: 1.45;
     z-index: 3;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+    pointer-events: none;
   }
 
   /* First-time "swipe up" hint — fades in then out via a CSS animation
      keyed off mount. No JS persistence; if it appears every time, that
-     reinforces the gesture rather than gating it. */
+     reinforces the gesture rather than gating it. Positioned above the
+     title block (which now grows for safe-area) so the two never
+     stack visually. */
   .vja-reels-swipe-hint {
     position: absolute;
     left: 50%;
-    bottom: 18px;
+    bottom: calc(180px + env(safe-area-inset-bottom));
     transform: translateX(-50%);
     display: inline-flex;
     flex-direction: column;
     align-items: center;
     gap: 2px;
-    padding: 8px 14px;
+    padding: 9px 16px;
     border-radius: 999px;
-    background: rgba(0, 0, 0, 0.55);
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     color: white;
     font-size: 11px;
     font-weight: 600;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
     pointer-events: none;
     z-index: 4;
     opacity: 0;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
     animation: vjaReelsHint 4.5s ease forwards;
   }
   @keyframes vjaReelsHint {
@@ -5008,6 +5100,12 @@
     100% {
       opacity: 0;
       transform: translateX(-50%) translateY(-4px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .vja-reels-swipe-hint {
+      animation-duration: 3s;
+      animation-timing-function: linear;
     }
   }
 
