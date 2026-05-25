@@ -4671,27 +4671,45 @@
     align-items: center;
     justify-content: center;
   }
-  .vja-reel-media :where(.step-video-frame) {
+  /* Override the classic step-card frame chrome inside Reels. The base
+     .step-video-frame rule sits LATER in the file at the same
+     specificity (0,1,0), so :where() — which contributes 0 specificity
+     — let the base rule's brand border, brand shadow, and rounded
+     corners win on source order. Dropping :where() raises this rule
+     to (0,2,0) so the overrides actually take effect regardless of
+     stylesheet order. */
+  .vja-reel-media .step-video-frame {
     width: 100%;
     height: 100%;
+    /* Reels is edge-to-edge — undo the classic step-card's portrait
+       width cap (340px max + auto margins) so the frame fills the
+       reel instead of leaving the phase-tinted reel background
+       visible at the corners as thin colored bars. */
+    max-width: none;
+    margin-inline: 0;
     border-radius: 0;
     background: transparent;
-    /* Strip the classic step-card chrome — the 1px brand border and
-       inset drop-shadow read as a stray blue outline when the frame
-       fills the reel edge-to-edge. */
     border: 0;
     box-shadow: none;
   }
-  .vja-reel-media :where(.step-video-frame video) {
+  .vja-reel-media .step-video-frame video {
     width: 100%;
     height: 100%;
     object-fit: contain;
+    /* Force opaque black behind the video content so the reel's phase
+       tint (which sits behind a transparent frame in Reels) never
+       bleeds through letterbox bars as a thin colored line. */
+    background: #000;
   }
-  /* The classic step-card's looping-clip progress bar competes with the
-     title text at the bottom of every reel and is one more line of
-     visual noise in a Shorts-style view. Hide it inside the reel; the
-     Reels viewport already conveys "in progress" via autoplay. */
-  .vja-reel-media :where(.step-video-progress) {
+  /* Hide the looping-clip progress bar inside Reels — it competes
+     with the title text and adds visual noise the Shorts-style view
+     doesn't need. */
+  .vja-reel-media .step-video-progress {
+    display: none;
+  }
+  /* Same goes for the fullscreen button some StepVideoPlayer paths
+     render — Reels owns the viewport already. */
+  .vja-reel-media .step-video-fs-btn {
     display: none;
   }
   .vja-reel-media--still {
