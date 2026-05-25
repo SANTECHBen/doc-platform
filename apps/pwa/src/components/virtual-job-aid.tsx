@@ -419,39 +419,33 @@ export function VirtualJobAid({
   // starting Y" beat. Cleared by Next (reveal the step) or Prev (drop
   // back to the last step of the previous section).
   const [showSectionDivider, setShowSectionDivider] = useState(false);
-  // Layout mode toggle. 'classic' is the original step-card view; 'reels'
-  // is the vertical-swipe video-first reader. Defaults derive from:
-  //   1. localStorage preference (sticky across sessions)
-  //   2. Auto-engage when every step has a video clip
-  //   3. 'classic' otherwise
-  // Source of truth is the user's most recent toggle once they've
-  // touched it — `userToggledMode` flips the auto-engage off so the
-  // detection doesn't override their choice on the next mount.
+  // Layout mode. The default is derived from the procedure type, not a
+  // global preference: AI walkthroughs (every step is a portrait
+  // video_clip emitted by the AI drafter) open in Reels; everything
+  // else — tech-authored procedures, OEM content, mixed media — opens
+  // in classic. The toolbar toggle still lets the tech flip for the
+  // current procedure, but does not persist across procedures so
+  // opening a standard procedure never inherits an AI walkthrough's
+  // Reels state.
   const [mode, setMode] = useState<'classic' | 'reels'>('classic');
   const userToggledModeRef = useRef(false);
   const reelsHandleRef = useRef<ReelsViewportHandle | null>(null);
-  // One-time read of the persisted preference. Runs after mount to keep
-  // SSR-safety (no localStorage during the server render).
+  // Clear the legacy cross-procedure preference key. An earlier build
+  // persisted `mode` globally, which made standard procedures inherit
+  // "reels" once the user had switched on an AI walkthrough. Drop the
+  // key on mount so it stops influencing anything.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
-      const stored = window.localStorage.getItem('eh:vja:mode:v1');
-      if (stored === 'reels' || stored === 'classic') {
-        setMode(stored);
-        userToggledModeRef.current = true;
-      }
+      window.localStorage.removeItem('eh:vja:mode:v1');
     } catch {
-      // Storage disabled / quota — silently use the default.
+      // ignore — storage disabled / quota
     }
   }, []);
-  // Auto-engage Reels only for AI-drafted procedures with vertical video.
-  // The AI drafter emits `video_clip` media (synthesized Mux HLS clips
-  // with a server-classified orientation); tech-uploaded `video` and any
-  // mix that includes images or landscape clips falls through to classic.
-  // Tech-authored procedures and OEM content always start in classic so
-  // techs see the standard step-card view by default. Users can still
-  // opt into Reels via the toolbar toggle, and their choice persists
-  // (userToggledModeRef + localStorage above).
+  // Type-derived default. Sets explicitly in both branches so a stale
+  // mode from a prior render (or a sub-procedure push) can't carry
+  // over. The userToggledModeRef gate keeps the tech's in-session
+  // choice sticky once they've actually pressed the toggle.
   useEffect(() => {
     if (!resolved || userToggledModeRef.current) return;
     const isAiVerticalProcedure =
@@ -461,18 +455,12 @@ export function VirtualJobAid({
           (m) => m.kind === 'video_clip' && m.clip.orientation === 'portrait',
         ),
       );
-    if (isAiVerticalProcedure) setMode('reels');
+    setMode(isAiVerticalProcedure ? 'reels' : 'classic');
   }, [resolved]);
   function toggleMode() {
     setMode((cur) => {
-      const next = cur === 'reels' ? 'classic' : 'reels';
       userToggledModeRef.current = true;
-      try {
-        window.localStorage.setItem('eh:vja:mode:v1', next);
-      } catch {
-        // ignore
-      }
-      return next;
+      return cur === 'reels' ? 'classic' : 'reels';
     });
   }
   // When the procedure has a hero video, we show a "Step 0" intro panel
