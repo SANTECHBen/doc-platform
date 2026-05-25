@@ -437,17 +437,24 @@ export function VirtualJobAid({
       // Storage disabled / quota — silently use the default.
     }
   }, []);
-  // Auto-engage Reels when the procedure resolves and every step has a
-  // video. Only fires when the user hasn't manually toggled (we don't
-  // want to override a deliberate choice).
+  // Auto-engage Reels only for AI-drafted procedures with vertical video.
+  // The AI drafter emits `video_clip` media (synthesized Mux HLS clips
+  // with a server-classified orientation); tech-uploaded `video` and any
+  // mix that includes images or landscape clips falls through to classic.
+  // Tech-authored procedures and OEM content always start in classic so
+  // techs see the standard step-card view by default. Users can still
+  // opt into Reels via the toolbar toggle, and their choice persists
+  // (userToggledModeRef + localStorage above).
   useEffect(() => {
     if (!resolved || userToggledModeRef.current) return;
-    const everyStepHasVideo =
+    const isAiVerticalProcedure =
       resolved.steps.length > 0 &&
       resolved.steps.every((s) =>
-        s.media.some((m) => m.kind === 'video' || m.kind === 'video_clip'),
+        s.media.some(
+          (m) => m.kind === 'video_clip' && m.clip.orientation === 'portrait',
+        ),
       );
-    if (everyStepHasVideo) setMode('reels');
+    if (isAiVerticalProcedure) setMode('reels');
   }, [resolved]);
   function toggleMode() {
     setMode((cur) => {
