@@ -20,6 +20,7 @@ import { z } from 'zod';
 import { schema } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth.js';
+import { getScope, requireOrgInScope } from '../middleware/scope.js';
 import { makeDraftPassthrough } from '../services/draft-pipeline.js';
 
 const SubmitBody = z.object({
@@ -61,9 +62,16 @@ export async function registerPwaProcedureDrafts(app: FastifyInstance) {
       // the asset's model (fallback).
       const asset = await db.query.assetInstances.findFirst({
         where: eq(schema.assetInstances.id, request.body.assetInstanceId),
-        with: { model: true },
+        with: { model: true, site: { columns: { organizationId: true } } },
       });
       if (!asset) return reply.notFound('asset instance not found');
+      // Scope check: the asset's owning org must be in the caller's scope.
+      // Without this any authenticated user could pass any asset UUID and
+      // create a draft attributed to that asset's org — and burn Mux
+      // ingest cost on the victim. requireOrgInScope returns 404 (not
+      // 403) so the endpoint isn't an existence oracle.
+      const scope = await getScope(request, db);
+      requireOrgInScope(scope, asset.site.organizationId);
 
       // Prefer the asset's pinned version; otherwise the latest published
       // version of any pack owned by the asset model.

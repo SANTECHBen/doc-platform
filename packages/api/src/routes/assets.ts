@@ -8,6 +8,7 @@ import {
 } from '@platform/db';
 import { AssetHubPayloadSchema, QrCodeStringSchema } from '@platform/shared';
 import { computeScheduleStatus, calendarDayDiff } from '../lib/pm-status';
+import { requireAuthOrScan } from '../middleware/scan-session';
 
 // Two-letter initials from a display name — shown when no logo uploaded.
 // "Flow Turn" → "FT", "Dematic" → "DE", "Acme Logistics" → "AL".
@@ -39,6 +40,14 @@ export async function registerAssetRoutes(app: FastifyInstance) {
       const { db } = app.ctx;
       const { qrCode } = request.params;
 
+      // Authorize first. The endpoint was previously fully open and acted as
+      // a customer-base enumeration oracle (any QR string returned full
+      // org/site/asset metadata). We require either a signed-in user or a
+      // valid scan-session — the PWA's /q/[qrCode] handshake routes call
+      // this endpoint *with* the scan-session cookie, so the legitimate
+      // flow is unaffected.
+      requireAuthOrScan(request);
+
       const qr = await db.query.qrCodes.findFirst({
         where: and(eq(schema.qrCodes.code, qrCode), eq(schema.qrCodes.active, true)),
       });
@@ -55,6 +64,32 @@ export async function registerAssetRoutes(app: FastifyInstance) {
         },
       });
       if (!instance) return reply.notFound('Asset instance not found.');
+
+      // Cross-tenant access check. The caller must either own a matching
+      // scan session (the QR they just scanned), be a member of the asset's
+      // owning org, or be a platform admin. Return 404 (not 403) on
+      // mismatch so the endpoint doesn't function as an existence oracle.
+      const callerOrgId =
+        request.auth?.organizationId ?? request.scanSession?.organizationId;
+      const targetOrgId = instance.site.organization.id;
+      const scanMatches =
+        request.scanSession?.assetInstanceId === instance.id;
+      const isPlatformAdmin = request.auth?.platformAdmin === true;
+      if (!isPlatformAdmin && !scanMatches && callerOrgId !== targetOrgId) {
+        // Best-effort org-tree check: if the caller's home org is in the
+        // asset-owner's relationship tree (dealer → end-customer, etc.) we
+        // allow it via the standard scope helper. For unauthenticated
+        // scan-only callers without a matching scan session, refuse.
+        if (request.auth) {
+          const { getScope } = await import('../middleware/scope');
+          const scope = await getScope(request, db);
+          if (!scope.all && !scope.orgIds.includes(targetOrgId)) {
+            return reply.notFound('Unknown or inactive QR code.');
+          }
+        } else {
+          return reply.notFound('Unknown or inactive QR code.');
+        }
+      }
 
       const [docCount, trainingCount, partsCount, openWoCount, fieldCapturesVersionId, pmSummary] =
         await Promise.all([

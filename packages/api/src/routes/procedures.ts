@@ -35,6 +35,7 @@ import { z } from 'zod';
 import { schema, type Database } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth';
+import { sniffMime } from '../lib/mime-sniff';
 import {
   expandStep,
   loadSnippetMap,
@@ -280,7 +281,7 @@ interface RunCtx {
 async function loadRunForOwner(
   db: Database,
   runId: string,
-  auth: { userId: string; platformAdmin?: boolean },
+  auth: { userId: string; organizationId: string; platformAdmin?: boolean },
 ): Promise<RunCtx | null> {
   const run = await db.query.procedureRuns.findFirst({
     where: eq(schema.procedureRuns.id, runId),
@@ -295,10 +296,27 @@ async function loadRunForOwner(
     // not-actionable for v1 (PATCH/finish would be incoherent).
     return null;
   }
+  // Defense in depth: the document's owning org must still be in the
+  // caller's home org tree. Closes the gap where a user who left their
+  // org continues to use a run they previously created, and where two
+  // users share a userId across orgs.
+  const ownerOrganizationId = run.document.packVersion.pack.ownerOrganizationId;
+  if (!auth.platformAdmin) {
+    const rows = (await db.execute(
+      sql`WITH RECURSIVE tree AS (
+            SELECT id FROM organizations WHERE id = ${auth.organizationId}
+            UNION ALL
+            SELECT o.id FROM organizations o
+              JOIN tree t ON o.parent_organization_id = t.id
+          )
+          SELECT 1 AS ok FROM tree WHERE id = ${ownerOrganizationId} LIMIT 1`,
+    )) as unknown as Array<{ ok: number }>;
+    if (rows.length === 0) return null;
+  }
   return {
     run,
     document: run.document,
-    ownerOrganizationId: run.document.packVersion.pack.ownerOrganizationId,
+    ownerOrganizationId,
   };
 }
 
@@ -765,10 +783,21 @@ export async function registerProcedureRoutes(app: FastifyInstance) {
       }
 
       const buffer = await file.toBuffer();
+      // Magic-byte check — never trust client-asserted MIME on uploads.
+      // SVG is intentionally absent from the allowlist (stored-XSS risk).
+      const sniffed = sniffMime(buffer);
+      const SAFE_IMG = new Set([
+        'image/png', 'image/jpeg', 'image/webp', 'image/gif',
+      ]);
+      if (!sniffed || !SAFE_IMG.has(sniffed)) {
+        return reply.badRequest('File content does not match a supported image format.');
+      }
+      const verifiedMime = sniffed;
       const result = await storage.putBuffer({
         buffer,
         filename: file.filename ?? 'photo.jpg',
-        contentType: mime,
+        contentType: verifiedMime,
+        ownerOrganizationId: ctx.ownerOrganizationId,
       });
 
       return {

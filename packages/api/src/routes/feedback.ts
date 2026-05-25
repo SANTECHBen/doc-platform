@@ -11,7 +11,9 @@ const FeedbackBody = z.object({
   message: z.string().trim().min(1).max(5000),
   category: CategoryEnum.default('other'),
   qrCode: z.string().trim().min(1).max(64).optional(),
-  assetInstanceId: z.string().uuid().optional(),
+  // Note: `assetInstanceId` is intentionally NOT accepted from the body.
+  // We derive it server-side from the caller's scan session — accepting
+  // it from the body let any unauthenticated caller spoof attribution.
   contactEmail: z.string().email().max(254).optional(),
   // Diagnostic context — provided by the widget. All optional.
   browserUa: z.string().max(1000).optional(),
@@ -33,28 +35,38 @@ export async function registerFeedbackRoutes(app: FastifyInstance) {
       const { db, env } = app.ctx;
       const body = request.body as z.infer<typeof FeedbackBody>;
 
-      // If we know the QR code, look up the org for tenant segmentation.
-      // Best-effort — failure to resolve doesn't block the submission.
+      // Org/asset attribution is derived exclusively from the caller's auth
+      // or scan session — NEVER from caller-asserted body fields. Without a
+      // valid scan session or auth, the submission is accepted but stored
+      // unattributed (anonymous "global" feedback). This prevents an open
+      // endpoint from being abused to plant rows that look like real
+      // customer activity (or to spray Slack with fake "Amazon DC tech said
+      // …" messages).
       let resolvedOrgId: string | null = null;
-      if (body.qrCode) {
-        try {
-          const qrRow = await db.query.qrCodes.findFirst({
-            where: eq(schema.qrCodes.code, body.qrCode),
-            with: { assetInstance: { with: { site: true } } },
-          });
-          resolvedOrgId = qrRow?.assetInstance?.site?.organizationId ?? null;
-        } catch {
-          // ignore — diagnostic only
-        }
+      let resolvedAssetInstanceId: string | null = null;
+      if (request.scanSession) {
+        resolvedOrgId = request.scanSession.organizationId;
+        resolvedAssetInstanceId = request.scanSession.assetInstanceId;
+      } else if (request.auth) {
+        resolvedOrgId = request.auth.organizationId;
       }
+      // Only honor the qrCode hint when it matches the active scan session,
+      // so a malicious submitter can't smuggle a foreign QR string into
+      // their own org's feedback row.
+      const persistedQrCode =
+        body.qrCode &&
+        request.scanSession &&
+        body.qrCode === request.scanSession.qrCode
+          ? body.qrCode
+          : null;
 
       const [row] = await db
         .insert(schema.feedback)
         .values({
           message: body.message,
           category: body.category,
-          qrCode: body.qrCode ?? null,
-          assetInstanceId: body.assetInstanceId ?? null,
+          qrCode: persistedQrCode,
+          assetInstanceId: resolvedAssetInstanceId,
           orgId: resolvedOrgId,
           contactEmail: body.contactEmail ?? null,
           browserUa: body.browserUa ?? null,
@@ -71,8 +83,10 @@ export async function registerFeedbackRoutes(app: FastifyInstance) {
           : body.message;
         const ctx = [
           `*Category:* ${body.category}`,
-          body.qrCode ? `*QR:* \`${body.qrCode}\`` : null,
-          body.assetInstanceId ? `*Asset:* \`${body.assetInstanceId}\`` : null,
+          persistedQrCode ? `*QR:* \`${persistedQrCode}\`` : null,
+          resolvedAssetInstanceId
+            ? `*Asset:* \`${resolvedAssetInstanceId}\``
+            : null,
           body.contactEmail ? `*Contact:* ${body.contactEmail}` : null,
           body.appVersion ? `*App:* ${body.appVersion}` : null,
         ].filter(Boolean).join(' · ');

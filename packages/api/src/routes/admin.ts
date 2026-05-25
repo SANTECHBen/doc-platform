@@ -943,6 +943,23 @@ export async function registerAdminMutations(app: FastifyInstance) {
     async (request) => {
       const { db, storage } = app.ctx;
       requireAuth(request);
+      // The asset model itself must be in scope (asset models are owned by
+      // an org — typically the OEM). For non-platform admins, also filter
+      // the instance list to sites whose owning org is in the caller's
+      // scope tree — without this any authed user could enumerate every
+      // customer running this OEM model (serial numbers, sites, pinned
+      // versions).
+      const scope = await getScope(request, db);
+      const model = await db.query.assetModels.findFirst({
+        where: eq(schema.assetModels.id, request.params.modelId),
+        columns: { id: true, ownerOrganizationId: true },
+      });
+      if (!model) {
+        const err = new Error('Not found') as Error & { statusCode: number };
+        err.statusCode = 404;
+        throw err;
+      }
+      requireOrgInScope(scope, model.ownerOrganizationId);
       const rows = await db.query.assetInstances.findMany({
         where: eq(schema.assetInstances.assetModelId, request.params.modelId),
         with: {
@@ -950,7 +967,10 @@ export async function registerAdminMutations(app: FastifyInstance) {
           pinnedContentPackVersion: true,
         },
       });
-      return rows.map((r) => ({
+      const visibleRows = scope.all
+        ? rows
+        : rows.filter((r) => scope.orgIds.includes(r.site.organization.id));
+      return visibleRows.map((r) => ({
         id: r.id,
         serialNumber: r.serialNumber,
         installedAt: r.installedAt,
@@ -979,6 +999,12 @@ export async function registerAdminMutations(app: FastifyInstance) {
     async (request) => {
       const { db } = app.ctx;
       requireAuth(request);
+      // Scope check: the target org must be in the caller's scope tree.
+      // Without this, any authed user could enumerate any org's sites by
+      // guessing the UUID. requireOrgInScope returns 404 (not 403) to
+      // avoid functioning as an existence oracle.
+      const scope = await getScope(request, db);
+      requireOrgInScope(scope, request.params.orgId);
       const rows = await db.query.sites.findMany({
         where: eq(schema.sites.organizationId, request.params.orgId),
       });
@@ -1671,9 +1697,19 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
   app.get<{ Params: { partId: string } }>(
     '/admin/parts/:partId/components',
     { schema: { params: z.object({ partId: UuidSchema }) } },
-    async (request) => {
+    async (request, reply) => {
       const { db, storage } = app.ctx;
       requireAuth(request);
+      // Scope check: the parent part must be in the caller's scope. Without
+      // this any authed user could enumerate BOM trees of any OEM part by
+      // guessing UUIDs.
+      const scope = await getScope(request, db);
+      const parent = await db.query.parts.findFirst({
+        where: eq(schema.parts.id, request.params.partId),
+        columns: { id: true, ownerOrganizationId: true },
+      });
+      if (!parent) return reply.notFound();
+      requireOrgInScope(scope, parent.ownerOrganizationId);
       const links = await db.query.partComponents.findMany({
         where: eq(schema.partComponents.parentPartId, request.params.partId),
       });
@@ -1799,9 +1835,16 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
   app.get<{ Params: { partId: string } }>(
     '/admin/parts/:partId/documents',
     { schema: { params: z.object({ partId: UuidSchema }) } },
-    async (request) => {
+    async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
+      const part = await db.query.parts.findFirst({
+        where: eq(schema.parts.id, request.params.partId),
+        columns: { id: true, ownerOrganizationId: true },
+      });
+      if (!part) return reply.notFound();
+      requireOrgInScope(scope, part.ownerOrganizationId);
       const links = await db.query.partDocuments.findMany({
         where: eq(schema.partDocuments.partId, request.params.partId),
       });
@@ -1816,6 +1859,12 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
         .map((l) => {
           const d = byId.get(l.documentId);
           if (!d) return null;
+          // Defense in depth: hide docs whose owning org isn't in scope,
+          // even if a link points there. Prevents leaks across orgs in
+          // shared-link edge cases.
+          if (!scope.all && !scope.orgIds.includes(d.packVersion.pack.ownerOrganizationId)) {
+            return null;
+          }
           return {
             linkId: l.id,
             documentId: d.id,
@@ -1837,9 +1886,16 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
   app.get<{ Params: { documentId: string } }>(
     '/admin/documents/:documentId/parts',
     { schema: { params: z.object({ documentId: UuidSchema }) } },
-    async (request) => {
+    async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
+      const doc = await db.query.documents.findFirst({
+        where: eq(schema.documents.id, request.params.documentId),
+        with: { packVersion: { with: { pack: true } } },
+      });
+      if (!doc) return reply.notFound();
+      requireOrgInScope(scope, doc.packVersion.pack.ownerOrganizationId);
       const links = await db.query.partDocuments.findMany({
         where: eq(schema.partDocuments.documentId, request.params.documentId),
       });
@@ -1853,6 +1909,9 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
         .map((l) => {
           const p = byId.get(l.partId);
           if (!p) return null;
+          if (!scope.all && !scope.orgIds.includes(p.ownerOrganizationId)) {
+            return null;
+          }
           return {
             linkId: l.id,
             partId: p.id,
@@ -1940,9 +1999,16 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
   app.get<{ Params: { partId: string } }>(
     '/admin/parts/:partId/training-modules',
     { schema: { params: z.object({ partId: UuidSchema }) } },
-    async (request) => {
+    async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
+      const part = await db.query.parts.findFirst({
+        where: eq(schema.parts.id, request.params.partId),
+        columns: { id: true, ownerOrganizationId: true },
+      });
+      if (!part) return reply.notFound();
+      requireOrgInScope(scope, part.ownerOrganizationId);
       const links = await db.query.partTrainingModules.findMany({
         where: eq(schema.partTrainingModules.partId, request.params.partId),
       });
@@ -1957,6 +2023,9 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
         .map((l) => {
           const m = byId.get(l.trainingModuleId);
           if (!m) return null;
+          if (!scope.all && !scope.orgIds.includes(m.packVersion.pack.ownerOrganizationId)) {
+            return null;
+          }
           return {
             linkId: l.id,
             trainingModuleId: m.id,
@@ -1974,9 +2043,16 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
   app.get<{ Params: { moduleId: string } }>(
     '/admin/training-modules/:moduleId/parts',
     { schema: { params: z.object({ moduleId: UuidSchema }) } },
-    async (request) => {
+    async (request, reply) => {
       const { db } = app.ctx;
       requireAuth(request);
+      const scope = await getScope(request, db);
+      const mod = await db.query.trainingModules.findFirst({
+        where: eq(schema.trainingModules.id, request.params.moduleId),
+        with: { packVersion: { with: { pack: true } } },
+      });
+      if (!mod) return reply.notFound();
+      requireOrgInScope(scope, mod.packVersion.pack.ownerOrganizationId);
       const links = await db.query.partTrainingModules.findMany({
         where: eq(schema.partTrainingModules.trainingModuleId, request.params.moduleId),
       });
@@ -2188,6 +2264,11 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
       body: file.file,
       filename: file.filename ?? 'file',
       contentType: file.mimetype ?? 'application/octet-stream',
+      // Tenant prefix: uploads land under the caller's home org. Platform
+      // admins authoring on behalf of a different org should pass through
+      // the admin-procedure-audio / admin-snippet-audio endpoints which
+      // derive the org from the target resource.
+      ownerOrganizationId: auth.organizationId,
     });
 
     return {
