@@ -175,6 +175,42 @@
   ::selection {
     background: rgba(var(--brand-soft-v), 0.35);
   }
+  /* Force every input's text and caret to follow whatever `color` the
+     cascade picks. iOS Safari and some Chromium configurations have
+     been observed setting `-webkit-text-fill-color` to a fixed value
+     (often via user-agent defaults, accessibility settings, or
+     installed extensions) that wins over `color` and leaves the
+     field appearing blank — that's the symptom a tester reported on
+     the AI-walkthrough title field. Anchoring fill-color to
+     `currentColor` makes it always track `color`, so inputs that
+     opt into a dark surface (`text-white`-style overrides on, e.g.,
+     the video-submission notes textarea) stay readable AND default
+     inputs that inherit body color also stay readable. */
+  input,
+  textarea,
+  select {
+    -webkit-text-fill-color: currentColor;
+    caret-color: currentColor;
+  }
+  /* Chrome autofill paints a yellow background + sets its own
+     -webkit-text-fill-color, neither of which match the design. The
+     inset-box-shadow trick masks the yellow without losing the
+     field's own background; the 9999s transition prevents Chrome
+     from re-applying its background mid-paint. Text and caret pin to
+     --ink-primary because autofill only happens on light-surface
+     fields (the dark inputs that override color don't get autofilled). */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill,
+  textarea:-webkit-autofill:hover,
+  textarea:-webkit-autofill:focus,
+  select:-webkit-autofill {
+    -webkit-text-fill-color: rgb(var(--ink-primary));
+    -webkit-box-shadow: 0 0 0 1000px rgb(var(--surface-raised)) inset;
+    caret-color: rgb(var(--ink-primary));
+    transition: background-color 9999s ease-out 0s;
+  }
 
   ::-webkit-scrollbar {
     width: 10px;
