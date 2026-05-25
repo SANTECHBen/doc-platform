@@ -7,6 +7,7 @@
 // no second render path.
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   Check,
   Copy,
@@ -15,6 +16,7 @@ import {
   Loader2,
   Printer,
   QrCode as QrCodeIcon,
+  Sparkles,
   X,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
@@ -369,6 +371,14 @@ export function ViewQrModal({ code, templates, initialTemplateId, onClose }: Vie
             Symbol margin: <span className="font-mono text-ink-secondary">4 modules</span>
           </p>
           <div className="flex items-center gap-2">
+            <Link
+              href={designerHref(code, url)}
+              className="inline-flex items-center gap-1.5 rounded border border-line px-3 py-1.5 text-sm text-ink-secondary transition hover:bg-surface"
+              onClick={onClose}
+            >
+              <Sparkles size={13} strokeWidth={2} />
+              Open in Designer
+            </Link>
             <button
               type="button"
               onClick={printSingle}
@@ -389,4 +399,13 @@ export function ViewQrModal({ code, templates, initialTemplateId, onClose }: Vie
       </div>
     </div>
   );
+}
+
+// Mirrors the row-level helper on /qr-codes — kept module-local so the modal
+// doesn't have to import from a sibling page file.
+function designerHref(code: AdminQrCode, scanUrl: string): string {
+  const parts: string[] = [code.code];
+  if (code.assetInstance?.modelDisplayName) parts.push(code.assetInstance.modelDisplayName);
+  const qp = new URLSearchParams({ data: scanUrl, context: parts.join(' · ') });
+  return `/qr-codes/designer?${qp.toString()}`;
 }

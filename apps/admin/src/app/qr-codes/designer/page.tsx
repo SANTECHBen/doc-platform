@@ -5,12 +5,14 @@
 // rendering the styled QR live, a preset gallery row below, and an export
 // dropdown that ships SVG or PNG at multiple resolutions.
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
   ChevronDown,
   Download,
+  Link2,
   Loader2,
   RotateCcw,
   Sparkles,
@@ -38,12 +40,40 @@ import {
 
 const PREVIEW_PX = 360;
 
+// The designer page reads ?data= (URL to encode) and ?context= (a label
+// like "DEMO123ABCD · Square-Turn") from the query string. Next 15 forces
+// useSearchParams() into a Suspense boundary, so we split into an outer
+// wrapper and an inner component.
 export default function QrDesignerPage() {
+  return (
+    <Suspense fallback={<PageShell crumbs={[{ label: 'QR codes', href: '/qr-codes' }, { label: 'Designer' }]}><p className="p-6 text-ink-tertiary">Loading…</p></PageShell>}>
+      <QrDesignerInner />
+    </Suspense>
+  );
+}
+
+function QrDesignerInner() {
   const toast = useToast();
-  const [spec, setSpec] = useState<QrStyleSpec>(DEFAULT_QR_SPEC);
+  const params = useSearchParams();
+  const initialData = params?.get('data') ?? null;
+  const contextLabel = params?.get('context') ?? null;
+  const [spec, setSpec] = useState<QrStyleSpec>(() =>
+    initialData ? { ...DEFAULT_QR_SPEC, data: initialData } : DEFAULT_QR_SPEC,
+  );
   const [exportOpen, setExportOpen] = useState(false);
   const [busyFormat, setBusyFormat] = useState<QrExportFormat | null>(null);
   const previewRef = useRef<QrStylePreviewHandle>(null);
+
+  // If the query param changes after mount (rare — would only happen on
+  // client-side navigation back into the designer with a different code),
+  // sync the data field. We don't touch the rest of the spec so any styling
+  // the user has already done is preserved.
+  useEffect(() => {
+    if (initialData) {
+      setSpec((s) => (s.data === initialData ? s : { ...s, data: initialData }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialData]);
 
   const onPatch = useCallback((patch: Partial<QrStyleSpec>) => {
     setSpec((s) => ({ ...s, ...patch }));
@@ -94,9 +124,22 @@ export default function QrDesignerPage() {
             <ArrowLeft size={14} strokeWidth={2} />
           </Link>
           <div>
-            <h1 className="text-lg font-semibold text-ink-primary">QR Code Designer</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-lg font-semibold text-ink-primary">QR Code Designer</h1>
+              {contextLabel && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full border border-brand/30 bg-brand/10 px-2 py-0.5 text-[11px] font-medium text-brand"
+                  title="The URL has been pre-filled from this QR code. Designing here doesn't change the tracked code — you're producing an artwork file for it."
+                >
+                  <Link2 size={10} strokeWidth={2} />
+                  {contextLabel}
+                </span>
+              )}
+            </div>
             <p className="text-xs text-ink-tertiary">
-              Style, brand, and export QR codes. Vector + high-resolution PNG.
+              {contextLabel
+                ? 'URL pre-filled from the selected QR code. Style and export — the tracked code itself is unchanged.'
+                : 'Style, brand, and export QR codes. Vector + high-resolution PNG.'}
             </p>
           </div>
         </div>

@@ -420,6 +420,14 @@ export default function QrCodesPage() {
                         >
                           <Eye size={13} strokeWidth={2} />
                         </button>
+                        <Link
+                          href={designerHrefFor(c, url)}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded text-ink-tertiary hover:bg-brand/10 hover:text-brand"
+                          title="Open in designer"
+                          aria-label="Open in designer"
+                        >
+                          <Sparkles size={13} strokeWidth={2} />
+                        </Link>
                         <button
                           onClick={() => onDelete(c.id, c.code)}
                           className="inline-flex h-7 w-7 items-center justify-center rounded text-ink-tertiary hover:bg-signal-fault/10 hover:text-signal-fault"
@@ -453,6 +461,17 @@ export default function QrCodesPage() {
         })()}
     </PageShell>
   );
+}
+
+// Build the /qr-codes/designer URL with the scan URL pre-filled and a
+// readable context chip ("DEMO123ABCD · Square-Turn") so the designer header
+// confirms which code the user is creating artwork for.
+function designerHrefFor(c: AdminQrCode, scanUrl: string): string {
+  const parts: string[] = [c.code];
+  if (c.assetInstance?.modelDisplayName) parts.push(c.assetInstance.modelDisplayName);
+  const context = parts.join(' · ');
+  const qp = new URLSearchParams({ data: scanUrl, context });
+  return `/qr-codes/designer?${qp.toString()}`;
 }
 
 // Shows the short code on top, full URL underneath with open + copy affordances.
