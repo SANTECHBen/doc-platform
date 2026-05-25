@@ -3,12 +3,24 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Check, Copy, ExternalLink, Layers, Plus, Printer, QrCode as QrCodeIcon, Trash2 } from 'lucide-react';
+import {
+  Check,
+  Copy,
+  Download,
+  ExternalLink,
+  Eye,
+  Layers,
+  Plus,
+  Printer,
+  QrCode as QrCodeIcon,
+  Trash2,
+} from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { PageHeader, PageShell } from '@/components/page-shell';
 import { EmptyState } from '@/components/empty-state';
 import { NextStepHint } from '@/components/next-step-hint';
 import { useToast } from '@/components/toast';
+import { ViewQrModal } from '@/components/view-qr-modal';
 import {
   deleteQrCode,
   listAssetInstances,
@@ -36,6 +48,7 @@ export default function QrCodesPage() {
   const [selectedInstanceId, setSelectedInstanceId] = useState('');
   const [label, setLabel] = useState('');
   const [selectedCodeIds, setSelectedCodeIds] = useState<Set<string>>(new Set());
+  const [viewingCodeId, setViewingCodeId] = useState<string | null>(null);
   const toast = useToast();
 
   // When walking through tenant setup, narrow the picker to that tenant's
@@ -334,7 +347,7 @@ export default function QrCodesPage() {
                 <th className="px-4 py-2">Site</th>
                 <th className="px-4 py-2">Label</th>
                 <th className="px-4 py-2">Template</th>
-                <th className="w-10 px-4 py-2"></th>
+                <th className="w-24 px-4 py-2 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -388,14 +401,24 @@ export default function QrCodesPage() {
                       </select>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => onDelete(c.id, c.code)}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded text-ink-tertiary hover:bg-signal-fault/10 hover:text-signal-fault"
-                        title="Delete QR code"
-                        aria-label="Delete QR code"
-                      >
-                        <Trash2 size={13} strokeWidth={2} />
-                      </button>
+                      <div className="inline-flex items-center gap-1">
+                        <button
+                          onClick={() => setViewingCodeId(c.id)}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded text-ink-tertiary hover:bg-brand/10 hover:text-brand"
+                          title="View &amp; download"
+                          aria-label="View and download"
+                        >
+                          <Eye size={13} strokeWidth={2} />
+                        </button>
+                        <button
+                          onClick={() => onDelete(c.id, c.code)}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded text-ink-tertiary hover:bg-signal-fault/10 hover:text-signal-fault"
+                          title="Delete QR code"
+                          aria-label="Delete QR code"
+                        >
+                          <Trash2 size={13} strokeWidth={2} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -404,6 +427,20 @@ export default function QrCodesPage() {
           </table>
         )}
       </section>
+
+      {viewingCodeId &&
+        (() => {
+          const c = (codes ?? []).find((x) => x.id === viewingCodeId);
+          if (!c) return null;
+          return (
+            <ViewQrModal
+              code={c}
+              templates={templates}
+              initialTemplateId={selectedTemplateId || null}
+              onClose={() => setViewingCodeId(null)}
+            />
+          );
+        })()}
     </PageShell>
   );
 }

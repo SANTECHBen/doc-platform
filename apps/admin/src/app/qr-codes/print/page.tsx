@@ -122,16 +122,23 @@ function PrintSheetInner() {
           .no-print {
             display: none !important;
           }
-          .qr-sticker {
+          .sticker-sheet svg,
+          .sticker-sheet {
             print-color-adjust: exact;
             -webkit-print-color-adjust: exact;
           }
         }
         .sticker-sheet {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(3, 2.5in);
           grid-auto-rows: 2.5in;
           gap: 0.08in;
+          justify-content: center;
+        }
+        .sticker-sheet > * {
+          width: 2.5in;
+          height: 2.5in;
+          display: block;
         }
       `}</style>
       <style jsx global>
