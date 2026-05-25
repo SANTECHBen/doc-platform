@@ -10,7 +10,7 @@ const env = loadEnv();
 initSentry(env);
 const ctx = createContext(env);
 const app = await buildApp(ctx);
-attachSentryToFastify(app);
+attachSentryToFastify(app, env);
 
 // Crash-recovery sweep. If a previous container died mid-extraction, any rows
 // stuck at extraction_status='processing' have no process backing them. Reset

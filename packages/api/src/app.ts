@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import multipart from '@fastify/multipart';
+import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import type { AppContext } from './context';
@@ -48,29 +49,141 @@ import { registerAdminPm } from './routes/admin-pm';
 import { registerAdminPmPlans } from './routes/admin-pm-plans';
 import { registerAdminTroubleshooting } from './routes/admin-troubleshooting';
 import { registerPmRoutes } from './routes/pm';
+import { registerMuxPlaybackRoutes } from './routes/mux-playback';
 
 export async function buildApp(ctx: AppContext) {
   const app = Fastify({
-    logger: { level: ctx.env.NODE_ENV === 'production' ? 'info' : 'debug' },
-    trustProxy: true,
+    logger: {
+      level: ctx.env.NODE_ENV === 'production' ? 'info' : 'debug',
+      // Redact authentication and identity headers before they hit log
+      // aggregation (Pino) or Sentry breadcrumbs. Without this, a single
+      // request.log.info({ headers }) call would surface live bearer tokens
+      // and HMAC-signed scan-session cookies into the operator's log
+      // pipeline. The redact paths cover both the wire format (bracket-
+      // notation header names) and common nested-object shapes.
+      redact: {
+        paths: [
+          'req.headers.authorization',
+          'req.headers.cookie',
+          'req.headers["x-scan-session"]',
+          'req.headers["x-dev-user"]',
+          'req.headers["x-api-key"]',
+          'request.headers.authorization',
+          'request.headers.cookie',
+          'request.headers["x-scan-session"]',
+          'request.headers["x-dev-user"]',
+          'headers.authorization',
+          'headers.cookie',
+          // Common keys when secrets sneak into logged objects.
+          '*.idToken',
+          '*.id_token',
+          '*.accessToken',
+          '*.access_token',
+          '*.refreshToken',
+          '*.refresh_token',
+          '*.password',
+          '*.secret',
+          '*.apiKey',
+          '*.api_key',
+        ],
+        censor: '[REDACTED]',
+      },
+    },
+    // Trust the immediate proxy hop only — Fly's edge sets X-Forwarded-*
+    // headers, and we should NOT trust the entire chain (would let
+    // attackers spoof their source IP into our audit log by adding their
+    // own X-Forwarded-For). Numeric value = "trust N proxies in front".
+    trustProxy: 1,
   });
 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
+  // Helmet with strict defaults globally; the /files/* prefix needs the
+  // relaxations (iframe-able PDFs, cross-origin embeds) but the JSON API
+  // surface does not. Per-route relaxation is registered separately below.
   await app.register(helmet, {
-    contentSecurityPolicy: false,
-    // /files/* must be iframe-able from the PWA for PDF, video, and slides
-    // rendering. The resource policy default (same-origin) also blocks that.
-    frameguard: false,
-    crossOriginResourcePolicy: false,
-    crossOriginEmbedderPolicy: false,
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        frameAncestors: ["'self'"],
+        objectSrc: ["'none'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:'],
+        connectSrc: ["'self'"],
+      },
+    },
+    // X-Frame-Options on every JSON endpoint (only /files/* is iframe-able).
+    frameguard: { action: 'deny' },
+    crossOriginResourcePolicy: { policy: 'same-site' },
+    crossOriginEmbedderPolicy: false, // breaks third-party fetches we depend on
+    strictTransportSecurity:
+      ctx.env.NODE_ENV === 'production'
+        ? { maxAge: 31536000, includeSubDomains: true }
+        : false,
   });
+  // Per-route helmet relaxation for /files/* — those responses must be
+  // iframe-able from the PWA + admin origins for PDF, image, and audio
+  // preview. Re-register a relaxed instance scoped to the prefix.
+  app.register(async (scope) => {
+    await scope.register(helmet, {
+      contentSecurityPolicy: false,
+      frameguard: false,
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+      crossOriginEmbedderPolicy: false,
+    });
+  }, { prefix: '/files' });
   await app.register(cors, {
-    origin: [ctx.env.PUBLIC_PWA_ORIGIN, ctx.env.PUBLIC_ADMIN_ORIGIN],
+    // Defensive guard: an env var set to '*' or empty would otherwise pass
+    // straight through to @fastify/cors. Reject obvious mistakes and pin
+    // to explicit origins.
+    origin: (() => {
+      const origins = [ctx.env.PUBLIC_PWA_ORIGIN, ctx.env.PUBLIC_ADMIN_ORIGIN]
+        .filter((o): o is string => typeof o === 'string' && o.length > 0)
+        .filter((o) => o !== '*' && !o.includes('*'));
+      if (origins.length === 0) {
+        throw new Error(
+          'CORS origins are required — set PUBLIC_PWA_ORIGIN and PUBLIC_ADMIN_ORIGIN to explicit URLs.',
+        );
+      }
+      return origins;
+    })(),
     credentials: true,
   });
   await app.register(sensible);
+  // Global rate limit. Keyed by authenticated user when present, otherwise
+  // by client IP. The default is generous (300 req/min) so legitimate UI
+  // traffic stays fast; per-route overrides clamp the cost-of-goods
+  // endpoints (chat, search, AI uploads) much more aggressively. The
+  // in-memory store works for single-instance Fly; when we scale wide,
+  // swap in @fastify/rate-limit's Redis store via the `redis` option.
+  await app.register(rateLimit, {
+    global: true,
+    max: 300,
+    timeWindow: '1 minute',
+    keyGenerator: (req) =>
+      req.auth?.userId ??
+      req.scanSession?.qrCode ??
+      (req.ip ?? 'unknown'),
+    // Health checks and the Mux webhook (HMAC-verified) shouldn't be
+    // rate-limited; they have their own validation surface.
+    allowList: (req) => {
+      const url = req.url ?? '';
+      return (
+        url === '/health' ||
+        url === '/healthz' ||
+        url.startsWith('/admin/webhooks/mux')
+      );
+    },
+    errorResponseBuilder: (_req, context) => ({
+      statusCode: 429,
+      error: 'Too Many Requests',
+      message: 'Rate limit exceeded. Slow down and try again in a moment.',
+      retryAfterSec: Math.ceil(context.ttl / 1000),
+    }),
+  });
   await app.register(multipart, {
     limits: {
       fileSize: 2 * 1024 * 1024 * 1024, // 2 GB — rugby tape for big OEM videos
@@ -121,6 +234,7 @@ export async function buildApp(ctx: AppContext) {
   await registerAdminPmPlans(app);
   await registerAdminTroubleshooting(app);
   await registerPmRoutes(app);
+  await registerMuxPlaybackRoutes(app);
 
   return app;
 }
