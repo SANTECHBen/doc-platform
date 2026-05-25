@@ -93,13 +93,38 @@ export async function registerAssetRoutes(app: FastifyInstance) {
 
       const [docCount, trainingCount, partsCount, openWoCount, fieldCapturesVersionId, pmSummary] =
         await Promise.all([
-          instance.pinnedContentPackVersionId
-            ? countRows(
-                db,
-                sql`SELECT count(*)::int AS n FROM documents
-                    WHERE content_pack_version_id = ${instance.pinnedContentPackVersionId}`,
-              )
-            : Promise.resolve(0),
+          // Docs count must mirror what the Library (Docs) tab actually
+          // renders, otherwise the Overview tile undercounts/overcounts
+          // the destination it links to. Library rules:
+          //   - Includes the pinned ContentPack version's documents
+          //   - Includes the model's field-captures pack documents
+          //   - Excludes kind='structured_procedure' (procedures live in
+          //     the Maintenance tab, not the Library)
+          // The previous count was a single bare SELECT against the
+          // pinned version and included structured_procedure rows, so an
+          // asset with 14 procedures + 2 docs showed "16" on Overview
+          // and only 2 in Library.
+          (async () => {
+            const pinned = instance.pinnedContentPackVersionId
+              ? await countRows(
+                  db,
+                  sql`SELECT count(*)::int AS n FROM documents
+                      WHERE content_pack_version_id = ${instance.pinnedContentPackVersionId}
+                        AND kind != 'structured_procedure'`,
+                )
+              : 0;
+            const field = await countRows(
+              db,
+              sql`SELECT count(*)::int AS n
+                  FROM documents d
+                  JOIN content_pack_versions v ON v.id = d.content_pack_version_id
+                  JOIN content_packs p ON p.id = v.content_pack_id
+                  WHERE p.kind = 'field_captures'
+                    AND p.asset_model_id = ${instance.assetModelId}
+                    AND d.kind != 'structured_procedure'`,
+            );
+            return pinned + field;
+          })(),
           instance.pinnedContentPackVersionId
             ? countRows(
                 db,
