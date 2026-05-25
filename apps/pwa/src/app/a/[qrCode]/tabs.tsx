@@ -281,30 +281,32 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
         ) : active === 'home' ? (
           <div className="flex flex-col gap-4">
             <IdentityBand hub={hub} />
-            <OverviewActionSummary
-              hub={hub}
-              openIssueCount={openIssueCount}
-              onOpenMaintenanceAction={() => {
-                // Overview's PM-due tile lands the tech on Maintenance
-                // with the Scheduled queue open — the hero already
-                // promotes the single most-urgent item; opening
-                // Scheduled gives them the full list.
-                setPendingMaintenanceFilter('scheduled');
-                changeTab('maintenance');
-              }}
-              onOpenLibrary={() => {
-                setLibrarySection('documents');
-                changeTab('library');
-              }}
-            />
-            {/* Details disclosure sits directly under the tiles so the
-                expand affordance is the obvious next thing a tech sees
-                after the action summary — keeping it collapsed by
-                default preserves the clean hero, and the chevron is
-                reachable without scrolling past Issues + Parts. */}
-            <DetailsDisclosure>
-              <OverviewSpecs hub={hub} openIssueCount={openIssueCount} />
-            </DetailsDisclosure>
+            {/* Tiles + Details disclosure stack as a single visual block
+                — the bottom of the tile card and the top of the
+                disclosure share an edge (no double border, no gap), so
+                the chevron reads as part of the action summary rather
+                than a separate card below it. */}
+            <div className="overview-action-stack">
+              <OverviewActionSummary
+                hub={hub}
+                openIssueCount={openIssueCount}
+                onOpenMaintenanceAction={() => {
+                  // Overview's PM-due tile lands the tech on Maintenance
+                  // with the Scheduled queue open — the hero already
+                  // promotes the single most-urgent item; opening
+                  // Scheduled gives them the full list.
+                  setPendingMaintenanceFilter('scheduled');
+                  changeTab('maintenance');
+                }}
+                onOpenLibrary={() => {
+                  setLibrarySection('documents');
+                  changeTab('library');
+                }}
+              />
+              <DetailsDisclosure>
+                <OverviewSpecs hub={hub} openIssueCount={openIssueCount} />
+              </DetailsDisclosure>
+            </div>
             <IssuesPanel assetInstanceId={hub.assetInstance.id} onCountChange={setOpenIssueCount} />
             <PartsQuickActions
               assetModelId={hub.assetModel.id}
@@ -569,10 +571,10 @@ function OverviewActionSummary({
   const docCount = hub.tabs.docs.count + hub.tabs.training.count;
   return (
     <section className="overview-action-summary" aria-label="Asset status">
-      <div className="overview-action-summary-head">
-        <span className="overview-action-summary-head-label">Today at</span>
-        <span className="overview-action-summary-site">{hub.site.name}</span>
-      </div>
+      {/* "Today at <site>" header removed — site name is already in the
+          identity band above, so the header was redundant and stole a
+          row of vertical space from the tiles + Details disclosure
+          below it. */}
       <div className="overview-action-summary-grid">
         <div
           className="overview-action-summary-item"

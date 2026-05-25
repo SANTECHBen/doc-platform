@@ -2200,6 +2200,27 @@
     border-radius: 6px;
     overflow: hidden;
   }
+
+  /* When the action-summary tiles and the Details disclosure are stacked
+     directly together (Overview home screen), merge their borders so the
+     two read as one card instead of two stacked cards. The wrapper handles
+     the visual unification: the tile card loses its bottom border + bottom
+     radius, the Details card loses its top border + top radius, and they
+     meet on a shared edge. */
+  .overview-action-stack {
+    display: flex;
+    flex-direction: column;
+  }
+  .overview-action-stack > .overview-action-summary {
+    border-bottom: 0;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+  .overview-action-stack > .details-disclosure {
+    border-top: 0;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+  }
   .details-disclosure-summary {
     display: flex;
     align-items: center;
