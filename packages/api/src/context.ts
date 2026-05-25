@@ -52,6 +52,8 @@ export function createContext(env: Env): AppContext {
         tokenSecret: env.MUX_TOKEN_SECRET,
         webhookSecret: env.MUX_WEBHOOK_SECRET,
         playbackPolicy: env.MUX_PLAYBACK_POLICY,
+        signingKeyId: env.MUX_SIGNING_KEY_ID ?? null,
+        signingKeyPrivate: env.MUX_SIGNING_KEY_PRIVATE ?? null,
         corsOrigin: env.PUBLIC_ADMIN_ORIGIN,
       });
     }
