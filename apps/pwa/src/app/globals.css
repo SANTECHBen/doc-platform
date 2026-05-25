@@ -175,20 +175,25 @@
   ::selection {
     background: rgba(var(--brand-soft-v), 0.35);
   }
-  /* Force every input's text and caret to follow whatever `color` the
-     cascade picks. iOS Safari and some Chromium configurations have
-     been observed setting `-webkit-text-fill-color` to a fixed value
-     (often via user-agent defaults, accessibility settings, or
-     installed extensions) that wins over `color` and leaves the
-     field appearing blank — that's the symptom a tester reported on
-     the AI-walkthrough title field. Anchoring fill-color to
-     `currentColor` makes it always track `color`, so inputs that
-     opt into a dark surface (`text-white`-style overrides on, e.g.,
-     the video-submission notes textarea) stay readable AND default
-     inputs that inherit body color also stay readable. */
+  /* Force every input's text/fill/caret to our theme ink color. iOS
+     Safari paints form-control text using `color: text` from its
+     user-agent stylesheet, which resolves against the OS dark-mode
+     setting rather than the page's theme. So a tester running their
+     PWA in (default) light mode on an iPhone with system dark mode
+     enabled sees white-on-white input text — Tailwind preflight's
+     `color: inherit` reset isn't enough on iOS to displace the UA
+     system color. Setting `color` explicitly on input/textarea/select
+     pins them to our --ink-primary regardless of UA behavior, and
+     `-webkit-text-fill-color: currentColor` + `caret-color:
+     currentColor` make sure both the rendered text and the caret
+     track whatever `color` is in effect. Inputs that opt into a
+     non-default color via Tailwind utilities (e.g. `text-white` on
+     the dark-themed video-submission notes textarea) still win
+     because @layer utilities outranks @layer base. */
   input,
   textarea,
   select {
+    color: rgb(var(--ink-primary));
     -webkit-text-fill-color: currentColor;
     caret-color: currentColor;
   }
