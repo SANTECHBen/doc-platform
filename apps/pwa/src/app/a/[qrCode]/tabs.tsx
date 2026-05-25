@@ -656,12 +656,15 @@ function PartsQuickActions({
   if (!parts || parts.length === 0) return null;
 
   return (
-    <section aria-label="Parts" className="flex flex-col gap-2">
+    <section aria-label="Parts and procedures" className="flex flex-col gap-2">
       {/* Section header — sentence-case sans-serif, sits visually with
           the card below it. Tighter spacing (gap-2) groups header to
           content; the previous tiny-caption treatment read as a label
-          orphan with too much daylight above the list. */}
-      <h2 className="section-heading">Parts</h2>
+          orphan with too much daylight above the list. The "and
+          procedures" suffix surfaces that each part's detail page is
+          also the entry point to its linked procedures (a discovery
+          path techs were missing under the bare "Parts" label). */}
+      <h2 className="section-heading">Parts and procedures</h2>
       <div className="action-band-list">
         {parts.map((p) => {
           const partNumber = p.oemPartNumber?.trim();
