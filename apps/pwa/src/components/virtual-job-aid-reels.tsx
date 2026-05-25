@@ -481,21 +481,34 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
                   )}
                 </button>
               ) : (
-                // Title pinned bottom-center over the media. Tap-target
-                // sized so it acts as an alternate "open sheet" affordance.
-                <button
-                  type="button"
-                  className="vja-reel-title-block"
-                  onClick={() => setSheetOpenIdx(i)}
-                  aria-expanded={isSheetOpen}
-                  aria-controls={`vja-reel-sheet-${i}`}
-                >
-                  <h2 className="vja-reel-title">{step.title}</h2>
-                  <span className="vja-reel-title-hint">
-                    <ChevronUp size={14} strokeWidth={2.5} />
-                    Tap for details
-                  </span>
-                </button>
+                // Title pinned bottom-center over the media. Gradient
+                // ramp is rendered as a separate non-interactive layer
+                // (`pointer-events: none`) so its tall visual footprint
+                // doesn't extend the button's tap target — tapping high
+                // above the title text used to open the details sheet
+                // because the gradient WAS the button. Now bare-area
+                // taps in that upper region fall through to the
+                // section's onClick, which toggles stage pause/resume
+                // on shared-stage reels.
+                <>
+                  <div
+                    className="vja-reel-title-gradient"
+                    aria-hidden
+                  />
+                  <button
+                    type="button"
+                    className="vja-reel-title-block"
+                    onClick={() => setSheetOpenIdx(i)}
+                    aria-expanded={isSheetOpen}
+                    aria-controls={`vja-reel-sheet-${i}`}
+                  >
+                    <h2 className="vja-reel-title">{step.title}</h2>
+                    <span className="vja-reel-title-hint">
+                      <ChevronUp size={14} strokeWidth={2.5} />
+                      Tap for details
+                    </span>
+                  </button>
+                </>
               )}
               {/* Replay-voiceover button — small, top-right of the reel.
                   Lets the tech re-hear without scrolling away. Only on

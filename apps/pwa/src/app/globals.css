@@ -5007,9 +5007,15 @@
      ramp banded visibly on dark video content. The bottom padding
      respects iOS PWA safe-area so the title clears the home indicator
      instead of being squashed against it. */
-  .vja-reel-title-block {
-    appearance: none;
-    border: 0;
+  /* Decorative gradient ramp behind the title text. Drawn as a tall,
+     non-interactive layer so bare-area taps in the upper region fall
+     through to the reel section (which forwards them to the shared
+     stage for pause/resume). The button below this layer only owns
+     the visible title + hint area as its tap target. */
+  .vja-reel-title-gradient {
+    position: absolute;
+    inset: auto 0 0 0;
+    height: clamp(200px, 30vh, 250px);
     background: linear-gradient(
       180deg,
       rgba(10, 12, 18, 0) 0%,
@@ -5019,16 +5025,25 @@
       rgba(10, 12, 18, 0.78) 82%,
       rgba(10, 12, 18, 0.94) 100%
     );
+    pointer-events: none;
+    z-index: 2;
+  }
+  .vja-reel-title-block {
+    appearance: none;
+    border: 0;
+    /* Gradient lives on the sibling layer above (vja-reel-title-gradient)
+       so this button no longer needs the tall padded ramp that was
+       inflating its tap target. */
+    background: transparent;
     color: white;
     position: absolute;
     inset: auto 0 0 0;
-    /* 140px top: room for a tall, soft gradient ramp + multi-line titles
-       without pinching the video frame.
-       Horizontal padding picks up landscape safe-area insets so the
-       title clears notches when the device rotates.
-       Bottom padding floors at 40px and grows for the home indicator. */
+    /* Padding is now just visual breathing room around the title text.
+       Horizontal padding still picks up landscape safe-area insets
+       so the title clears notches when the device rotates. Bottom
+       padding floors at 40px and grows for the home indicator. */
     padding:
-      clamp(96px, 22vh, 150px)
+      14px
       max(22px, calc(env(safe-area-inset-right) + 18px))
       max(40px, calc(env(safe-area-inset-bottom) + 28px))
       max(22px, calc(env(safe-area-inset-left) + 18px));

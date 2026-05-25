@@ -365,13 +365,15 @@ export const MuxClipPlayer = forwardRef<MuxClipPlayerHandle, Props>(
     // the tech chose to do on the prior reel.
     setUserPaused(false);
     setFlash(null);
-    // Deliberately do NOT reset `revealed` here. Pure step navigations
-    // (same streamUrl, just a new clip range) keep the same loaded
-    // <video> element and only need a seek — hiding the video behind
-    // the poster for that ~50ms seek window adds a perceived static
-    // frame for no real benefit. The poster cover is reserved for true
-    // first-load (initial `useState(false)`) and for streamUrl swaps,
-    // which the streamUrl effect resets explicitly below.
+    // Hide the video behind the poster while iOS Safari does the seek.
+    // Without this, the user sees the previous clip's last frame held
+    // for ~50-200ms before the new range pops in — the "frame
+    // jumping" symptom. The reveal listener (separate effect) flips
+    // this back to true on the first `seeked` / `playing` / `timeupdate`
+    // event indicating the new frame is actually composited; the
+    // poster image is generated from the same clip startMs as the
+    // <video>, so the swap is invisible to the eye.
+    setRevealed(false);
     if (flashTimerRef.current) {
       clearTimeout(flashTimerRef.current);
       flashTimerRef.current = null;
