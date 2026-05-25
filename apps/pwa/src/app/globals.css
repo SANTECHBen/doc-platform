@@ -5686,6 +5686,71 @@
     transition: transform 120ms linear;
     box-shadow: 0 0 6px rgb(var(--brand) / 0.6);
   }
+  /* Reels tap-to-pause overlay. Fills the video frame but is visually
+     transparent — it exists only to capture the tap. Sits beneath the
+     reel's pill row, replay button, and bottom title block, all of
+     which use higher z-indexes in the Reels viewport. */
+  .step-video-tap {
+    position: absolute;
+    inset: 0;
+    appearance: none;
+    border: 0;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+    z-index: 2;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* YouTube-Shorts-style flash icon. Pops in, expands, fades out over
+     ~700ms. pointer-events: none so it never blocks the next tap. */
+  .step-video-flash {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 76px;
+    height: 76px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 3;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      0 6px 18px rgba(0, 0, 0, 0.32);
+    transform: translate(-50%, -50%) scale(0.5);
+    opacity: 0;
+    animation: stepVideoFlash 700ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  @keyframes stepVideoFlash {
+    0% {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.5);
+    }
+    18% {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+    55% {
+      opacity: 0.9;
+      transform: translate(-50%, -50%) scale(1.05);
+    }
+    100% {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(1.35);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .step-video-flash {
+      animation-duration: 220ms;
+      animation-timing-function: ease-out;
+    }
+  }
   .step-video-caption {
     position: absolute;
     left: 10px;
@@ -5801,16 +5866,8 @@
     border: 1px solid color-mix(in srgb, var(--vja-divider-accent, rgb(var(--accent))) 40%, transparent);
     margin-top: 8px;
   }
-  .vja-section-divider-eyebrow {
-    margin: 14px 0 0;
-    color: rgb(var(--ink-tertiary));
-    font-size: 12px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    font-weight: 600;
-  }
   .vja-section-divider-title {
-    margin: 4px 0 0;
+    margin: 16px 0 0;
     font-size: 28px;
     font-weight: 700;
     color: rgb(var(--ink-primary));

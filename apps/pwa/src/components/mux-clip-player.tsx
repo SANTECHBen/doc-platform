@@ -27,8 +27,8 @@
 // and the stream fail, we render a labeled placeholder so the tech sees
 // something rather than a black frame.
 
-import { useEffect, useRef, useState } from 'react';
-import { Play } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Pause, Play } from 'lucide-react';
 
 interface Props {
   /** Mux HLS endpoint — typically https://stream.mux.com/<playbackId>.m3u8 */
@@ -60,6 +60,11 @@ interface Props {
   /** Pre-classified orientation. Same data as aspectRatio but cheaper for
    *  the runner to consume (no parsing). Defaults to 'landscape'. */
   orientation?: 'portrait' | 'landscape' | 'square' | null;
+  /** Enable tap-anywhere-on-the-video toggle (pause/play) with a brief
+   *  flashed icon overlay, à la YouTube Shorts. Off by default — only
+   *  the Reels viewport opts in. The classic step card sits inside a
+   *  scrollable list and shouldn't steal scroll-area taps for playback. */
+  tapToPause?: boolean;
   className?: string;
 }
 
@@ -115,6 +120,7 @@ export function MuxClipPlayer({
   playId,
   aspectRatio,
   orientation,
+  tapToPause = false,
   className,
 }: Props): React.ReactElement {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -127,6 +133,13 @@ export function MuxClipPlayer({
   // bottom bar so techs see where in the loop they are without unmuting
   // or scrubbing.
   const [progress, setProgress] = useState(0);
+  // Tap-to-pause state. `userPaused` tracks whether the *tech* paused
+  // playback (vs. autoplay never firing, which is a different state we
+  // already cover). `flash` paints the YouTube-Shorts-style transient
+  // icon on every toggle and clears itself via a single timer.
+  const [userPaused, setUserPaused] = useState(false);
+  const [flash, setFlash] = useState<'pause' | 'play' | null>(null);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const startSec = Math.max(0, startMs / 1000);
   const endSec = Math.max(startSec + 0.1, endMs / 1000);
@@ -312,7 +325,28 @@ export function MuxClipPlayer({
   useEffect(() => {
     setProgress(0);
     setStarted(autoplay);
+    // A pause from the previous step shouldn't carry over. The new step
+    // should autoplay (subject to the autoplay prop) regardless of what
+    // the tech chose to do on the prior reel.
+    setUserPaused(false);
+    setFlash(null);
+    if (flashTimerRef.current) {
+      clearTimeout(flashTimerRef.current);
+      flashTimerRef.current = null;
+    }
   }, [playId, autoplay]);
+
+  // Always clear the flash timer on unmount; otherwise a fast unmount
+  // mid-flash leaves a stale callback firing setState on a dead tree.
+  useEffect(
+    () => () => {
+      if (flashTimerRef.current) {
+        clearTimeout(flashTimerRef.current);
+        flashTimerRef.current = null;
+      }
+    },
+    [],
+  );
 
   function startPlayback() {
     const v = videoRef.current;
@@ -324,6 +358,40 @@ export function MuxClipPlayer({
       // user can retry with the native play button.
     });
   }
+
+  // Tap-anywhere toggle. Pauses when playing, resumes when paused, and
+  // re-keys the flash overlay each time so successive taps each get a
+  // fresh icon burst (Shorts-style).
+  const togglePlayback = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const nextPaused = !v.paused;
+    if (nextPaused) {
+      try {
+        v.pause();
+      } catch {
+        // best-effort — element may have detached
+      }
+      setUserPaused(true);
+    } else {
+      void v.play().catch(() => {
+        // Browser refused — leave the paused-overlay visible so the
+        // tech can try again. Don't reset userPaused.
+      });
+      setUserPaused(false);
+    }
+    // Re-keying via incrementing nonce would also work; here we just
+    // clear → set so the animation always restarts cleanly even on
+    // rapid double-taps.
+    setFlash(null);
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    // requestAnimationFrame so the null→value transition flushes and
+    // the CSS animation re-fires on consecutive taps within ~700ms.
+    requestAnimationFrame(() => {
+      setFlash(nextPaused ? 'pause' : 'play');
+      flashTimerRef.current = setTimeout(() => setFlash(null), 700);
+    });
+  }, []);
 
   const containerStyle = {
     aspectRatio: frameAspectRatio(aspectRatio, orientation),
@@ -424,6 +492,39 @@ export function MuxClipPlayer({
             <Play size={28} strokeWidth={2.5} fill="currentColor" />
           </span>
         </button>
+      )}
+      {/* Tap-anywhere pause/resume — transparent overlay positioned
+          beneath the reel's pill row, replay button, and bottom title
+          block (those sit at higher z-index in the Reels viewport and
+          keep their own click handlers). Only enabled when the caller
+          opts in; the classic step card never wires this on. */}
+      {tapToPause && started && (
+        <button
+          type="button"
+          className="step-video-tap"
+          onClick={togglePlayback}
+          aria-label={userPaused ? 'Tap to resume' : 'Tap to pause'}
+          aria-pressed={userPaused}
+        />
+      )}
+      {/* Shorts-style flash icon. Renders only briefly (~700ms) after
+          each toggle and is purely decorative — the underlying video
+          is the source of truth for play/pause state. */}
+      {flash && (
+        <span
+          className="step-video-flash"
+          aria-hidden
+          data-kind={flash}
+          // Keying the element on flash forces React to remount on
+          // consecutive taps so the CSS animation always restarts.
+          key={`${flash}-${Date.now()}`}
+        >
+          {flash === 'pause' ? (
+            <Pause size={36} strokeWidth={2.25} fill="currentColor" />
+          ) : (
+            <Play size={36} strokeWidth={2.25} fill="currentColor" />
+          )}
+        </span>
       )}
       {started && (
         <div className="step-video-progress" aria-hidden>

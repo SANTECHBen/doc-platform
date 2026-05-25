@@ -1162,14 +1162,15 @@ export function VirtualJobAid({
                   Finished <strong>{leavingLabel}</strong>
                 </p>
               )}
-              <div className="vja-section-divider-mark" aria-hidden>
-                {enteringIcon ? (
+              {/* Section mark renders only when the entering section has
+                  an authored category icon. We no longer fall back to a
+                  generic chevron — the title alone (plus the optional
+                  "Finished X" line above) carries the transition. */}
+              {enteringIcon && (
+                <div className="vja-section-divider-mark" aria-hidden>
                   <CategoryIcon name={enteringIcon} size={36} strokeWidth={2} />
-                ) : (
-                  <ChevronRight size={36} strokeWidth={2} />
-                )}
-              </div>
-              <p className="vja-section-divider-eyebrow">Starting</p>
+                </div>
+              )}
               <h1 className="vja-section-divider-title">{enteringLabel}</h1>
               {enteringPhase && (
                 <p className="vja-section-divider-meta">

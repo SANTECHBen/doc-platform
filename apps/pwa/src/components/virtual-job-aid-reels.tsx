@@ -505,6 +505,10 @@ function ReelMedia({
             playId={playId}
             aspectRatio={clip.aspectRatio ?? null}
             orientation={clip.orientation ?? null}
+            // Reels viewport: tap anywhere on the video to pause /
+            // resume, Shorts-style. Title block + pills + replay
+            // button sit at higher z-index and keep their own taps.
+            tapToPause
             className="vja-reel-clip"
           />
         </div>
