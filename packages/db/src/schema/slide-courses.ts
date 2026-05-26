@@ -92,6 +92,11 @@ export const slideDeckSlides = pgTable(
     voiceoverStorageKey: text('voiceover_storage_key'),
     voiceoverDurationSec: real('voiceover_duration_sec'),
     navigationGate: slideNavigationGateEnum('navigation_gate').notNull().default('free'),
+    // Ordered list of content blocks rendered below (or instead of)
+    // the slide image. Used for "blank slide" authoring where the
+    // admin builds the slide from text/image/video instead of a
+    // pre-rendered PNG. Validated server-side by SlideBlockSchema.
+    blocks: jsonb('blocks').$type<unknown[]>().notNull().default([]),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

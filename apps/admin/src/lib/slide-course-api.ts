@@ -5,6 +5,7 @@
 // imported only by the slide-course editor components.
 
 import type {
+  SlideBlock,
   SlideInteractionConfig,
   SlideNavigationGate,
 } from '@platform/shared';
@@ -79,6 +80,7 @@ export interface SlideDto {
   voiceoverUrl: string | null;
   voiceoverDurationSec: number | null;
   navigationGate: SlideNavigationGate;
+  blocks: SlideBlock[];
   updatedAt: string;
   interactions: SlideInteractionDto[];
 }
@@ -254,6 +256,7 @@ export async function patchSlide(
     scriptMarkdown?: string | null;
     navigationGate?: SlideNavigationGate;
     orderingHint?: number;
+    blocks?: SlideBlock[];
   },
 ): Promise<SlideDto> {
   const res = await fetch(
@@ -268,6 +271,29 @@ export async function patchSlide(
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return (await res.json()) as SlideDto;
+}
+
+export interface BlockMediaUploadResult {
+  storageKey: string;
+  url: string;
+  contentType: string;
+  sizeBytes: number;
+  kind: 'image' | 'video';
+}
+
+export async function uploadSlideBlockMedia(
+  slideDeckId: string,
+  slideId: string,
+  file: File,
+): Promise<BlockMediaUploadResult> {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(
+    `${API_BASE}/admin/slide-decks/${encodeURIComponent(slideDeckId)}/slides/${encodeURIComponent(slideId)}/block-media`,
+    { method: 'POST', headers: await authHeaders(), body: form },
+  );
+  if (!res.ok) throw new Error(`Upload ${res.status}: ${await res.text()}`);
+  return (await res.json()) as BlockMediaUploadResult;
 }
 
 export async function reorderSlides(

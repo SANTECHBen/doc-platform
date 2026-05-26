@@ -118,6 +118,51 @@ export const SLIDE_INTERACTION_KIND_LABELS: Record<SlideInteractionConfig['kind'
   short_answer_ai: 'Short answer (AI graded)',
 };
 
+// -------- Slide content blocks ---------------------------------------------
+//
+// Blank slides are composed of an ordered list of content blocks rather
+// than a single pre-rendered image. Each block is a discriminated union
+// member; the server validates the whole array before persisting to
+// slide_deck_slides.blocks.
+
+export const SlideTextBlockSchema = z.object({
+  kind: z.literal('text'),
+  markdown: z.string().min(1).max(16000),
+});
+
+export const SlideImageBlockSchema = z.object({
+  kind: z.literal('image'),
+  storageKey: z.string().min(1).max(800),
+  url: z.string().url().optional(),
+  caption: z.string().max(500).optional(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+});
+
+export const SlideVideoUrlBlockSchema = z.object({
+  kind: z.literal('video_url'),
+  url: z.string().url(),
+  caption: z.string().max(500).optional(),
+});
+
+export const SlideVideoFileBlockSchema = z.object({
+  kind: z.literal('video_file'),
+  storageKey: z.string().min(1).max(800),
+  url: z.string().url().optional(),
+  mimeType: z.string().min(1).max(120),
+  caption: z.string().max(500).optional(),
+});
+
+export const SlideBlockSchema = z.discriminatedUnion('kind', [
+  SlideTextBlockSchema,
+  SlideImageBlockSchema,
+  SlideVideoUrlBlockSchema,
+  SlideVideoFileBlockSchema,
+]);
+export type SlideBlock = z.infer<typeof SlideBlockSchema>;
+
+export const SlideBlocksSchema = z.array(SlideBlockSchema).max(50);
+
 // -------- Slide-course activity config -------------------------------------
 //
 // The activities table's jsonb config column stores this shape when

@@ -323,6 +323,13 @@
       "when": 1785000004000,
       "tag": "0046_scorm_packages",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1785000005000,
+      "tag": "0047_slide_blocks",
+      "breakpoints": true
     }
   ]
 }

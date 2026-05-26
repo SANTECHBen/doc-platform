@@ -339,6 +339,20 @@ export async function registerSlideCourseScanRoutes(app: FastifyInstance) {
             : null,
           voiceoverDurationSec: s.voiceoverDurationSec,
           navigationGate: s.navigationGate,
+          // Content blocks for blank-slide authoring. Image blocks hold
+          // a storageKey from the upload endpoint; we resolve to a URL
+          // here so the player can render them without a second
+          // round-trip.
+          blocks: (s.blocks as unknown[]).map((block) => {
+            const b = block as Record<string, unknown>;
+            if (b.kind === 'image' && typeof b.storageKey === 'string') {
+              return { ...b, url: storage.publicUrl(b.storageKey) };
+            }
+            if (b.kind === 'video_file' && typeof b.storageKey === 'string') {
+              return { ...b, url: storage.publicUrl(b.storageKey) };
+            }
+            return b;
+          }),
           interactions: byInteractionList[s.id] ?? [],
         })),
       });

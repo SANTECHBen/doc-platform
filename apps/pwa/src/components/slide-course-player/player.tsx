@@ -24,6 +24,7 @@ import {
   getPlayerDeck,
   postAnswer,
   type AnswerResult,
+  type PlayerBlock,
   type PlayerDeck,
   type PlayerInteraction,
   type PlayerSlide,
@@ -446,6 +447,13 @@ function SlideView({
           className="w-full"
         />
       )}
+      {slide.blocks.length > 0 && (
+        <div className="space-y-3">
+          {slide.blocks.map((b, i) => (
+            <BlockView key={i} block={b} />
+          ))}
+        </div>
+      )}
       {slide.scriptMarkdown && (
         <div className="prose prose-sm max-w-none rounded border border-line bg-surface-raised p-3 text-sm">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{slide.scriptMarkdown}</ReactMarkdown>
@@ -453,6 +461,105 @@ function SlideView({
       )}
     </section>
   );
+}
+
+function BlockView({ block }: { block: PlayerBlock }) {
+  if (block.kind === 'text') {
+    return (
+      <div className="prose prose-sm max-w-none rounded border border-line bg-surface-raised p-3 text-sm">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.markdown}</ReactMarkdown>
+      </div>
+    );
+  }
+  if (block.kind === 'image') {
+    return (
+      <figure className="space-y-1">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={block.url}
+          alt={block.caption ?? ''}
+          className="w-full rounded border border-line"
+        />
+        {block.caption && (
+          <figcaption className="text-xs text-ink-tertiary">{block.caption}</figcaption>
+        )}
+      </figure>
+    );
+  }
+  if (block.kind === 'video_file') {
+    return (
+      <figure className="space-y-1">
+        <video
+          src={block.url}
+          controls
+          playsInline
+          className="w-full rounded border border-line"
+        />
+        {block.caption && (
+          <figcaption className="text-xs text-ink-tertiary">{block.caption}</figcaption>
+        )}
+      </figure>
+    );
+  }
+  // video_url — embed via iframe if it's an embeddable URL; otherwise
+  // fall back to a clickable link.
+  const embed = embeddableSrc(block.url);
+  return (
+    <figure className="space-y-1">
+      {embed ? (
+        <div className="relative aspect-video w-full overflow-hidden rounded border border-line">
+          <iframe
+            src={embed}
+            title={block.caption ?? 'Video'}
+            className="absolute inset-0 size-full"
+            allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+            allowFullScreen
+          />
+        </div>
+      ) : (
+        <a
+          href={block.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block rounded border border-line bg-surface-raised p-3 text-sm text-accent underline"
+        >
+          {block.url}
+        </a>
+      )}
+      {block.caption && (
+        <figcaption className="text-xs text-ink-tertiary">{block.caption}</figcaption>
+      )}
+    </figure>
+  );
+}
+
+// Convert common video-share URLs to their embed form. Returns null
+// when the URL isn't a recognized provider so the player can fall back
+// to a plain link.
+function embeddableSrc(url: string): string | null {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, '');
+    if (host === 'youtube.com' || host === 'm.youtube.com') {
+      const id = u.searchParams.get('v');
+      if (id) return `https://www.youtube.com/embed/${encodeURIComponent(id)}`;
+    }
+    if (host === 'youtu.be') {
+      const id = u.pathname.replace(/^\//, '');
+      if (id) return `https://www.youtube.com/embed/${encodeURIComponent(id)}`;
+    }
+    if (host === 'vimeo.com') {
+      const id = u.pathname.split('/').filter(Boolean)[0];
+      if (id && /^\d+$/.test(id)) return `https://player.vimeo.com/video/${id}`;
+    }
+    if (host.endsWith('mux.com') || u.pathname.endsWith('.m3u8')) {
+      // Mux embeds typically come through the stream URL as-is.
+      return url;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 function InteractionRunner(props: {

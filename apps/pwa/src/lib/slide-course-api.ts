@@ -35,6 +35,12 @@ export interface PlayerInteraction {
   config: Record<string, unknown>;
 }
 
+export type PlayerBlock =
+  | { kind: 'text'; markdown: string }
+  | { kind: 'image'; url: string; caption?: string; width?: number; height?: number }
+  | { kind: 'video_url'; url: string; caption?: string }
+  | { kind: 'video_file'; url: string; mimeType: string; caption?: string };
+
 export interface PlayerSlide {
   id: string;
   index: number;
@@ -46,6 +52,7 @@ export interface PlayerSlide {
   voiceoverUrl: string | null;
   voiceoverDurationSec: number | null;
   navigationGate: PlayerNavigationGate;
+  blocks: PlayerBlock[];
   interactions: PlayerInteraction[];
 }
 

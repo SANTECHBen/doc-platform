@@ -36,6 +36,7 @@ import {
   SlideTrueFalseConfigSchema,
   SlideDragMatchConfigSchema,
   SlideShortAnswerAiConfigSchema,
+  SlideBlocksSchema,
 } from '@platform/shared';
 import { enqueueExtraction } from '../lib/extraction.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -310,6 +311,7 @@ function slideDto(
     voiceoverUrl,
     voiceoverDurationSec: slide.voiceoverDurationSec,
     navigationGate: slide.navigationGate,
+    blocks: slide.blocks,
     updatedAt: slide.updatedAt.toISOString(),
   };
 }
@@ -387,6 +389,7 @@ const SlidePatchBody = z
     scriptMarkdown: z.string().max(16000).nullable().optional(),
     navigationGate: SlideNavigationGateSchema.optional(),
     orderingHint: z.number().optional(),
+    blocks: SlideBlocksSchema.optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'No fields to update.' });
 
@@ -1023,6 +1026,89 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
   );
 
   // -------------------------------------------------------------------------
+  // POST /admin/slide-decks/:id/slides/:slideId/block-media
+  //
+  // Multipart upload for images / videos embedded as a content block on
+  // a slide. Returns the stored URL + content type so the client can
+  // append a block to the slide's blocks array and PATCH it back.
+  // -------------------------------------------------------------------------
+  app.post<{ Params: { id: string; slideId: string } }>(
+    '/admin/slide-decks/:id/slides/:slideId/block-media',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema, slideId: UuidSchema }),
+      },
+    },
+    async (request, reply) => {
+      const { db, storage } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadSlideForWrite(
+        db,
+        request.params.id,
+        request.params.slideId,
+        scope,
+      );
+      if (!ctx) return reply.notFound();
+      if (!request.isMultipart()) {
+        return reply.badRequest('Expected multipart/form-data with a file.');
+      }
+      const file = await request.file();
+      if (!file) return reply.badRequest('Missing file.');
+
+      const mime = (file.mimetype || '').toLowerCase();
+      const isImage = mime.startsWith('image/');
+      const isVideo = mime.startsWith('video/');
+      if (!isImage && !isVideo) {
+        return reply.unsupportedMediaType(
+          `Unsupported media type: ${mime}. Use an image or video.`,
+        );
+      }
+      const MAX_BYTES = isVideo ? 500 * 1024 * 1024 : 25 * 1024 * 1024;
+
+      const chunks: Buffer[] = [];
+      let total = 0;
+      for await (const c of file.file as unknown as AsyncIterable<Buffer>) {
+        total += c.length;
+        if (total > MAX_BYTES) {
+          return reply.payloadTooLarge(
+            `File exceeds ${Math.round(MAX_BYTES / 1024 / 1024)} MB limit.`,
+          );
+        }
+        chunks.push(c);
+      }
+      const buf = Buffer.concat(chunks);
+      const sniffed = sniffMime(buf) ?? mime;
+
+      const stored = await storage.putBuffer({
+        buffer: buf,
+        filename: file.filename || (isVideo ? 'video' : 'image'),
+        contentType: sniffed,
+        ownerOrganizationId: ctx.ownerOrganizationId,
+      });
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'slide_deck_slide.block_media_uploaded',
+        targetType: 'slide_deck_slide',
+        targetId: ctx.slide.id,
+        payload: { contentType: sniffed, sizeBytes: stored.size, kind: isVideo ? 'video' : 'image' },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+
+      return reply.send({
+        storageKey: stored.storageKey,
+        url: storage.publicUrl(stored.storageKey),
+        contentType: sniffed,
+        sizeBytes: stored.size,
+        kind: isVideo ? 'video' : 'image',
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // PATCH /admin/slide-decks/:id/slides/:slideId/image
   //
   // Replace an existing slide's image. Useful when a single slide was
@@ -1244,6 +1330,7 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
       if (b.scriptMarkdown !== undefined) patch.scriptMarkdown = b.scriptMarkdown;
       if (b.navigationGate !== undefined) patch.navigationGate = b.navigationGate;
       if (b.orderingHint !== undefined) patch.orderingHint = b.orderingHint;
+      if (b.blocks !== undefined) patch.blocks = b.blocks;
 
       const [updated] = await db
         .update(schema.slideDeckSlides)

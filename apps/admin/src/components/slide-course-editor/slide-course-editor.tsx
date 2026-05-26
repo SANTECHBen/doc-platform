@@ -275,6 +275,28 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
     }
   }
 
+  async function onAddContentSlide() {
+    if (!deckId) return;
+    try {
+      const created = await createBlankSlide(deckId, { title: 'New slide' });
+      setDeck((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          deck: { ...prev.deck, slideCount: prev.deck.slideCount + 1 },
+          slides: [...prev.slides, { ...created, interactions: [] }],
+        };
+      });
+      setSelectedSlideId(created.id);
+      toast.success(
+        'Content slide added',
+        'Open the Content tab on the right to add text, images, or videos.',
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function onReplaceImage(slideId: string, file: File) {
     if (!deckId) return;
     try {
@@ -425,6 +447,7 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
             onReorder={onReorderSlides}
             onAddSlides={onAddSlides}
             onAddBlankSlide={onAddBlankSlide}
+            onAddContentSlide={onAddContentSlide}
           />
           <SlideCanvas
             slide={selectedSlide}

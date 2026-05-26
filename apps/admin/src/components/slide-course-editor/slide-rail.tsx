@@ -13,7 +13,7 @@
 //     slide row so the placement is unambiguous.
 
 import { useState } from 'react';
-import { GripVertical, ListPlus, Plus } from 'lucide-react';
+import { FileText, GripVertical, ListPlus, Plus } from 'lucide-react';
 import type { SlideDto } from '@/lib/slide-course-api';
 
 interface SlideRailProps {
@@ -23,10 +23,19 @@ interface SlideRailProps {
   onReorder: (orderings: { slideId: string; orderingHint: number }[]) => void;
   onAddSlides: (files: File[]) => Promise<void>;
   onAddBlankSlide: () => Promise<void> | void;
+  onAddContentSlide: () => Promise<void> | void;
 }
 
 export function SlideRail(props: SlideRailProps) {
-  const { slides, selectedSlideId, onSelect, onReorder, onAddSlides, onAddBlankSlide } = props;
+  const {
+    slides,
+    selectedSlideId,
+    onSelect,
+    onReorder,
+    onAddSlides,
+    onAddBlankSlide,
+    onAddContentSlide,
+  } = props;
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
@@ -151,6 +160,14 @@ export function SlideRail(props: SlideRailProps) {
             if (files.length) void onAddSlides(files);
           }}
         />
+        <button
+          type="button"
+          onClick={() => void onAddContentSlide()}
+          className="flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-line bg-surface px-2 py-2 text-xs text-ink-tertiary transition hover:border-accent hover:text-ink-primary"
+          title="Add a blank slide and compose it from text, images, or videos in the Content tab."
+        >
+          <FileText className="size-3.5" /> Add content slide
+        </button>
         <button
           type="button"
           onClick={() => void onAddBlankSlide()}
