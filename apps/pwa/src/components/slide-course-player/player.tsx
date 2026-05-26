@@ -16,6 +16,8 @@ import {
   ArrowRight,
   CheckCircle2,
   Loader2,
+  Maximize2,
+  Minimize2,
   XCircle,
 } from 'lucide-react';
 import {
@@ -51,6 +53,108 @@ export function SlideCoursePlayer({ activityId, onExit }: PlayerProps) {
   const [answerResults, setAnswerResults] = useState<Record<string, AnswerResult>>({});
   const [perSlideState, setPerSlideState] = useState<Record<string, SlidePlayState>>({});
   const [finished, setFinished] = useState(false);
+
+  // -----------------------------------------------------------------
+  // Fullscreen mode
+  // -----------------------------------------------------------------
+  // Two layers:
+  //   1. Native Fullscreen API — works on Android Chrome + desktop.
+  //      iOS Safari only allows fullscreen on <video> elements, so the
+  //      requestFullscreen() call below silently no-ops there.
+  //   2. CSS pseudo-fullscreen — always works. We toggle a flag that
+  //      pins the player container to the viewport with z-50, so iOS
+  //      learners still get an immersive view.
+  //
+  // On landscape rotation we auto-enter (best-effort). The browser may
+  // reject requestFullscreen() if there's no recent user activation —
+  // in that case we still apply the CSS fullscreen so the player
+  // expands to fill the screen.
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const enterFullscreen = useCallback(() => {
+    setIsFullscreen(true);
+    const el = containerRef.current ?? document.documentElement;
+    const req =
+      (el as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> })
+        .requestFullscreen ??
+      (el as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> })
+        .webkitRequestFullscreen;
+    if (req) {
+      try {
+        const p = req.call(el);
+        if (p && typeof (p as Promise<void>).catch === 'function') {
+          (p as Promise<void>).catch(() => {
+            /* iOS / no-activation rejections fall through to CSS-only mode */
+          });
+        }
+      } catch {
+        /* ignore — CSS fullscreen still applies */
+      }
+    }
+    // Best-effort orientation lock for Android. iOS ignores this.
+    const so = (screen as Screen & {
+      orientation?: { lock?: (o: string) => Promise<void> };
+    }).orientation;
+    if (so?.lock) {
+      try {
+        const p = so.lock('landscape');
+        if (p && typeof (p as Promise<void>).catch === 'function') {
+          (p as Promise<void>).catch(() => undefined);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  }, []);
+
+  const exitFullscreen = useCallback(() => {
+    setIsFullscreen(false);
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => undefined);
+    }
+    const so = (screen as Screen & {
+      orientation?: { unlock?: () => void };
+    }).orientation;
+    if (so?.unlock) {
+      try {
+        so.unlock();
+      } catch {
+        /* ignore */
+      }
+    }
+  }, []);
+
+  // Auto-enter fullscreen when the device rotates to landscape on a
+  // phone-sized viewport. Desktop monitors are typically landscape so
+  // we gate on max-width to avoid hijacking the desktop layout.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(orientation: landscape) and (max-width: 1024px)');
+    const onChange = (e: MediaQueryListEvent | MediaQueryList) => {
+      if ((e as MediaQueryListEvent).matches ?? (e as MediaQueryList).matches) {
+        enterFullscreen();
+      } else {
+        // Don't auto-exit — the learner might want to stay fullscreen.
+        // The button below is the explicit exit.
+      }
+    };
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [enterFullscreen]);
+
+  // Keep state synced when the user exits native fullscreen via Esc.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const onChange = () => {
+      if (!document.fullscreenElement) setIsFullscreen((prev) => prev);
+      // Note: we don't force isFullscreen=false here because CSS-only
+      // fullscreen has no native counterpart. The user toggles via the
+      // button when they want to leave.
+    };
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -175,7 +279,18 @@ export function SlideCoursePlayer({ activityId, onExit }: PlayerProps) {
   if (!currentSlide) return null;
 
   return (
-    <div className="flex flex-col gap-3 pb-24">
+    <div
+      ref={containerRef}
+      className={[
+        'flex flex-col gap-3 pb-24',
+        // CSS pseudo-fullscreen — pins the player to the viewport so
+        // it covers the asset hub chrome even when the native Fullscreen
+        // API is unavailable (iOS Safari on non-video elements).
+        isFullscreen
+          ? 'fixed inset-0 z-50 overflow-y-auto bg-surface-base p-3'
+          : '',
+      ].join(' ')}
+    >
       <header className="flex items-center justify-between">
         <button
           type="button"
@@ -187,6 +302,19 @@ export function SlideCoursePlayer({ activityId, onExit }: PlayerProps) {
         <span className="text-xs text-ink-tertiary">
           Slide {currentIdx + 1} of {deck.slides.length}
         </span>
+        <button
+          type="button"
+          onClick={isFullscreen ? exitFullscreen : enterFullscreen}
+          aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          className="rounded p-1 text-ink-tertiary transition hover:bg-surface-elevated hover:text-ink-primary"
+        >
+          {isFullscreen ? (
+            <Minimize2 className="size-4" />
+          ) : (
+            <Maximize2 className="size-4" />
+          )}
+        </button>
       </header>
 
       <ProgressBar
@@ -212,7 +340,7 @@ export function SlideCoursePlayer({ activityId, onExit }: PlayerProps) {
         </section>
       )}
 
-      <nav className="fixed inset-x-0 bottom-0 flex items-center justify-between border-t border-line bg-surface-raised p-3">
+      <nav className="fixed inset-x-0 bottom-0 z-[60] flex items-center justify-between border-t border-line bg-surface-raised p-3">
         <button
           type="button"
           className="btn btn-secondary"
