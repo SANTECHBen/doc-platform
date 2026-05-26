@@ -135,6 +135,33 @@ export function createS3Storage(cfg: S3StorageConfig): Storage {
       return getSignedUrl(client, cmd, { expiresIn: ttl });
     },
 
+    async presignPut({ filename, contentType, ownerOrganizationId, ttlSeconds }) {
+      assertOrgId(ownerOrganizationId);
+      // UUID-keyed because we don't have the bytes yet — content hash
+      // is unknowable until after the upload. Same key shape as
+      // putStream so the tenant guard (ownerOrgFromStorageKey) still
+      // resolves correctly.
+      const id = randomUUID();
+      const prefix = id.slice(0, 2);
+      const safeName = sanitizeFilename(filename);
+      const storageKey = `org/${ownerOrganizationId}/${prefix}/${id}/${safeName}`;
+      const ttl = Math.max(60, Math.min(ttlSeconds ?? 3600, 6 * 3600));
+      const cmd = new PutObjectCommand({
+        Bucket: cfg.bucket,
+        Key: storageKey,
+        ContentType: contentType,
+        CacheControl: 'public, max-age=31536000, immutable',
+      });
+      const uploadUrl = await getSignedUrl(client, cmd, {
+        expiresIn: ttl,
+        // Required: when the browser sends Content-Type with the PUT
+        // request, that header must be in the signed-url's canonical
+        // request or R2/S3 rejects the upload as signature-mismatch.
+        signableHeaders: new Set(['content-type']),
+      });
+      return { uploadUrl, storageKey };
+    },
+
     ownerOrgFromKey(storageKey) {
       return ownerOrgFromStorageKey(storageKey);
     },

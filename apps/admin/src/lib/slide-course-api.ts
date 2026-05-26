@@ -293,6 +293,55 @@ export async function uploadSlideBlockMedia(
     signal?: AbortSignal;
   },
 ): Promise<BlockMediaUploadResult> {
+  // Try the presigned-URL fast path first. When supported (R2/S3 in
+  // prod), the browser uploads directly to object storage and skips
+  // the Fly app machine entirely — much faster for big videos. The
+  // FS storage adapter (dev) responds 501; we then fall back to the
+  // multipart upload below.
+  try {
+    const presignRes = await fetch(
+      `${API_BASE}/admin/slide-decks/${encodeURIComponent(slideDeckId)}/slides/${encodeURIComponent(slideId)}/block-media/presign`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+        body: JSON.stringify({
+          filename: file.name,
+          contentType: file.type || 'application/octet-stream',
+        }),
+      },
+    );
+    if (presignRes.ok) {
+      const presigned = (await presignRes.json()) as {
+        uploadUrl: string;
+        storageKey: string;
+        publicUrl: string;
+        contentType: string;
+        kind: 'image' | 'video';
+      };
+      await xhrPut(presigned.uploadUrl, file, presigned.contentType, options);
+      return {
+        storageKey: presigned.storageKey,
+        url: presigned.publicUrl,
+        contentType: presigned.contentType,
+        sizeBytes: file.size,
+        kind: presigned.kind,
+      };
+    }
+    // 501 = adapter doesn't support presign; fall through to multipart.
+    if (presignRes.status !== 501) {
+      throw new Error(`Presign ${presignRes.status}: ${await presignRes.text()}`);
+    }
+  } catch (err) {
+    if ((err as { name?: string }).name === 'AbortError') throw err;
+    // Network errors on presign get rethrown via fall-through; if
+    // presign succeeded but XHR failed we end up here too and want
+    // to surface the error rather than silently fall back to a
+    // multipart upload that'll fail the same way.
+    if ((err as Error).message?.includes('Presign ')) throw err;
+    if ((err as { name?: string }).name === 'AbortError') throw err;
+  }
+  // Fallback: multipart upload through the API.
+
   // XHR rather than fetch — fetch's request body doesn't fire progress
   // events in the browser today (a draft spec, but not shipped), so a
   // 200 MB video upload would show no feedback at all. XHR gives us
@@ -338,6 +387,44 @@ export async function uploadSlideBlockMedia(
     const form = new FormData();
     form.append('file', file);
     xhr.send(form);
+  });
+}
+
+// Direct-PUT helper used by the presigned-URL fast path. The content
+// type MUST match what the server signed against — we send the same
+// MIME on the PUT and the signed URL carries it as a signable header.
+function xhrPut(
+  url: string,
+  file: File,
+  contentType: string,
+  options?: {
+    onProgress?: (loaded: number, total: number) => void;
+    signal?: AbortSignal;
+  },
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url, true);
+    xhr.setRequestHeader('content-type', contentType);
+    xhr.upload.onprogress = (e) => {
+      if (options?.onProgress && e.lengthComputable) {
+        options.onProgress(e.loaded, e.total);
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`Direct upload ${xhr.status}: ${xhr.responseText || xhr.statusText}`));
+    };
+    xhr.onerror = () => reject(new Error('Direct upload failed (network error)'));
+    xhr.onabort = () => reject(new DOMException('Aborted', 'AbortError'));
+    if (options?.signal) {
+      if (options.signal.aborted) {
+        xhr.abort();
+        return;
+      }
+      options.signal.addEventListener('abort', () => xhr.abort());
+    }
+    xhr.send(file);
   });
 }
 

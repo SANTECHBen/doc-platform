@@ -1156,6 +1156,94 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
   );
 
   // -------------------------------------------------------------------------
+  // POST /admin/slide-decks/:id/slides/:slideId/block-media/presign
+  //
+  // Returns a short-lived signed PUT URL so the browser uploads the
+  // file directly to R2/S3, skipping the API server. Dramatically
+  // faster than the multipart relay for video — bytes don't traverse
+  // the 1 GB Fly app machine at all.
+  //
+  // Caller flow:
+  //   1. POST presign with { filename, contentType }.
+  //   2. Receive { uploadUrl, storageKey, publicUrl }.
+  //   3. PUT the file body directly to uploadUrl with the same
+  //      content-type header. XHR for progress events.
+  //   4. Append the block referencing storageKey via the slide PATCH.
+  //
+  // Returns 501 when the storage adapter doesn't support presigning
+  // (the FS adapter in dev), telling the client to fall back to the
+  // multipart endpoint above.
+  // -------------------------------------------------------------------------
+  app.post<{
+    Params: { id: string; slideId: string };
+    Body: { filename: string; contentType: string };
+  }>(
+    '/admin/slide-decks/:id/slides/:slideId/block-media/presign',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema, slideId: UuidSchema }),
+        body: z.object({
+          filename: z.string().min(1).max(500),
+          contentType: z.string().min(1).max(200),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const { db, storage } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadSlideForWrite(
+        db,
+        request.params.id,
+        request.params.slideId,
+        scope,
+      );
+      if (!ctx) return reply.notFound();
+      const mime = request.body.contentType.toLowerCase();
+      const isImage = mime.startsWith('image/');
+      const isVideo = mime.startsWith('video/');
+      if (!isImage && !isVideo) {
+        return reply.unsupportedMediaType(
+          `Unsupported media type: ${mime}. Use an image or video.`,
+        );
+      }
+      if (!storage.presignPut) {
+        // Dev FS adapter — caller falls back to multipart.
+        return reply
+          .code(501)
+          .send({ error: 'Presigned uploads not supported on this storage adapter.' });
+      }
+      try {
+        const { uploadUrl, storageKey } = await storage.presignPut({
+          filename: request.body.filename,
+          contentType: request.body.contentType,
+          ownerOrganizationId: ctx.ownerOrganizationId,
+        });
+        await db.insert(schema.auditEvents).values({
+          organizationId: ctx.ownerOrganizationId,
+          actorUserId: auth.userId,
+          eventType: 'slide_deck_slide.block_media_presigned',
+          targetType: 'slide_deck_slide',
+          targetId: ctx.slide.id,
+          payload: { contentType: mime, kind: isVideo ? 'video' : 'image' },
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent'] ?? null,
+        });
+        return reply.send({
+          uploadUrl,
+          storageKey,
+          publicUrl: storage.publicUrl(storageKey),
+          contentType: mime,
+          kind: isVideo ? 'video' : 'image',
+        });
+      } catch (err) {
+        request.log.error({ err }, 'presign failed');
+        return reply.internalServerError('Could not generate upload URL.');
+      }
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // PATCH /admin/slide-decks/:id/slides/:slideId/image
   //
   // Replace an existing slide's image. Useful when a single slide was

@@ -53,6 +53,23 @@ export interface Storage {
     options?: { ttlSeconds?: number; contentDisposition?: string },
   ): Promise<string>;
 
+  /** Optional: short-lived signed PUT URL that lets the browser upload
+   *  directly to the backing store, skipping the API server. Used for
+   *  large media uploads where the per-machine bandwidth of the API
+   *  relay becomes the bottleneck. Returns null on adapters that don't
+   *  support presigned PUTs (the FS adapter in dev); callers fall back
+   *  to multipart upload through the API in that case.
+   *
+   *  The returned key is deterministic — the client receives it
+   *  alongside the URL and uses it to reference the object after the
+   *  PUT succeeds. */
+  presignPut?(input: {
+    filename: string;
+    contentType: string;
+    ownerOrganizationId: string;
+    ttlSeconds?: number;
+  }): Promise<{ uploadUrl: string; storageKey: string }>;
+
   /**
    * Extract the owner-org segment from a storage key produced by
    * putBuffer/putStream. Returns null when the key is missing the
