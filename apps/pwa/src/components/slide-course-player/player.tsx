@@ -380,6 +380,36 @@ function SlideView({
   onVoiceoverEnded: () => void;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Autoplay the voiceover when the slide changes. Mobile browsers
+  // require a prior user gesture to unmute autoplay — the learner's
+  // tap to enter the player counts, so subsequent slide changes
+  // should play freely. If the browser rejects (older iOS, no prior
+  // interaction), we leave the audio controls visible so the learner
+  // can tap play manually.
+  useEffect(() => {
+    if (!slide.voiceoverUrl) return;
+    const el = audioRef.current;
+    if (!el) return;
+    // Force a reload so the element pulls the new src — needed when
+    // React reuses the same <audio> node across slide changes.
+    try {
+      el.currentTime = 0;
+    } catch {
+      /* ignore — some browsers throw before metadata loads */
+    }
+    const tryPlay = () => {
+      el.play().catch(() => {
+        /* autoplay blocked; controls remain visible for manual tap */
+      });
+    };
+    if (el.readyState >= 2) {
+      tryPlay();
+    } else {
+      el.addEventListener('canplay', tryPlay, { once: true });
+      return () => el.removeEventListener('canplay', tryPlay);
+    }
+  }, [slide.voiceoverUrl]);
   // Tighten the image's height in fullscreen so the whole slide fits
   // inside the device viewport without scrolling. The subtracted values
   // reserve space for the fixed header, bottom nav, and any
@@ -411,6 +441,7 @@ function SlideView({
           ref={audioRef}
           src={slide.voiceoverUrl}
           controls
+          autoPlay
           onEnded={onVoiceoverEnded}
           className="w-full"
         />
