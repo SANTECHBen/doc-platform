@@ -15,6 +15,8 @@ import { patchSlide, type SlideDto } from '@/lib/slide-course-api';
 export function SlideCanvas({
   deckId,
   slide,
+  pendingUploads,
+  onStartMediaUpload,
   onReplaceImage,
   onDeleteSlide,
   onLocalUpdate,
@@ -22,6 +24,13 @@ export function SlideCanvas({
 }: {
   deckId: string;
   slide: SlideDto | null;
+  pendingUploads?: Array<{
+    id: string;
+    fileName: string;
+    kind: 'image' | 'video';
+    progress: number;
+  }>;
+  onStartMediaUpload?: (file: File, kind: 'image' | 'video') => void;
   onReplaceImage?: (file: File) => Promise<void>;
   onDeleteSlide?: () => Promise<void> | void;
   onLocalUpdate?: (patch: Partial<SlideDto>) => void;
@@ -81,6 +90,8 @@ export function SlideCanvas({
         slideId={slide.id}
         blocks={slide.blocks}
         imageUrl={slide.imageUrl ?? null}
+        pendingUploads={pendingUploads}
+        onStartMediaUpload={onStartMediaUpload}
         onChange={async (next) => {
           onLocalUpdate?.({ blocks: next });
           try {

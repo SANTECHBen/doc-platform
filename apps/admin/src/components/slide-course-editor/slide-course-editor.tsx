@@ -37,11 +37,26 @@ import {
   replaceSlideImage,
   reorderSlides,
   retrySlideDeckConversion,
+  uploadSlideBlockMedia,
   uploadSlideImage,
   type SlideDeckDetail,
   type SlideDto,
   type SlideInteractionDto,
 } from '@/lib/slide-course-api';
+import type { SlideBlock } from '@platform/shared';
+
+// In-flight media upload tracked at the editor level so it survives
+// the author switching slides while a big video uploads. Each entry
+// lives until the XHR resolves or aborts; its slideId tells the canvas
+// which slide should render the ghost-block + progress bar.
+export interface PendingUpload {
+  id: string;
+  slideId: string;
+  fileName: string;
+  kind: 'image' | 'video';
+  progress: number; // 0..1
+  abort: () => void;
+}
 import { SlideRail } from './slide-rail';
 import { SlideCanvas } from './slide-canvas';
 import { SlideSettings } from './slide-settings';
@@ -217,6 +232,96 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
 
   // Track in-flight batch upload so the UI can show progress.
   const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
+  // In-flight block-media uploads. Lives at editor level so switching
+  // slides doesn't kill an upload — the canvas just shows the
+  // progress block on whichever slide owns it.
+  const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
+
+  function startBlockMediaUpload(
+    slideId: string,
+    file: File,
+    kind: 'image' | 'video',
+  ): void {
+    if (!deckId) return;
+    const id =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : String(Date.now() + Math.random());
+    const controller = new AbortController();
+    setPendingUploads((u) => [
+      ...u,
+      {
+        id,
+        slideId,
+        fileName: file.name,
+        kind,
+        progress: 0,
+        abort: () => controller.abort(),
+      },
+    ]);
+    uploadSlideBlockMedia(deckId, slideId, file, {
+      signal: controller.signal,
+      onProgress: (loaded, total) => {
+        setPendingUploads((u) =>
+          u.map((x) => (x.id === id ? { ...x, progress: loaded / total } : x)),
+        );
+      },
+    })
+      .then((result) => {
+        // Compose the new block and append it to the slide it was
+        // uploaded for — even if the author is now on a different
+        // slide.
+        const sliceBlock: SlideBlock =
+          kind === 'video'
+            ? {
+                kind: 'video_file',
+                storageKey: result.storageKey,
+                url: result.url,
+                mimeType: result.contentType,
+                caption: '',
+              }
+            : {
+                kind: 'image',
+                storageKey: result.storageKey,
+                url: result.url,
+                caption: '',
+              };
+        // Default position (stagger) — read the latest slide state
+        // to compute it.
+        setDeck((prev) => {
+          if (!prev) return prev;
+          const slide = prev.slides.find((s) => s.id === slideId);
+          if (!slide) return prev;
+          const idx = slide.blocks.length;
+          const stagger = Math.min(15 + idx * 3, 60);
+          const positioned: SlideBlock = {
+            ...sliceBlock,
+            x: stagger,
+            y: stagger,
+            w: kind === 'video' ? 50 : 40,
+            h: kind === 'video' ? 30 : 35,
+          } as SlideBlock;
+          const nextBlocks = [...slide.blocks, positioned];
+          // Fire and forget — persist server-side.
+          void patchSlide(deckId, slideId, { blocks: nextBlocks }).catch((e) =>
+            setError(e instanceof Error ? e.message : String(e)),
+          );
+          return {
+            ...prev,
+            slides: prev.slides.map((s) =>
+              s.id === slideId ? { ...s, blocks: nextBlocks } : s,
+            ),
+          };
+        });
+      })
+      .catch((err) => {
+        if ((err as { name?: string }).name === 'AbortError') return;
+        setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        setPendingUploads((u) => u.filter((x) => x.id !== id));
+      });
+  }
 
   async function onAddSlides(files: File[]) {
     if (!deckId || files.length === 0) return;
@@ -440,6 +545,46 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
           Uploading slide {batchProgress.done} of {batchProgress.total}…
         </div>
       )}
+      {pendingUploads.length > 0 && (
+        <div className="mb-3 space-y-1.5 rounded border border-line bg-surface-raised p-2 text-xs">
+          <p className="text-ink-tertiary">
+            {pendingUploads.length} upload{pendingUploads.length === 1 ? '' : 's'} in progress —
+            you can keep editing other slides while these finish.
+          </p>
+          {pendingUploads.map((u) => {
+            const slide = deck.slides.find((s) => s.id === u.slideId);
+            const slideLabel = slide
+              ? `Slide ${deck.slides.findIndex((s) => s.id === u.slideId) + 1}${slide.title ? ` · ${slide.title}` : ''}`
+              : 'Unknown slide';
+            return (
+              <div key={u.id} className="space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate">
+                    {slideLabel} · {u.fileName}
+                  </span>
+                  <span className="flex items-center gap-2 tabular-nums">
+                    {Math.round(u.progress * 100)}%
+                    <button
+                      type="button"
+                      onClick={u.abort}
+                      className="text-ink-tertiary hover:text-signal-fault"
+                      aria-label="Cancel upload"
+                    >
+                      Cancel
+                    </button>
+                  </span>
+                </div>
+                <div className="h-1 w-full overflow-hidden rounded-full bg-line">
+                  <div
+                    className="h-full bg-blue-500 transition-all"
+                    style={{ width: `${Math.round(u.progress * 100)}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
       {deck.slides.length === 0 ? (
         <EmptyDeckPanel
           onAddSlides={onAddSlides}
@@ -460,6 +605,17 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
           <SlideCanvas
             deckId={deckId ?? ''}
             slide={selectedSlide}
+            pendingUploads={
+              selectedSlide
+                ? pendingUploads.filter((u) => u.slideId === selectedSlide.id)
+                : []
+            }
+            onStartMediaUpload={
+              selectedSlide
+                ? (file, kind) =>
+                    startBlockMediaUpload(selectedSlide.id, file, kind)
+                : undefined
+            }
             onReplaceImage={
               selectedSlide
                 ? (file) => onReplaceImage(selectedSlide.id, file)

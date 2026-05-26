@@ -288,15 +288,57 @@ export async function uploadSlideBlockMedia(
   slideDeckId: string,
   slideId: string,
   file: File,
+  options?: {
+    onProgress?: (loaded: number, total: number) => void;
+    signal?: AbortSignal;
+  },
 ): Promise<BlockMediaUploadResult> {
-  const form = new FormData();
-  form.append('file', file);
-  const res = await fetch(
-    `${API_BASE}/admin/slide-decks/${encodeURIComponent(slideDeckId)}/slides/${encodeURIComponent(slideId)}/block-media`,
-    { method: 'POST', headers: await authHeaders(), body: form },
-  );
-  if (!res.ok) throw new Error(`Upload ${res.status}: ${await res.text()}`);
-  return (await res.json()) as BlockMediaUploadResult;
+  // XHR rather than fetch — fetch's request body doesn't fire progress
+  // events in the browser today (a draft spec, but not shipped), so a
+  // 200 MB video upload would show no feedback at all. XHR gives us
+  // upload.onprogress for free.
+  const headers = await authHeaders();
+  return new Promise<BlockMediaUploadResult>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(
+      'POST',
+      `${API_BASE}/admin/slide-decks/${encodeURIComponent(slideDeckId)}/slides/${encodeURIComponent(
+        slideId,
+      )}/block-media`,
+      true,
+    );
+    for (const [k, v] of Object.entries(headers)) {
+      xhr.setRequestHeader(k, v);
+    }
+    xhr.upload.onprogress = (e) => {
+      if (options?.onProgress && e.lengthComputable) {
+        options.onProgress(e.loaded, e.total);
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as BlockMediaUploadResult);
+        } catch (err) {
+          reject(err);
+        }
+      } else {
+        reject(new Error(`Upload ${xhr.status}: ${xhr.responseText || xhr.statusText}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Upload failed (network error)'));
+    xhr.onabort = () => reject(new DOMException('Aborted', 'AbortError'));
+    if (options?.signal) {
+      if (options.signal.aborted) {
+        xhr.abort();
+        return;
+      }
+      options.signal.addEventListener('abort', () => xhr.abort());
+    }
+    const form = new FormData();
+    form.append('file', file);
+    xhr.send(form);
+  });
 }
 
 export async function reorderSlides(

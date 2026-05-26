@@ -19,7 +19,7 @@
 //   - Delete key when selected → remove the element.
 //   - Toolbar: insert text, image, video URL, video file.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Film,
   Image as ImageIcon,
@@ -31,7 +31,6 @@ import {
 } from 'lucide-react';
 import type { SlideBlock } from '@platform/shared';
 import { SecondaryButton } from '@/components/form';
-import { uploadSlideBlockMedia } from '@/lib/slide-course-api';
 
 type PositionedBlock = SlideBlock & {
   x?: number;
@@ -41,25 +40,38 @@ type PositionedBlock = SlideBlock & {
 };
 
 export function SlideCanvasEditor({
-  deckId,
-  slideId,
+  deckId: _deckId,
+  slideId: _slideId,
   blocks,
   imageUrl,
+  pendingUploads,
+  onStartMediaUpload,
   onChange,
-  onError,
+  onError: _onError,
 }: {
   deckId: string;
   slideId: string;
   blocks: SlideBlock[];
   imageUrl?: string | null;
+  pendingUploads?: Array<{
+    id: string;
+    fileName: string;
+    kind: 'image' | 'video';
+    progress: number;
+  }>;
+  onStartMediaUpload?: (file: File, kind: 'image' | 'video') => void;
   onChange: (next: SlideBlock[]) => Promise<void> | void;
   onError: (msg: string) => void;
 }) {
   const [selected, setSelected] = useState<number | null>(null);
-  const [busy, setBusy] = useState<'image' | 'video' | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
+  // Reset selection when the slide changes so the highlight doesn't
+  // carry over to a different slide's element at the same index.
+  useEffect(() => {
+    setSelected(null);
+  }, [_slideId]);
 
   // Append a new block with sane default position. The first few
   // inserts stagger slightly so they don't stack invisibly on top of
@@ -210,43 +222,15 @@ export function SlideCanvasEditor({
     el.addEventListener('keydown', onKey);
   }
 
-  // ---------------------------------------------------------------
-  // Media uploads (image / video file).
-  // ---------------------------------------------------------------
-  async function onPickImage(file: File): Promise<void> {
-    setBusy('image');
-    try {
-      const r = await uploadSlideBlockMedia(deckId, slideId, file);
-      append({
-        kind: 'image',
-        storageKey: r.storageKey,
-        url: r.url,
-        caption: '',
-      } as PositionedBlock);
-    } catch (e) {
-      onError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
+  // Media upload requests delegate to the parent editor so the
+  // upload survives slide switches and progress is centrally tracked.
+  function onPickImage(file: File): void {
+    onStartMediaUpload?.(file, 'image');
   }
-
-  async function onPickVideoFile(file: File): Promise<void> {
-    setBusy('video');
-    try {
-      const r = await uploadSlideBlockMedia(deckId, slideId, file);
-      append({
-        kind: 'video_file',
-        storageKey: r.storageKey,
-        url: r.url,
-        mimeType: r.contentType,
-        caption: '',
-      } as PositionedBlock);
-    } catch (e) {
-      onError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
+  function onPickVideoFile(file: File): void {
+    onStartMediaUpload?.(file, 'video');
   }
+  const busy = pendingUploads && pendingUploads.length > 0 ? 'busy' : null;
 
   return (
     <div className="space-y-3">
@@ -260,13 +244,9 @@ export function SlideCanvasEditor({
         <SecondaryButton
           type="button"
           onClick={() => imageInputRef.current?.click()}
-          disabled={busy !== null}
+          disabled={busy === 'busy'}
         >
-          {busy === 'image' ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <ImageIcon className="size-3.5" />
-          )}
+          <ImageIcon className="size-3.5" />
           Image
         </SecondaryButton>
         <input
@@ -291,13 +271,9 @@ export function SlideCanvasEditor({
         <SecondaryButton
           type="button"
           onClick={() => videoInputRef.current?.click()}
-          disabled={busy !== null}
+          disabled={busy === 'busy'}
         >
-          {busy === 'video' ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <Film className="size-3.5" />
-          )}
+          <Film className="size-3.5" />
           Video file
         </SecondaryButton>
         <input
@@ -353,6 +329,34 @@ export function SlideCanvasEditor({
             }
           />
         ))}
+        {/* In-flight uploads: stacked at the bottom of the canvas so
+            they don't visually compete with already-placed blocks. */}
+        {pendingUploads && pendingUploads.length > 0 && (
+          <div className="absolute inset-x-2 bottom-2 z-20 space-y-1.5">
+            {pendingUploads.map((u) => (
+              <div
+                key={u.id}
+                className="rounded border border-blue-500/40 bg-white/95 px-3 py-2 text-xs shadow"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5 truncate text-ink-primary">
+                    <Loader2 className="size-3 animate-spin text-accent" />
+                    Uploading {u.kind} · {u.fileName}
+                  </span>
+                  <span className="tabular-nums text-ink-tertiary">
+                    {Math.round(u.progress * 100)}%
+                  </span>
+                </div>
+                <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-line">
+                  <div
+                    className="h-full bg-blue-500 transition-all"
+                    style={{ width: `${Math.round(u.progress * 100)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <p className="text-[10px] text-ink-tertiary">

@@ -1105,47 +1105,53 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
           `Unsupported media type: ${mime}. Use an image or video.`,
         );
       }
-      const MAX_BYTES = isVideo ? 500 * 1024 * 1024 : 25 * 1024 * 1024;
 
-      const chunks: Buffer[] = [];
-      let total = 0;
-      for await (const c of file.file as unknown as AsyncIterable<Buffer>) {
-        total += c.length;
-        if (total > MAX_BYTES) {
-          return reply.payloadTooLarge(
-            `File exceeds ${Math.round(MAX_BYTES / 1024 / 1024)} MB limit.`,
-          );
+      // Stream the upload straight to storage instead of buffering the
+      // whole file into the API process. A 500 MB video used to be
+      // concat'd into one ~1 GB Buffer here (the per-chunk array plus
+      // the concatenated copy), which OOMed the 1 GB Fly app machine
+      // and surfaced as ERR_CONNECTION_RESET on the client. putStream
+      // pipes from the multipart parser through a sha256 tap into the
+      // backing store — peak memory stays low regardless of size.
+      try {
+        const stored = await storage.putStream({
+          body: file.file as unknown as NodeJS.ReadableStream,
+          filename: file.filename || (isVideo ? 'video' : 'image'),
+          contentType: mime,
+          ownerOrganizationId: ctx.ownerOrganizationId,
+        });
+        await db.insert(schema.auditEvents).values({
+          organizationId: ctx.ownerOrganizationId,
+          actorUserId: auth.userId,
+          eventType: 'slide_deck_slide.block_media_uploaded',
+          targetType: 'slide_deck_slide',
+          targetId: ctx.slide.id,
+          payload: {
+            contentType: mime,
+            sizeBytes: stored.size,
+            kind: isVideo ? 'video' : 'image',
+          },
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent'] ?? null,
+        });
+        return reply.send({
+          storageKey: stored.storageKey,
+          url: storage.publicUrl(stored.storageKey),
+          contentType: mime,
+          sizeBytes: stored.size,
+          kind: isVideo ? 'video' : 'image',
+        });
+      } catch (err) {
+        // Bubble a clean error to the client. The multipart parser
+        // itself enforces fastify's fileSize limit and throws when
+        // exceeded; surface that as a 413 with the cap.
+        const msg = err instanceof Error ? err.message : String(err);
+        if (/exceed|too large/i.test(msg)) {
+          return reply.payloadTooLarge(msg);
         }
-        chunks.push(c);
+        request.log.error({ err }, 'block-media upload failed');
+        return reply.internalServerError('Upload failed.');
       }
-      const buf = Buffer.concat(chunks);
-      const sniffed = sniffMime(buf) ?? mime;
-
-      const stored = await storage.putBuffer({
-        buffer: buf,
-        filename: file.filename || (isVideo ? 'video' : 'image'),
-        contentType: sniffed,
-        ownerOrganizationId: ctx.ownerOrganizationId,
-      });
-
-      await db.insert(schema.auditEvents).values({
-        organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
-        eventType: 'slide_deck_slide.block_media_uploaded',
-        targetType: 'slide_deck_slide',
-        targetId: ctx.slide.id,
-        payload: { contentType: sniffed, sizeBytes: stored.size, kind: isVideo ? 'video' : 'image' },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
-      });
-
-      return reply.send({
-        storageKey: stored.storageKey,
-        url: storage.publicUrl(stored.storageKey),
-        contentType: sniffed,
-        sizeBytes: stored.size,
-        kind: isVideo ? 'video' : 'image',
-      });
     },
   );
 
