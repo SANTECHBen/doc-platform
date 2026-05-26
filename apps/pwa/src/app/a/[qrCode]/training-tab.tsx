@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock,
-  Download,
   FileText,
   GraduationCap,
   ListChecks,
@@ -18,12 +17,10 @@ import {
 } from 'lucide-react';
 import type { AssetHubPayload } from '@/lib/shared-schema';
 import {
-  listDocuments,
   listTrainingModules,
   getTrainingModule,
   startEnrollment,
   submitQuiz,
-  type DocumentListItem,
   type TrainingModuleSummary,
   type TrainingModuleDetail,
   type QuizResult,
@@ -43,11 +40,6 @@ export function TrainingTab({
 }) {
   const versionId = hub.pinnedContentPackVersion?.id ?? null;
   const [modules, setModules] = useState<TrainingModuleSummary[] | null>(null);
-  // PowerPoint uploads land in documents with kind='slides'; we surface
-  // them in Training (not Documents) because slide decks are training
-  // material — reference docs is for PDFs / manuals / written procedures.
-  const [slideDecks, setSlideDecks] = useState<DocumentListItem[] | null>(null);
-  const [activeDeck, setActiveDeck] = useState<DocumentListItem | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState<string | null>(null);
 
@@ -63,22 +55,6 @@ export function TrainingTab({
       cancelled = true;
     };
   }, [versionId]);
-
-  useEffect(() => {
-    if (!versionId) return;
-    let cancelled = false;
-    listDocuments(versionId, 'en', false, hub.assetInstance.id)
-      .then((docs) => {
-        if (cancelled) return;
-        setSlideDecks(docs.filter((d) => d.kind === 'slides'));
-      })
-      .catch(() => {
-        if (!cancelled) setSlideDecks([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [versionId, hub.assetInstance.id]);
 
   if (!versionId) {
     return (
@@ -103,15 +79,6 @@ export function TrainingTab({
   if (error) return <ErrorBanner text={error} />;
   if (!modules) return <RowListSkeleton />;
 
-  if (activeDeck) {
-    return (
-      <SlideDeckViewer
-        deck={activeDeck}
-        onBack={() => setActiveDeck(null)}
-      />
-    );
-  }
-
   if (active) {
     return (
       <ModuleRunner
@@ -128,15 +95,14 @@ export function TrainingTab({
     );
   }
 
-  const hasDecks = (slideDecks?.length ?? 0) > 0;
   const hasModules = modules.length > 0;
 
-  if (!hasDecks && !hasModules) {
+  if (!hasModules) {
     return (
       <EmptyState
         icon={GraduationCap}
-        title="No training material"
-        description="Nothing has been published for this revision yet."
+        title="No training modules"
+        description="An admin needs to create a training module for this content pack and attach activities (quizzes or slide courses)."
         tone="neutral"
       />
     );
@@ -144,45 +110,8 @@ export function TrainingTab({
 
   return (
     <div className="flex flex-col gap-4">
-      {hasDecks && (
-        <section className="flex flex-col gap-2">
-          <p className="cap px-1">Slide decks</p>
-          <ul className="flex flex-col gap-2">
-            {slideDecks!.map((d) => (
-              <li key={d.id}>
-                <button
-                  type="button"
-                  onClick={() => setActiveDeck(d)}
-                  className="surface-etched flex w-full items-center gap-3 px-4 py-3 text-left"
-                >
-                  <div className="icon-chip icon-chip-info">
-                    <Presentation size={16} strokeWidth={1.75} />
-                  </div>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-ink-primary">
-                      {d.title}
-                    </span>
-                    {d.originalFilename && (
-                      <span className="block truncate font-mono text-[11px] text-ink-tertiary">
-                        {d.originalFilename}
-                      </span>
-                    )}
-                  </span>
-                  <ChevronRight
-                    size={14}
-                    strokeWidth={2}
-                    className="shrink-0 text-ink-tertiary"
-                  />
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
       {hasModules && (
         <section className="flex flex-col gap-2">
-          {hasDecks && <p className="cap px-1">Training modules</p>}
           <ul className="flex flex-col gap-2">
             {modules.map((m) => (
               <li key={m.id}>
@@ -231,57 +160,6 @@ export function TrainingTab({
   );
 }
 
-// In-tab viewer for a PowerPoint deck. Uses Microsoft's hosted Office
-// Online iframe so techs see slides rendered without needing PowerPoint
-// installed. Source file is on R2's public bucket which the viewer
-// fetches over HTTPS.
-function SlideDeckViewer({
-  deck,
-  onBack,
-}: {
-  deck: DocumentListItem;
-  onBack: () => void;
-}) {
-  const fileUrl = deck.fileUrl ?? null;
-  const officeViewer = fileUrl
-    ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}`
-    : null;
-  return (
-    <div className="flex h-full flex-col gap-3">
-      <div className="flex items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={onBack}
-          className="inline-flex items-center gap-1 text-sm text-ink-secondary hover:text-ink-primary"
-        >
-          <ArrowLeft size={14} strokeWidth={2} /> Back
-        </button>
-        {fileUrl && (
-          <a
-            href={fileUrl}
-            download={deck.originalFilename ?? undefined}
-            className="inline-flex items-center gap-1.5 rounded border border-line bg-surface-elevated px-3 py-1.5 text-xs text-ink-primary hover:bg-surface-raised"
-          >
-            <Download size={12} strokeWidth={2} />
-            Download
-          </a>
-        )}
-      </div>
-      <h2 className="text-base font-semibold text-ink-primary">{deck.title}</h2>
-      {officeViewer ? (
-        <iframe
-          src={officeViewer}
-          title={deck.title}
-          className="h-[70vh] w-full rounded-md border border-line bg-white"
-        />
-      ) : (
-        <p className="rounded-md border border-line bg-surface-inset p-4 text-sm text-ink-secondary">
-          This slide deck has no file attached.
-        </p>
-      )}
-    </div>
-  );
-}
 
 function EnrollmentBadge({
   enrollment,
