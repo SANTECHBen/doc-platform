@@ -200,6 +200,10 @@ function ModuleRunner({
   onDone: (summary: TrainingModuleSummary) => void;
 }) {
   const [detail, setDetail] = useState<TrainingModuleDetail | null>(null);
+  // Enrollment is lazy. Slide-course activities don't need it (the
+  // scan-session player at /a/[qr]/courses/[activityId] grades
+  // anonymously). Quiz activities still require an enrollment for
+  // server-side scoring — we start one when the learner taps a quiz.
   const [enrollmentId, setEnrollmentId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<QuizResult | null>(null);
@@ -209,28 +213,43 @@ function ModuleRunner({
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      getTrainingModule(moduleId),
-      startEnrollment({
-        trainingModuleId: moduleId,
-        assetInstanceId: hub.assetInstance.id,
-        devUserId: DEV_USER_ID,
-        devOrgId: DEV_ORG_ID,
-      }),
-    ])
-      .then(([mod, enr]) => {
+    // Module detail is scan-session-readable — no enrollment yet.
+    getTrainingModule(moduleId)
+      .then((mod) => {
         if (cancelled) return;
         setDetail(mod);
-        setEnrollmentId(enr.id);
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
     return () => {
       cancelled = true;
     };
-  }, [moduleId, hub.assetInstance.id]);
+  }, [moduleId]);
+
+  async function ensureEnrollment(): Promise<string | null> {
+    if (enrollmentId) return enrollmentId;
+    if (!DEV_USER_ID || !DEV_ORG_ID) {
+      setError(
+        'Quizzes need an authenticated learner — Microsoft sign-in for the PWA is not wired up yet.',
+      );
+      return null;
+    }
+    try {
+      const enr = await startEnrollment({
+        trainingModuleId: moduleId,
+        assetInstanceId: hub.assetInstance.id,
+        devUserId: DEV_USER_ID,
+        devOrgId: DEV_ORG_ID,
+      });
+      setEnrollmentId(enr.id);
+      return enr.id;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return null;
+    }
+  }
 
   if (error) return <ErrorBanner text={error} />;
-  if (!detail || !enrollmentId) return <RowListSkeleton count={3} />;
+  if (!detail) return <RowListSkeleton count={3} />;
 
   function summarize(): TrainingModuleSummary {
     return {
@@ -266,8 +285,10 @@ function ModuleRunner({
         onSubmit={async () => {
           setSubmitting(true);
           try {
+            const enrId = await ensureEnrollment();
+            if (!enrId) return;
             const res = await submitQuiz({
-              enrollmentId,
+              enrollmentId: enrId,
               activityId: activity.id,
               answers: answers[activity.id] ?? [],
               devUserId: DEV_USER_ID,
