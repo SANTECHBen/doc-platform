@@ -129,6 +129,34 @@ export async function patchSlideDeck(
   return (await res.json()) as SlideDeckSummary;
 }
 
+export async function createTrainingCourse(
+  contentPackVersionId: string,
+  body: { title: string },
+): Promise<{
+  documentId: string;
+  slideDeckId: string;
+  trainingModuleId: string;
+  activityId: string;
+}> {
+  const res = await fetch(
+    `${API_BASE}/admin/content-pack-versions/${encodeURIComponent(
+      contentPackVersionId,
+    )}/training-courses`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as {
+    documentId: string;
+    slideDeckId: string;
+    trainingModuleId: string;
+    activityId: string;
+  };
+}
+
 export async function autoConvertDocumentToSlideDeck(
   documentId: string,
 ): Promise<SlideDeckSummary> {

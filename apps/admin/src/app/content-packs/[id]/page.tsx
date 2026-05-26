@@ -17,6 +17,7 @@ import {
   Package,
   Pencil,
   Plus,
+  Presentation,
   RefreshCw,
   RotateCcw,
   Send,
@@ -93,6 +94,10 @@ export default function ContentPackDetail({
   const [busy, setBusy] = useState(false);
   const [addOpen, setAddOpen] = useState<string | null>(null);
   const [moduleOpen, setModuleOpen] = useState<string | null>(null);
+  // Streamlined "Add training" affordance — one form, creates the
+  // document + slide-deck + training module + activity in one
+  // transaction and routes the author into the course editor.
+  const [addTrainingOpen, setAddTrainingOpen] = useState<string | null>(null);
   // Super-admin bypass: when the signed-in user is a PLATFORM_ADMIN_EMAILS
   // member, the API allows edits/deletes on published versions. The UI mirrors
   // that by exposing the same action buttons on published rows and surfacing
@@ -399,6 +404,12 @@ export default function ContentPackDetail({
                         <SecondaryButton onClick={() => setAddOpen(v.id)} disabled={busy}>
                           <FilePlus2 size={14} strokeWidth={2} /> Add document
                         </SecondaryButton>
+                        <SecondaryButton
+                          onClick={() => setAddTrainingOpen(v.id)}
+                          disabled={busy}
+                        >
+                          <Presentation size={14} strokeWidth={2} /> Add training
+                        </SecondaryButton>
                         <PrimaryButton
                           onClick={() =>
                             router.push(
@@ -595,7 +606,91 @@ export default function ContentPackDetail({
           />
         )}
       </Drawer>
+
+      <Drawer
+        title="Add training course"
+        open={addTrainingOpen !== null}
+        onClose={() => setAddTrainingOpen(null)}
+      >
+        {addTrainingOpen && (
+          <AddTrainingCourseForm
+            versionId={addTrainingOpen}
+            onCreated={(documentId) => {
+              setAddTrainingOpen(null);
+              router.push(`/documents/${documentId}/course`);
+            }}
+          />
+        )}
+      </Drawer>
     </PageShell>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AddTrainingCourseForm — one-shot replacement for the "Add document →
+// pick kind=slides → upload PPTX → Sections page → Open course editor"
+// dance. Asks for a title, hits the new server endpoint that creates
+// document + slide_deck + training_module + activity in a transaction,
+// then routes the author directly into the course editor where they
+// can upload slide images, author voiceover, and add interactions.
+// ---------------------------------------------------------------------------
+function AddTrainingCourseForm({
+  versionId,
+  onCreated,
+}: {
+  versionId: string;
+  onCreated: (documentId: string) => void;
+}) {
+  const [title, setTitle] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!title.trim()) {
+      setError('Title is required.');
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const { createTrainingCourse } = await import('@/lib/slide-course-api');
+      const result = await createTrainingCourse(versionId, { title: title.trim() });
+      onCreated(result.documentId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-4">
+      <ErrorBanner error={error} />
+      <p className="text-sm text-ink-secondary">
+        Creates a slide-based training course and opens the course editor. You
+        can upload slide images one at a time or all at once, attach voiceover,
+        add quizzes, and pick navigation gates per slide.
+      </p>
+      <Field
+        label="Training title"
+        hint="What the learner sees in the PWA training tab."
+        required
+      >
+        <TextInput
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Forklift inspection — pre-shift"
+          required
+          autoFocus
+        />
+      </Field>
+      <div className="flex justify-end">
+        <PrimaryButton type="submit" disabled={submitting}>
+          {submitting ? 'Creating…' : 'Create and open editor'}
+        </PrimaryButton>
+      </div>
+    </form>
   );
 }
 

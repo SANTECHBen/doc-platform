@@ -569,6 +569,99 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
   );
 
   // -------------------------------------------------------------------------
+  // POST /admin/content-pack-versions/:versionId/training-courses
+  //
+  // One-shot "Add training" affordance. Creates the document row (kind=
+  // 'slides', no PPTX attached), the slide_decks row in ready state, the
+  // wrapping training module, and the slide_course activity. Returns
+  // both IDs so the admin UI can route the author straight into the
+  // course editor. Replaces the old multi-step flow (Add document → pick
+  // kind=slides → upload → open document → Open course editor) with a
+  // single click.
+  // -------------------------------------------------------------------------
+  app.post<{
+    Params: { versionId: string };
+    Body: { title: string };
+  }>(
+    '/admin/content-pack-versions/:versionId/training-courses',
+    {
+      schema: {
+        params: z.object({ versionId: UuidSchema }),
+        body: z.object({ title: z.string().min(1).max(200) }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const version = await db.query.contentPackVersions.findFirst({
+        where: eq(schema.contentPackVersions.id, request.params.versionId),
+        with: { pack: true },
+      });
+      if (!version) return reply.notFound();
+      requireOrgInScope(scope, version.pack.ownerOrganizationId);
+      if (version.status !== 'draft' && !request.auth?.platformAdmin) {
+        return reply.badRequest(
+          'Training can only be added to draft content pack versions.',
+        );
+      }
+
+      const result = await db.transaction(async (tx) => {
+        const [document] = await tx
+          .insert(schema.documents)
+          .values({
+            contentPackVersionId: version.id,
+            kind: 'slides',
+            title: request.body.title,
+            extractionStatus: 'not_applicable',
+          })
+          .returning();
+        if (!document) throw new Error('Failed to create document row.');
+        const [deck] = await tx
+          .insert(schema.slideDecks)
+          .values({
+            documentId: document.id,
+            conversionStatus: 'ready',
+            conversionCompletedAt: new Date(),
+            slideCount: 0,
+          })
+          .returning();
+        if (!deck) throw new Error('Failed to create slide_decks row.');
+        return { document, deck };
+      });
+
+      // Wrap in a training module + activity so /training and the PWA
+      // surface the course without a separate "publish" step.
+      const wrap = await ensureTrainingModuleForDeck(
+        db,
+        result.document,
+        result.deck.id,
+      );
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: version.pack.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'slide_deck.training_course_created',
+        targetType: 'slide_deck',
+        targetId: result.deck.id,
+        payload: {
+          documentId: result.document.id,
+          trainingModuleId: wrap.moduleId,
+        },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+
+      return reply.send({
+        documentId: result.document.id,
+        slideDeckId: result.deck.id,
+        trainingModuleId: wrap.moduleId,
+        activityId: wrap.activityId,
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // POST /admin/documents/:documentId/slide-deck
   //
   // Create a blank slide deck for manual authoring. Used when an author
