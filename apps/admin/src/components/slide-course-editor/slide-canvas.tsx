@@ -7,19 +7,25 @@
 // into edit mode later; for v1 the rail-→-canvas-→-settings flow is
 // straightforward enough.
 
-import { Image as ImageIcon, RefreshCcw, Trash2 } from 'lucide-react';
+import { RefreshCcw, Trash2 } from 'lucide-react';
 import { GhostButton, SecondaryButton } from '@/components/form';
-import type { SlideDto } from '@/lib/slide-course-api';
-import type { SlideBlock } from '@platform/shared';
+import { SlideCanvasEditor } from './slide-canvas-editor';
+import { patchSlide, type SlideDto } from '@/lib/slide-course-api';
 
 export function SlideCanvas({
+  deckId,
   slide,
   onReplaceImage,
   onDeleteSlide,
+  onLocalUpdate,
+  onError,
 }: {
+  deckId: string;
   slide: SlideDto | null;
   onReplaceImage?: (file: File) => Promise<void>;
   onDeleteSlide?: () => Promise<void> | void;
+  onLocalUpdate?: (patch: Partial<SlideDto>) => void;
+  onError?: (msg: string) => void;
 }) {
   if (!slide) {
     return (
@@ -70,40 +76,32 @@ export function SlideCanvas({
           )}
         </div>
       </header>
-      <div className="relative w-full overflow-hidden rounded border border-line bg-surface">
-        {slide.imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={slide.imageUrl}
-            alt={`Slide ${slide.slideIndex + 1}`}
-            className="block h-auto w-full"
-          />
-        ) : slide.blocks.length === 0 ? (
-          <div className="flex aspect-video items-center justify-center text-ink-tertiary">
-            <ImageIcon className="size-8" />
-          </div>
-        ) : null}
-        {slide.interactions.length > 0 && (
-          <div className="absolute right-3 top-3 flex flex-col gap-2">
-            {slide.interactions.map((it, i) => (
-              <span
-                key={it.id}
-                title={`${it.kind} · ${it.prompt}`}
-                className="flex size-7 items-center justify-center rounded-full bg-accent text-xs font-medium text-on-accent shadow"
-              >
-                {i + 1}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-      {slide.blocks.length > 0 && (
-        <div className="space-y-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-ink-tertiary">
-            Content preview
-          </p>
-          {slide.blocks.map((b, i) => (
-            <BlockPreview key={i} block={b} />
+      <SlideCanvasEditor
+        deckId={deckId}
+        slideId={slide.id}
+        blocks={slide.blocks}
+        imageUrl={slide.imageUrl ?? null}
+        onChange={async (next) => {
+          onLocalUpdate?.({ blocks: next });
+          try {
+            await patchSlide(deckId, slide.id, { blocks: next });
+          } catch (e) {
+            onError?.(e instanceof Error ? e.message : String(e));
+          }
+        }}
+        onError={(m) => onError?.(m)}
+      />
+      {slide.interactions.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <span className="text-xs text-ink-tertiary">Quiz interactions:</span>
+          {slide.interactions.map((it, i) => (
+            <span
+              key={it.id}
+              title={`${it.kind} · ${it.prompt}`}
+              className="flex size-6 items-center justify-center rounded-full bg-accent text-xs font-medium text-on-accent"
+            >
+              {i + 1}
+            </span>
           ))}
         </div>
       )}
@@ -122,80 +120,3 @@ export function SlideCanvas({
   );
 }
 
-// Quick admin-side preview of a content block. Not as polished as the
-// PWA player (no markdown rendering yet — admin doesn't have
-// react-markdown installed), but enough to confirm what's authored.
-function BlockPreview({ block }: { block: SlideBlock }) {
-  if (block.kind === 'text') {
-    return (
-      <div className="rounded border border-line bg-surface p-3 text-sm">
-        {block.markdown.trim().length === 0 ? (
-          <span className="italic text-ink-tertiary">(empty text block)</span>
-        ) : (
-          <pre className="whitespace-pre-wrap font-sans text-ink-primary">
-            {block.markdown}
-          </pre>
-        )}
-      </div>
-    );
-  }
-  if (block.kind === 'image') {
-    return (
-      <figure className="space-y-1">
-        {block.url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={block.url}
-            alt={block.caption ?? ''}
-            className="w-full rounded border border-line"
-          />
-        ) : (
-          <div className="flex aspect-video items-center justify-center rounded border border-dashed border-line text-ink-tertiary">
-            <ImageIcon className="size-8" />
-          </div>
-        )}
-        {block.caption && (
-          <figcaption className="text-xs text-ink-tertiary">{block.caption}</figcaption>
-        )}
-      </figure>
-    );
-  }
-  if (block.kind === 'video_file') {
-    return (
-      <figure className="space-y-1">
-        {block.url && (
-          <video
-            src={block.url}
-            controls
-            className="w-full rounded border border-line"
-          />
-        )}
-        {block.caption && (
-          <figcaption className="text-xs text-ink-tertiary">{block.caption}</figcaption>
-        )}
-      </figure>
-    );
-  }
-  // video_url
-  return (
-    <figure className="space-y-1">
-      <div className="rounded border border-line bg-surface p-3 text-sm">
-        {block.url.trim().length === 0 ? (
-          <span className="italic text-ink-tertiary">(no URL yet)</span>
-        ) : (
-          <a
-            href={block.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-accent underline"
-          >
-            {block.url}
-          </a>
-        )}
-      </div>
-      {block.caption && (
-        <figcaption className="text-xs text-ink-tertiary">{block.caption}</figcaption>
-      )}
-    </figure>
-  );
-}

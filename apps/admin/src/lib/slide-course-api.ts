@@ -183,14 +183,17 @@ export async function createSlideDeckForDocument(
 
 export async function createBlankSlide(
   slideDeckId: string,
-  options?: { title?: string },
+  options?: { title?: string; afterSlideId?: string },
 ): Promise<SlideDto> {
   const res = await fetch(
     `${API_BASE}/admin/slide-decks/${encodeURIComponent(slideDeckId)}/blank-slide`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...(await authHeaders()) },
-      body: JSON.stringify({ title: options?.title }),
+      body: JSON.stringify({
+        title: options?.title,
+        afterSlideId: options?.afterSlideId,
+      }),
     },
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);

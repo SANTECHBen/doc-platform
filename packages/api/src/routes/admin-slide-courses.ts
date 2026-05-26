@@ -964,13 +964,19 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
   // -------------------------------------------------------------------------
   app.post<{
     Params: { id: string };
-    Body: { title?: string };
+    Body: { title?: string; afterSlideId?: string };
   }>(
     '/admin/slide-decks/:id/blank-slide',
     {
       schema: {
         params: z.object({ id: UuidSchema }),
-        body: z.object({ title: z.string().max(200).optional() }),
+        body: z.object({
+          title: z.string().max(200).optional(),
+          // When set, the new slide's orderingHint slots in
+          // immediately after this slide so it appears right below
+          // it in the rail.
+          afterSlideId: UuidSchema.optional(),
+        }),
       },
     },
     async (request, reply) => {
@@ -986,11 +992,46 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
           orderBy: [desc(schema.slideDeckSlides.slideIndex)],
         });
         const nextIndex = (last?.slideIndex ?? -1) + 1;
-        const lastOrder = await tx.query.slideDeckSlides.findFirst({
-          where: eq(schema.slideDeckSlides.slideDeckId, ctx.deck.id),
-          orderBy: [desc(schema.slideDeckSlides.orderingHint)],
-        });
-        const nextOrder = (lastOrder?.orderingHint ?? -1) + 1;
+        // Default: append at the end of the visible order.
+        let nextOrder: number;
+        if (request.body.afterSlideId) {
+          // Insert immediately after the referenced slide. Find its
+          // orderingHint and the next-highest hint; place the new
+          // slide in between using a fractional value.
+          const anchor = await tx.query.slideDeckSlides.findFirst({
+            where: and(
+              eq(schema.slideDeckSlides.id, request.body.afterSlideId),
+              eq(schema.slideDeckSlides.slideDeckId, ctx.deck.id),
+            ),
+          });
+          if (!anchor) {
+            // Anchor not found — fall back to append.
+            const lastOrder = await tx.query.slideDeckSlides.findFirst({
+              where: eq(schema.slideDeckSlides.slideDeckId, ctx.deck.id),
+              orderBy: [desc(schema.slideDeckSlides.orderingHint)],
+            });
+            nextOrder = (lastOrder?.orderingHint ?? -1) + 1;
+          } else {
+            // Find the next slide by orderingHint to compute the
+            // fractional midpoint.
+            const allSlides = await tx.query.slideDeckSlides.findMany({
+              where: eq(schema.slideDeckSlides.slideDeckId, ctx.deck.id),
+              orderBy: [asc(schema.slideDeckSlides.orderingHint)],
+              columns: { id: true, orderingHint: true },
+            });
+            const idx = allSlides.findIndex((s) => s.id === anchor.id);
+            const after = allSlides[idx + 1];
+            nextOrder = after
+              ? (anchor.orderingHint + after.orderingHint) / 2
+              : anchor.orderingHint + 1;
+          }
+        } else {
+          const lastOrder = await tx.query.slideDeckSlides.findFirst({
+            where: eq(schema.slideDeckSlides.slideDeckId, ctx.deck.id),
+            orderBy: [desc(schema.slideDeckSlides.orderingHint)],
+          });
+          nextOrder = (lastOrder?.orderingHint ?? -1) + 1;
+        }
         const [row] = await tx
           .insert(schema.slideDeckSlides)
           .values({

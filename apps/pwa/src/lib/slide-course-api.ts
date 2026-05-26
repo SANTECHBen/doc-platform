@@ -35,11 +35,23 @@ export interface PlayerInteraction {
   config: Record<string, unknown>;
 }
 
+// Position fields shared by all block types. All are percentages of
+// the 16:9 slide canvas. When present the block renders absolutely;
+// when absent the player falls back to a vertical stack below the
+// slide image (legacy behavior for the early content-slide model).
+type Pos = {
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  z?: number;
+};
+
 export type PlayerBlock =
-  | { kind: 'text'; markdown: string }
-  | { kind: 'image'; url: string; caption?: string; width?: number; height?: number }
-  | { kind: 'video_url'; url: string; caption?: string }
-  | { kind: 'video_file'; url: string; mimeType: string; caption?: string };
+  | ({ kind: 'text'; markdown: string; fontSize?: number; align?: 'left' | 'center' | 'right' } & Pos)
+  | ({ kind: 'image'; url: string; caption?: string; width?: number; height?: number } & Pos)
+  | ({ kind: 'video_url'; url: string; caption?: string } & Pos)
+  | ({ kind: 'video_file'; url: string; mimeType: string; caption?: string } & Pos);
 
 export interface PlayerSlide {
   id: string;

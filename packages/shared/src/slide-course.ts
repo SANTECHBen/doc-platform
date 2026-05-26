@@ -130,9 +130,25 @@ export const SLIDE_INTERACTION_KIND_LABELS: Record<SlideInteractionConfig['kind'
 // anything yet" without rejecting the whole save. The player ignores
 // blocks with no usable content; the editor surfaces the empty state.
 
+// Canvas position fields. All four are percentages of the 16:9 slide
+// canvas (0–100). When present the element renders absolutely
+// positioned; when absent the block falls back to a stacked vertical
+// layout below the slide image. New inserts from the canvas toolbar
+// always set these.
+const PositionFields = {
+  x: z.number().min(-50).max(150).optional(),
+  y: z.number().min(-50).max(150).optional(),
+  w: z.number().min(1).max(200).optional(),
+  h: z.number().min(1).max(200).optional(),
+  z: z.number().int().min(-50).max(50).optional(),
+};
+
 export const SlideTextBlockSchema = z.object({
   kind: z.literal('text'),
   markdown: z.string().max(16000),
+  fontSize: z.number().min(8).max(96).optional(),
+  align: z.enum(['left', 'center', 'right']).optional(),
+  ...PositionFields,
 });
 
 export const SlideImageBlockSchema = z.object({
@@ -142,6 +158,7 @@ export const SlideImageBlockSchema = z.object({
   caption: z.string().max(500).optional(),
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
+  ...PositionFields,
 });
 
 export const SlideVideoUrlBlockSchema = z.object({
@@ -150,6 +167,7 @@ export const SlideVideoUrlBlockSchema = z.object({
   // skips empties.
   url: z.string().max(2000),
   caption: z.string().max(500).optional(),
+  ...PositionFields,
 });
 
 export const SlideVideoFileBlockSchema = z.object({
@@ -158,6 +176,7 @@ export const SlideVideoFileBlockSchema = z.object({
   url: z.string().max(2000).optional(),
   mimeType: z.string().min(1).max(120),
   caption: z.string().max(500).optional(),
+  ...PositionFields,
 });
 
 export const SlideBlockSchema = z.discriminatedUnion('kind', [

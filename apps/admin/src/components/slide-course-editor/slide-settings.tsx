@@ -32,8 +32,6 @@ import {
   type SlideInteractionDto,
 } from '@/lib/slide-course-api';
 import { InteractionsPanel } from './interactions-panel';
-import { BlocksEditor } from './blocks-editor';
-import { patchSlide } from '@/lib/slide-course-api';
 
 type Tab = 'content' | 'voiceover' | 'interactions' | 'navigation';
 
@@ -76,13 +74,7 @@ export function SlideSettings(props: SlideSettingsProps) {
       </nav>
       <div className="flex-1 overflow-y-auto p-3">
         {tab === 'content' && (
-          <ContentTab
-            deckId={deckId}
-            slide={slide}
-            onPatchSlide={onPatchSlide}
-            onLocalUpdate={onLocalUpdate}
-            onError={onError}
-          />
+          <ContentTab slide={slide} onPatchSlide={onPatchSlide} />
         )}
         {tab === 'voiceover' && (
           <VoiceoverTab
@@ -138,17 +130,11 @@ function TabBtn({
 // ---------------------------------------------------------------------------
 
 function ContentTab({
-  deckId,
   slide,
   onPatchSlide,
-  onLocalUpdate,
-  onError,
 }: {
-  deckId: string;
   slide: SlideDto;
   onPatchSlide: (patch: { title?: string | null; scriptMarkdown?: string | null }) => Promise<void>;
-  onLocalUpdate: (patch: Partial<SlideDto>) => void;
-  onError: (msg: string) => void;
 }) {
   const [title, setTitle] = useState(slide.title ?? '');
   const [script, setScript] = useState(slide.scriptMarkdown ?? '');
@@ -207,28 +193,6 @@ function ContentTab({
           <Loader2 className="size-3 animate-spin" /> Saving…
         </p>
       )}
-      <hr className="border-line" />
-      <div>
-        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-tertiary">
-          Content blocks
-        </p>
-        <BlocksEditor
-          deckId={deckId}
-          slideId={slide.id}
-          blocks={slide.blocks}
-          onChange={async (next) => {
-            // Optimistic local update so the editor stays snappy;
-            // server persists the array via slide PATCH.
-            onLocalUpdate({ blocks: next });
-            try {
-              await patchSlide(deckId, slide.id, { blocks: next });
-            } catch (e) {
-              onError(e instanceof Error ? e.message : String(e));
-            }
-          }}
-          onError={onError}
-        />
-      </div>
     </div>
   );
 }

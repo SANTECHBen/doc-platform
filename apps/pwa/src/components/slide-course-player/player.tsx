@@ -426,16 +426,33 @@ function SlideView({
         'max-w-full',
       ].join(' ')
     : 'block w-full rounded border border-line';
+  const positioned = slide.blocks.filter(
+    (b) => b.x !== undefined || b.y !== undefined,
+  );
+  const stacked = slide.blocks.filter(
+    (b) => b.x === undefined && b.y === undefined,
+  );
+  const showCanvas = slide.imageUrl !== null || positioned.length > 0;
   return (
     <section className="space-y-3">
       {slide.title && <h2 className="text-base font-medium">{slide.title}</h2>}
-      {slide.imageUrl && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={slide.imageUrl}
-          alt={slide.title ?? `Slide ${slide.index + 1}`}
-          className={imgClass}
-        />
+      {showCanvas && (
+        <div
+          className="relative w-full overflow-hidden rounded border border-line bg-white"
+          style={{ aspectRatio: '16 / 9' }}
+        >
+          {slide.imageUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={slide.imageUrl}
+              alt={slide.title ?? `Slide ${slide.index + 1}`}
+              className="pointer-events-none absolute inset-0 size-full object-contain"
+            />
+          )}
+          {positioned.map((b, i) => (
+            <PositionedBlock key={i} block={b} />
+          ))}
+        </div>
       )}
       {slide.voiceoverUrl && (
         <audio
@@ -447,9 +464,9 @@ function SlideView({
           className="w-full"
         />
       )}
-      {slide.blocks.length > 0 && (
+      {stacked.length > 0 && (
         <div className="space-y-3">
-          {slide.blocks.map((b, i) => (
+          {stacked.map((b, i) => (
             <BlockView key={i} block={b} />
           ))}
         </div>
@@ -460,6 +477,83 @@ function SlideView({
         </div>
       )}
     </section>
+  );
+}
+
+// PositionedBlock — renders a block absolutely on a 16:9 canvas, mirror
+// of the admin's SlideCanvasEditor placement.
+function PositionedBlock({ block }: { block: PlayerBlock }) {
+  const x = block.x ?? 10;
+  const y = block.y ?? 10;
+  const w = block.w ?? 50;
+  const h = block.h ?? 25;
+  const style: React.CSSProperties = {
+    position: 'absolute',
+    left: `${x}%`,
+    top: `${y}%`,
+    width: `${w}%`,
+    height: `${h}%`,
+  };
+  if (block.kind === 'text') {
+    return (
+      <div
+        style={{
+          ...style,
+          fontSize: block.fontSize ? `${block.fontSize}px` : undefined,
+          textAlign: block.align ?? 'left',
+        }}
+        className="overflow-hidden whitespace-pre-wrap p-2 text-sm text-ink-primary"
+      >
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.markdown}</ReactMarkdown>
+      </div>
+    );
+  }
+  if (block.kind === 'image') {
+    return (
+      <img
+        style={style}
+        src={block.url}
+        alt={block.caption ?? ''}
+        // eslint-disable-next-line @next/next/no-img-element
+        className="object-contain"
+      />
+    );
+  }
+  if (block.kind === 'video_file') {
+    return (
+      <video
+        style={style}
+        src={block.url}
+        controls
+        playsInline
+        className="object-contain"
+      />
+    );
+  }
+  // video_url
+  const embed = embeddableSrc(block.url);
+  if (!embed) {
+    return (
+      <a
+        style={style}
+        href={block.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center justify-center rounded border border-line bg-surface text-xs text-accent underline"
+      >
+        {block.url}
+      </a>
+    );
+  }
+  return (
+    <iframe
+      style={style}
+      src={embed}
+      title={block.caption ?? 'Video'}
+      className="border-0"
+      allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+      allowFullScreen
+    />
   );
 }
 

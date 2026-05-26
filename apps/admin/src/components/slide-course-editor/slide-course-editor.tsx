@@ -278,20 +278,28 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
   async function onAddContentSlide() {
     if (!deckId) return;
     try {
-      const created = await createBlankSlide(deckId, { title: 'New slide' });
+      // Insert the new slide directly after the currently-selected
+      // one (PowerPoint convention). If nothing is selected, falls
+      // back to append at the end.
+      const created = await createBlankSlide(deckId, {
+        title: 'New slide',
+        afterSlideId: selectedSlideId ?? undefined,
+      });
       setDeck((prev) => {
         if (!prev) return prev;
+        const next = [...prev.slides, { ...created, interactions: [] }];
+        next.sort((a, b) =>
+          a.orderingHint === b.orderingHint
+            ? a.slideIndex - b.slideIndex
+            : a.orderingHint - b.orderingHint,
+        );
         return {
           ...prev,
           deck: { ...prev.deck, slideCount: prev.deck.slideCount + 1 },
-          slides: [...prev.slides, { ...created, interactions: [] }],
+          slides: next,
         };
       });
       setSelectedSlideId(created.id);
-      toast.success(
-        'Content slide added',
-        'Open the Content tab on the right to add text, images, or videos.',
-      );
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -450,6 +458,7 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
             onAddContentSlide={onAddContentSlide}
           />
           <SlideCanvas
+            deckId={deckId ?? ''}
             slide={selectedSlide}
             onReplaceImage={
               selectedSlide
@@ -459,6 +468,12 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
             onDeleteSlide={
               selectedSlide ? () => onDeleteSlide(selectedSlide.id) : undefined
             }
+            onLocalUpdate={
+              selectedSlide
+                ? (patch) => applySlideUpdate(selectedSlide.id, patch)
+                : undefined
+            }
+            onError={(e) => setError(e)}
           />
           {selectedSlide && deckId && (
             <SlideSettings
