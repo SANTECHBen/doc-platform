@@ -324,7 +324,12 @@ export function SlideCoursePlayer({ activityId, onExit }: PlayerProps) {
         slides={deck.slides}
       />
 
-      <SlideView slide={currentSlide} onVoiceoverEnded={onVoiceoverEnded} />
+      <SlideView
+        slide={currentSlide}
+        isFullscreen={isFullscreen}
+        hasInteractions={currentSlide.interactions.length > 0}
+        onVoiceoverEnded={onVoiceoverEnded}
+      />
 
       {currentSlide.interactions.length > 0 && (
         <section className="space-y-3 rounded border border-line bg-surface-raised p-3">
@@ -365,12 +370,31 @@ export function SlideCoursePlayer({ activityId, onExit }: PlayerProps) {
 
 function SlideView({
   slide,
+  isFullscreen,
+  hasInteractions,
   onVoiceoverEnded,
 }: {
   slide: PlayerSlide;
+  isFullscreen: boolean;
+  hasInteractions: boolean;
   onVoiceoverEnded: () => void;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Tighten the image's height in fullscreen so the whole slide fits
+  // inside the device viewport without scrolling. The subtracted values
+  // reserve space for the fixed header, bottom nav, and any
+  // interactions/audio below. We use `dvh` (dynamic viewport height) so
+  // mobile browser chrome (URL bar showing/hiding) doesn't clip the
+  // image; `vh` is the fallback for older engines.
+  const imgClass = isFullscreen
+    ? [
+        'mx-auto block w-auto rounded border border-line object-contain',
+        hasInteractions
+          ? 'max-h-[40dvh] sm:max-h-[55dvh]'
+          : 'max-h-[calc(100dvh-180px)]',
+        'max-w-full',
+      ].join(' ')
+    : 'block w-full rounded border border-line';
   return (
     <section className="space-y-3">
       {slide.title && <h2 className="text-base font-medium">{slide.title}</h2>}
@@ -379,7 +403,7 @@ function SlideView({
         <img
           src={slide.imageUrl}
           alt={slide.title ?? `Slide ${slide.index + 1}`}
-          className="w-full rounded border border-line"
+          className={imgClass}
         />
       )}
       {slide.voiceoverUrl && (
