@@ -1,48 +1,43 @@
 -- Slide-course tables.
 --
 -- A slide course is the authored eLearning experience produced from a PPTX
--- upload. The conversion worker (packages/api/src/worker.ts → pptx-render.ts)
--- writes slide_decks + slide_deck_slides rows after rendering PNGs. Admins
--- edit interactions/voiceover; learners attempt via the PWA player. Per-
--- attempt scoring lives in slide_attempts + slide_attempt_answers; the
--- aggregate folds into activity_results so existing enrollment plumbing in
--- packages/api/src/routes/training.ts is reused unchanged.
+-- upload. The conversion worker writes slide_decks + slide_deck_slides rows
+-- after rendering PNGs. Admins edit interactions/voiceover; learners attempt
+-- via the PWA player. Per-attempt scoring lives in slide_attempts +
+-- slide_attempt_answers; the aggregate folds into activity_results so
+-- existing enrollment plumbing in packages/api/src/routes/training.ts is
+-- reused unchanged.
 
 -- 1. New enum types ---------------------------------------------------------
+-- CREATE TYPE has no IF NOT EXISTS form for enums; the DO-block pattern
+-- is the standard Postgres-safe way to make this idempotent.
 
-CREATE TYPE "slide_deck_conversion_status" AS ENUM (
-  'pending',
-  'processing',
-  'ready',
-  'failed'
-);
+DO $$ BEGIN
+  CREATE TYPE "slide_deck_conversion_status" AS ENUM (
+    'pending', 'processing', 'ready', 'failed'
+  );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 --> statement-breakpoint
-CREATE TYPE "slide_navigation_gate" AS ENUM (
-  'free',
-  'require_voiceover',
-  'require_interactions',
-  'require_both'
-);
+DO $$ BEGIN
+  CREATE TYPE "slide_navigation_gate" AS ENUM (
+    'free', 'require_voiceover', 'require_interactions', 'require_both'
+  );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 --> statement-breakpoint
-CREATE TYPE "slide_interaction_kind" AS ENUM (
-  'mcq',
-  'true_false',
-  'drag_match',
-  'short_answer_ai'
-);
+DO $$ BEGIN
+  CREATE TYPE "slide_interaction_kind" AS ENUM (
+    'mcq', 'true_false', 'drag_match', 'short_answer_ai'
+  );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 --> statement-breakpoint
-CREATE TYPE "slide_attempt_status" AS ENUM (
-  'in_progress',
-  'submitted',
-  'passed',
-  'failed'
-);
+DO $$ BEGIN
+  CREATE TYPE "slide_attempt_status" AS ENUM (
+    'in_progress', 'submitted', 'passed', 'failed'
+  );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 --> statement-breakpoint
 
 -- 2. Extend activity_kind with slide_course ---------------------------------
--- ALTER TYPE ... ADD VALUE cannot run inside a transaction in Postgres < 12;
--- drizzle-orm/postgres-js wraps each --> statement-breakpoint block in its
--- own transaction, so putting this on its own line keeps it safe.
 
 ALTER TYPE "activity_kind" ADD VALUE IF NOT EXISTS 'slide_course';
 --> statement-breakpoint
