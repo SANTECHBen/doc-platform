@@ -10,6 +10,7 @@
 import { Image as ImageIcon, RefreshCcw, Trash2 } from 'lucide-react';
 import { GhostButton, SecondaryButton } from '@/components/form';
 import type { SlideDto } from '@/lib/slide-course-api';
+import type { SlideBlock } from '@platform/shared';
 
 export function SlideCanvas({
   slide,
@@ -77,11 +78,11 @@ export function SlideCanvas({
             alt={`Slide ${slide.slideIndex + 1}`}
             className="block h-auto w-full"
           />
-        ) : (
+        ) : slide.blocks.length === 0 ? (
           <div className="flex aspect-video items-center justify-center text-ink-tertiary">
             <ImageIcon className="size-8" />
           </div>
-        )}
+        ) : null}
         {slide.interactions.length > 0 && (
           <div className="absolute right-3 top-3 flex flex-col gap-2">
             {slide.interactions.map((it, i) => (
@@ -96,6 +97,17 @@ export function SlideCanvas({
           </div>
         )}
       </div>
+      {slide.blocks.length > 0 && (
+        <div className="space-y-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-ink-tertiary">
+            Content preview
+          </p>
+          {slide.blocks.map((b, i) => (
+            <BlockPreview key={i} block={b} />
+          ))}
+        </div>
+      )}
+      {/* Speaker notes panel below content preview */}
       {slide.speakerNotesMarkdown && (
         <details className="rounded border border-line bg-surface px-3 py-2 text-xs text-ink-secondary">
           <summary className="cursor-pointer text-ink-tertiary">
@@ -107,5 +119,83 @@ export function SlideCanvas({
         </details>
       )}
     </section>
+  );
+}
+
+// Quick admin-side preview of a content block. Not as polished as the
+// PWA player (no markdown rendering yet — admin doesn't have
+// react-markdown installed), but enough to confirm what's authored.
+function BlockPreview({ block }: { block: SlideBlock }) {
+  if (block.kind === 'text') {
+    return (
+      <div className="rounded border border-line bg-surface p-3 text-sm">
+        {block.markdown.trim().length === 0 ? (
+          <span className="italic text-ink-tertiary">(empty text block)</span>
+        ) : (
+          <pre className="whitespace-pre-wrap font-sans text-ink-primary">
+            {block.markdown}
+          </pre>
+        )}
+      </div>
+    );
+  }
+  if (block.kind === 'image') {
+    return (
+      <figure className="space-y-1">
+        {block.url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={block.url}
+            alt={block.caption ?? ''}
+            className="w-full rounded border border-line"
+          />
+        ) : (
+          <div className="flex aspect-video items-center justify-center rounded border border-dashed border-line text-ink-tertiary">
+            <ImageIcon className="size-8" />
+          </div>
+        )}
+        {block.caption && (
+          <figcaption className="text-xs text-ink-tertiary">{block.caption}</figcaption>
+        )}
+      </figure>
+    );
+  }
+  if (block.kind === 'video_file') {
+    return (
+      <figure className="space-y-1">
+        {block.url && (
+          <video
+            src={block.url}
+            controls
+            className="w-full rounded border border-line"
+          />
+        )}
+        {block.caption && (
+          <figcaption className="text-xs text-ink-tertiary">{block.caption}</figcaption>
+        )}
+      </figure>
+    );
+  }
+  // video_url
+  return (
+    <figure className="space-y-1">
+      <div className="rounded border border-line bg-surface p-3 text-sm">
+        {block.url.trim().length === 0 ? (
+          <span className="italic text-ink-tertiary">(no URL yet)</span>
+        ) : (
+          <a
+            href={block.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-accent underline"
+          >
+            {block.url}
+          </a>
+        )}
+      </div>
+      {block.caption && (
+        <figcaption className="text-xs text-ink-tertiary">{block.caption}</figcaption>
+      )}
+    </figure>
   );
 }
