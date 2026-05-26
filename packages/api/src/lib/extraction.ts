@@ -130,7 +130,25 @@ export async function runExtraction(
       // it once per slides document. Errors inside this callback only
       // affect slide_decks.conversion_status — text extraction status
       // is independent.
+      //
+      // Gating: only render when the admin has explicitly opted in by
+      // creating a slide_decks row in 'pending' state. A missing row
+      // means the admin hasn't decided yet (or wants the manual flow);
+      // 'ready'/'failed' rows are terminal and must be retried
+      // explicitly. This makes auto-conversion an opt-in operation
+      // rather than a side-effect of every PPTX upload.
       renderSlides: async ({ pptxPath, documentId: docId, ownerOrganizationId }) => {
+        const existing = await db.query.slideDecks.findFirst({
+          where: eq(schema.slideDecks.documentId, docId),
+          columns: { id: true, conversionStatus: true },
+        });
+        if (!existing || existing.conversionStatus !== 'pending') {
+          log.info(
+            { documentId: docId, slideDeckExists: !!existing },
+            'slide-render: skipped — admin has not opted in to auto-conversion',
+          );
+          return;
+        }
         const speakerNotes = await readSpeakerNotesFromPptx(pptxPath);
         await convertPptxToSlideImages({
           db,

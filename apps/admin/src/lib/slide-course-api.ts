@@ -129,6 +129,17 @@ export async function patchSlideDeck(
   return (await res.json()) as SlideDeckSummary;
 }
 
+export async function autoConvertDocumentToSlideDeck(
+  documentId: string,
+): Promise<SlideDeckSummary> {
+  const res = await fetch(
+    `${API_BASE}/admin/documents/${encodeURIComponent(documentId)}/slide-deck/auto-convert`,
+    { method: 'POST', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as SlideDeckSummary;
+}
+
 export async function createSlideDeckForDocument(
   documentId: string,
 ): Promise<SlideDeckSummary> {

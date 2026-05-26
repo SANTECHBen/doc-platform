@@ -26,6 +26,7 @@ import {
 import { PageShell, PageHeader, Pill } from '@/components/page-shell';
 import { useToast } from '@/components/toast';
 import {
+  autoConvertDocumentToSlideDeck,
   createSlideDeckForDocument,
   deleteSlide,
   getSlideDeck,
@@ -184,6 +185,19 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
     }
   }
 
+  async function onAutoConvert() {
+    try {
+      await autoConvertDocumentToSlideDeck(documentId);
+      await refreshDeckSummary();
+      toast.success(
+        'Auto-conversion queued',
+        'The worker is rendering your slides — they’ll appear as they finish.',
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function onAddSlide(file: File) {
     if (!deckId) return;
     try {
@@ -260,7 +274,11 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
         {error ? (
           <ErrorBanner error={error} />
         ) : !deckId ? (
-          <NoDeckYet documentId={documentId} onCreate={onCreateDeck} />
+          <NoDeckYet
+            documentId={documentId}
+            onCreate={onCreateDeck}
+            onAutoConvert={onAutoConvert}
+          />
         ) : (
           <LoadingPanel />
         )}
@@ -394,34 +412,47 @@ function LoadingPanel() {
 function NoDeckYet({
   documentId,
   onCreate,
+  onAutoConvert,
 }: {
   documentId: string;
   onCreate: () => Promise<void> | void;
+  onAutoConvert: () => Promise<void> | void;
 }) {
   return (
     <div className="rounded border border-line bg-surface-raised p-6 text-sm">
       <p className="text-ink-secondary">
-        This document doesn't have a slide course yet. There are two ways
-        to start one:
+        This document doesn't have a slide course yet. Pick how you want
+        to build one:
       </p>
-      <ul className="mt-3 list-disc space-y-1 pl-5 text-ink-secondary">
-        <li>
-          <strong>Auto-convert:</strong> upload a <code>.pptx</code> file on
-          the parent document — the worker renders every slide to a PNG.
-          Works for most decks, but fidelity drops on complex animations
-          or unusual fonts.
-        </li>
-        <li>
-          <strong>Manual:</strong> create an empty course and upload one
-          PNG per slide. Slower to start but pixel-perfect to your
-          exported slides — and it survives whatever PowerPoint throws
-          at it.
-        </li>
-      </ul>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <PrimaryButton type="button" onClick={() => void onCreate()}>
-          Create blank slide course
-        </PrimaryButton>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <div className="flex flex-col gap-2 rounded border border-line bg-surface p-4">
+          <h3 className="text-sm font-medium text-ink-primary">
+            Auto-convert the PPTX
+          </h3>
+          <p className="text-xs text-ink-secondary">
+            The worker renders every slide to a PNG using LibreOffice. Fast
+            for simple decks; fidelity can suffer on custom fonts or
+            complex animations.
+          </p>
+          <PrimaryButton type="button" onClick={() => void onAutoConvert()}>
+            Auto-convert PPTX
+          </PrimaryButton>
+        </div>
+        <div className="flex flex-col gap-2 rounded border border-line bg-surface p-4">
+          <h3 className="text-sm font-medium text-ink-primary">
+            Build it manually
+          </h3>
+          <p className="text-xs text-ink-secondary">
+            Export each slide as a PNG from PowerPoint (File → Export → PNG)
+            and upload them one at a time. Pixel-perfect and never times
+            out.
+          </p>
+          <PrimaryButton type="button" onClick={() => void onCreate()}>
+            Create blank course
+          </PrimaryButton>
+        </div>
+      </div>
+      <div className="mt-4">
         <Link href={`/documents/${documentId}`}>
           <SecondaryButton type="button">Back to document</SecondaryButton>
         </Link>

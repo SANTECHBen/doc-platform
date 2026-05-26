@@ -521,6 +521,82 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
   );
 
   // -------------------------------------------------------------------------
+  // POST /admin/documents/:documentId/slide-deck/auto-convert
+  //
+  // Opt in to PPTX → PNG auto-conversion. Creates (or resets) the deck
+  // row to 'pending' and re-enqueues the document so the worker picks
+  // it up. We deliberately don't run conversion as a side-effect of
+  // every PPTX upload — many decks ship with custom fonts or animations
+  // that LibreOffice can't render faithfully, and the manual flow gives
+  // pixel-perfect results for those cases. This endpoint is the
+  // explicit opt-in.
+  // -------------------------------------------------------------------------
+  app.post<{ Params: { documentId: string } }>(
+    '/admin/documents/:documentId/slide-deck/auto-convert',
+    { schema: { params: z.object({ documentId: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const doc = await db.query.documents.findFirst({
+        where: eq(schema.documents.id, request.params.documentId),
+        with: { packVersion: { with: { pack: true } } },
+      });
+      if (!doc) return reply.notFound();
+      requireOrgInScope(scope, doc.packVersion.pack.ownerOrganizationId);
+      if (doc.kind !== 'slides') {
+        return reply.badRequest(
+          'Auto-conversion only applies to documents with kind="slides".',
+        );
+      }
+      if (!doc.storageKey) {
+        return reply.badRequest(
+          'This document has no PPTX file attached — nothing to convert.',
+        );
+      }
+
+      const existing = await db.query.slideDecks.findFirst({
+        where: eq(schema.slideDecks.documentId, doc.id),
+      });
+      const [deck] = existing
+        ? await db
+            .update(schema.slideDecks)
+            .set({
+              conversionStatus: 'pending',
+              conversionError: null,
+              conversionStartedAt: null,
+              conversionCompletedAt: null,
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.slideDecks.id, existing.id))
+            .returning()
+        : await db
+            .insert(schema.slideDecks)
+            .values({
+              documentId: doc.id,
+              conversionStatus: 'pending',
+              slideCount: 0,
+            })
+            .returning();
+      if (!deck) return reply.internalServerError('Failed to create slide deck row.');
+
+      await enqueueExtraction(db, doc.id);
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: doc.packVersion.pack.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'slide_deck.auto_convert_requested',
+        targetType: 'slide_deck',
+        targetId: deck.id,
+        payload: { documentId: doc.id },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+      return reply.send(deckDto(deck, doc));
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // POST /admin/slide-decks/:id/slides  (multipart PNG/JPEG/WebP upload)
   //
   // Append a new slide with an uploaded image. The deck does not need to
