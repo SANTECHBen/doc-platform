@@ -2867,6 +2867,35 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
           }
         }
       }
+      if (doc.kind === 'scorm') {
+        // Same orphan-prevention rule as slide decks: the wrapping
+        // training_module + scorm_course activity reference the
+        // package via jsonb, so they don't cascade. Drop them first.
+        const pkg = await db.query.scormPackages.findFirst({
+          where: eq(schema.scormPackages.documentId, doc.id),
+          columns: { id: true },
+        });
+        if (pkg) {
+          const scormActivities = await db
+            .select({
+              id: schema.activities.id,
+              trainingModuleId: schema.activities.trainingModuleId,
+              config: schema.activities.config,
+            })
+            .from(schema.activities)
+            .where(eq(schema.activities.kind, 'scorm_course'));
+          const wrappingModuleIds = new Set<string>();
+          for (const a of scormActivities) {
+            const cfgPkgId = (a.config as { scormPackageId?: string }).scormPackageId;
+            if (cfgPkgId === pkg.id) wrappingModuleIds.add(a.trainingModuleId);
+          }
+          for (const moduleId of wrappingModuleIds) {
+            await db
+              .delete(schema.trainingModules)
+              .where(eq(schema.trainingModules.id, moduleId));
+          }
+        }
+      }
       await db.delete(schema.documents).where(eq(schema.documents.id, doc.id));
       return { ok: true };
     },

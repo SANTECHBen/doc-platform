@@ -98,6 +98,8 @@ export default function ContentPackDetail({
   // document + slide-deck + training module + activity in one
   // transaction and routes the author into the course editor.
   const [addTrainingOpen, setAddTrainingOpen] = useState<string | null>(null);
+  // SCORM upload — multipart zip + manifest parse + extraction.
+  const [addScormOpen, setAddScormOpen] = useState<string | null>(null);
   // Super-admin bypass: when the signed-in user is a PLATFORM_ADMIN_EMAILS
   // member, the API allows edits/deletes on published versions. The UI mirrors
   // that by exposing the same action buttons on published rows and surfacing
@@ -410,6 +412,12 @@ export default function ContentPackDetail({
                         >
                           <Presentation size={14} strokeWidth={2} /> Add training
                         </SecondaryButton>
+                        <SecondaryButton
+                          onClick={() => setAddScormOpen(v.id)}
+                          disabled={busy}
+                        >
+                          <Package size={14} strokeWidth={2} /> Add SCORM
+                        </SecondaryButton>
                         <PrimaryButton
                           onClick={() =>
                             router.push(
@@ -622,7 +630,111 @@ export default function ContentPackDetail({
           />
         )}
       </Drawer>
+
+      <Drawer
+        title="Add SCORM training"
+        open={addScormOpen !== null}
+        onClose={() => setAddScormOpen(null)}
+      >
+        {addScormOpen && (
+          <AddScormCourseForm
+            versionId={addScormOpen}
+            onCreated={async () => {
+              setAddScormOpen(null);
+              await refresh();
+            }}
+          />
+        )}
+      </Drawer>
     </PageShell>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AddScormCourseForm — multipart upload for a SCORM 1.2/2004 zip
+// published from Storyline, Captivate, etc. Server unzips, parses
+// imsmanifest.xml, stores every file in object storage, and wraps the
+// package in a training module + scorm_course activity.
+// ---------------------------------------------------------------------------
+function AddScormCourseForm({
+  versionId,
+  onCreated,
+}: {
+  versionId: string;
+  onCreated: () => Promise<void> | void;
+}) {
+  const [title, setTitle] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!file) {
+      setError('Pick a SCORM .zip file to upload.');
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const apiBase =
+        process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3001';
+      const form = new FormData();
+      if (title.trim()) form.append('title', title.trim());
+      form.append('file', file);
+      // Manual auth header — uploadAdminFile only knows about
+      // /admin/uploads. SCORM has its own route.
+      const sessionRes = await fetch('/api/auth/session', { cache: 'no-store' });
+      const session = (await sessionRes.json()) as { idToken?: string } | null;
+      const headers: Record<string, string> = {};
+      if (session?.idToken) headers.authorization = `Bearer ${session.idToken}`;
+      const res = await fetch(
+        `${apiBase}/admin/content-pack-versions/${encodeURIComponent(versionId)}/scorm-trainings`,
+        { method: 'POST', headers, body: form },
+      );
+      if (!res.ok) throw new Error(`Upload ${res.status}: ${await res.text()}`);
+      await onCreated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-4">
+      <ErrorBanner error={error} />
+      <p className="text-sm text-ink-secondary">
+        Upload a SCORM 1.2 or 2004 zip published from Storyline, Captivate,
+        Lectora, or any compatible authoring tool. The package is unpacked
+        and surfaced as a training activity in the PWA training tab —
+        learners launch it like any other course.
+      </p>
+      <Field
+        label="Title"
+        hint="Optional — falls back to the manifest title or filename."
+      >
+        <TextInput
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Forklift refresher — Storyline"
+        />
+      </Field>
+      <Field label="SCORM package (.zip)" required>
+        <input
+          type="file"
+          accept=".zip,application/zip,application/x-zip-compressed"
+          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          className="form-input"
+          required
+        />
+      </Field>
+      <div className="flex justify-end">
+        <PrimaryButton type="submit" disabled={submitting}>
+          {submitting ? 'Uploading…' : 'Upload and create training'}
+        </PrimaryButton>
+      </div>
+    </form>
   );
 }
 

@@ -347,7 +347,8 @@ function ModuleRunner({
           {detail.activities.map((a) => {
             const isQuiz = a.kind === 'quiz';
             const isSlideCourse = a.kind === 'slide_course';
-            const launchable = isQuiz || isSlideCourse;
+            const isScormCourse = a.kind === 'scorm_course';
+            const launchable = isQuiz || isSlideCourse || isScormCourse;
             return (
               <li key={a.id}>
                 <button
@@ -360,6 +361,10 @@ function ModuleRunner({
                       window.location.href = `/a/${encodeURIComponent(
                         qrCode,
                       )}/courses/${encodeURIComponent(a.id)}`;
+                    } else if (a.kind === 'scorm_course') {
+                      window.location.href = `/a/${encodeURIComponent(
+                        qrCode,
+                      )}/scorm/${encodeURIComponent(a.id)}`;
                     }
                   }}
                   disabled={!launchable}

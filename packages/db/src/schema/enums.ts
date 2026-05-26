@@ -45,6 +45,10 @@ export const documentKindEnum = pgEnum('document_kind', [
   'slides',
   'file',
   'external_video',
+  // SCORM (1.2 / 2004) packages published from Storyline, Captivate,
+  // Lectora, etc. Storage holds the unzipped package files. See
+  // packages/db/src/schema/scorm-packages.ts for the metadata row.
+  'scorm',
 ]);
 
 export const activityKindEnum = pgEnum('activity_kind', [
@@ -57,6 +61,9 @@ export const activityKindEnum = pgEnum('activity_kind', [
   // voiceover + interactions + author-chosen navigation gating). Activity
   // config: { slideDeckId: uuid }. See schema/slide-courses.ts.
   'slide_course',
+  // SCORM-packaged training (Articulate Storyline, Captivate, etc.).
+  // Activity config: { scormPackageId: uuid }.
+  'scorm_course',
 ]);
 
 export const enrollmentStatusEnum = pgEnum('enrollment_status', [

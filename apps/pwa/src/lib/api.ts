@@ -209,7 +209,8 @@ export interface TrainingModuleDetail {
       | 'procedure_signoff'
       | 'video_knowledge_check'
       | 'practical'
-      | 'slide_course';
+      | 'slide_course'
+      | 'scorm_course';
     title: string;
     config: any;
     weight: number;
