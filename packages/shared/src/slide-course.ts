@@ -125,15 +125,20 @@ export const SLIDE_INTERACTION_KIND_LABELS: Record<SlideInteractionConfig['kind'
 // member; the server validates the whole array before persisting to
 // slide_deck_slides.blocks.
 
+// Blocks are allowed to be empty/incomplete while the author is editing
+// — the PATCH must accept "I just added a text block, haven't typed
+// anything yet" without rejecting the whole save. The player ignores
+// blocks with no usable content; the editor surfaces the empty state.
+
 export const SlideTextBlockSchema = z.object({
   kind: z.literal('text'),
-  markdown: z.string().min(1).max(16000),
+  markdown: z.string().max(16000),
 });
 
 export const SlideImageBlockSchema = z.object({
   kind: z.literal('image'),
   storageKey: z.string().min(1).max(800),
-  url: z.string().url().optional(),
+  url: z.string().max(2000).optional(),
   caption: z.string().max(500).optional(),
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
@@ -141,14 +146,16 @@ export const SlideImageBlockSchema = z.object({
 
 export const SlideVideoUrlBlockSchema = z.object({
   kind: z.literal('video_url'),
-  url: z.string().url(),
+  // Empty string allowed while the author is still pasting; player
+  // skips empties.
+  url: z.string().max(2000),
   caption: z.string().max(500).optional(),
 });
 
 export const SlideVideoFileBlockSchema = z.object({
   kind: z.literal('video_file'),
   storageKey: z.string().min(1).max(800),
-  url: z.string().url().optional(),
+  url: z.string().max(2000).optional(),
   mimeType: z.string().min(1).max(120),
   caption: z.string().max(500).optional(),
 });
