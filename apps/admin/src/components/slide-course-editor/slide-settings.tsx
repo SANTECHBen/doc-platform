@@ -43,12 +43,16 @@ interface SlideSettingsProps {
     scriptMarkdown?: string | null;
     navigationGate?: SlideNavigationGate;
   }) => Promise<void>;
+  // Local-only state update (no PATCH). Used by the voiceover tab so
+  // post-upload UI bookkeeping doesn't trigger a slide-patch round-trip
+  // — the voiceover endpoint already persisted everything server-side.
+  onLocalUpdate: (patch: Partial<SlideDto>) => void;
   onInteractionsChanged: (next: SlideInteractionDto[]) => void;
   onError: (msg: string) => void;
 }
 
 export function SlideSettings(props: SlideSettingsProps) {
-  const { deckId, slide, onPatchSlide, onInteractionsChanged, onError } = props;
+  const { deckId, slide, onPatchSlide, onLocalUpdate, onInteractionsChanged, onError } = props;
   const [tab, setTab] = useState<Tab>('content');
 
   return (
@@ -76,12 +80,7 @@ export function SlideSettings(props: SlideSettingsProps) {
           <VoiceoverTab
             deckId={deckId}
             slide={slide}
-            onSlideChange={(patch) =>
-              // Voiceover writes go through the dedicated upload endpoint,
-              // not patchSlide. The component bumps local state by re-
-              // applying via the parent's patch flow.
-              onPatchSlide(patch as Parameters<typeof onPatchSlide>[0])
-            }
+            onSlideChange={onLocalUpdate}
             onError={onError}
           />
         )}

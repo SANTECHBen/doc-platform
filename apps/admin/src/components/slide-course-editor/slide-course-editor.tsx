@@ -424,6 +424,7 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
               deckId={deckId}
               slide={selectedSlide}
               onPatchSlide={(patch) => onPatchSlide(selectedSlide.id, patch)}
+              onLocalUpdate={(patch) => applySlideUpdate(selectedSlide.id, patch)}
               onInteractionsChanged={(next) =>
                 applyInteractionsUpdate(selectedSlide.id, next)
               }
