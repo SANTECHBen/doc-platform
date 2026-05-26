@@ -53,6 +53,7 @@ import { registerPmRoutes } from './routes/pm';
 import { registerMuxPlaybackRoutes } from './routes/mux-playback';
 import { registerAdminSlideCourses } from './routes/admin-slide-courses';
 import { registerSlideCoursePlayerRoutes } from './routes/slide-course-player';
+import { registerSlideCourseScanRoutes } from './routes/slide-course-scan';
 
 export async function buildApp(ctx: AppContext) {
   const app = Fastify({
@@ -241,6 +242,7 @@ export async function buildApp(ctx: AppContext) {
   await registerMuxPlaybackRoutes(app);
   await registerAdminSlideCourses(app);
   await registerSlideCoursePlayerRoutes(app);
+  await registerSlideCourseScanRoutes(app);
 
   return app;
 }

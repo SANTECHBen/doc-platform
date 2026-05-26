@@ -13,56 +13,6 @@ import { AssetHubPayloadSchema, type AssetHubPayload } from './shared-schema';
 const SERVER_API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3001';
 const CLIENT_API_BASE = '/api';
 
-// Bridge auth for the PWA: production hard-disables the dev-user header,
-// and full Microsoft sign-in isn't wired up here yet. As a stopgap, an
-// admin can hand off their Entra ID id_token to the PWA via the
-// `/admin-signin?token=…` route, which stores it in localStorage under
-// the key below. Any browser code that calls a write-path API can read
-// it and forward as a Bearer token. The token is the same one the admin
-// app already uses, validated by the API against Microsoft's JWKS.
-const BRIDGE_TOKEN_KEY = 'pwa_bridge_id_token';
-
-export function readBridgeIdToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    return window.localStorage.getItem(BRIDGE_TOKEN_KEY);
-  } catch {
-    return null;
-  }
-}
-
-export function setBridgeIdToken(token: string): void {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(BRIDGE_TOKEN_KEY, token);
-  } catch {
-    /* storage may be disabled; nothing we can do */
-  }
-}
-
-export function clearBridgeIdToken(): void {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.removeItem(BRIDGE_TOKEN_KEY);
-  } catch {
-    /* ignore */
-  }
-}
-
-/**
- * Build auth headers for an API call. Prefers the bridge Bearer token
- * when one is present; falls back to the dev-user header (works only
- * in development) so existing local workflows keep functioning.
- */
-function buildAuthHeaders(
-  devUserId: string,
-  devOrgId: string,
-): Record<string, string> {
-  const bridge = readBridgeIdToken();
-  if (bridge) return { authorization: `Bearer ${bridge}` };
-  return { 'x-dev-user': `${devUserId}:${devOrgId}` };
-}
-
 export type AssetResolveSource = 'qr' | 'direct' | 'blocked';
 
 /**
@@ -286,7 +236,7 @@ export async function startEnrollment(params: {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      ...buildAuthHeaders(params.devUserId, params.devOrgId),
+      'x-dev-user': `${params.devUserId}:${params.devOrgId}`,
     },
     body: JSON.stringify({
       trainingModuleId: params.trainingModuleId,
@@ -323,7 +273,7 @@ export async function submitQuiz(params: {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        ...buildAuthHeaders(params.devUserId, params.devOrgId),
+        'x-dev-user': `${params.devUserId}:${params.devOrgId}`,
       },
       body: JSON.stringify({ activityId: params.activityId, answers: params.answers }),
     },

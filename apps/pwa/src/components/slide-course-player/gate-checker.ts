@@ -9,14 +9,11 @@
 //   free                  → always advance.
 //   require_voiceover     → voiceover must have a duration AND have
 //                           ended at least once during this attempt.
-//   require_interactions  → every interaction on the slide must have a
-//                           non-null prior answer with passed === true.
-//                           Drag-match / short-answer use score >=
-//                           threshold; mcq / true_false use isCorrect.
+//   require_interactions  → every interaction on the slide must have
+//                           passed at least once during this session.
 //   require_both          → both of the above.
 
 import type {
-  PlayerInteraction,
   PlayerNavigationGate,
   PlayerSlide,
 } from '@/lib/slide-course-api';
@@ -44,32 +41,13 @@ export function canAdvance(slide: PlayerSlide, state: SlidePlayState): boolean {
   return true;
 }
 
-export function buildInitialPlayState(
-  slide: PlayerSlide,
-): SlidePlayState {
-  // Seed from any prior server-side answers so a reload mid-course
-  // keeps the gate satisfied without re-answering.
-  const interactionResults: SlidePlayState['interactionResults'] = {};
-  for (const i of slide.interactions) {
-    if (i.prior) {
-      const passed = inferPassed(i, i.prior);
-      interactionResults[i.id] = { passed };
-    }
-  }
+export function buildInitialPlayState(_slide: PlayerSlide): SlidePlayState {
+  // Anonymous scan-session = no persisted progress. Always start fresh.
   return {
     voiceoverEnded: false,
-    interactionResults,
+    interactionResults: {},
   };
 }
 
-function inferPassed(
-  interaction: PlayerInteraction,
-  prior: NonNullable<PlayerInteraction['prior']>,
-): boolean {
-  if (prior.isCorrect === true) return true;
-  // For short_answer_ai the server stores score & sets isCorrect based
-  // on the kind-specific threshold; isCorrect=true means passed. For
-  // deterministic kinds, score===1 ⇔ isCorrect===true so we don't
-  // need a fallback. Anything else: not passed.
-  return false;
-}
+// Suppress unused-param warning while keeping the parameter for future use.
+export type { PlayerNavigationGate };

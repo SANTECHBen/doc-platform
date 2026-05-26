@@ -1,18 +1,12 @@
 'use client';
 
-// SlideCoursePlayer — the runtime view of an authored slide course.
+// Slide-course player — runtime view of an authored course.
 //
-// Lifecycle:
-//   mount:  GET /enrollments/:id/slide-course → deck + slides + sanitized
-//           interactions + prior answers (so reload mid-course rehydrates).
-//   per-slide: render image + voiceover audio + interactions; gate Next on
-//           the slide's navigationGate.
-//   on advance: POST /progress with the new index.
-//   on answer: POST /answer → kind-specific grade + reveal payload.
-//   on finish: POST /submit → final aggregate written into activity_results.
-//
-// The player is intentionally a mobile-first single column layout —
-// the PWA's primary surface is a phone in a tech's pocket.
+// Anonymous scan-session is the only auth required. The server grades
+// each interaction (correct answers never reach the client) and the
+// player accumulates scores in memory for a final summary. Nothing is
+// persisted server-side; that flow can come back later for
+// authenticated learners who want completion records.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -27,13 +21,10 @@ import {
 import {
   getPlayerDeck,
   postAnswer,
-  postProgress,
-  postSubmit,
   type AnswerResult,
   type PlayerDeck,
   type PlayerInteraction,
   type PlayerSlide,
-  type SubmitResult,
 } from '@/lib/slide-course-api';
 import {
   buildInitialPlayState,
@@ -47,62 +38,30 @@ import {
   TrueFalseWidget,
 } from './widgets';
 
-const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
-const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
-
 interface PlayerProps {
-  enrollmentId: string;
   activityId: string;
   onExit?: () => void;
 }
 
-export function SlideCoursePlayer({ enrollmentId, activityId, onExit }: PlayerProps) {
+export function SlideCoursePlayer({ activityId, onExit }: PlayerProps) {
   const [deck, setDeck] = useState<PlayerDeck | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [busyInteractionId, setBusyInteractionId] = useState<string | null>(null);
   const [answerResults, setAnswerResults] = useState<Record<string, AnswerResult>>({});
-  const [submitting, setSubmitting] = useState(false);
-  const [finalResult, setFinalResult] = useState<SubmitResult | null>(null);
   const [perSlideState, setPerSlideState] = useState<Record<string, SlidePlayState>>({});
+  const [finished, setFinished] = useState(false);
 
-  // -----------------------------------------------------------------
-  // Initial load + state seeding.
-  // -----------------------------------------------------------------
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const d = await getPlayerDeck({
-          enrollmentId,
-          activityId,
-          devUserId: DEV_USER_ID,
-          devOrgId: DEV_ORG_ID,
-        });
+        const d = await getPlayerDeck({ activityId });
         if (cancelled) return;
         setDeck(d);
-        setCurrentIdx(Math.min(d.attempt.currentSlideIndex, d.slides.length - 1));
         const seeded: Record<string, SlidePlayState> = {};
         for (const s of d.slides) seeded[s.id] = buildInitialPlayState(s);
         setPerSlideState(seeded);
-        // Hydrate answer results from prior answers (so locked widgets
-        // re-render with reveal payloads where possible).
-        const seededResults: Record<string, AnswerResult> = {};
-        for (const s of d.slides) {
-          for (const i of s.interactions) {
-            if (i.prior) {
-              seededResults[i.id] = {
-                interactionId: i.id,
-                isCorrect: i.prior.isCorrect,
-                score: i.prior.score ?? 0,
-                passed: i.prior.isCorrect === true,
-                rationale: i.prior.rationale,
-                reveal: {},
-              };
-            }
-          }
-        }
-        setAnswerResults(seededResults);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       }
@@ -110,11 +69,8 @@ export function SlideCoursePlayer({ enrollmentId, activityId, onExit }: PlayerPr
     return () => {
       cancelled = true;
     };
-  }, [enrollmentId, activityId]);
+  }, [activityId]);
 
-  // -----------------------------------------------------------------
-  // Derived state
-  // -----------------------------------------------------------------
   const currentSlide = useMemo<PlayerSlide | null>(
     () => (deck?.slides[currentIdx] as PlayerSlide | undefined) ?? null,
     [deck, currentIdx],
@@ -125,93 +81,51 @@ export function SlideCoursePlayer({ enrollmentId, activityId, onExit }: PlayerPr
     : false;
   const isLast = deck ? currentIdx === deck.slides.length - 1 : false;
 
-  // -----------------------------------------------------------------
-  // Server pushes — progress + submit
-  // -----------------------------------------------------------------
-  const reportProgress = useCallback(
-    async (newIdx: number) => {
-      try {
-        await postProgress({
-          enrollmentId,
-          activityId,
-          currentSlideIndex: newIdx,
-          devUserId: DEV_USER_ID,
-          devOrgId: DEV_ORG_ID,
-        });
-      } catch {
-        /* progress is best-effort; reload from scratch will use what's there */
-      }
-    },
-    [enrollmentId, activityId],
-  );
-
   function advance() {
     if (!deck) return;
     if (isLast) {
-      void submit();
+      setFinished(true);
       return;
     }
-    const next = currentIdx + 1;
-    setCurrentIdx(next);
-    void reportProgress(next);
+    setCurrentIdx(currentIdx + 1);
   }
   function back() {
     if (currentIdx === 0) return;
     setCurrentIdx(currentIdx - 1);
   }
-  async function submit() {
-    setSubmitting(true);
-    try {
-      const r = await postSubmit({
-        enrollmentId,
-        activityId,
-        devUserId: DEV_USER_ID,
-        devOrgId: DEV_ORG_ID,
-      });
-      setFinalResult(r);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSubmitting(false);
-    }
-  }
 
-  // -----------------------------------------------------------------
-  // Interaction submit handler
-  // -----------------------------------------------------------------
-  async function onAnswer(interaction: PlayerInteraction, rawAnswer: unknown) {
-    if (busyInteractionId) return;
-    setBusyInteractionId(interaction.id);
-    try {
-      const result = await postAnswer({
-        enrollmentId,
-        activityId,
-        interactionId: interaction.id,
-        kind: interaction.kind,
-        answer: rawAnswer,
-        devUserId: DEV_USER_ID,
-        devOrgId: DEV_ORG_ID,
-      });
-      setAnswerResults((m) => ({ ...m, [interaction.id]: result }));
-      // Bubble into per-slide state for gate-check.
-      if (currentSlide) {
-        setPerSlideState((m) => ({
-          ...m,
-          [currentSlide.id]: {
-            ...(m[currentSlide.id] ?? buildInitialPlayState(currentSlide)),
-            interactionResults: {
-              ...(m[currentSlide.id]?.interactionResults ?? {}),
-              [interaction.id]: { passed: result.passed },
+  const onAnswer = useCallback(
+    async (interaction: PlayerInteraction, rawAnswer: unknown) => {
+      if (busyInteractionId) return;
+      setBusyInteractionId(interaction.id);
+      try {
+        const result = await postAnswer({
+          activityId,
+          interactionId: interaction.id,
+          kind: interaction.kind,
+          answer: rawAnswer,
+        });
+        setAnswerResults((m) => ({ ...m, [interaction.id]: result }));
+        if (currentSlide) {
+          setPerSlideState((m) => ({
+            ...m,
+            [currentSlide.id]: {
+              ...(m[currentSlide.id] ?? buildInitialPlayState(currentSlide)),
+              interactionResults: {
+                ...(m[currentSlide.id]?.interactionResults ?? {}),
+                [interaction.id]: { passed: result.passed },
+              },
             },
-          },
-        }));
+          }));
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusyInteractionId(null);
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusyInteractionId(null);
-    }
-  }
+    },
+    [activityId, busyInteractionId, currentSlide],
+  );
 
   function onVoiceoverEnded() {
     if (!currentSlide) return;
@@ -224,9 +138,6 @@ export function SlideCoursePlayer({ enrollmentId, activityId, onExit }: PlayerPr
     }));
   }
 
-  // -----------------------------------------------------------------
-  // Render
-  // -----------------------------------------------------------------
   if (error) {
     return (
       <div className="rounded border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-600">
@@ -257,8 +168,8 @@ export function SlideCoursePlayer({ enrollmentId, activityId, onExit }: PlayerPr
     );
   }
 
-  if (finalResult) {
-    return <FinalScorePanel result={finalResult} onExit={onExit} />;
+  if (finished) {
+    return <FinalScorePanel deck={deck} results={answerResults} onExit={onExit} />;
   }
 
   if (!currentSlide) return null;
@@ -313,20 +224,16 @@ export function SlideCoursePlayer({ enrollmentId, activityId, onExit }: PlayerPr
         <button
           type="button"
           className="btn btn-primary"
-          disabled={!canGoNext || submitting}
+          disabled={!canGoNext}
           onClick={advance}
         >
-          {isLast ? (submitting ? 'Submitting…' : 'Finish') : 'Next'}
+          {isLast ? 'Finish' : 'Next'}
           <ArrowRight className="size-4" />
         </button>
       </nav>
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// SlideView — image + voiceover audio + script
-// ---------------------------------------------------------------------------
 
 function SlideView({
   slide,
@@ -336,14 +243,9 @@ function SlideView({
   onVoiceoverEnded: () => void;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  // Reset the voiceover-ended state implicitly via the player's per-
-  // slide state machine when slide changes; no local state needed here.
-
   return (
     <section className="space-y-3">
-      {slide.title && (
-        <h2 className="text-base font-medium">{slide.title}</h2>
-      )}
+      {slide.title && <h2 className="text-base font-medium">{slide.title}</h2>}
       {slide.imageUrl && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -370,10 +272,6 @@ function SlideView({
   );
 }
 
-// ---------------------------------------------------------------------------
-// InteractionRunner — picks the right widget
-// ---------------------------------------------------------------------------
-
 function InteractionRunner(props: {
   interaction: PlayerInteraction;
   priorResult: AnswerResult | null;
@@ -386,10 +284,6 @@ function InteractionRunner(props: {
   if (interaction.kind === 'drag_match') return <DragMatchWidget {...props} />;
   return <ShortAnswerWidget {...props} />;
 }
-
-// ---------------------------------------------------------------------------
-// Progress bar — segmented dots, one per slide
-// ---------------------------------------------------------------------------
 
 function ProgressBar({
   total,
@@ -426,36 +320,58 @@ function ProgressBar({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Final score panel
-// ---------------------------------------------------------------------------
-
 function FinalScorePanel({
-  result,
+  deck,
+  results,
   onExit,
 }: {
-  result: SubmitResult;
+  deck: PlayerDeck;
+  results: Record<string, AnswerResult>;
   onExit?: () => void;
 }) {
-  const Icon = result.passed ? CheckCircle2 : XCircle;
+  // Compute the aggregate locally from accumulated graded answers.
+  // Server doesn't track this attempt (scan-session is anonymous).
+  let totalWeight = 0;
+  let weighted = 0;
+  let interactionCount = 0;
+  let answered = 0;
+  for (const s of deck.slides) {
+    for (const i of s.interactions) {
+      interactionCount += 1;
+      totalWeight += i.weight;
+      const r = results[i.id];
+      if (r) {
+        answered += 1;
+        weighted += r.score * i.weight;
+      }
+    }
+  }
+  const aggregate = totalWeight > 0 ? weighted / totalWeight : 1;
+  const passed = aggregate >= deck.deck.passThreshold;
+  const Icon = passed ? CheckCircle2 : XCircle;
   return (
     <div className="space-y-4 p-6 text-center">
       <Icon
         className={[
           'mx-auto size-12',
-          result.passed ? 'text-green-600' : 'text-red-600',
+          passed ? 'text-green-600' : 'text-red-600',
         ].join(' ')}
       />
       <h2 className="text-xl font-semibold">
-        {result.passed ? 'Course passed!' : 'Course not passed'}
+        {interactionCount === 0
+          ? 'Course complete'
+          : passed
+            ? 'Course passed!'
+            : 'Course not passed'}
       </h2>
-      <p className="text-sm text-ink-secondary">
-        Score: <strong>{(result.attemptScore * 100).toFixed(0)}%</strong> ·
-        Pass threshold: {(result.passThreshold * 100).toFixed(0)}%
-      </p>
+      {interactionCount > 0 && (
+        <p className="text-sm text-ink-secondary">
+          Score: <strong>{(aggregate * 100).toFixed(0)}%</strong> · Pass
+          threshold: {(deck.deck.passThreshold * 100).toFixed(0)}%
+        </p>
+      )}
       <p className="text-xs text-ink-tertiary">
-        {result.answeredCount} of {result.interactionsCount} interactions
-        answered. Enrollment status: <strong>{result.enrollmentStatus}</strong>.
+        {answered} of {interactionCount} interactions answered.
       </p>
       {onExit && (
         <button type="button" className="btn btn-primary" onClick={onExit}>

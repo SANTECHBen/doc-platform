@@ -1,26 +1,17 @@
-// Learner-facing API client for the slide-course player.
+// PWA slide-course player API.
 //
-// Mirrors the auth pattern of @/lib/api.ts (DEV user/org headers in
-// dev; production swaps in a session cookie). Only what the player
-// needs — no admin authoring affordances.
+// Authenticated via the same scan-session cookie that powers the rest of
+// the asset hub — no Microsoft sign-in required. Grading happens server-
+// side (the correct answers never leave the API) but answers are not
+// persisted. The player tracks the learner's progress client-side and
+// shows a summary at the end.
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3001';
-
-// Prefer the bridge Bearer token (admin-handoff for testing) when one is
-// in localStorage; fall back to the dev-user header for local
-// development. Production hard-disables dev-user, so the bridge token
-// is the only way training writes succeed in prod today.
-function authHeaders(devUserId: string, devOrgId: string): Record<string, string> {
-  if (typeof window !== 'undefined') {
-    try {
-      const bridge = window.localStorage.getItem('pwa_bridge_id_token');
-      if (bridge) return { authorization: `Bearer ${bridge}` };
-    } catch {
-      /* ignore */
-    }
-  }
-  return { 'x-dev-user': `${devUserId}:${devOrgId}` };
-}
+// Same-origin proxy path. The Next.js route at apps/pwa/src/app/api/[...path]
+// reads the HttpOnly scan cookie server-side and forwards it to the upstream
+// API as X-Scan-Session. Cross-origin cookie forwarding is brittle and we
+// can't read HttpOnly cookies from JS, so the proxy is the only path that
+// works for scan-session-authenticated calls.
+const CLIENT_API_BASE = '/api';
 
 export type PlayerInteractionKind =
   | 'mcq'
@@ -34,23 +25,14 @@ export type PlayerNavigationGate =
   | 'require_interactions'
   | 'require_both';
 
-export interface PlayerPriorAnswer {
-  answer: unknown;
-  isCorrect: boolean | null;
-  score: number | null;
-  rationale: string | null;
-  answeredAt: string;
-}
-
 export interface PlayerInteraction {
   id: string;
   kind: PlayerInteractionKind;
   prompt: string;
   weight: number;
   orderingHint: number;
-  // Sanitized config — never contains the correct answer.
+  /** Sanitized — never contains the correct answer. */
   config: Record<string, unknown>;
-  prior: PlayerPriorAnswer | null;
 }
 
 export interface PlayerSlide {
@@ -73,56 +55,10 @@ export interface PlayerDeck {
     slideCount: number;
     passThreshold: number;
     conversionStatus: 'pending' | 'processing' | 'ready' | 'failed';
-  };
-  attempt: {
-    id: string;
-    currentSlideIndex: number;
-    status: 'in_progress' | 'submitted' | 'passed' | 'failed';
-    totalScore: number | null;
+    activityTitle: string;
+    moduleTitle: string;
   };
   slides: PlayerSlide[];
-}
-
-export async function getPlayerDeck(params: {
-  enrollmentId: string;
-  activityId: string;
-  devUserId: string;
-  devOrgId: string;
-}): Promise<PlayerDeck> {
-  const url = new URL(
-    `${API_BASE}/enrollments/${encodeURIComponent(params.enrollmentId)}/slide-course`,
-  );
-  url.searchParams.set('activityId', params.activityId);
-  const res = await fetch(url.toString(), {
-    headers: authHeaders(params.devUserId, params.devOrgId),
-    cache: 'no-store',
-  });
-  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
-  return (await res.json()) as PlayerDeck;
-}
-
-export async function postProgress(params: {
-  enrollmentId: string;
-  activityId: string;
-  currentSlideIndex: number;
-  devUserId: string;
-  devOrgId: string;
-}): Promise<void> {
-  const res = await fetch(
-    `${API_BASE}/enrollments/${encodeURIComponent(params.enrollmentId)}/slide-course/progress`,
-    {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...authHeaders(params.devUserId, params.devOrgId),
-      },
-      body: JSON.stringify({
-        activityId: params.activityId,
-        currentSlideIndex: params.currentSlideIndex,
-      }),
-    },
-  );
-  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }
 
 export interface AnswerResult {
@@ -131,29 +67,36 @@ export interface AnswerResult {
   score: number;
   passed: boolean;
   rationale: string | null;
-  // What the server reveals after grading — kind-specific.
   reveal: Record<string, unknown>;
 }
 
+export async function getPlayerDeck(params: {
+  activityId: string;
+}): Promise<PlayerDeck> {
+  const res = await fetch(
+    `${CLIENT_API_BASE}/scan/activities/${encodeURIComponent(params.activityId)}/slide-course`,
+    {
+      credentials: 'include',
+      cache: 'no-store',
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as PlayerDeck;
+}
+
 export async function postAnswer(params: {
-  enrollmentId: string;
   activityId: string;
   interactionId: string;
   kind: PlayerInteractionKind;
   answer: unknown;
-  devUserId: string;
-  devOrgId: string;
 }): Promise<AnswerResult> {
   const res = await fetch(
-    `${API_BASE}/enrollments/${encodeURIComponent(params.enrollmentId)}/slide-course/answer`,
+    `${CLIENT_API_BASE}/scan/activities/${encodeURIComponent(params.activityId)}/slide-course/grade`,
     {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...authHeaders(params.devUserId, params.devOrgId),
-      },
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        activityId: params.activityId,
         interactionId: params.interactionId,
         answer: { kind: params.kind, answer: params.answer },
       }),
@@ -161,35 +104,4 @@ export async function postAnswer(params: {
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return (await res.json()) as AnswerResult;
-}
-
-export interface SubmitResult {
-  attemptScore: number;
-  passed: boolean;
-  passThreshold: number;
-  interactionsCount: number;
-  answeredCount: number;
-  enrollmentStatus: string;
-  enrollmentScore: number;
-}
-
-export async function postSubmit(params: {
-  enrollmentId: string;
-  activityId: string;
-  devUserId: string;
-  devOrgId: string;
-}): Promise<SubmitResult> {
-  const res = await fetch(
-    `${API_BASE}/enrollments/${encodeURIComponent(params.enrollmentId)}/slide-course/submit`,
-    {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...authHeaders(params.devUserId, params.devOrgId),
-      },
-      body: JSON.stringify({ activityId: params.activityId }),
-    },
-  );
-  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
-  return (await res.json()) as SubmitResult;
 }

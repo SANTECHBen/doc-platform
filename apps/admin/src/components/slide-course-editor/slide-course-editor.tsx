@@ -17,7 +17,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, ArrowLeft, ExternalLink, Loader2, RefreshCcw, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Loader2, RefreshCcw, CheckCircle2 } from 'lucide-react';
 import {
   ErrorBanner,
   PrimaryButton,
@@ -350,40 +350,6 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
                 <ArrowLeft className="size-4" /> Back to document
               </SecondaryButton>
             </Link>
-            <SecondaryButton
-              type="button"
-              onClick={async () => {
-                try {
-                  // Pull the admin's current Microsoft Entra ID token
-                  // and hand it off to the PWA via a bridge route. Lets
-                  // the admin preview their authored course on a real
-                  // PWA without a separate PWA sign-in flow.
-                  const sessionRes = await fetch('/api/auth/session', {
-                    cache: 'no-store',
-                  });
-                  const session = (await sessionRes.json()) as {
-                    idToken?: string;
-                  } | null;
-                  if (!session?.idToken) {
-                    setError(
-                      'No active admin session — sign in to the admin app first.',
-                    );
-                    return;
-                  }
-                  const pwaOrigin =
-                    process.env.NEXT_PUBLIC_PWA_ORIGIN ??
-                    'http://localhost:3000';
-                  const url = `${pwaOrigin}/admin-signin?token=${encodeURIComponent(
-                    session.idToken,
-                  )}`;
-                  window.open(url, '_blank', 'noopener,noreferrer');
-                } catch (e) {
-                  setError(e instanceof Error ? e.message : String(e));
-                }
-              }}
-            >
-              <ExternalLink className="size-4" /> Preview in PWA
-            </SecondaryButton>
             {status === 'failed' && (
               <PrimaryButton type="button" onClick={onRetry}>
                 <RefreshCcw className="size-4" /> Retry conversion

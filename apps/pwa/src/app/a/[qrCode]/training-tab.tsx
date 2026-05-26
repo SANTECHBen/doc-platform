@@ -333,13 +333,12 @@ function ModuleRunner({
                   onClick={() => {
                     if (isQuiz) setActiveActivityId(a.id);
                     else if (isSlideCourse) {
-                      // The slide-course player is its own route — it
-                      // needs more chrome than the in-tab quiz runner.
+                      // Slide course plays anonymously via the
+                      // scan-session — no enrollment or sign-in
+                      // required, just the activity ID.
                       window.location.href = `/a/${encodeURIComponent(
                         qrCode,
-                      )}/courses/${encodeURIComponent(enrollmentId)}?activity=${encodeURIComponent(
-                        a.id,
-                      )}`;
+                      )}/courses/${encodeURIComponent(a.id)}`;
                     }
                   }}
                   disabled={!launchable}

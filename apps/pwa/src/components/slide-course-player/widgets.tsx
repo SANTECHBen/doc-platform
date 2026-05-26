@@ -30,12 +30,7 @@ export interface WidgetProps {
 
 export function McqWidget({ interaction, priorResult, busy, onSubmit }: WidgetProps) {
   const options = (interaction.config.options as string[]) ?? [];
-  const [picked, setPicked] = useState<number | null>(
-    typeof (interaction.prior?.answer as { selectedIndex?: number } | undefined)
-      ?.selectedIndex === 'number'
-      ? (interaction.prior!.answer as { selectedIndex: number }).selectedIndex
-      : null,
-  );
+  const [picked, setPicked] = useState<number | null>(null);
   const locked = priorResult?.passed === true;
   const correctIndex = priorResult?.reveal?.correctIndex as number | undefined;
   const explanation = priorResult?.reveal?.explanation as string | undefined;
@@ -100,7 +95,8 @@ export function TrueFalseWidget({ interaction, priorResult, busy, onSubmit }: Wi
   const locked = priorResult?.passed === true;
   const correctAnswer = priorResult?.reveal?.correctAnswer as boolean | undefined;
   const explanation = priorResult?.reveal?.explanation as string | undefined;
-  const priorPick = (interaction.prior?.answer as { answer?: boolean } | undefined)?.answer;
+  // Local pick state — surfaces "red" feedback after a wrong guess.
+  const [priorPick, setPriorPick] = useState<boolean | null>(null);
 
   return (
     <div className="space-y-2">
@@ -115,7 +111,10 @@ export function TrueFalseWidget({ interaction, priorResult, busy, onSubmit }: Wi
               key={String(v)}
               type="button"
               disabled={busy || locked}
-              onClick={() => onSubmit({ answer: v })}
+              onClick={() => {
+                setPriorPick(v);
+                void onSubmit({ answer: v });
+              }}
               className={[
                 'rounded border px-4 py-3 text-sm font-medium transition',
                 showResult && isCorrect
@@ -149,11 +148,7 @@ export function TrueFalseWidget({ interaction, priorResult, busy, onSubmit }: Wi
 export function DragMatchWidget({ interaction, priorResult, busy, onSubmit }: WidgetProps) {
   const lefts = (interaction.config.lefts as string[]) ?? [];
   const rights = (interaction.config.rights as string[]) ?? [];
-  const initial = useMemo(() => {
-    const prior = (interaction.prior?.answer as { mapping?: Record<string, string> })?.mapping;
-    return prior ?? {};
-  }, [interaction.prior]);
-  const [mapping, setMapping] = useState<Record<string, string>>(initial);
+  const [mapping, setMapping] = useState<Record<string, string>>({});
   const [pickedLeft, setPickedLeft] = useState<string | null>(null);
   const locked = priorResult?.passed === true;
   const correctMapping = priorResult?.reveal?.correctMapping as
@@ -258,11 +253,7 @@ export function DragMatchWidget({ interaction, priorResult, busy, onSubmit }: Wi
 // ---------------------------------------------------------------------------
 
 export function ShortAnswerWidget({ interaction, priorResult, busy, onSubmit }: WidgetProps) {
-  const initial =
-    typeof (interaction.prior?.answer as { text?: string } | undefined)?.text === 'string'
-      ? (interaction.prior!.answer as { text: string }).text
-      : '';
-  const [text, setText] = useState(initial);
+  const [text, setText] = useState('');
   const locked = priorResult?.passed === true;
   const passThreshold = (interaction.config.passThreshold as number | undefined) ?? 0.7;
 
