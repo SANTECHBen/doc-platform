@@ -1,0 +1,1109 @@
+// Admin authoring API for slide courses — PPTX-derived eLearning experiences.
+//
+// Surface:
+//   GET    /admin/slide-decks/by-document/:documentId       deck lookup by parent doc
+//   GET    /admin/slide-decks/:id                           deck + slides + interactions
+//   PATCH  /admin/slide-decks/:id                           passThreshold, etc.
+//   POST   /admin/slide-decks/:id/retry-conversion          re-enqueue extraction
+//
+//   PATCH  /admin/slide-decks/:id/slides/:slideId           title, script, gate, ordering
+//   POST   /admin/slide-decks/:id/slides/:slideId/voiceover (multipart MP3 upload)
+//   DELETE /admin/slide-decks/:id/slides/:slideId/voiceover
+//   PATCH  /admin/slide-decks/:id/slides/:slideId/voiceover-duration  client probe
+//
+//   POST   /admin/slide-decks/:id/reorder                   bulk update slide orderingHint
+//
+//   POST   /admin/slide-decks/:id/slides/:slideId/interactions    create
+//   PATCH  /admin/slide-interactions/:interactionId               update
+//   DELETE /admin/slide-interactions/:interactionId               remove
+//   POST   /admin/slide-decks/:id/interactions/reorder            bulk per-slide reorder
+//
+// All writes are scoped to the deck's document's owner org and authenticated
+// against the admin's home-org tree. Editing is allowed on published content-
+// pack versions because slide-course authoring is treated like an additive
+// overlay (same rationale as document_sections — see admin-sections.ts).
+
+import type { FastifyInstance } from 'fastify';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { z } from 'zod';
+import { schema, type Database } from '@platform/db';
+import { UuidSchema } from '@platform/shared';
+import {
+  SlideInteractionConfigSchema,
+  SlideNavigationGateSchema,
+  SlideMcqConfigSchema,
+  SlideTrueFalseConfigSchema,
+  SlideDragMatchConfigSchema,
+  SlideShortAnswerAiConfigSchema,
+} from '@platform/shared';
+import { enqueueExtraction } from '../lib/extraction.js';
+import { requireAuth } from '../middleware/auth.js';
+import { getScope, requireOrgInScope } from '../middleware/scope.js';
+import { sniffMime } from '../lib/mime-sniff.js';
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const MAX_VOICEOVER_BYTES = 25 * 1024 * 1024;
+const ACCEPTED_VOICEOVER_MIMES = new Set([
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/mp4',
+  'audio/m4a',
+  'audio/x-m4a',
+  'audio/wav',
+  'audio/x-wav',
+  'audio/ogg',
+  'audio/webm',
+]);
+// Sniffed MIME whitelist (post-magic-byte). MP3 sniffs as audio/mpeg; M4A
+// sniffs as audio/mp4 because container == MP4.
+const SAFE_VOICEOVER_SNIFFED = new Set([
+  'audio/mpeg',
+  'audio/mp4',
+  'audio/wav',
+  'audio/ogg',
+  'audio/webm',
+]);
+
+// ---------------------------------------------------------------------------
+// Loaders + scope guards
+// ---------------------------------------------------------------------------
+
+interface DeckCtx {
+  deck: typeof schema.slideDecks.$inferSelect;
+  doc: typeof schema.documents.$inferSelect;
+  ownerOrganizationId: string;
+}
+
+async function loadDeckForWrite(
+  db: Database,
+  slideDeckId: string,
+  scope: { all: boolean; orgIds: string[] },
+): Promise<DeckCtx | null> {
+  const deck = await db.query.slideDecks.findFirst({
+    where: eq(schema.slideDecks.id, slideDeckId),
+  });
+  if (!deck) return null;
+  const doc = await db.query.documents.findFirst({
+    where: eq(schema.documents.id, deck.documentId),
+    with: { packVersion: { with: { pack: true } } },
+  });
+  if (!doc) return null;
+  requireOrgInScope(scope, doc.packVersion.pack.ownerOrganizationId);
+  return { deck, doc, ownerOrganizationId: doc.packVersion.pack.ownerOrganizationId };
+}
+
+async function loadSlideForWrite(
+  db: Database,
+  slideDeckId: string,
+  slideId: string,
+  scope: { all: boolean; orgIds: string[] },
+): Promise<
+  | (DeckCtx & {
+      slide: typeof schema.slideDeckSlides.$inferSelect;
+    })
+  | null
+> {
+  const deckCtx = await loadDeckForWrite(db, slideDeckId, scope);
+  if (!deckCtx) return null;
+  const slide = await db.query.slideDeckSlides.findFirst({
+    where: and(
+      eq(schema.slideDeckSlides.id, slideId),
+      eq(schema.slideDeckSlides.slideDeckId, slideDeckId),
+    ),
+  });
+  if (!slide) return null;
+  return { ...deckCtx, slide };
+}
+
+async function loadInteractionForWrite(
+  db: Database,
+  interactionId: string,
+  scope: { all: boolean; orgIds: string[] },
+): Promise<
+  | (DeckCtx & {
+      slide: typeof schema.slideDeckSlides.$inferSelect;
+      interaction: typeof schema.slideInteractions.$inferSelect;
+    })
+  | null
+> {
+  const interaction = await db.query.slideInteractions.findFirst({
+    where: eq(schema.slideInteractions.id, interactionId),
+  });
+  if (!interaction) return null;
+  const slide = await db.query.slideDeckSlides.findFirst({
+    where: eq(schema.slideDeckSlides.id, interaction.slideId),
+  });
+  if (!slide) return null;
+  const deckCtx = await loadDeckForWrite(db, slide.slideDeckId, scope);
+  if (!deckCtx) return null;
+  return { ...deckCtx, slide, interaction };
+}
+
+// ---------------------------------------------------------------------------
+// DTO mapping
+// ---------------------------------------------------------------------------
+
+function deckDto(
+  deck: typeof schema.slideDecks.$inferSelect,
+  doc: typeof schema.documents.$inferSelect,
+): {
+  id: string;
+  documentId: string;
+  documentTitle: string;
+  conversionStatus: typeof deck.conversionStatus;
+  conversionError: string | null;
+  conversionStartedAt: string | null;
+  conversionCompletedAt: string | null;
+  slideCount: number;
+  passThreshold: number;
+  createdAt: string;
+  updatedAt: string;
+} {
+  return {
+    id: deck.id,
+    documentId: deck.documentId,
+    documentTitle: doc.title,
+    conversionStatus: deck.conversionStatus,
+    conversionError: deck.conversionError,
+    conversionStartedAt: deck.conversionStartedAt
+      ? deck.conversionStartedAt.toISOString()
+      : null,
+    conversionCompletedAt: deck.conversionCompletedAt
+      ? deck.conversionCompletedAt.toISOString()
+      : null,
+    slideCount: deck.slideCount,
+    passThreshold: deck.passThreshold,
+    createdAt: deck.createdAt.toISOString(),
+    updatedAt: deck.updatedAt.toISOString(),
+  };
+}
+
+function slideDto(
+  slide: typeof schema.slideDeckSlides.$inferSelect,
+  imageUrl: string | null,
+  voiceoverUrl: string | null,
+) {
+  return {
+    id: slide.id,
+    slideDeckId: slide.slideDeckId,
+    slideIndex: slide.slideIndex,
+    orderingHint: slide.orderingHint,
+    title: slide.title,
+    speakerNotesMarkdown: slide.speakerNotesMarkdown,
+    scriptMarkdown: slide.scriptMarkdown,
+    imageStorageKey: slide.imageStorageKey,
+    imageUrl,
+    imageWidth: slide.imageWidth,
+    imageHeight: slide.imageHeight,
+    voiceoverStorageKey: slide.voiceoverStorageKey,
+    voiceoverUrl,
+    voiceoverDurationSec: slide.voiceoverDurationSec,
+    navigationGate: slide.navigationGate,
+    updatedAt: slide.updatedAt.toISOString(),
+  };
+}
+
+function interactionDto(row: typeof schema.slideInteractions.$inferSelect) {
+  return {
+    id: row.id,
+    slideId: row.slideId,
+    kind: row.kind,
+    prompt: row.prompt,
+    config: row.config,
+    weight: row.weight,
+    orderingHint: row.orderingHint,
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Per-kind config validation. Server is authoritative about correct answers;
+// the discriminator's `kind` must match the interaction.kind that's already
+// stored. We re-validate on every PATCH so a buggy admin client can't write
+// a misshaped row that breaks the player.
+// ---------------------------------------------------------------------------
+
+function validateInteractionConfig(
+  kind: typeof schema.slideInteractions.$inferSelect['kind'],
+  rawConfig: unknown,
+): { ok: true; config: Record<string, unknown> } | { ok: false; error: string } {
+  let parsed: unknown;
+  try {
+    if (kind === 'mcq') {
+      parsed = SlideMcqConfigSchema.parse(rawConfig);
+    } else if (kind === 'true_false') {
+      parsed = SlideTrueFalseConfigSchema.parse(rawConfig);
+    } else if (kind === 'drag_match') {
+      parsed = SlideDragMatchConfigSchema.parse(rawConfig);
+    } else {
+      parsed = SlideShortAnswerAiConfigSchema.parse(rawConfig);
+    }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'invalid config' };
+  }
+  // Defensive sanity: for MCQ ensure correctIndex is within options range.
+  if (kind === 'mcq') {
+    const c = parsed as z.infer<typeof SlideMcqConfigSchema>;
+    if (c.correctIndex >= c.options.length) {
+      return { ok: false, error: 'correctIndex must be < options.length' };
+    }
+  }
+  // Drag-match: require unique left labels.
+  if (kind === 'drag_match') {
+    const c = parsed as z.infer<typeof SlideDragMatchConfigSchema>;
+    const labels = new Set(c.pairs.map((p) => p.left));
+    if (labels.size !== c.pairs.length) {
+      return { ok: false, error: 'left-side labels must be unique' };
+    }
+  }
+  return { ok: true, config: parsed as Record<string, unknown> };
+}
+
+// ---------------------------------------------------------------------------
+// Request bodies
+// ---------------------------------------------------------------------------
+
+const DeckPatchBody = z
+  .object({
+    passThreshold: z.number().min(0).max(1).optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: 'No fields to update.' });
+
+const SlidePatchBody = z
+  .object({
+    title: z.string().max(200).nullable().optional(),
+    scriptMarkdown: z.string().max(16000).nullable().optional(),
+    navigationGate: SlideNavigationGateSchema.optional(),
+    orderingHint: z.number().optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: 'No fields to update.' });
+
+const ReorderBody = z.object({
+  orderings: z
+    .array(
+      z.object({
+        slideId: UuidSchema,
+        orderingHint: z.number(),
+      }),
+    )
+    .min(1)
+    .max(500),
+});
+
+const InteractionCreateBody = SlideInteractionConfigSchema.and(
+  z.object({
+    prompt: z.string().min(1).max(2000),
+    weight: z.number().min(0).max(10).default(1),
+    orderingHint: z.number().default(0),
+  }),
+);
+
+const InteractionPatchBody = z
+  .object({
+    prompt: z.string().min(1).max(2000).optional(),
+    config: z.record(z.string(), z.unknown()).optional(),
+    weight: z.number().min(0).max(10).optional(),
+    orderingHint: z.number().optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: 'No fields to update.' });
+
+const InteractionReorderBody = z.object({
+  slideId: UuidSchema,
+  orderings: z
+    .array(z.object({ interactionId: UuidSchema, orderingHint: z.number() }))
+    .min(1)
+    .max(50),
+});
+
+const VoiceoverDurationBody = z.object({
+  voiceoverDurationSec: z.number().min(0).max(60 * 60),
+});
+
+// ---------------------------------------------------------------------------
+// Routes
+// ---------------------------------------------------------------------------
+
+export async function registerAdminSlideCourses(app: FastifyInstance) {
+  // -------------------------------------------------------------------------
+  // GET /admin/slide-decks/by-document/:documentId
+  //
+  // The admin UI opens the course editor from the document detail page —
+  // it has the documentId, not the slideDeckId. This endpoint returns
+  // null when no deck row exists yet (i.e. conversion hasn't started).
+  // -------------------------------------------------------------------------
+  app.get<{ Params: { documentId: string } }>(
+    '/admin/slide-decks/by-document/:documentId',
+    { schema: { params: z.object({ documentId: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const scope = await getScope(request, db);
+      const doc = await db.query.documents.findFirst({
+        where: eq(schema.documents.id, request.params.documentId),
+        with: { packVersion: { with: { pack: true } } },
+      });
+      if (!doc) return reply.notFound();
+      requireOrgInScope(scope, doc.packVersion.pack.ownerOrganizationId);
+
+      const deck = await db.query.slideDecks.findFirst({
+        where: eq(schema.slideDecks.documentId, doc.id),
+      });
+      if (!deck) return reply.send(null);
+      return reply.send(deckDto(deck, doc));
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // GET /admin/slide-decks/:id
+  //
+  // Full deck for the editor: deck row + ordered slides + interactions per
+  // slide. Resolves storage keys to signed URLs so the admin <img> + <audio>
+  // tags can render without a second round-trip.
+  // -------------------------------------------------------------------------
+  app.get<{ Params: { id: string } }>(
+    '/admin/slide-decks/:id',
+    { schema: { params: z.object({ id: UuidSchema }) } },
+    async (request, reply) => {
+      const { db, storage } = app.ctx;
+      requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadDeckForWrite(db, request.params.id, scope);
+      if (!ctx) return reply.notFound();
+
+      const slides = await db.query.slideDeckSlides.findMany({
+        where: eq(schema.slideDeckSlides.slideDeckId, ctx.deck.id),
+        orderBy: [
+          asc(schema.slideDeckSlides.orderingHint),
+          asc(schema.slideDeckSlides.slideIndex),
+        ],
+      });
+
+      const allInteractions = slides.length
+        ? await db.query.slideInteractions.findMany({
+            where: inArray(
+              schema.slideInteractions.slideId,
+              slides.map((s) => s.id),
+            ),
+            orderBy: [asc(schema.slideInteractions.orderingHint)],
+          })
+        : [];
+
+      const slideMap = new Map<string, ReturnType<typeof slideDto>>();
+      for (const s of slides) {
+        const imageUrl = s.imageStorageKey ? storage.publicUrl(s.imageStorageKey) : null;
+        const voiceoverUrl = s.voiceoverStorageKey
+          ? storage.publicUrl(s.voiceoverStorageKey)
+          : null;
+        slideMap.set(s.id, slideDto(s, imageUrl, voiceoverUrl));
+      }
+
+      const byInteraction: Record<string, ReturnType<typeof interactionDto>[]> = {};
+      for (const i of allInteractions) {
+        if (!byInteraction[i.slideId]) byInteraction[i.slideId] = [];
+        byInteraction[i.slideId]!.push(interactionDto(i));
+      }
+
+      return reply.send({
+        deck: deckDto(ctx.deck, ctx.doc),
+        slides: slides.map((s) => ({
+          ...slideMap.get(s.id)!,
+          interactions: byInteraction[s.id] ?? [],
+        })),
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // PATCH /admin/slide-decks/:id
+  // -------------------------------------------------------------------------
+  app.patch<{ Params: { id: string }; Body: z.infer<typeof DeckPatchBody> }>(
+    '/admin/slide-decks/:id',
+    { schema: { params: z.object({ id: UuidSchema }), body: DeckPatchBody } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadDeckForWrite(db, request.params.id, scope);
+      if (!ctx) return reply.notFound();
+
+      const patch: Record<string, unknown> = { updatedAt: new Date() };
+      if (request.body.passThreshold !== undefined)
+        patch.passThreshold = request.body.passThreshold;
+      const [updated] = await db
+        .update(schema.slideDecks)
+        .set(patch)
+        .where(eq(schema.slideDecks.id, ctx.deck.id))
+        .returning();
+      if (!updated) return reply.internalServerError('Failed to update slide deck.');
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'slide_deck.updated',
+        targetType: 'slide_deck',
+        targetId: ctx.deck.id,
+        payload: { passThreshold: updated.passThreshold },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+
+      return reply.send(deckDto(updated, ctx.doc));
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /admin/slide-decks/:id/retry-conversion
+  //
+  // Flips the parent document back to extraction_status='pending' so the
+  // worker picks it up again. Clears slide_decks.conversion_error too so
+  // the admin banner doesn't show stale failures during retry.
+  // -------------------------------------------------------------------------
+  app.post<{ Params: { id: string } }>(
+    '/admin/slide-decks/:id/retry-conversion',
+    { schema: { params: z.object({ id: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadDeckForWrite(db, request.params.id, scope);
+      if (!ctx) return reply.notFound();
+
+      await db
+        .update(schema.slideDecks)
+        .set({
+          conversionStatus: 'pending',
+          conversionError: null,
+          conversionStartedAt: null,
+          conversionCompletedAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.slideDecks.id, ctx.deck.id));
+      await enqueueExtraction(db, ctx.doc.id);
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'slide_deck.retry_conversion',
+        targetType: 'slide_deck',
+        targetId: ctx.deck.id,
+        payload: {},
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+
+      return reply.send({ ok: true });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // PATCH /admin/slide-decks/:id/slides/:slideId
+  // -------------------------------------------------------------------------
+  app.patch<{
+    Params: { id: string; slideId: string };
+    Body: z.infer<typeof SlidePatchBody>;
+  }>(
+    '/admin/slide-decks/:id/slides/:slideId',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema, slideId: UuidSchema }),
+        body: SlidePatchBody,
+      },
+    },
+    async (request, reply) => {
+      const { db, storage } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadSlideForWrite(
+        db,
+        request.params.id,
+        request.params.slideId,
+        scope,
+      );
+      if (!ctx) return reply.notFound();
+
+      const patch: Record<string, unknown> = { updatedAt: new Date() };
+      const b = request.body;
+      if (b.title !== undefined) patch.title = b.title;
+      if (b.scriptMarkdown !== undefined) patch.scriptMarkdown = b.scriptMarkdown;
+      if (b.navigationGate !== undefined) patch.navigationGate = b.navigationGate;
+      if (b.orderingHint !== undefined) patch.orderingHint = b.orderingHint;
+
+      const [updated] = await db
+        .update(schema.slideDeckSlides)
+        .set(patch)
+        .where(eq(schema.slideDeckSlides.id, ctx.slide.id))
+        .returning();
+      if (!updated) return reply.internalServerError('Failed to update slide.');
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'slide_deck_slide.updated',
+        targetType: 'slide_deck_slide',
+        targetId: ctx.slide.id,
+        payload: { fields: Object.keys(b) },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+
+      const imageUrl = updated.imageStorageKey
+        ? storage.publicUrl(updated.imageStorageKey)
+        : null;
+      const voiceoverUrl = updated.voiceoverStorageKey
+        ? storage.publicUrl(updated.voiceoverStorageKey)
+        : null;
+      return reply.send(slideDto(updated, imageUrl, voiceoverUrl));
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /admin/slide-decks/:id/slides/:slideId/voiceover  (multipart upload)
+  // -------------------------------------------------------------------------
+  app.post<{ Params: { id: string; slideId: string } }>(
+    '/admin/slide-decks/:id/slides/:slideId/voiceover',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema, slideId: UuidSchema }),
+      },
+    },
+    async (request, reply) => {
+      const { db, storage } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadSlideForWrite(
+        db,
+        request.params.id,
+        request.params.slideId,
+        scope,
+      );
+      if (!ctx) return reply.notFound();
+      if (!request.isMultipart()) {
+        return reply.badRequest('Expected multipart/form-data with an audio file.');
+      }
+      const file = await request.file();
+      if (!file) return reply.badRequest('Missing audio file.');
+      const mime = (file.mimetype || '').toLowerCase();
+      if (!ACCEPTED_VOICEOVER_MIMES.has(mime)) {
+        return reply.unsupportedMediaType(
+          `Unsupported audio type: ${mime}. Use MP3, M4A, WAV, OGG, or WebM.`,
+        );
+      }
+      const chunks: Buffer[] = [];
+      for await (const c of file.file as unknown as AsyncIterable<Buffer>) chunks.push(c);
+      const buf = Buffer.concat(chunks);
+      if (buf.byteLength === 0) return reply.badRequest('Empty audio.');
+      if (buf.byteLength > MAX_VOICEOVER_BYTES) {
+        return reply.payloadTooLarge('Audio exceeds 25 MB limit.');
+      }
+      const sniffed = sniffMime(buf);
+      if (!sniffed || !SAFE_VOICEOVER_SNIFFED.has(sniffed)) {
+        return reply.unsupportedMediaType(
+          'File content does not match a supported audio format.',
+        );
+      }
+      const stored = await storage.putBuffer({
+        buffer: buf,
+        filename: file.filename || `slide-${ctx.slide.id}.audio`,
+        contentType: sniffed,
+        ownerOrganizationId: ctx.ownerOrganizationId,
+      });
+      const [updated] = await db
+        .update(schema.slideDeckSlides)
+        .set({
+          voiceoverStorageKey: stored.storageKey,
+          // Client probes duration after upload and PATCHes the accurate
+          // value back. Leave null until then.
+          voiceoverDurationSec: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.slideDeckSlides.id, ctx.slide.id))
+        .returning();
+      if (!updated) return reply.internalServerError('Failed to attach voiceover.');
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'slide_deck_slide.voiceover_uploaded',
+        targetType: 'slide_deck_slide',
+        targetId: ctx.slide.id,
+        payload: { mime: sniffed, sizeBytes: stored.size },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+
+      return reply.send({
+        voiceoverStorageKey: stored.storageKey,
+        voiceoverUrl: storage.publicUrl(stored.storageKey),
+        sizeBytes: stored.size,
+        contentType: sniffed,
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // DELETE /admin/slide-decks/:id/slides/:slideId/voiceover
+  // -------------------------------------------------------------------------
+  app.delete<{ Params: { id: string; slideId: string } }>(
+    '/admin/slide-decks/:id/slides/:slideId/voiceover',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema, slideId: UuidSchema }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadSlideForWrite(
+        db,
+        request.params.id,
+        request.params.slideId,
+        scope,
+      );
+      if (!ctx) return reply.notFound();
+      await db
+        .update(schema.slideDeckSlides)
+        .set({
+          voiceoverStorageKey: null,
+          voiceoverDurationSec: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.slideDeckSlides.id, ctx.slide.id));
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'slide_deck_slide.voiceover_deleted',
+        targetType: 'slide_deck_slide',
+        targetId: ctx.slide.id,
+        payload: {},
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+      return reply.send({ ok: true });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // PATCH /admin/slide-decks/:id/slides/:slideId/voiceover-duration
+  //
+  // Client probes duration via HTMLAudioElement.duration after upload and
+  // PATCHes the accurate seconds back. Used by the player's
+  // require_voiceover gate to know when audio "finished" without relying
+  // on the per-play 'ended' event firing on every device.
+  // -------------------------------------------------------------------------
+  app.patch<{
+    Params: { id: string; slideId: string };
+    Body: z.infer<typeof VoiceoverDurationBody>;
+  }>(
+    '/admin/slide-decks/:id/slides/:slideId/voiceover-duration',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema, slideId: UuidSchema }),
+        body: VoiceoverDurationBody,
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadSlideForWrite(
+        db,
+        request.params.id,
+        request.params.slideId,
+        scope,
+      );
+      if (!ctx) return reply.notFound();
+      if (!ctx.slide.voiceoverStorageKey) {
+        return reply.badRequest('No voiceover attached to this slide.');
+      }
+      await db
+        .update(schema.slideDeckSlides)
+        .set({
+          voiceoverDurationSec: request.body.voiceoverDurationSec,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.slideDeckSlides.id, ctx.slide.id));
+      return reply.send({ ok: true });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /admin/slide-decks/:id/reorder
+  //
+  // Bulk update of orderingHint on slides. The admin UI sends the full
+  // ordering after a drag-drop reorder; we apply it in a transaction.
+  // -------------------------------------------------------------------------
+  app.post<{ Params: { id: string }; Body: z.infer<typeof ReorderBody> }>(
+    '/admin/slide-decks/:id/reorder',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema }),
+        body: ReorderBody,
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadDeckForWrite(db, request.params.id, scope);
+      if (!ctx) return reply.notFound();
+
+      await db.transaction(async (tx) => {
+        for (const o of request.body.orderings) {
+          await tx
+            .update(schema.slideDeckSlides)
+            .set({ orderingHint: o.orderingHint, updatedAt: new Date() })
+            .where(
+              and(
+                eq(schema.slideDeckSlides.id, o.slideId),
+                eq(schema.slideDeckSlides.slideDeckId, ctx.deck.id),
+              ),
+            );
+        }
+      });
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'slide_deck.reordered',
+        targetType: 'slide_deck',
+        targetId: ctx.deck.id,
+        payload: { count: request.body.orderings.length },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+      return reply.send({ ok: true });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /admin/slide-decks/:id/slides/:slideId/interactions  — create
+  // -------------------------------------------------------------------------
+  app.post<{
+    Params: { id: string; slideId: string };
+    Body: z.infer<typeof InteractionCreateBody>;
+  }>(
+    '/admin/slide-decks/:id/slides/:slideId/interactions',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema, slideId: UuidSchema }),
+        body: InteractionCreateBody,
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadSlideForWrite(
+        db,
+        request.params.id,
+        request.params.slideId,
+        scope,
+      );
+      if (!ctx) return reply.notFound();
+
+      const b = request.body;
+      const validated = validateInteractionConfig(b.kind, b.config);
+      if (!validated.ok) return reply.badRequest(validated.error);
+
+      const [row] = await db
+        .insert(schema.slideInteractions)
+        .values({
+          slideId: ctx.slide.id,
+          kind: b.kind,
+          prompt: b.prompt,
+          config: validated.config,
+          weight: b.weight,
+          orderingHint: b.orderingHint,
+        })
+        .returning();
+      if (!row) return reply.internalServerError('Failed to create interaction.');
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'slide_interaction.created',
+        targetType: 'slide_interaction',
+        targetId: row.id,
+        payload: { slideId: row.slideId, kind: row.kind },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+      return reply.send(interactionDto(row));
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // PATCH /admin/slide-interactions/:interactionId
+  // -------------------------------------------------------------------------
+  app.patch<{
+    Params: { interactionId: string };
+    Body: z.infer<typeof InteractionPatchBody>;
+  }>(
+    '/admin/slide-interactions/:interactionId',
+    {
+      schema: {
+        params: z.object({ interactionId: UuidSchema }),
+        body: InteractionPatchBody,
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadInteractionForWrite(db, request.params.interactionId, scope);
+      if (!ctx) return reply.notFound();
+
+      const patch: Record<string, unknown> = { updatedAt: new Date() };
+      const b = request.body;
+      if (b.prompt !== undefined) patch.prompt = b.prompt;
+      if (b.weight !== undefined) patch.weight = b.weight;
+      if (b.orderingHint !== undefined) patch.orderingHint = b.orderingHint;
+      if (b.config !== undefined) {
+        const validated = validateInteractionConfig(ctx.interaction.kind, b.config);
+        if (!validated.ok) return reply.badRequest(validated.error);
+        patch.config = validated.config;
+      }
+
+      const [updated] = await db
+        .update(schema.slideInteractions)
+        .set(patch)
+        .where(eq(schema.slideInteractions.id, ctx.interaction.id))
+        .returning();
+      if (!updated) return reply.internalServerError('Failed to update interaction.');
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'slide_interaction.updated',
+        targetType: 'slide_interaction',
+        targetId: updated.id,
+        payload: { fields: Object.keys(b) },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+      return reply.send(interactionDto(updated));
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // DELETE /admin/slide-interactions/:interactionId
+  // -------------------------------------------------------------------------
+  app.delete<{ Params: { interactionId: string } }>(
+    '/admin/slide-interactions/:interactionId',
+    { schema: { params: z.object({ interactionId: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadInteractionForWrite(db, request.params.interactionId, scope);
+      if (!ctx) return reply.notFound();
+      await db
+        .delete(schema.slideInteractions)
+        .where(eq(schema.slideInteractions.id, ctx.interaction.id));
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'slide_interaction.deleted',
+        targetType: 'slide_interaction',
+        targetId: ctx.interaction.id,
+        payload: {},
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+      return reply.send({ ok: true });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /admin/slide-decks/:id/interactions/reorder
+  // -------------------------------------------------------------------------
+  app.post<{
+    Params: { id: string };
+    Body: z.infer<typeof InteractionReorderBody>;
+  }>(
+    '/admin/slide-decks/:id/interactions/reorder',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema }),
+        body: InteractionReorderBody,
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadDeckForWrite(db, request.params.id, scope);
+      if (!ctx) return reply.notFound();
+
+      const slide = await db.query.slideDeckSlides.findFirst({
+        where: and(
+          eq(schema.slideDeckSlides.id, request.body.slideId),
+          eq(schema.slideDeckSlides.slideDeckId, ctx.deck.id),
+        ),
+      });
+      if (!slide) return reply.notFound();
+
+      await db.transaction(async (tx) => {
+        for (const o of request.body.orderings) {
+          await tx
+            .update(schema.slideInteractions)
+            .set({ orderingHint: o.orderingHint, updatedAt: new Date() })
+            .where(
+              and(
+                eq(schema.slideInteractions.id, o.interactionId),
+                eq(schema.slideInteractions.slideId, slide.id),
+              ),
+            );
+        }
+      });
+      return reply.send({ ok: true });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /admin/training-modules/:moduleId/slide-course-activities
+  //
+  // Publishes a converted slide deck as a slide_course activity on a
+  // training module. The deck must live in the same content pack
+  // version as the module (a course can't reference a deck from a
+  // sibling pack), and must be conversion='ready'.
+  // -------------------------------------------------------------------------
+  app.post<{
+    Params: { moduleId: string };
+    Body: {
+      title: string;
+      slideDeckId: string;
+      weight?: number;
+      orderingHint?: number;
+    };
+  }>(
+    '/admin/training-modules/:moduleId/slide-course-activities',
+    {
+      schema: {
+        params: z.object({ moduleId: UuidSchema }),
+        body: z.object({
+          title: z.string().min(1).max(200),
+          slideDeckId: UuidSchema,
+          weight: z.number().positive().default(1),
+          orderingHint: z.number().int().default(0),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const module = await db.query.trainingModules.findFirst({
+        where: eq(schema.trainingModules.id, request.params.moduleId),
+        with: { packVersion: { with: { pack: true } } },
+      });
+      if (!module) return reply.notFound();
+      requireOrgInScope(scope, module.packVersion.pack.ownerOrganizationId);
+      if (module.packVersion.status !== 'draft' && !request.auth?.platformAdmin) {
+        return reply.badRequest('Can only author activities in a draft version.');
+      }
+
+      const ctx = await loadDeckForWrite(db, request.body.slideDeckId, scope);
+      if (!ctx) return reply.notFound();
+      if (ctx.doc.contentPackVersionId !== module.packVersion.id) {
+        return reply.badRequest(
+          'Slide deck must belong to the same content pack version as the training module.',
+        );
+      }
+      if (ctx.deck.conversionStatus !== 'ready') {
+        return reply.badRequest(
+          `Slide deck is not ready (status: ${ctx.deck.conversionStatus}).`,
+        );
+      }
+
+      const [created] = await db
+        .insert(schema.activities)
+        .values({
+          trainingModuleId: module.id,
+          kind: 'slide_course',
+          title: request.body.title,
+          config: { slideDeckId: ctx.deck.id },
+          weight: request.body.weight,
+          orderingHint: request.body.orderingHint,
+        })
+        .returning();
+      if (!created) return reply.internalServerError('Failed to create activity.');
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'activity.slide_course_created',
+        targetType: 'activity',
+        targetId: created.id,
+        payload: { trainingModuleId: module.id, slideDeckId: ctx.deck.id },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+
+      return reply.send(created);
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // GET /admin/content-pack-versions/:versionId/slide-decks
+  //
+  // Listing helper used by the "add slide-course activity" picker in the
+  // training-module authoring UI. Returns only converted, ready decks so
+  // authors can't link a still-failing render.
+  // -------------------------------------------------------------------------
+  app.get<{ Params: { versionId: string } }>(
+    '/admin/content-pack-versions/:versionId/slide-decks',
+    { schema: { params: z.object({ versionId: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const scope = await getScope(request, db);
+      const version = await db.query.contentPackVersions.findFirst({
+        where: eq(schema.contentPackVersions.id, request.params.versionId),
+        with: { pack: true },
+      });
+      if (!version) return reply.notFound();
+      requireOrgInScope(scope, version.pack.ownerOrganizationId);
+
+      // Find all slide-kind documents in the version, then join their decks.
+      const docs = await db.query.documents.findMany({
+        where: and(
+          eq(schema.documents.contentPackVersionId, version.id),
+          eq(schema.documents.kind, 'slides'),
+        ),
+        columns: { id: true, title: true },
+        orderBy: [desc(schema.documents.createdAt)],
+      });
+      if (docs.length === 0) return reply.send([]);
+      const out: Array<{
+        slideDeckId: string;
+        documentId: string;
+        documentTitle: string;
+        slideCount: number;
+        conversionStatus: string;
+      }> = [];
+      for (const d of docs) {
+        const deck = await db.query.slideDecks.findFirst({
+          where: eq(schema.slideDecks.documentId, d.id),
+          columns: {
+            id: true,
+            slideCount: true,
+            conversionStatus: true,
+          },
+        });
+        if (!deck) continue;
+        out.push({
+          slideDeckId: deck.id,
+          documentId: d.id,
+          documentTitle: d.title,
+          slideCount: deck.slideCount,
+          conversionStatus: deck.conversionStatus,
+        });
+      }
+      return reply.send(out);
+    },
+  );
+}

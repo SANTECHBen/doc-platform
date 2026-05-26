@@ -903,6 +903,7 @@ export interface AdminTrainingModuleDetail {
   competencyTag: string | null;
   passThreshold: number;
   orderingHint: number;
+  contentPackVersionId: string;
   contentPack: {
     id: string;
     name: string;

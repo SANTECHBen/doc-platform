@@ -34,7 +34,13 @@ import { EmptyState } from '@/components/empty-state';
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
 const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
 
-export function TrainingTab({ hub }: { hub: AssetHubPayload }) {
+export function TrainingTab({
+  hub,
+  qrCode,
+}: {
+  hub: AssetHubPayload;
+  qrCode: string;
+}) {
   const versionId = hub.pinnedContentPackVersion?.id ?? null;
   const [modules, setModules] = useState<TrainingModuleSummary[] | null>(null);
   // PowerPoint uploads land in documents with kind='slides'; we surface
@@ -111,6 +117,7 @@ export function TrainingTab({ hub }: { hub: AssetHubPayload }) {
       <ModuleRunner
         moduleId={active}
         hub={hub}
+        qrCode={qrCode}
         onDone={(summary) => {
           setModules((prev) =>
             prev ? prev.map((m) => (m.id === summary.id ? summary : m)) : prev,
@@ -306,10 +313,12 @@ function EnrollmentBadge({
 function ModuleRunner({
   moduleId,
   hub,
+  qrCode,
   onDone,
 }: {
   moduleId: string;
   hub: AssetHubPayload;
+  qrCode: string;
   onDone: (summary: TrainingModuleSummary) => void;
 }) {
   const [detail, setDetail] = useState<TrainingModuleDetail | null>(null);
@@ -438,23 +447,40 @@ function ModuleRunner({
         <ul className="flex flex-col gap-2">
           {detail.activities.map((a) => {
             const isQuiz = a.kind === 'quiz';
+            const isSlideCourse = a.kind === 'slide_course';
+            const launchable = isQuiz || isSlideCourse;
             return (
               <li key={a.id}>
                 <button
-                  onClick={() => isQuiz && setActiveActivityId(a.id)}
-                  disabled={!isQuiz}
+                  onClick={() => {
+                    if (isQuiz) setActiveActivityId(a.id);
+                    else if (isSlideCourse) {
+                      // The slide-course player is its own route — it
+                      // needs more chrome than the in-tab quiz runner.
+                      window.location.href = `/a/${encodeURIComponent(
+                        qrCode,
+                      )}/courses/${encodeURIComponent(enrollmentId)}?activity=${encodeURIComponent(
+                        a.id,
+                      )}`;
+                    }
+                  }}
+                  disabled={!launchable}
                   className="surface-etched flex w-full items-center gap-3 px-4 py-3 text-left disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <div className="icon-chip icon-chip-info">
-                    <ListChecks size={16} strokeWidth={1.75} />
+                    {isSlideCourse ? (
+                      <Presentation size={16} strokeWidth={1.75} />
+                    ) : (
+                      <ListChecks size={16} strokeWidth={1.75} />
+                    )}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium text-ink-primary">{a.title}</div>
                     <div className="font-mono text-[11px] uppercase tracking-wider text-ink-tertiary">
-                      {a.kind}
+                      {a.kind.replace(/_/g, ' ')}
                     </div>
                   </div>
-                  {isQuiz ? (
+                  {launchable ? (
                     <span className="inline-flex items-center gap-1 text-sm font-medium text-brand">
                       Start <ChevronRight size={14} strokeWidth={2} />
                     </span>

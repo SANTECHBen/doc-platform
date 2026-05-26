@@ -51,6 +51,8 @@ import { registerAdminPmPlans } from './routes/admin-pm-plans';
 import { registerAdminTroubleshooting } from './routes/admin-troubleshooting';
 import { registerPmRoutes } from './routes/pm';
 import { registerMuxPlaybackRoutes } from './routes/mux-playback';
+import { registerAdminSlideCourses } from './routes/admin-slide-courses';
+import { registerSlideCoursePlayerRoutes } from './routes/slide-course-player';
 
 export async function buildApp(ctx: AppContext) {
   const app = Fastify({
@@ -237,6 +239,8 @@ export async function buildApp(ctx: AppContext) {
   await registerAdminTroubleshooting(app);
   await registerPmRoutes(app);
   await registerMuxPlaybackRoutes(app);
+  await registerAdminSlideCourses(app);
+  await registerSlideCoursePlayerRoutes(app);
 
   return app;
 }

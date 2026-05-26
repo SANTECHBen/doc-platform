@@ -35,6 +35,21 @@ export interface PipelineParams {
    *  PDF extractor falls back to a multipart upload, which buffers the
    *  whole file (OK for small dev files; OOM-prone for big production PDFs). */
   publicUrl?: (storageKey: string) => string | null;
+  /** Optional: render PPTX slides to PNG images.
+   *
+   *  Called once per slides-kind document, after text extraction lands.
+   *  The pipeline owns the temp PPTX file; this callback is handed the
+   *  on-disk path and is expected to read it, shell out to LibreOffice
+   *  + Poppler, upload PNGs via the storage adapter, and upsert
+   *  slide_decks + slide_deck_slides rows. Failure here logs but does
+   *  not flip documents.extractionStatus — slide rendering and text
+   *  extraction are independently surfaced so authors can still edit
+   *  slide-course shells when rendering fails. */
+  renderSlides?: (input: {
+    pptxPath: string;
+    documentId: string;
+    ownerOrganizationId: string;
+  }) => Promise<void>;
 }
 
 export interface PipelineResult {
@@ -51,7 +66,7 @@ export interface PipelineResult {
  * many docs without bailing on the first error.
  */
 export async function processDocument(params: PipelineParams): Promise<PipelineResult> {
-  const { db, documentId, fetchFileStream, publicUrl } = params;
+  const { db, documentId, fetchFileStream, publicUrl, renderSlides } = params;
 
   const doc = await db.query.documents.findFirst({
     where: eq(schema.documents.id, documentId),
@@ -141,6 +156,38 @@ export async function processDocument(params: PipelineParams): Promise<PipelineR
         documentId,
       }),
     );
+
+    // Best-effort PPTX → slide PNG render. Skipped when no callback is
+    // wired (e.g., legacy callers); runs only after text extraction
+    // succeeded so we know the file is a real PPTX, not garbage. A
+    // failure here is logged but does NOT flip extractionStatus —
+    // slide_decks.conversion_status carries the per-render state and is
+    // surfaced separately in the admin.
+    if (renderSlides && doc.kind === 'slides' && extraction.meta.source === 'pptx') {
+      try {
+        await renderSlides({
+          pptxPath: sourcePath,
+          documentId,
+          ownerOrganizationId,
+        });
+        console.log(
+          JSON.stringify({
+            level: 'info',
+            msg: 'pipeline: slide render done',
+            documentId,
+          }),
+        );
+      } catch (renderErr) {
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            msg: 'pipeline: slide render failed (non-fatal)',
+            documentId,
+            error: formatError(renderErr),
+          }),
+        );
+      }
+    }
 
     const chunkStart = Date.now();
     const chunks = chunkMarkdown(extraction.markdown, {

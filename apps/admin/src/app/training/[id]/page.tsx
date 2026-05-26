@@ -9,6 +9,7 @@ import {
   ListChecks,
   Pencil,
   Plus,
+  Presentation,
   Trash2,
   X,
 } from 'lucide-react';
@@ -51,6 +52,7 @@ export default function TrainingModuleDetail({
   const [error, setError] = useState<string | null>(null);
   const [addLessonOpen, setAddLessonOpen] = useState(false);
   const [addActivityOpen, setAddActivityOpen] = useState(false);
+  const [addSlideCourseOpen, setAddSlideCourseOpen] = useState(false);
   const [editLesson, setEditLesson] = useState<AdminLesson | null>(null);
   const [editActivity, setEditActivity] = useState<AdminActivity | null>(null);
   const [editMetaOpen, setEditMetaOpen] = useState(false);
@@ -223,13 +225,22 @@ export default function TrainingModuleDetail({
               Activities ({mod.activities.length})
             </h2>
             {editable && (
-              <button
-                type="button"
-                onClick={() => setAddActivityOpen(true)}
-                className="btn btn-secondary btn-sm"
-              >
-                <Plus size={13} /> Add quiz
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAddActivityOpen(true)}
+                  className="btn btn-secondary btn-sm"
+                >
+                  <Plus size={13} /> Add quiz
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAddSlideCourseOpen(true)}
+                  className="btn btn-secondary btn-sm"
+                >
+                  <Presentation size={13} /> Add slide course
+                </button>
+              </div>
             )}
           </div>
           {mod.activities.length === 0 ? (
@@ -338,6 +349,21 @@ export default function TrainingModuleDetail({
           moduleId={id}
           onSaved={async () => {
             setAddActivityOpen(false);
+            await refresh();
+          }}
+        />
+      </Drawer>
+
+      <Drawer
+        title="Add slide course"
+        open={addSlideCourseOpen}
+        onClose={() => setAddSlideCourseOpen(false)}
+      >
+        <SlideCourseActivityForm
+          moduleId={id}
+          contentPackVersionId={mod.contentPackVersionId}
+          onSaved={async () => {
+            setAddSlideCourseOpen(false);
             await refresh();
           }}
         />
@@ -706,6 +732,151 @@ function QuizForm({
       <div className="flex justify-end">
         <PrimaryButton type="submit" disabled={saving}>
           {saving ? 'Saving…' : activity ? 'Save' : 'Add quiz'}
+        </PrimaryButton>
+      </div>
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SlideCourseActivityForm — picks a converted slide deck within the module's
+// content pack version and attaches it as a slide_course activity.
+// ---------------------------------------------------------------------------
+
+function SlideCourseActivityForm({
+  moduleId,
+  contentPackVersionId,
+  onSaved,
+}: {
+  moduleId: string;
+  contentPackVersionId: string;
+  onSaved: () => Promise<void>;
+}) {
+  const [decks, setDecks] = useState<
+    Array<{
+      slideDeckId: string;
+      documentId: string;
+      documentTitle: string;
+      slideCount: number;
+      conversionStatus: string;
+    }>
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [slideDeckId, setSlideDeckId] = useState('');
+  const [title, setTitle] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { listAvailableSlideDecksForVersion } = await import(
+          '@/lib/slide-course-api'
+        );
+        const list = await listAvailableSlideDecksForVersion(contentPackVersionId);
+        if (cancelled) return;
+        setDecks(list);
+        const firstReady = list.find((d) => d.conversionStatus === 'ready');
+        if (firstReady) {
+          setSlideDeckId(firstReady.slideDeckId);
+          setTitle(firstReady.documentTitle);
+        }
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [contentPackVersionId]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!slideDeckId) {
+      setError('Pick a slide deck.');
+      return;
+    }
+    if (!title.trim()) {
+      setError('Title is required.');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const { createSlideCourseActivity } = await import('@/lib/slide-course-api');
+      await createSlideCourseActivity(moduleId, {
+        title: title.trim(),
+        slideDeckId,
+      });
+      await onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return <p className="text-sm text-ink-tertiary">Loading slide decks…</p>;
+  }
+
+  if (decks.length === 0) {
+    return (
+      <div className="space-y-2 text-sm">
+        <p className="text-ink-secondary">
+          No slide decks have been converted in this content pack version yet.
+        </p>
+        <p className="text-ink-tertiary">
+          Upload a PowerPoint as a document with kind &ldquo;slides&rdquo;. The
+          extraction worker will render slide images, then the deck will appear
+          here.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-4">
+      <ErrorBanner error={error} />
+      <Field label="Slide deck" required>
+        <select
+          value={slideDeckId}
+          onChange={(e) => {
+            const id = e.target.value;
+            setSlideDeckId(id);
+            const match = decks.find((d) => d.slideDeckId === id);
+            if (match && !title) setTitle(match.documentTitle);
+          }}
+          className="form-select"
+        >
+          <option value="">— Pick a deck —</option>
+          {decks.map((d) => (
+            <option
+              key={d.slideDeckId}
+              value={d.slideDeckId}
+              disabled={d.conversionStatus !== 'ready'}
+            >
+              {d.documentTitle}
+              {d.conversionStatus === 'ready'
+                ? ` (${d.slideCount} slides)`
+                : ` — ${d.conversionStatus}`}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field
+        label="Activity title"
+        hint="What the learner sees in the training module's activity list."
+        required
+      >
+        <TextInput value={title} onChange={(e) => setTitle(e.target.value)} required />
+      </Field>
+      <div className="flex justify-end">
+        <PrimaryButton type="submit" disabled={saving}>
+          {saving ? 'Adding…' : 'Add slide course'}
         </PrimaryButton>
       </div>
     </form>

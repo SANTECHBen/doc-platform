@@ -53,6 +53,10 @@ export const activityKindEnum = pgEnum('activity_kind', [
   'procedure_signoff',
   'video_knowledge_check',
   'practical',
+  // Slide-deck eLearning course (PPTX upload → per-slide PNGs → optional
+  // voiceover + interactions + author-chosen navigation gating). Activity
+  // config: { slideDeckId: uuid }. See schema/slide-courses.ts.
+  'slide_course',
 ]);
 
 export const enrollmentStatusEnum = pgEnum('enrollment_status', [
@@ -122,4 +126,46 @@ export const procedureRunStatusEnum = pgEnum('procedure_run_status', [
 export const contentPackKindEnum = pgEnum('content_pack_kind', [
   'authored',
   'field_captures',
+]);
+
+// Slide-deck PPTX-to-PNG conversion lifecycle. Independent of the per-document
+// extraction pipeline because rendering slides (LibreOffice + Poppler) is a
+// separate concern from text extraction (LlamaParse / pptx text reader). The
+// admin UI shows both states; failure of one does not block the other.
+export const slideDeckConversionStatusEnum = pgEnum('slide_deck_conversion_status', [
+  'pending',
+  'processing',
+  'ready',
+  'failed',
+]);
+
+// Per-slide playback gate. Author chooses how strict to be: free advance,
+// require the voiceover to finish, require all interactions to be answered/
+// passed, or both. The player at apps/pwa/src/components/slide-course-player
+// enforces; the admin form in slide-settings.tsx writes.
+export const slideNavigationGateEnum = pgEnum('slide_navigation_gate', [
+  'free',
+  'require_voiceover',
+  'require_interactions',
+  'require_both',
+]);
+
+// Interaction kinds within a slide. mcq/true_false/drag_match grade
+// deterministically server-side; short_answer_ai dispatches to OpenAI
+// gpt-4o-mini with a rubric. Future: image-region drag, hotspot, ordering.
+export const slideInteractionKindEnum = pgEnum('slide_interaction_kind', [
+  'mcq',
+  'true_false',
+  'drag_match',
+  'short_answer_ai',
+]);
+
+// Slide-course attempt state machine. Distinct from enrollmentStatus because
+// a single enrollment may roll up multiple activities; this tracks one course's
+// own progress + scoring before it folds into activityResults.
+export const slideAttemptStatusEnum = pgEnum('slide_attempt_status', [
+  'in_progress',
+  'submitted',
+  'passed',
+  'failed',
 ]);

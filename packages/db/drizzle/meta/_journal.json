@@ -309,6 +309,13 @@
       "when": 1785000002000,
       "tag": "0044_qr_designs",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1785000003000,
+      "tag": "0045_slide_courses",
+      "breakpoints": true
     }
   ]
 }

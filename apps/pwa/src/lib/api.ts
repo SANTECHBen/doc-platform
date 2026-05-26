@@ -203,7 +203,13 @@ export interface TrainingModuleDetail {
   }>;
   activities: Array<{
     id: string;
-    kind: 'quiz' | 'checklist' | 'procedure_signoff' | 'video_knowledge_check' | 'practical';
+    kind:
+      | 'quiz'
+      | 'checklist'
+      | 'procedure_signoff'
+      | 'video_knowledge_check'
+      | 'practical'
+      | 'slide_course';
     title: string;
     config: any;
     weight: number;

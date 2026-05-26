@@ -1,6 +1,10 @@
 import { eq } from 'drizzle-orm';
 import { schema, type Database } from '@platform/db';
-import { processDocument } from '@platform/ai';
+import {
+  processDocument,
+  convertPptxToSlideImages,
+  readSpeakerNotesFromPptx,
+} from '@platform/ai';
 import { revalidateDocumentSections } from './section-revalidation-hook';
 import { synthesizeProcedureMarkdown } from './synthesize-procedure-md';
 import type { Storage } from '../storage';
@@ -121,6 +125,35 @@ export async function runExtraction(
       documentId,
       fetchFileStream: (k) => openFileStream(storage, k),
       publicUrl: (k) => storage.publicUrl(k),
+      // PPTX slide-image rendering. The worker has access to storage,
+      // so we bind the put-png callback here and let the pipeline call
+      // it once per slides document. Errors inside this callback only
+      // affect slide_decks.conversion_status — text extraction status
+      // is independent.
+      renderSlides: async ({ pptxPath, documentId: docId, ownerOrganizationId }) => {
+        const speakerNotes = await readSpeakerNotesFromPptx(pptxPath);
+        await convertPptxToSlideImages({
+          db,
+          pptxPath,
+          documentId: docId,
+          ownerOrganizationId,
+          speakerNotesBySlide: speakerNotes,
+          putPng: async ({ buffer, filename, ownerOrganizationId: org }) => {
+            const out = await storage.putBuffer({
+              buffer,
+              filename,
+              contentType: 'image/png',
+              ownerOrganizationId: org,
+            });
+            return { storageKey: out.storageKey };
+          },
+          log: {
+            info: (d, m) => log.info(typeof d === 'object' ? (d as object) : { d }, m),
+            warn: (d, m) => log.warn(typeof d === 'object' ? (d as object) : { d }, m),
+            error: (d, m) => log.error(typeof d === 'object' ? (d as object) : { d }, m),
+          },
+        });
+      },
     });
     const ms = Date.now() - startedAt;
     log.info(

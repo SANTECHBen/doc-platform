@@ -10,6 +10,7 @@ import {
   FileText,
   Link2,
   ListChecks,
+  Presentation,
   RefreshCw,
   ShieldCheck,
 } from 'lucide-react';
@@ -207,6 +208,16 @@ export default function DocumentDetailPage({
                 <RefreshCw className={`size-4 ${revalBusy ? 'animate-spin' : ''}`} />
                 Re-validate sections
               </SecondaryButton>
+            )}
+            {doc.kind === 'slides' && (
+              // PPTX uploads become a slide course on conversion. The
+              // editor lives at its own route because the 3-pane layout
+              // doesn't fit inside this page's tab strip.
+              <Link href={`/documents/${id}/course`}>
+                <PrimaryButton type="button">
+                  <Presentation className="size-4" /> Open course editor
+                </PrimaryButton>
+              </Link>
             )}
           </div>
         }

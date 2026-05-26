@@ -25,3 +25,4 @@ export * from './voice-usage';
 export * from './preventive-maintenance';
 export * from './troubleshooting';
 export * from './chat-image-uploads';
+export * from './slide-courses';

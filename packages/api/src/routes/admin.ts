@@ -1263,6 +1263,10 @@ export async function registerAdminTrainingAuthoring(app: FastifyInstance) {
         competencyTag: module.competencyTag,
         passThreshold: module.passThreshold,
         orderingHint: module.orderingHint,
+        // Surface the version id so the admin UI can list resources scoped
+        // to this version (e.g. converted slide decks for the "Add slide
+        // course" picker).
+        contentPackVersionId: module.packVersion.id,
         contentPack: {
           id: module.packVersion.pack.id,
           name: module.packVersion.pack.name,

@@ -1,6 +1,23 @@
 FROM node:22-slim AS base
 WORKDIR /app
 
+# System binaries used by the extraction worker for PPTX → slide-image
+# rendering. LibreOffice (Impress only) converts PPTX → PDF; Poppler's
+# pdftoppm rasterizes each PDF page to a PNG; ffmpeg's ffprobe measures
+# uploaded voiceover MP3 durations. fonts-liberation gives a serviceable
+# default font set so decks built with Calibri/Arial still render legibly.
+#
+# Both Fly process groups (app + worker) share this image so we accept the
+# ~280 MB image-size cost rather than maintaining a separate worker
+# Dockerfile. The app process never *calls* these binaries.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      libreoffice-impress \
+      poppler-utils \
+      ffmpeg \
+      fonts-liberation \
+ && rm -rf /var/lib/apt/lists/*
+
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 
 # Monorepo manifests first — enables layer caching of the install step.

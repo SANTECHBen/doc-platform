@@ -278,7 +278,7 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
              segmented control + filter chips + list rows already carry
              their own structure and don't need a surrounding raised
              panel. */
-          <LibraryTab hub={hub} section={librarySection} onSectionChange={setLibrarySection} />
+          <LibraryTab hub={hub} qrCode={qrCode} section={librarySection} onSectionChange={setLibrarySection} />
         ) : active === 'maintenance' ? (
           <MaintenanceTab
             assetInstanceId={hub.assetInstance.id}
@@ -408,10 +408,12 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
 // the bottom tabbar while keeping both surfaces a single tap away.
 function LibraryTab({
   hub,
+  qrCode,
   section,
   onSectionChange,
 }: {
   hub: AssetHubPayload;
+  qrCode: string;
   section: LibrarySection;
   onSectionChange: (s: LibrarySection) => void;
 }) {
@@ -438,7 +440,7 @@ function LibraryTab({
           assetInstanceId={hub.assetInstance.id}
         />
       ) : (
-        <TrainingTab hub={hub} />
+        <TrainingTab hub={hub} qrCode={qrCode} />
       )}
     </div>
   );
