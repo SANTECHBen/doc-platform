@@ -81,6 +81,101 @@ const SAFE_VOICEOVER_SNIFFED = new Set([
 ]);
 
 // ---------------------------------------------------------------------------
+// ensureTrainingModuleForDeck
+//
+// When an author creates a slide deck — either manually or by opting in
+// to auto-conversion — we want a training module to wrap it so the deck
+// shows up in /training and in the PWA's training tab without the
+// author having to navigate over and click "Add slide course" by hand.
+// That step has been a consistent source of "I authored a course and
+// nothing shows up" confusion.
+//
+// We skip the auto-wrap when an activity of kind='slide_course' already
+// references this deck, so re-running the create endpoint stays
+// idempotent. The module's title defaults to the document title; the
+// author can rename it from /training later.
+// ---------------------------------------------------------------------------
+
+async function ensureTrainingModuleForDeck(
+  db: Database,
+  doc: typeof schema.documents.$inferSelect,
+  slideDeckId: string,
+): Promise<{ moduleId: string; activityId: string; created: boolean }> {
+  const existingActivity = await db.query.activities.findFirst({
+    where: eq(schema.activities.kind, 'slide_course'),
+    // We can't easily filter on a JSONB key from drizzle's relation
+    // query without raw SQL — pull a small set and match in JS. There
+    // are typically very few slide_course activities per version.
+    columns: { id: true, trainingModuleId: true, config: true },
+  });
+  if (
+    existingActivity &&
+    (existingActivity.config as { slideDeckId?: string }).slideDeckId === slideDeckId
+  ) {
+    return {
+      moduleId: existingActivity.trainingModuleId,
+      activityId: existingActivity.id,
+      created: false,
+    };
+  }
+  // Pre-scoped activity search across all modules in this version. We
+  // do this second to keep the easy path above cheap; the JS-side scan
+  // here only runs when the easy lookup misses.
+  const versionActivities = await db
+    .select({
+      id: schema.activities.id,
+      moduleId: schema.activities.trainingModuleId,
+      config: schema.activities.config,
+    })
+    .from(schema.activities)
+    .innerJoin(
+      schema.trainingModules,
+      eq(schema.activities.trainingModuleId, schema.trainingModules.id),
+    )
+    .where(
+      and(
+        eq(schema.activities.kind, 'slide_course'),
+        eq(schema.trainingModules.contentPackVersionId, doc.contentPackVersionId),
+      ),
+    );
+  const match = versionActivities.find(
+    (a) => (a.config as { slideDeckId?: string }).slideDeckId === slideDeckId,
+  );
+  if (match) {
+    return { moduleId: match.moduleId, activityId: match.id, created: false };
+  }
+
+  // No existing activity — create a fresh module + activity. We default
+  // the module's pass-threshold to the deck's (0.8 is reasonable) and
+  // leave estimatedMinutes blank for the author to fill in.
+  return await db.transaction(async (tx) => {
+    const [module] = await tx
+      .insert(schema.trainingModules)
+      .values({
+        contentPackVersionId: doc.contentPackVersionId,
+        title: doc.title,
+        description: null,
+        passThreshold: 0.8,
+      })
+      .returning();
+    if (!module) throw new Error('Failed to create training module.');
+    const [activity] = await tx
+      .insert(schema.activities)
+      .values({
+        trainingModuleId: module.id,
+        kind: 'slide_course',
+        title: doc.title,
+        config: { slideDeckId },
+        weight: 1,
+        orderingHint: 0,
+      })
+      .returning();
+    if (!activity) throw new Error('Failed to create slide_course activity.');
+    return { moduleId: module.id, activityId: activity.id, created: true };
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Loaders + scope guards
 // ---------------------------------------------------------------------------
 
@@ -386,6 +481,12 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
       const ctx = await loadDeckForWrite(db, request.params.id, scope);
       if (!ctx) return reply.notFound();
 
+      // Self-healing backfill: an older deck created before
+      // auto-wrap landed won't have a training module yet. Ensure
+      // one exists on every editor load (idempotent — no-op if
+      // already wrapped).
+      await ensureTrainingModuleForDeck(db, ctx.doc, ctx.deck.id);
+
       const slides = await db.query.slideDeckSlides.findMany({
         where: eq(schema.slideDeckSlides.slideDeckId, ctx.deck.id),
         orderBy: [
@@ -506,6 +607,11 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
         .returning();
       if (!created) return reply.internalServerError('Failed to create slide deck.');
 
+      // Auto-wrap in a training module so the deck shows up in /training
+      // and the PWA training tab without a separate "Add slide course"
+      // step. Idempotent on re-runs.
+      await ensureTrainingModuleForDeck(db, doc, created.id);
+
       await db.insert(schema.auditEvents).values({
         organizationId: doc.packVersion.pack.ownerOrganizationId,
         actorUserId: auth.userId,
@@ -579,6 +685,11 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
             })
             .returning();
       if (!deck) return reply.internalServerError('Failed to create slide deck row.');
+
+      // Auto-wrap in a training module immediately. The activity is
+      // valid even before conversion finishes — the PWA player handles
+      // 'pending'/'processing' status with a friendly banner.
+      await ensureTrainingModuleForDeck(db, doc, deck.id);
 
       await enqueueExtraction(db, doc.id);
 
