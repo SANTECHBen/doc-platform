@@ -64,7 +64,10 @@ const nextConfig = {
       "object-src 'none'",
       `img-src 'self' data: blob: ${apiOrigin} https://*.r2.cloudflarestorage.com https://*.r2.dev https://*.mux.com`,
       `media-src 'self' blob: ${apiOrigin} https://*.r2.cloudflarestorage.com https://*.r2.dev https://*.mux.com`,
-      "frame-src 'self' https://*.mux.com",
+      // view.officeapps.live.com hosts the Office Online viewer used by
+      // the training tab to preview raw .pptx uploads (kind='slides').
+      // Mux still needs framing for HLS playback.
+      "frame-src 'self' https://*.mux.com https://view.officeapps.live.com",
       "font-src 'self' data:",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net",
       "worker-src 'self' blob: https://cdn.jsdelivr.net",
