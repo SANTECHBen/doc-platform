@@ -76,9 +76,11 @@ export interface SlideRenderResult {
 }
 
 // Cap each external command. LibreOffice has been observed to hang on
-// rare corrupt decks; pdftoppm is fast in practice but we still cap it.
-const SOFFICE_TIMEOUT_MS = 5 * 60_000;
-const PDFTOPPM_TIMEOUT_MS = 3 * 60_000;
+// rare corrupt decks; pdftoppm is fast per page but a 100+ slide deck on
+// a shared-CPU worker can still take 5+ minutes. Generous ceilings here
+// to avoid timing out real work; truly stuck binaries still get killed.
+const SOFFICE_TIMEOUT_MS = 15 * 60_000;
+const PDFTOPPM_TIMEOUT_MS = 20 * 60_000;
 // 150 DPI gives ~2000px wide PNGs from a standard 16:9 deck — sharp
 // enough for retina screens, small enough that 100-slide decks stay
 // well under 100 MB total.
