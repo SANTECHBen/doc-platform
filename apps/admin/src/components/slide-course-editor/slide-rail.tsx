@@ -13,7 +13,7 @@
 //     slide row so the placement is unambiguous.
 
 import { useState } from 'react';
-import { GripVertical } from 'lucide-react';
+import { GripVertical, Plus } from 'lucide-react';
 import type { SlideDto } from '@/lib/slide-course-api';
 
 interface SlideRailProps {
@@ -21,10 +21,11 @@ interface SlideRailProps {
   selectedSlideId: string | null;
   onSelect: (slideId: string) => void;
   onReorder: (orderings: { slideId: string; orderingHint: number }[]) => void;
+  onAddSlide: (file: File) => Promise<void>;
 }
 
 export function SlideRail(props: SlideRailProps) {
-  const { slides, selectedSlideId, onSelect, onReorder } = props;
+  const { slides, selectedSlideId, onSelect, onReorder, onAddSlide } = props;
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
@@ -126,6 +127,28 @@ export function SlideRail(props: SlideRailProps) {
           );
         })}
       </ol>
+      <label className="border-t border-line p-2">
+        <button
+          type="button"
+          onClick={() =>
+            (document.getElementById('slide-rail-add') as HTMLInputElement)?.click()
+          }
+          className="flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-line bg-surface px-2 py-2 text-xs text-ink-tertiary transition hover:border-accent hover:text-ink-primary"
+        >
+          <Plus className="size-3.5" /> Add slide image
+        </button>
+        <input
+          id="slide-rail-add"
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = '';
+            if (f) void onAddSlide(f);
+          }}
+        />
+      </label>
     </aside>
   );
 }

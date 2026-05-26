@@ -26,11 +26,15 @@ import {
 import { PageShell, PageHeader, Pill } from '@/components/page-shell';
 import { useToast } from '@/components/toast';
 import {
+  createSlideDeckForDocument,
+  deleteSlide,
   getSlideDeck,
   getSlideDeckByDocument,
   patchSlide,
+  replaceSlideImage,
   reorderSlides,
   retrySlideDeckConversion,
+  uploadSlideImage,
   type SlideDeckDetail,
   type SlideDto,
   type SlideInteractionDto,
@@ -170,6 +174,75 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
     }
   }
 
+  async function onCreateDeck() {
+    try {
+      await createSlideDeckForDocument(documentId);
+      await refreshDeckSummary();
+      toast.success('Slide course created', 'Add slides manually with the + button in the rail.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function onAddSlide(file: File) {
+    if (!deckId) return;
+    try {
+      const created = await uploadSlideImage(deckId, file);
+      setDeck((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          deck: { ...prev.deck, slideCount: prev.deck.slideCount + 1 },
+          slides: [...prev.slides, { ...created, interactions: [] }],
+        };
+      });
+      // Auto-select the new slide so the author can immediately edit it.
+      setSelectedSlideId(created.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function onReplaceImage(slideId: string, file: File) {
+    if (!deckId) return;
+    try {
+      const updated = await replaceSlideImage(deckId, slideId, file);
+      setDeck((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          slides: prev.slides.map((s) =>
+            s.id === slideId
+              ? { ...s, ...updated, interactions: s.interactions }
+              : s,
+          ),
+        };
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function onDeleteSlide(slideId: string) {
+    if (!deckId) return;
+    if (!confirm('Delete this slide and all of its interactions?')) return;
+    try {
+      await deleteSlide(deckId, slideId);
+      setDeck((prev) => {
+        if (!prev) return prev;
+        const next = prev.slides.filter((s) => s.id !== slideId);
+        return {
+          ...prev,
+          deck: { ...prev.deck, slideCount: Math.max(prev.deck.slideCount - 1, 0) },
+          slides: next,
+        };
+      });
+      setSelectedSlideId((prev) => (prev === slideId ? deck?.slides[0]?.id ?? null : prev));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   // ---------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------
@@ -187,7 +260,7 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
         {error ? (
           <ErrorBanner error={error} />
         ) : !deckId ? (
-          <NoDeckYet documentId={documentId} />
+          <NoDeckYet documentId={documentId} onCreate={onCreateDeck} />
         ) : (
           <LoadingPanel />
         )}
@@ -253,7 +326,7 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
       )}
 
       {deck.slides.length === 0 ? (
-        <LoadingPanel />
+        <EmptyDeckPanel onAddSlide={onAddSlide} status={status} />
       ) : (
         <div className="grid grid-cols-[260px_minmax(0,1fr)_360px] gap-4">
           <SlideRail
@@ -261,8 +334,19 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
             selectedSlideId={selectedSlideId}
             onSelect={setSelectedSlideId}
             onReorder={onReorderSlides}
+            onAddSlide={onAddSlide}
           />
-          <SlideCanvas slide={selectedSlide} />
+          <SlideCanvas
+            slide={selectedSlide}
+            onReplaceImage={
+              selectedSlide
+                ? (file) => onReplaceImage(selectedSlide.id, file)
+                : undefined
+            }
+            onDeleteSlide={
+              selectedSlide ? () => onDeleteSlide(selectedSlide.id) : undefined
+            }
+          />
           {selectedSlide && deckId && (
             <SlideSettings
               key={selectedSlide.id}
@@ -307,22 +391,80 @@ function LoadingPanel() {
   );
 }
 
-function NoDeckYet({ documentId }: { documentId: string }) {
+function NoDeckYet({
+  documentId,
+  onCreate,
+}: {
+  documentId: string;
+  onCreate: () => Promise<void> | void;
+}) {
   return (
     <div className="rounded border border-line bg-surface-raised p-6 text-sm">
       <p className="text-ink-secondary">
-        This document doesn't have a slide course yet. Slide courses are created
-        automatically when a PPTX file is uploaded — the extraction worker
-        renders each slide to a PNG, and from there you author voiceover,
-        interactions, and navigation.
+        This document doesn't have a slide course yet. There are two ways
+        to start one:
       </p>
-      <p className="mt-3 text-ink-tertiary">
-        If you just uploaded a PPTX, refresh this page in a few seconds.{' '}
-        <Link href={`/documents/${documentId}`} className="text-accent underline">
-          Back to document
+      <ul className="mt-3 list-disc space-y-1 pl-5 text-ink-secondary">
+        <li>
+          <strong>Auto-convert:</strong> upload a <code>.pptx</code> file on
+          the parent document — the worker renders every slide to a PNG.
+          Works for most decks, but fidelity drops on complex animations
+          or unusual fonts.
+        </li>
+        <li>
+          <strong>Manual:</strong> create an empty course and upload one
+          PNG per slide. Slower to start but pixel-perfect to your
+          exported slides — and it survives whatever PowerPoint throws
+          at it.
+        </li>
+      </ul>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <PrimaryButton type="button" onClick={() => void onCreate()}>
+          Create blank slide course
+        </PrimaryButton>
+        <Link href={`/documents/${documentId}`}>
+          <SecondaryButton type="button">Back to document</SecondaryButton>
         </Link>
-        .
+      </div>
+    </div>
+  );
+}
+
+// Shown when a deck row exists but has zero slides — typically after
+// failed auto-conversion or right after manual deck creation.
+function EmptyDeckPanel({
+  onAddSlide,
+  status,
+}: {
+  onAddSlide: (file: File) => Promise<void>;
+  status: SlideDeckDetail['deck']['conversionStatus'];
+}) {
+  return (
+    <div className="rounded border border-dashed border-line bg-surface-raised p-8 text-center">
+      <p className="text-sm text-ink-secondary">
+        {status === 'failed'
+          ? 'Auto-conversion failed for this deck. You can still build the course manually by uploading one slide image at a time.'
+          : 'This course has no slides yet. Export each slide from PowerPoint as a PNG (File → Export → Change File Type → PNG) and upload them one at a time below.'}
       </p>
+      <label className="mt-4 inline-flex">
+        <PrimaryButton
+          type="button"
+          onClick={() => (document.getElementById('first-slide-upload') as HTMLInputElement)?.click()}
+        >
+          Upload first slide image
+        </PrimaryButton>
+        <input
+          id="first-slide-upload"
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = '';
+            if (f) void onAddSlide(f);
+          }}
+        />
+      </label>
     </div>
   );
 }

@@ -129,6 +129,59 @@ export async function patchSlideDeck(
   return (await res.json()) as SlideDeckSummary;
 }
 
+export async function createSlideDeckForDocument(
+  documentId: string,
+): Promise<SlideDeckSummary> {
+  const res = await fetch(
+    `${API_BASE}/admin/documents/${encodeURIComponent(documentId)}/slide-deck`,
+    { method: 'POST', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as SlideDeckSummary;
+}
+
+export async function uploadSlideImage(
+  slideDeckId: string,
+  file: File,
+): Promise<SlideDto> {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(
+    `${API_BASE}/admin/slide-decks/${encodeURIComponent(slideDeckId)}/slides`,
+    { method: 'POST', headers: await authHeaders(), body: form },
+  );
+  if (!res.ok) throw new Error(`Upload ${res.status}: ${await res.text()}`);
+  const row = (await res.json()) as Omit<SlideDto, 'interactions'>;
+  return { ...row, interactions: [] };
+}
+
+export async function replaceSlideImage(
+  slideDeckId: string,
+  slideId: string,
+  file: File,
+): Promise<SlideDto> {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(
+    `${API_BASE}/admin/slide-decks/${encodeURIComponent(slideDeckId)}/slides/${encodeURIComponent(slideId)}/image`,
+    { method: 'PATCH', headers: await authHeaders(), body: form },
+  );
+  if (!res.ok) throw new Error(`Upload ${res.status}: ${await res.text()}`);
+  const row = (await res.json()) as Omit<SlideDto, 'interactions'>;
+  return { ...row, interactions: [] };
+}
+
+export async function deleteSlide(
+  slideDeckId: string,
+  slideId: string,
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/slide-decks/${encodeURIComponent(slideDeckId)}/slides/${encodeURIComponent(slideId)}`,
+    { method: 'DELETE', headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
 export async function retrySlideDeckConversion(slideDeckId: string): Promise<void> {
   const res = await fetch(
     `${API_BASE}/admin/slide-decks/${encodeURIComponent(slideDeckId)}/retry-conversion`,

@@ -7,10 +7,19 @@
 // into edit mode later; for v1 the rail-→-canvas-→-settings flow is
 // straightforward enough.
 
-import { Image as ImageIcon } from 'lucide-react';
+import { Image as ImageIcon, RefreshCcw, Trash2 } from 'lucide-react';
+import { GhostButton, SecondaryButton } from '@/components/form';
 import type { SlideDto } from '@/lib/slide-course-api';
 
-export function SlideCanvas({ slide }: { slide: SlideDto | null }) {
+export function SlideCanvas({
+  slide,
+  onReplaceImage,
+  onDeleteSlide,
+}: {
+  slide: SlideDto | null;
+  onReplaceImage?: (file: File) => Promise<void>;
+  onDeleteSlide?: () => Promise<void> | void;
+}) {
   if (!slide) {
     return (
       <section className="flex min-h-[400px] items-center justify-center rounded border border-dashed border-line text-sm text-ink-tertiary">
@@ -18,6 +27,7 @@ export function SlideCanvas({ slide }: { slide: SlideDto | null }) {
       </section>
     );
   }
+  const replaceInputId = `replace-image-${slide.id}`;
   return (
     <section className="flex flex-col gap-3 rounded border border-line bg-surface-raised p-4">
       <header className="flex items-baseline justify-between">
@@ -25,9 +35,39 @@ export function SlideCanvas({ slide }: { slide: SlideDto | null }) {
           Slide {slide.slideIndex + 1}
           {slide.title?.trim() ? <span className="text-ink-tertiary"> · {slide.title}</span> : ''}
         </h3>
-        <span className="text-xs text-ink-tertiary">
-          {slide.imageWidth ?? '?'}×{slide.imageHeight ?? '?'} px
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-ink-tertiary">
+            {slide.imageWidth ?? '?'}×{slide.imageHeight ?? '?'} px
+          </span>
+          {onReplaceImage && (
+            <>
+              <SecondaryButton
+                type="button"
+                onClick={() =>
+                  (document.getElementById(replaceInputId) as HTMLInputElement)?.click()
+                }
+              >
+                <RefreshCcw className="size-3.5" /> Replace image
+              </SecondaryButton>
+              <input
+                id={replaceInputId}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = '';
+                  if (f) void onReplaceImage(f);
+                }}
+              />
+            </>
+          )}
+          {onDeleteSlide && (
+            <GhostButton type="button" onClick={() => void onDeleteSlide()}>
+              <Trash2 className="size-3.5" /> Delete
+            </GhostButton>
+          )}
+        </div>
       </header>
       <div className="relative w-full overflow-hidden rounded border border-line bg-surface">
         {slide.imageUrl ? (

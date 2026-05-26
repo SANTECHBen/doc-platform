@@ -24,8 +24,9 @@
 // overlay (same rationale as document_sections — see admin-sections.ts).
 
 import type { FastifyInstance } from 'fastify';
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import sharp from 'sharp';
 import { schema, type Database } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import {
@@ -44,6 +45,18 @@ import { sniffMime } from '../lib/mime-sniff.js';
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
+
+const MAX_SLIDE_IMAGE_BYTES = 15 * 1024 * 1024;
+const ACCEPTED_SLIDE_IMAGE_MIMES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+]);
+const SAFE_SLIDE_IMAGE_SNIFFED = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+]);
 
 const MAX_VOICEOVER_BYTES = 25 * 1024 * 1024;
 const ACCEPTED_VOICEOVER_MIMES = new Set([
@@ -451,6 +464,312 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
       });
 
       return reply.send(deckDto(updated, ctx.doc));
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /admin/documents/:documentId/slide-deck
+  //
+  // Create a blank slide deck for manual authoring. Used when an author
+  // wants to skip PPTX auto-conversion (LibreOffice fidelity can be
+  // poor on complex decks) and upload per-slide PNGs by hand. The deck
+  // is marked conversion='ready' immediately so the player accepts it;
+  // slides are added one at a time via POST /slides below.
+  // -------------------------------------------------------------------------
+  app.post<{ Params: { documentId: string } }>(
+    '/admin/documents/:documentId/slide-deck',
+    { schema: { params: z.object({ documentId: UuidSchema }) } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const doc = await db.query.documents.findFirst({
+        where: eq(schema.documents.id, request.params.documentId),
+        with: { packVersion: { with: { pack: true } } },
+      });
+      if (!doc) return reply.notFound();
+      requireOrgInScope(scope, doc.packVersion.pack.ownerOrganizationId);
+
+      const existing = await db.query.slideDecks.findFirst({
+        where: eq(schema.slideDecks.documentId, doc.id),
+      });
+      if (existing) return reply.send(deckDto(existing, doc));
+
+      const [created] = await db
+        .insert(schema.slideDecks)
+        .values({
+          documentId: doc.id,
+          conversionStatus: 'ready',
+          conversionCompletedAt: new Date(),
+          slideCount: 0,
+        })
+        .returning();
+      if (!created) return reply.internalServerError('Failed to create slide deck.');
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: doc.packVersion.pack.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'slide_deck.manually_created',
+        targetType: 'slide_deck',
+        targetId: created.id,
+        payload: { documentId: doc.id },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+      return reply.send(deckDto(created, doc));
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /admin/slide-decks/:id/slides  (multipart PNG/JPEG/WebP upload)
+  //
+  // Append a new slide with an uploaded image. The deck does not need to
+  // be a PPTX-derived one — this works for fully-manual decks too.
+  // -------------------------------------------------------------------------
+  app.post<{ Params: { id: string } }>(
+    '/admin/slide-decks/:id/slides',
+    { schema: { params: z.object({ id: UuidSchema }) } },
+    async (request, reply) => {
+      const { db, storage } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadDeckForWrite(db, request.params.id, scope);
+      if (!ctx) return reply.notFound();
+      if (!request.isMultipart()) {
+        return reply.badRequest('Expected multipart/form-data with an image file.');
+      }
+      const file = await request.file();
+      if (!file) return reply.badRequest('Missing image file.');
+
+      const mime = (file.mimetype || '').toLowerCase();
+      if (!ACCEPTED_SLIDE_IMAGE_MIMES.has(mime)) {
+        return reply.unsupportedMediaType(
+          `Unsupported image type: ${mime}. Use PNG, JPEG, or WebP.`,
+        );
+      }
+      const chunks: Buffer[] = [];
+      for await (const c of file.file as unknown as AsyncIterable<Buffer>) chunks.push(c);
+      const buf = Buffer.concat(chunks);
+      if (buf.byteLength === 0) return reply.badRequest('Empty image.');
+      if (buf.byteLength > MAX_SLIDE_IMAGE_BYTES) {
+        return reply.payloadTooLarge(
+          `Image exceeds ${Math.round(MAX_SLIDE_IMAGE_BYTES / 1024 / 1024)} MB limit.`,
+        );
+      }
+      const sniffed = sniffMime(buf);
+      if (!sniffed || !SAFE_SLIDE_IMAGE_SNIFFED.has(sniffed)) {
+        return reply.unsupportedMediaType(
+          'File content does not match a supported image format.',
+        );
+      }
+
+      const meta = await sharp(buf).metadata();
+      const stored = await storage.putBuffer({
+        buffer: buf,
+        filename: file.filename || 'slide.png',
+        contentType: sniffed,
+        ownerOrganizationId: ctx.ownerOrganizationId,
+      });
+
+      // Append at the end: max(slideIndex, orderingHint) + 1. slideIndex
+      // is 0-based and historically corresponds to PPTX position; for
+      // manual decks we just keep it monotonic.
+      const result = await db.transaction(async (tx) => {
+        const last = await tx.query.slideDeckSlides.findFirst({
+          where: eq(schema.slideDeckSlides.slideDeckId, ctx.deck.id),
+          orderBy: [desc(schema.slideDeckSlides.slideIndex)],
+        });
+        const nextIndex = (last?.slideIndex ?? -1) + 1;
+        const lastOrder = await tx.query.slideDeckSlides.findFirst({
+          where: eq(schema.slideDeckSlides.slideDeckId, ctx.deck.id),
+          orderBy: [desc(schema.slideDeckSlides.orderingHint)],
+        });
+        const nextOrder = (lastOrder?.orderingHint ?? -1) + 1;
+        const [row] = await tx
+          .insert(schema.slideDeckSlides)
+          .values({
+            slideDeckId: ctx.deck.id,
+            slideIndex: nextIndex,
+            orderingHint: nextOrder,
+            imageStorageKey: stored.storageKey,
+            imageWidth: meta.width ?? 0,
+            imageHeight: meta.height ?? 0,
+          })
+          .returning();
+        // Bump the deck's slide_count so the player and admin
+        // dashboards see the right total.
+        await tx
+          .update(schema.slideDecks)
+          .set({
+            slideCount: sql`${schema.slideDecks.slideCount} + 1`,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.slideDecks.id, ctx.deck.id));
+        return row;
+      });
+      if (!result) return reply.internalServerError('Failed to create slide.');
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'slide_deck_slide.created',
+        targetType: 'slide_deck_slide',
+        targetId: result.id,
+        payload: { slideIndex: result.slideIndex, contentType: sniffed },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+
+      const imageUrl = result.imageStorageKey
+        ? storage.publicUrl(result.imageStorageKey)
+        : null;
+      return reply.send(slideDto(result, imageUrl, null));
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // PATCH /admin/slide-decks/:id/slides/:slideId/image
+  //
+  // Replace an existing slide's image. Useful when a single slide was
+  // updated in PowerPoint and the author re-exports just that PNG.
+  // -------------------------------------------------------------------------
+  app.patch<{ Params: { id: string; slideId: string } }>(
+    '/admin/slide-decks/:id/slides/:slideId/image',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema, slideId: UuidSchema }),
+      },
+    },
+    async (request, reply) => {
+      const { db, storage } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadSlideForWrite(
+        db,
+        request.params.id,
+        request.params.slideId,
+        scope,
+      );
+      if (!ctx) return reply.notFound();
+      if (!request.isMultipart()) {
+        return reply.badRequest('Expected multipart/form-data with an image file.');
+      }
+      const file = await request.file();
+      if (!file) return reply.badRequest('Missing image file.');
+
+      const mime = (file.mimetype || '').toLowerCase();
+      if (!ACCEPTED_SLIDE_IMAGE_MIMES.has(mime)) {
+        return reply.unsupportedMediaType(
+          `Unsupported image type: ${mime}. Use PNG, JPEG, or WebP.`,
+        );
+      }
+      const chunks: Buffer[] = [];
+      for await (const c of file.file as unknown as AsyncIterable<Buffer>) chunks.push(c);
+      const buf = Buffer.concat(chunks);
+      if (buf.byteLength === 0) return reply.badRequest('Empty image.');
+      if (buf.byteLength > MAX_SLIDE_IMAGE_BYTES) {
+        return reply.payloadTooLarge(
+          `Image exceeds ${Math.round(MAX_SLIDE_IMAGE_BYTES / 1024 / 1024)} MB limit.`,
+        );
+      }
+      const sniffed = sniffMime(buf);
+      if (!sniffed || !SAFE_SLIDE_IMAGE_SNIFFED.has(sniffed)) {
+        return reply.unsupportedMediaType(
+          'File content does not match a supported image format.',
+        );
+      }
+      const meta = await sharp(buf).metadata();
+      const stored = await storage.putBuffer({
+        buffer: buf,
+        filename: file.filename || 'slide.png',
+        contentType: sniffed,
+        ownerOrganizationId: ctx.ownerOrganizationId,
+      });
+
+      const [updated] = await db
+        .update(schema.slideDeckSlides)
+        .set({
+          imageStorageKey: stored.storageKey,
+          imageWidth: meta.width ?? 0,
+          imageHeight: meta.height ?? 0,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.slideDeckSlides.id, ctx.slide.id))
+        .returning();
+      if (!updated) return reply.internalServerError('Failed to replace image.');
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'slide_deck_slide.image_replaced',
+        targetType: 'slide_deck_slide',
+        targetId: updated.id,
+        payload: { contentType: sniffed },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+
+      const imageUrl = updated.imageStorageKey
+        ? storage.publicUrl(updated.imageStorageKey)
+        : null;
+      const voiceoverUrl = updated.voiceoverStorageKey
+        ? storage.publicUrl(updated.voiceoverStorageKey)
+        : null;
+      return reply.send(slideDto(updated, imageUrl, voiceoverUrl));
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // DELETE /admin/slide-decks/:id/slides/:slideId
+  //
+  // Remove a slide entirely. Cascades through interactions + answers
+  // via the FK. The deck's slide_count is decremented; remaining slides
+  // keep their original slideIndex/orderingHint (we don't renumber so
+  // existing interaction references stay valid).
+  // -------------------------------------------------------------------------
+  app.delete<{ Params: { id: string; slideId: string } }>(
+    '/admin/slide-decks/:id/slides/:slideId',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema, slideId: UuidSchema }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadSlideForWrite(
+        db,
+        request.params.id,
+        request.params.slideId,
+        scope,
+      );
+      if (!ctx) return reply.notFound();
+
+      await db.transaction(async (tx) => {
+        await tx
+          .delete(schema.slideDeckSlides)
+          .where(eq(schema.slideDeckSlides.id, ctx.slide.id));
+        await tx
+          .update(schema.slideDecks)
+          .set({
+            slideCount: sql`GREATEST(${schema.slideDecks.slideCount} - 1, 0)`,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.slideDecks.id, ctx.deck.id));
+      });
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'slide_deck_slide.deleted',
+        targetType: 'slide_deck_slide',
+        targetId: ctx.slide.id,
+        payload: { slideIndex: ctx.slide.slideIndex },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+      return reply.send({ ok: true });
     },
   );
 
