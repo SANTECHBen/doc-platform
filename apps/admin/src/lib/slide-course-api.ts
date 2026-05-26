@@ -151,6 +151,23 @@ export async function createSlideDeckForDocument(
   return (await res.json()) as SlideDeckSummary;
 }
 
+export async function createBlankSlide(
+  slideDeckId: string,
+  options?: { title?: string },
+): Promise<SlideDto> {
+  const res = await fetch(
+    `${API_BASE}/admin/slide-decks/${encodeURIComponent(slideDeckId)}/blank-slide`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ title: options?.title }),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  const row = (await res.json()) as Omit<SlideDto, 'interactions'>;
+  return { ...row, interactions: [] };
+}
+
 export async function uploadSlideImage(
   slideDeckId: string,
   file: File,

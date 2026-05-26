@@ -13,7 +13,7 @@
 //     slide row so the placement is unambiguous.
 
 import { useState } from 'react';
-import { GripVertical, Plus } from 'lucide-react';
+import { GripVertical, ListPlus, Plus } from 'lucide-react';
 import type { SlideDto } from '@/lib/slide-course-api';
 
 interface SlideRailProps {
@@ -21,11 +21,12 @@ interface SlideRailProps {
   selectedSlideId: string | null;
   onSelect: (slideId: string) => void;
   onReorder: (orderings: { slideId: string; orderingHint: number }[]) => void;
-  onAddSlide: (file: File) => Promise<void>;
+  onAddSlides: (files: File[]) => Promise<void>;
+  onAddBlankSlide: () => Promise<void> | void;
 }
 
 export function SlideRail(props: SlideRailProps) {
-  const { slides, selectedSlideId, onSelect, onReorder, onAddSlide } = props;
+  const { slides, selectedSlideId, onSelect, onReorder, onAddSlides, onAddBlankSlide } = props;
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
@@ -127,28 +128,42 @@ export function SlideRail(props: SlideRailProps) {
           );
         })}
       </ol>
-      <label className="border-t border-line p-2">
+      <div className="space-y-1.5 border-t border-line p-2">
         <button
           type="button"
           onClick={() =>
             (document.getElementById('slide-rail-add') as HTMLInputElement)?.click()
           }
           className="flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-line bg-surface px-2 py-2 text-xs text-ink-tertiary transition hover:border-accent hover:text-ink-primary"
+          title="Select one or many image files. They'll be sorted by filename so slide-1.png, slide-2.png … load in order."
         >
-          <Plus className="size-3.5" /> Add slide image
+          <Plus className="size-3.5" /> Add slide image(s)
         </button>
         <input
           id="slide-rail-add"
           type="file"
+          multiple
           accept="image/png,image/jpeg,image/webp"
           className="hidden"
           onChange={(e) => {
-            const f = e.target.files?.[0];
+            const files = e.target.files ? Array.from(e.target.files) : [];
             e.target.value = '';
-            if (f) void onAddSlide(f);
+            if (files.length) void onAddSlides(files);
           }}
         />
-      </label>
+        <button
+          type="button"
+          onClick={() => void onAddBlankSlide()}
+          className="flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-line bg-surface px-2 py-2 text-xs text-ink-tertiary transition hover:border-accent hover:text-ink-primary"
+          title="Add a quiz-only slide with no image. Add interactions to it via the right-pane tabs."
+        >
+          <ListPlus className="size-3.5" /> Add quiz slide
+        </button>
+        <p className="px-1 pt-1 text-[10px] leading-tight text-ink-tertiary">
+          Drag the rows above to reorder. Select a slide and click Delete in the
+          canvas header to remove it.
+        </p>
+      </div>
     </aside>
   );
 }

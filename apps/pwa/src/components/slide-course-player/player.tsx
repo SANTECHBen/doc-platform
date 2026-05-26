@@ -344,17 +344,13 @@ function SlideView({
       {slide.title && (
         <h2 className="text-base font-medium">{slide.title}</h2>
       )}
-      {slide.imageUrl ? (
+      {slide.imageUrl && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={slide.imageUrl}
           alt={slide.title ?? `Slide ${slide.index + 1}`}
           className="w-full rounded border border-line"
         />
-      ) : (
-        <div className="flex aspect-video items-center justify-center rounded border border-dashed border-line text-ink-tertiary">
-          Image not ready
-        </div>
       )}
       {slide.voiceoverUrl && (
         <audio

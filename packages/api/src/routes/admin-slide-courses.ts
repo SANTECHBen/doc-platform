@@ -704,6 +704,77 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
   );
 
   // -------------------------------------------------------------------------
+  // POST /admin/slide-decks/:id/blank-slide
+  //
+  // Append a slide with no image — typically used for a dedicated
+  // "quiz slide" or section divider. The author can still upload an
+  // image later via the PATCH .../image endpoint if they change their
+  // mind. Body is JSON, not multipart.
+  // -------------------------------------------------------------------------
+  app.post<{
+    Params: { id: string };
+    Body: { title?: string };
+  }>(
+    '/admin/slide-decks/:id/blank-slide',
+    {
+      schema: {
+        params: z.object({ id: UuidSchema }),
+        body: z.object({ title: z.string().max(200).optional() }),
+      },
+    },
+    async (request, reply) => {
+      const { db, storage } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadDeckForWrite(db, request.params.id, scope);
+      if (!ctx) return reply.notFound();
+
+      const result = await db.transaction(async (tx) => {
+        const last = await tx.query.slideDeckSlides.findFirst({
+          where: eq(schema.slideDeckSlides.slideDeckId, ctx.deck.id),
+          orderBy: [desc(schema.slideDeckSlides.slideIndex)],
+        });
+        const nextIndex = (last?.slideIndex ?? -1) + 1;
+        const lastOrder = await tx.query.slideDeckSlides.findFirst({
+          where: eq(schema.slideDeckSlides.slideDeckId, ctx.deck.id),
+          orderBy: [desc(schema.slideDeckSlides.orderingHint)],
+        });
+        const nextOrder = (lastOrder?.orderingHint ?? -1) + 1;
+        const [row] = await tx
+          .insert(schema.slideDeckSlides)
+          .values({
+            slideDeckId: ctx.deck.id,
+            slideIndex: nextIndex,
+            orderingHint: nextOrder,
+            title: request.body.title?.trim() || null,
+          })
+          .returning();
+        await tx
+          .update(schema.slideDecks)
+          .set({
+            slideCount: sql`${schema.slideDecks.slideCount} + 1`,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.slideDecks.id, ctx.deck.id));
+        return row;
+      });
+      if (!result) return reply.internalServerError('Failed to create blank slide.');
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'slide_deck_slide.created_blank',
+        targetType: 'slide_deck_slide',
+        targetId: result.id,
+        payload: { slideIndex: result.slideIndex },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+      return reply.send(slideDto(result, null, null));
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // PATCH /admin/slide-decks/:id/slides/:slideId/image
   //
   // Replace an existing slide's image. Useful when a single slide was

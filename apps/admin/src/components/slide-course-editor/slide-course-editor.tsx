@@ -27,6 +27,7 @@ import { PageShell, PageHeader, Pill } from '@/components/page-shell';
 import { useToast } from '@/components/toast';
 import {
   autoConvertDocumentToSlideDeck,
+  createBlankSlide,
   createSlideDeckForDocument,
   deleteSlide,
   getSlideDeck,
@@ -198,10 +199,48 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
     }
   }
 
-  async function onAddSlide(file: File) {
+  // Track in-flight batch upload so the UI can show progress.
+  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
+
+  async function onAddSlides(files: File[]) {
+    if (!deckId || files.length === 0) return;
+    // Natural-sort by filename so a user dropping "slide-1.png … slide-12.png"
+    // gets them in numeric order, not lexicographic (slide-1, slide-10, slide-11, …).
+    const sorted = [...files].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }),
+    );
+    setBatchProgress({ done: 0, total: sorted.length });
+    try {
+      let lastCreatedId: string | null = null;
+      // Sequential to keep slideIndex assignment deterministic on the server.
+      for (let i = 0; i < sorted.length; i += 1) {
+        const created = await uploadSlideImage(deckId, sorted[i]!);
+        lastCreatedId = created.id;
+        setDeck((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            deck: { ...prev.deck, slideCount: prev.deck.slideCount + 1 },
+            slides: [...prev.slides, { ...created, interactions: [] }],
+          };
+        });
+        setBatchProgress({ done: i + 1, total: sorted.length });
+      }
+      if (lastCreatedId) setSelectedSlideId(lastCreatedId);
+      if (sorted.length > 1) {
+        toast.success(`Uploaded ${sorted.length} slides`);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBatchProgress(null);
+    }
+  }
+
+  async function onAddBlankSlide() {
     if (!deckId) return;
     try {
-      const created = await uploadSlideImage(deckId, file);
+      const created = await createBlankSlide(deckId, { title: 'Quiz' });
       setDeck((prev) => {
         if (!prev) return prev;
         return {
@@ -210,8 +249,11 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
           slides: [...prev.slides, { ...created, interactions: [] }],
         };
       });
-      // Auto-select the new slide so the author can immediately edit it.
       setSelectedSlideId(created.id);
+      toast.success(
+        'Quiz slide added',
+        'Open the Interactions tab on the right to add the quiz questions.',
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -343,8 +385,18 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
         </div>
       )}
 
+      {batchProgress && (
+        <div className="mb-3 flex items-center gap-3 rounded border border-line bg-surface-raised px-3 py-2 text-sm">
+          <Loader2 className="size-4 animate-spin text-accent" />
+          Uploading slide {batchProgress.done} of {batchProgress.total}…
+        </div>
+      )}
       {deck.slides.length === 0 ? (
-        <EmptyDeckPanel onAddSlide={onAddSlide} status={status} />
+        <EmptyDeckPanel
+          onAddSlides={onAddSlides}
+          onAddBlankSlide={onAddBlankSlide}
+          status={status}
+        />
       ) : (
         <div className="grid grid-cols-[260px_minmax(0,1fr)_360px] gap-4">
           <SlideRail
@@ -352,7 +404,8 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
             selectedSlideId={selectedSlideId}
             onSelect={setSelectedSlideId}
             onReorder={onReorderSlides}
-            onAddSlide={onAddSlide}
+            onAddSlides={onAddSlides}
+            onAddBlankSlide={onAddBlankSlide}
           />
           <SlideCanvas
             slide={selectedSlide}
@@ -464,38 +517,52 @@ function NoDeckYet({
 // Shown when a deck row exists but has zero slides — typically after
 // failed auto-conversion or right after manual deck creation.
 function EmptyDeckPanel({
-  onAddSlide,
+  onAddSlides,
+  onAddBlankSlide,
   status,
 }: {
-  onAddSlide: (file: File) => Promise<void>;
+  onAddSlides: (files: File[]) => Promise<void>;
+  onAddBlankSlide: () => Promise<void> | void;
   status: SlideDeckDetail['deck']['conversionStatus'];
 }) {
   return (
     <div className="rounded border border-dashed border-line bg-surface-raised p-8 text-center">
       <p className="text-sm text-ink-secondary">
         {status === 'failed'
-          ? 'Auto-conversion failed for this deck. You can still build the course manually by uploading one slide image at a time.'
-          : 'This course has no slides yet. Export each slide from PowerPoint as a PNG (File → Export → Change File Type → PNG) and upload them one at a time below.'}
+          ? 'Auto-conversion failed for this deck. You can still build the course manually — select all your slide images at once below.'
+          : 'This course has no slides yet. Export your slides from PowerPoint as PNGs (File → Export → Change File Type → PNG), then select them all at once below.'}
       </p>
-      <label className="mt-4 inline-flex">
-        <PrimaryButton
-          type="button"
-          onClick={() => (document.getElementById('first-slide-upload') as HTMLInputElement)?.click()}
-        >
-          Upload first slide image
-        </PrimaryButton>
-        <input
-          id="first-slide-upload"
-          type="file"
-          accept="image/png,image/jpeg,image/webp"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            e.target.value = '';
-            if (f) void onAddSlide(f);
-          }}
-        />
-      </label>
+      <div className="mt-4 flex flex-wrap justify-center gap-2">
+        <label className="inline-flex">
+          <PrimaryButton
+            type="button"
+            onClick={() =>
+              (document.getElementById('first-slide-upload') as HTMLInputElement)?.click()
+            }
+          >
+            Upload slide images
+          </PrimaryButton>
+          <input
+            id="first-slide-upload"
+            type="file"
+            multiple
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            onChange={(e) => {
+              const files = e.target.files ? Array.from(e.target.files) : [];
+              e.target.value = '';
+              if (files.length) void onAddSlides(files);
+            }}
+          />
+        </label>
+        <SecondaryButton type="button" onClick={() => void onAddBlankSlide()}>
+          Add quiz slide (no image)
+        </SecondaryButton>
+      </div>
+      <p className="mt-3 text-xs text-ink-tertiary">
+        Tip: name your exports <code>slide-1.png</code>, <code>slide-2.png</code>… so
+        they upload in order.
+      </p>
     </div>
   );
 }
