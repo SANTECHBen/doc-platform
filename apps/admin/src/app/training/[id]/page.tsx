@@ -30,6 +30,7 @@ import {
   deleteActivity,
   deleteLesson,
   deleteTrainingModule,
+  getMe,
   getTrainingModule,
   updateActivity,
   updateLesson,
@@ -56,6 +57,20 @@ export default function TrainingModuleDetail({
   const [editLesson, setEditLesson] = useState<AdminLesson | null>(null);
   const [editActivity, setEditActivity] = useState<AdminActivity | null>(null);
   const [editMetaOpen, setEditMetaOpen] = useState(false);
+  const [platformAdmin, setPlatformAdmin] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getMe()
+      .then((me) => {
+        if (cancelled) return;
+        setPlatformAdmin(me.authenticated && me.platformAdmin);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function refresh() {
     try {
@@ -90,7 +105,7 @@ export default function TrainingModuleDetail({
   if (error) return <ErrorBanner error={error} />;
   if (!mod) return <p className="p-6 text-center text-sm text-ink-tertiary">Loading…</p>;
 
-  const editable = mod.contentPack.status === 'draft';
+  const editable = mod.contentPack.status === 'draft' || platformAdmin;
   const statusTone =
     mod.contentPack.status === 'published'
       ? 'success'
