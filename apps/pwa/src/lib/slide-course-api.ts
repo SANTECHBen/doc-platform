@@ -6,7 +6,19 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3001';
 
+// Prefer the bridge Bearer token (admin-handoff for testing) when one is
+// in localStorage; fall back to the dev-user header for local
+// development. Production hard-disables dev-user, so the bridge token
+// is the only way training writes succeed in prod today.
 function authHeaders(devUserId: string, devOrgId: string): Record<string, string> {
+  if (typeof window !== 'undefined') {
+    try {
+      const bridge = window.localStorage.getItem('pwa_bridge_id_token');
+      if (bridge) return { authorization: `Bearer ${bridge}` };
+    } catch {
+      /* ignore */
+    }
+  }
   return { 'x-dev-user': `${devUserId}:${devOrgId}` };
 }
 
