@@ -115,7 +115,7 @@ export async function getSlideDeck(slideDeckId: string): Promise<SlideDeckDetail
 
 export async function patchSlideDeck(
   slideDeckId: string,
-  patch: { passThreshold?: number },
+  patch: { title?: string; passThreshold?: number },
 ): Promise<SlideDeckSummary> {
   const res = await fetch(
     `${API_BASE}/admin/slide-decks/${encodeURIComponent(slideDeckId)}`,

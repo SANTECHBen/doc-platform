@@ -376,6 +376,7 @@ function validateInteractionConfig(
 
 const DeckPatchBody = z
   .object({
+    title: z.string().min(1).max(200).optional(),
     passThreshold: z.number().min(0).max(1).optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'No fields to update.' });
@@ -553,18 +554,61 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
         .returning();
       if (!updated) return reply.internalServerError('Failed to update slide deck.');
 
+      // Title is duplicated across documents.title + training_modules.title
+      // + activities.title so listing endpoints don't have to JOIN. The
+      // editor's single rename input fans the change out to all three so
+      // /training, the PWA training tab, and the course header stay in
+      // sync. Done in a transaction; nothing partial-commits.
+      let updatedDoc = ctx.doc;
+      if (request.body.title !== undefined) {
+        const nextTitle = request.body.title;
+        await db.transaction(async (tx) => {
+          await tx
+            .update(schema.documents)
+            .set({ title: nextTitle })
+            .where(eq(schema.documents.id, ctx.doc.id));
+          // Find the slide_course activities pointing at this deck —
+          // there is normally exactly one, but the iteration is safe in
+          // the unlikely event someone double-published.
+          const slideCourseActivities = await tx
+            .select({
+              id: schema.activities.id,
+              trainingModuleId: schema.activities.trainingModuleId,
+              config: schema.activities.config,
+            })
+            .from(schema.activities)
+            .where(eq(schema.activities.kind, 'slide_course'));
+          for (const a of slideCourseActivities) {
+            const cfgDeckId = (a.config as { slideDeckId?: string }).slideDeckId;
+            if (cfgDeckId !== ctx.deck.id) continue;
+            await tx
+              .update(schema.activities)
+              .set({ title: nextTitle })
+              .where(eq(schema.activities.id, a.id));
+            await tx
+              .update(schema.trainingModules)
+              .set({ title: nextTitle })
+              .where(eq(schema.trainingModules.id, a.trainingModuleId));
+          }
+        });
+        updatedDoc = { ...ctx.doc, title: nextTitle };
+      }
+
       await db.insert(schema.auditEvents).values({
         organizationId: ctx.ownerOrganizationId,
         actorUserId: auth.userId,
         eventType: 'slide_deck.updated',
         targetType: 'slide_deck',
         targetId: ctx.deck.id,
-        payload: { passThreshold: updated.passThreshold },
+        payload: {
+          passThreshold: updated.passThreshold,
+          titleChanged: request.body.title !== undefined,
+        },
         ipAddress: request.ip,
         userAgent: request.headers['user-agent'] ?? null,
       });
 
-      return reply.send(deckDto(updated, ctx.doc));
+      return reply.send(deckDto(updated, updatedDoc));
     },
   );
 

@@ -2833,6 +2833,40 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
       if (doc.packVersion.status !== 'draft' && !request.auth?.platformAdmin) {
         return reply.badRequest('Cannot remove documents from a published version.');
       }
+      // For slide-deck-backed training, also clean up the wrapping
+      // training_module + slide_course activity. They're not linked by FK
+      // to the document (the activity points at the deck via jsonb), so
+      // a bare document delete would leave a phantom module in /training
+      // and the PWA training tab. The training_module cascade removes
+      // the activity, which cascades to slide_attempts + answers.
+      if (doc.kind === 'slides') {
+        const deck = await db.query.slideDecks.findFirst({
+          where: eq(schema.slideDecks.documentId, doc.id),
+          columns: { id: true },
+        });
+        if (deck) {
+          const slideCourseActivities = await db
+            .select({
+              id: schema.activities.id,
+              trainingModuleId: schema.activities.trainingModuleId,
+              config: schema.activities.config,
+            })
+            .from(schema.activities)
+            .where(eq(schema.activities.kind, 'slide_course'));
+          const wrappingModuleIds = new Set<string>();
+          for (const a of slideCourseActivities) {
+            const cfgDeckId = (a.config as { slideDeckId?: string }).slideDeckId;
+            if (cfgDeckId === deck.id) {
+              wrappingModuleIds.add(a.trainingModuleId);
+            }
+          }
+          for (const moduleId of wrappingModuleIds) {
+            await db
+              .delete(schema.trainingModules)
+              .where(eq(schema.trainingModules.id, moduleId));
+          }
+        }
+      }
       await db.delete(schema.documents).where(eq(schema.documents.id, doc.id));
       return { ok: true };
     },

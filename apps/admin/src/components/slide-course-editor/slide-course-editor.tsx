@@ -17,7 +17,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, ArrowLeft, Loader2, RefreshCcw, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Loader2, Pencil, RefreshCcw, CheckCircle2 } from 'lucide-react';
 import {
   ErrorBanner,
   PrimaryButton,
@@ -33,6 +33,7 @@ import {
   getSlideDeck,
   getSlideDeckByDocument,
   patchSlide,
+  patchSlideDeck,
   replaceSlideImage,
   reorderSlides,
   retrySlideDeckConversion,
@@ -162,6 +163,21 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       await refreshDeckSummary();
+    }
+  }
+
+  async function onRename() {
+    if (!deckId || !deck) return;
+    const next = window.prompt('Rename course', deck.deck.documentTitle);
+    if (!next) return;
+    const trimmed = next.trim();
+    if (!trimmed || trimmed === deck.deck.documentTitle) return;
+    try {
+      const updated = await patchSlideDeck(deckId, { title: trimmed });
+      setDeck((prev) => (prev ? { ...prev, deck: updated } : prev));
+      toast.success('Course renamed', 'Updated in /training and on the PWA.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -350,6 +366,9 @@ export function SlideCourseEditor({ documentId }: { documentId: string }) {
                 <ArrowLeft className="size-4" /> Back to document
               </SecondaryButton>
             </Link>
+            <SecondaryButton type="button" onClick={onRename}>
+              <Pencil className="size-4" /> Rename
+            </SecondaryButton>
             {status === 'failed' && (
               <PrimaryButton type="button" onClick={onRetry}>
                 <RefreshCcw className="size-4" /> Retry conversion
