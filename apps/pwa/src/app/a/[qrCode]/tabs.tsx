@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   CalendarClock,
   ChevronDown,
@@ -20,9 +20,7 @@ import { TrainingTab } from './training-tab';
 import { PartInspector } from './parts-tab';
 import { IssuesPanel } from './issues-panel';
 import { MaintenanceTab } from './maintenance-tab';
-import { VoiceMode, type PrefetchedGreeting } from '@/components/voice-mode';
 import { VirtualJobAid, type JobAidSource } from '@/components/virtual-job-aid';
-import { ModeChooser, type ChosenMode } from '@/components/mode-chooser';
 import { VoiceSearch } from '@/components/voice-search';
 import { ImageZoom } from '@/components/image-zoom';
 import { CreateProcedureSheet } from '@/components/create-procedure-sheet';
@@ -30,7 +28,7 @@ import { SegmentCard } from '@/components/segment-card';
 import { ProcedureDocWizard } from '@/components/procedure-runner/procedure-doc-wizard';
 import { VideoSubmission } from '@/components/video-submission';
 import { AuthPrompt } from '@/components/auth-prompt';
-import { fetchPreflight, listParts, speak, type BomEntry } from '@/lib/api';
+import { listParts, type BomEntry } from '@/lib/api';
 
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
 const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
@@ -76,12 +74,6 @@ function readTabFromHash(): { tab: TabKey; library?: LibrarySection } | null {
   return null;
 }
 
-// Mode choice gates the asset hub. 'choosing' shows the ModeChooser
-// overlay; 'voice' opens VoiceMode immediately; 'browse' renders the
-// normal hub. The choice is intentional and not persisted — every QR
-// scan / refresh starts in 'choosing'.
-type Mode = 'choosing' | 'voice' | 'browse';
-
 // Filter keys the Maintenance tab understands — names the browse rows
 // the Overview tile can deep-link into. The tab also accepts the
 // legacy 'action' / 'walkthroughs' / 'removal' strings via its own
@@ -103,8 +95,6 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
   // subsequent return to Maintenance opens with no slice selected.
   const [pendingMaintenanceFilter, setPendingMaintenanceFilter] =
     useState<MaintenanceFilter | null>(null);
-  const [mode, setMode] = useState<Mode>(DEV_USER_ID && DEV_ORG_ID ? 'choosing' : 'browse');
-  const [voiceOpen, setVoiceOpen] = useState(false);
   // When a tech taps a part chip (from Overview or the Parts tab list)
   // we swap the active tab's content with PartInspector — which renders
   // inline, so the bottom TabBar stays visible and the tech keeps the
@@ -114,7 +104,8 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
   // VirtualJobAid mount for procedures launched from the Overview quick
   // actions card OR from the Maintenance tab (PM bucket → inline steps,
   // troubleshooting row → inline steps, scheduled procedure → docId).
-  // Voice mode owns its own handoff and never writes here.
+  // The Assistant tab's VoiceMode owns its own handoff for AI-emitted
+  // [procedure:UUID] directives and never writes here.
   const [jobAidRequest, setJobAidRequest] = useState<{
     source: JobAidSource;
     onCompleted?: () => void;
@@ -152,50 +143,10 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
     else setManualAuthoringOpen(true);
   }
   useEffect(() => {
-    const onOpen = () => {
-      // Don't reopen while voice assistant owns the screen — they'd
-      // fight over the mic.
-      if (mode === 'voice') return;
-      setVoiceSearchOpen(true);
-    };
+    const onOpen = () => setVoiceSearchOpen(true);
     window.addEventListener('asset-hub:open-search', onOpen);
     return () => window.removeEventListener('asset-hub:open-search', onOpen);
-  }, [mode]);
-
-  // Prefetch the greeting (preflight + TTS blob) the moment the chooser
-  // is up, so tapping Hands-Free starts speaking ~immediately rather than
-  // waiting on a serial round-trip to OpenAI TTS. We accept that ~half of
-  // chooser displays will end up picking Browse and discarding the audio
-  // — the per-greeting cost is ~$0.003 and the perceived-latency win is
-  // significant. Stored as a promise so VoiceMode can await it.
-  const greetingPrefetchRef = useRef<Promise<PrefetchedGreeting | null> | null>(null);
-
-  useEffect(() => {
-    if (mode !== 'choosing') return;
-    if (!DEV_USER_ID || !DEV_ORG_ID) return;
-    if (greetingPrefetchRef.current) return;
-    greetingPrefetchRef.current = (async () => {
-      try {
-        const brief = await fetchPreflight(hub.assetInstance.id);
-        if (!brief.greeting) return { brief, blob: null };
-        const resp = await speak(brief.greeting);
-        const blob = await resp.blob();
-        return { brief, blob };
-      } catch (err) {
-        console.warn('[hub] greeting prefetch failed', err);
-        return null;
-      }
-    })();
-  }, [mode, hub.assetInstance.id]);
-
-  function pickMode(chosen: ChosenMode) {
-    if (chosen === 'voice') {
-      setMode('voice');
-      setVoiceOpen(true);
-    } else {
-      setMode('browse');
-    }
-  }
+  }, []);
 
   // Hydrate the active tab from the URL hash on mount so deep links
   // (`#docs`) land on the right tab. Then keep the hash in sync as the
@@ -247,15 +198,6 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
     // last time.
     if (next !== 'maintenance') setPendingMaintenanceFilter(null);
   }, []);
-
-  if (mode === 'choosing' && DEV_USER_ID && DEV_ORG_ID) {
-    return (
-      <ModeChooser
-        assetName={hub.assetModel.displayName}
-        onPick={pickMode}
-      />
-    );
-  }
 
   return (
     <>
@@ -362,64 +304,11 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
         onCreateTap={() => setCreateSheetOpen(true)}
       />
 
-      {voiceOpen && DEV_USER_ID && DEV_ORG_ID && (
-        <VoiceMode
-          assetInstanceId={hub.assetInstance.id}
-          devUserId={DEV_USER_ID}
-          devOrgId={DEV_ORG_ID}
-          prefetched={greetingPrefetchRef.current ?? undefined}
-          onClose={({ conversationId, turns, switchToChat }) => {
-            setVoiceOpen(false);
-            // Discard the prefetch — it was for the initial scan greeting.
-            // If the tech re-engages voice via the Talk pill we'll fetch
-            // fresh (preflight may have changed; greeting was one-shot).
-            greetingPrefetchRef.current = null;
-            // Drop back into Browse mode so the chooser doesn't reappear
-            // (and so the Talk pill becomes visible for re-entry).
-            setMode('browse');
-            // Hand the conversation off to the chat tab so the tech can
-            // see the transcript and continue typing or scrolling.
-            if (conversationId || turns.length > 0) {
-              try {
-                const key = `eh:chat:v1:${hub.assetInstance.id}`;
-                const existingRaw = window.localStorage.getItem(key);
-                const existing = existingRaw ? JSON.parse(existingRaw) : null;
-                const merged = {
-                  conversationId: conversationId ?? existing?.conversationId,
-                  turns: [
-                    ...(existing?.turns ?? []),
-                    ...turns.map((t) =>
-                      t.role === 'user'
-                        ? { role: 'user' as const, text: t.text }
-                        : {
-                            role: 'assistant' as const,
-                            text: t.text,
-                            citations: [],
-                            streaming: false,
-                          },
-                    ),
-                  ],
-                };
-                window.localStorage.setItem(key, JSON.stringify(merged));
-              } catch {
-                // localStorage failures are non-fatal — conversation lives on
-                // the server.
-              }
-            }
-            // Switch to the chat tab when the user explicitly chose Keyboard,
-            // or whenever there's a transcript to show.
-            if (switchToChat || turns.length > 0) {
-              changeTab('chat');
-            }
-          }}
-        />
-      )}
-
       {/* VirtualJobAid mount for procedures + synthesized step lists
           launched from Overview quick-actions or the Maintenance tab.
-          Voice mode uses its own VirtualJobAid mount for [procedure:UUID]
-          handoffs — these don't overlap because voiceOpen and
-          jobAidRequest are independent state. */}
+          The Assistant tab owns its own VoiceMode + VirtualJobAid mounts
+          for [procedure:UUID] handoffs from AI chat; the two never
+          overlap because jobAidRequest is local to this hub state. */}
       {jobAidRequest && DEV_USER_ID && DEV_ORG_ID && (
         <VirtualJobAid
           source={jobAidRequest.source}
@@ -473,11 +362,8 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
       )}
 
       {/* Voice search is launched from the topbar (search icon) — not a
-          floating FAB — so it never covers content and it sits visually
-          apart from the post-scan Voice assistant mode. The topbar
-          dispatches `asset-hub:open-search`; the listener below opens
-          the overlay. We don't reopen during voice mode (voice already
-          owns the screen) or while the chooser is up. */}
+          floating FAB — so it never covers content. The topbar dispatches
+          `asset-hub:open-search`; the listener below opens the overlay. */}
       {voiceSearchOpen && (
         <VoiceSearch
           assetInstanceId={hub.assetInstance.id}
