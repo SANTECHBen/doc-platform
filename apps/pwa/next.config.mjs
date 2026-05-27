@@ -72,7 +72,12 @@ const nextConfig = {
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net",
       "worker-src 'self' blob: https://cdn.jsdelivr.net",
       "style-src 'self' 'unsafe-inline'",
-      `connect-src 'self' ${apiOrigin} https://*.ingest.sentry.io https://*.r2.cloudflarestorage.com https://*.r2.dev https://*.mux.com`,
+      // cdn.jsdelivr.net is needed here (not just in worker-src/script-src)
+      // because the pdfjs worker fetches WASM bytes for the image decoders
+      // (OpenJPEG/JBIG2) at runtime — without this, scanned PDFs with JPX
+      // images render with blank image regions and the console shows
+      // "Refused to connect because it violates the CSP".
+      `connect-src 'self' ${apiOrigin} https://*.ingest.sentry.io https://*.r2.cloudflarestorage.com https://*.r2.dev https://*.mux.com https://cdn.jsdelivr.net`,
       "manifest-src 'self'",
       process.env.NODE_ENV === 'production' ? 'upgrade-insecure-requests' : null,
     ]

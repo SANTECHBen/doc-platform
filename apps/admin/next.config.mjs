@@ -37,7 +37,11 @@ const CSP_DIRECTIVES = [
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net",
   "worker-src 'self' blob: https://cdn.jsdelivr.net",
   "style-src 'self' 'unsafe-inline'",
-  `connect-src 'self' ${API_ORIGIN} https://*.ingest.sentry.io https://login.microsoftonline.com https://*.r2.cloudflarestorage.com https://*.r2.dev https://*.mux.com`,
+  // cdn.jsdelivr.net is needed here (not just in worker-src/script-src) so
+  // the pdfjs worker can fetch WASM bytes for the image decoders
+  // (OpenJPEG/JBIG2). Without it, the section editor's PDF preview renders
+  // scanned manuals with blank image regions.
+  `connect-src 'self' ${API_ORIGIN} https://*.ingest.sentry.io https://login.microsoftonline.com https://*.r2.cloudflarestorage.com https://*.r2.dev https://*.mux.com https://cdn.jsdelivr.net`,
   "manifest-src 'self'",
   // Refuse to load resources over insecure HTTP in production.
   process.env.NODE_ENV === 'production' ? 'upgrade-insecure-requests' : null,
