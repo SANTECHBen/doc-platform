@@ -92,24 +92,38 @@ export function MuxClipAudioPreview({
   // Mint a clip URL whenever the bounds change AND the player is active.
   // The URL embeds the bounds (and a JWT on signed-playback deployments),
   // so a trim of the start/end fields invalidates the previous URL.
+  //
+  // Two guards keep this from spamming /media/mux-clip-url while an
+  // author is mid-edit:
+  //   1. Skip the mint when bounds are an obviously-invalid intermediate
+  //      state (endMs <= startMs). Parents pass these while a user is
+  //      typing into mm:ss inputs (`00:0` parses to 0ms). The server
+  //      would 400 every keystroke; we just hold the previous frame.
+  //   2. Debounce 350ms so the actual mint fires once on a settled value.
   useEffect(() => {
     if (!active) return;
+    if (endMs <= startMs) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setStreamUrl(null);
-    void getMuxClipUrl({ playbackId, startMs, endMs })
-      .then((r) => {
-        if (cancelled) return;
-        setStreamUrl(r.url);
-      })
-      .catch((e: unknown) => {
-        if (cancelled) return;
-        setError(e instanceof Error ? e.message : String(e));
-        setLoading(false);
-      });
+    const timer = setTimeout(() => {
+      setLoading(true);
+      setError(null);
+      void getMuxClipUrl({ playbackId, startMs, endMs })
+        .then((r) => {
+          if (cancelled) return;
+          setStreamUrl(r.url);
+        })
+        .catch((e: unknown) => {
+          if (cancelled) return;
+          setError(e instanceof Error ? e.message : String(e));
+          setLoading(false);
+        });
+    }, 350);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [active, playbackId, startMs, endMs]);
 

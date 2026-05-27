@@ -144,7 +144,14 @@ async function resolveMuxPlaybackOwningOrg(
   });
   if (arf?.run?.targetOrganizationId) return arf.run.targetOrganizationId;
 
-  // 3. procedure_steps.media — JSONB. SQL search via JSON path.
+  // 3. procedure_steps.media — JSONB. Three shapes in play across
+  // schema variants and the drafter's video_clip format:
+  //   * legacy uploads: { playbackId: "<id>", ... }
+  //   * legacy mux schema: { muxPlaybackId: "<id>", ... }
+  //   * drafter video_clip: { kind: "video_clip", clip: { playbackId: "<id>", ... } }
+  // Missing the nested clip.playbackId path was the cause of post-publish
+  // clip-range edits 404'ing on /media/mux-clip-url even though the
+  // owning step was perfectly reachable.
   const stepRow = (await db.execute(
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     (await import('drizzle-orm')).sql`
@@ -155,6 +162,7 @@ async function resolveMuxPlaybackOwningOrg(
         JOIN content_packs cp ON cp.id = v.content_pack_id
        WHERE ps.media @> ${JSON.stringify([{ playbackId }])}::jsonb
          OR ps.media @> ${JSON.stringify([{ muxPlaybackId: playbackId }])}::jsonb
+         OR ps.media @> ${JSON.stringify([{ clip: { playbackId } }])}::jsonb
        LIMIT 1
     `,
   )) as unknown as Array<{ owner_organization_id: string }>;
