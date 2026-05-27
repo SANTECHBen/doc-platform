@@ -389,8 +389,11 @@ export async function registerAdminProcedureDrafts(app: FastifyInstance) {
           // Carry the draft's category onto the published procedure so
           // the PWA's Maintenance tab files it into the correct card
           // (PM / R&R / Troubleshooting / Walkthrough) without an admin
-          // having to Edit-procedure and re-pick it.
-          metadata: {
+          // having to Edit-procedure and re-pick it. Column is
+          // `procedure_metadata`; an earlier `metadata:` typo here was
+          // silently dropped by drizzle, leaving every promoted draft
+          // with category=null → PWA defaulted them all into PM.
+          procedureMetadata: {
             toolsRequired: { common: [], special: [], consumables: [] },
             safety: { enabled: false, notes: null },
             verification: { enabled: false, notes: null },
@@ -570,6 +573,29 @@ export async function registerAdminProcedureDrafts(app: FastifyInstance) {
           updatedAt: new Date(),
         })
         .where(eq(schema.procedureDraftRuns.id, run.id));
+      // If the executor has already materialized a document for this
+      // draft, mirror the category onto it so the PWA's Maintenance tab
+      // re-buckets immediately. Without this, an admin who changes the
+      // category after promotion would update only the draft run row
+      // and the published procedure would stay in its original bucket.
+      if (run.targetDocumentId) {
+        const targetDoc = await db.query.documents.findFirst({
+          where: eq(schema.documents.id, run.targetDocumentId),
+          columns: { procedureMetadata: true },
+        });
+        const nextMetadata = {
+          ...(targetDoc?.procedureMetadata ?? {
+            toolsRequired: { common: [], special: [], consumables: [] },
+            safety: { enabled: false, notes: null },
+            verification: { enabled: false, notes: null },
+          }),
+          category: request.body.procedureCategory,
+        };
+        await db
+          .update(schema.documents)
+          .set({ procedureMetadata: nextMetadata })
+          .where(eq(schema.documents.id, run.targetDocumentId));
+      }
       await db.insert(schema.auditEvents).values({
         organizationId: run.ownerOrganizationId,
         actorUserId: auth.userId,
