@@ -13,6 +13,7 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@platform/db';
 import { requireAuthOrScan, getEffectiveOrgScope } from '../middleware/scan-session.js';
+import { muxClipUrlFor } from '../lib/mux.js';
 
 const BodySchema = z.object({
   playbackId: z.string().min(8).max(128).regex(/^[A-Za-z0-9]+$/),
@@ -64,6 +65,54 @@ export async function registerMuxPlaybackRoutes(app: FastifyInstance) {
         token,
         expiresIn: 3600,
       });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /media/mux-clip-url — mint a clip-bounded HLS URL
+  //
+  // The admin draft editor and the published-step clip-range editor both
+  // need an HLS URL representing JUST [startMs..endMs] of a Mux asset so
+  // the reviewer can audition the cut with audio. Server-minting (rather
+  // than building the URL in the browser) is required for signed-playback
+  // deployments — the clip bounds have to ride inside the JWT or Mux
+  // rejects the URL. Scope-checked the same way as the token mint above:
+  // the playback id must belong to an org the caller can see.
+  // -------------------------------------------------------------------------
+  app.post<{
+    Body: { playbackId: string; startMs: number; endMs: number };
+  }>(
+    '/media/mux-clip-url',
+    {
+      schema: {
+        body: z.object({
+          playbackId: z.string().min(8).max(128).regex(/^[A-Za-z0-9]+$/),
+          // 24h max — well above any plausible source video length while
+          // still bounding the validation surface.
+          startMs: z.number().int().min(0).max(24 * 60 * 60 * 1000),
+          endMs: z.number().int().min(0).max(24 * 60 * 60 * 1000),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const { db, mux } = app.ctx;
+      if (!mux) return reply.serviceUnavailable('Mux not configured');
+      const { playbackId, startMs, endMs } = request.body;
+      if (endMs <= startMs) {
+        return reply.badRequest('endMs must be greater than startMs');
+      }
+
+      requireAuthOrScan(request);
+      const scope = await getEffectiveOrgScope(request, db);
+      if (!scope) return reply.unauthorized();
+      const owningOrg = await resolveMuxPlaybackOwningOrg(db, playbackId);
+      if (!owningOrg) return reply.notFound('Playback id not found');
+      if (!scope.all && !scope.orgIds.includes(owningOrg)) {
+        return reply.notFound('Playback id not found');
+      }
+
+      const url = muxClipUrlFor(mux, { playbackId, startMs, endMs });
+      return reply.send({ url, expiresIn: 3600 });
     },
   );
 }

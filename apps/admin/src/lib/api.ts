@@ -228,6 +228,35 @@ export async function listOrganizations(): Promise<AdminOrganization[]> {
   return (await res.json()) as AdminOrganization[];
 }
 
+/**
+ * Mint a Mux instant-clip HLS URL for a [startMs..endMs] window of a
+ * playback id. Used by the per-step clip preview in the draft editor
+ * and the published-step clip-range editor — both need to play the
+ * trimmed clip with audio so the reviewer can scrub the cut points.
+ *
+ * The URL is single-use-ish (carries a signed token good for ~1h on
+ * signed-playback deployments; public deployments return a plain
+ * `?asset_start_time=&asset_end_time=` URL). Re-mint whenever the clip
+ * range changes — the URL embeds the bounds.
+ */
+export async function getMuxClipUrl(args: {
+  playbackId: string;
+  startMs: number;
+  endMs: number;
+}): Promise<{ url: string }> {
+  const res = await fetch(`${API_BASE}/media/mux-clip-url`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: {
+      'content-type': 'application/json',
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(args),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { url: string };
+}
+
 export interface AdminAssetModel {
   id: string;
   modelCode: string;
@@ -2021,6 +2050,8 @@ export type AdminStepMedia =
         startMs: number;
         endMs: number;
         streamUrl: string;
+        aspectRatio?: string;
+        orientation?: 'portrait' | 'landscape' | 'square';
       };
     };
 
@@ -2372,6 +2403,28 @@ export async function deleteProcedureStep(stepId: string): Promise<void> {
     { method: 'DELETE', headers: await authHeaders() },
   );
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+}
+
+/**
+ * Retrim the AI-walkthrough clip on a *published* procedure step. Only
+ * applies to steps that carry a video_clip media entry (drafter-built
+ * walkthroughs). The window must be 2–20s; the server returns 400
+ * otherwise so the editor can keep the previous value.
+ */
+export async function updateProcedureStepClipRange(
+  stepId: string,
+  range: { startMs: number; endMs: number },
+): Promise<AdminProcedureStep> {
+  const res = await fetch(
+    `${API_BASE}/admin/procedure-steps/${encodeURIComponent(stepId)}/clip-range`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(range),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AdminProcedureStep;
 }
 
 export async function listPartsForProcedureStep(

@@ -75,6 +75,49 @@ export interface DrafterLoopResult {
 
 const DEFAULT_MODEL = 'anthropic/claude-opus-4.7';
 
+/**
+ * Cap each step's clipEndMs so it doesn't overrun the next step's
+ * clipStartMs. The per-step clamps inside emitDraftStep only enforce
+ * min/max duration and monotonic starts; they don't stop the LLM from
+ * letting step N's clip leak ~5 seconds into step N+1's narration.
+ * We observed this in production: the looped clip on step N would show
+ * the start of step N+1's motion, breaking the "one motion per step"
+ * contract.
+ *
+ * For each consecutive pair, set step N's clipEndMs to at most
+ * (step N+1's clipStartMs - TRIM_GUARD_MS). The guard preserves a small
+ * silent gap so consecutive cuts don't share a frame at the boundary.
+ * STEP_CLIP_MIN_MS still wins when the next step starts so soon that
+ * respecting the guard would collapse step N below the minimum
+ * duration — better to let the clips kiss than emit a too-short loop.
+ *
+ * Mutates the input array in place. Exported for unit testing.
+ */
+export function trimOverrunningClips(
+  steps: Array<{
+    clipStartMs: number;
+    clipEndMs: number;
+    keyframeTimestampMs: number;
+  }>,
+  guardMs = 250,
+): void {
+  for (let i = 0; i < steps.length - 1; i++) {
+    const cur = steps[i]!;
+    const next = steps[i + 1]!;
+    const cap = next.clipStartMs - guardMs;
+    if (cur.clipEndMs > cap) {
+      const trimmed = Math.max(cap, cur.clipStartMs + STEP_CLIP_MIN_MS);
+      cur.clipEndMs = Math.min(cur.clipEndMs, trimmed);
+      // Re-center the keyframe if the trim moved it out of range.
+      if (cur.keyframeTimestampMs >= cur.clipEndMs) {
+        cur.keyframeTimestampMs = Math.floor(
+          (cur.clipStartMs + cur.clipEndMs) / 2,
+        );
+      }
+    }
+  }
+}
+
 export async function runDrafterLoop(
   options: DrafterLoopOptions,
 ): Promise<DrafterLoopResult> {
@@ -361,6 +404,8 @@ export async function runDrafterLoop(
       error: error ?? 'no steps emitted',
     };
   }
+
+  trimOverrunningClips(proposedSteps);
 
   const validated = DraftProposalTreeSchema.safeParse({
     schemaVersion: 1,

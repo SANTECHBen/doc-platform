@@ -137,9 +137,12 @@ hands-busy on the equipment.
   tank to drain), pick the most informative 10-second window and let the
   voiceover narrate the rest.
 - Clips advance monotonically: step N's clipStartMs MUST be >= step
-  (N-1)'s clipStartMs. Two consecutive steps SHOULD NOT overlap by more
-  than 1 second — overlap > 1s suggests you didn't actually identify a
-  new step. If you can't find a clean boundary, prefer fewer steps.
+  (N-1)'s clipStartMs. Step N's clipEndMs MUST NOT extend past step
+  (N+1)'s clipStartMs — when a step's looped clip plays in the runner
+  it must NOT contain the start of the next step's motion or narration.
+  A small frame of dead air at the cut is fine; bleeding the next action
+  into the current step is not. If you can't find a clean boundary,
+  prefer fewer steps.
 - The keyframeTimestampMs you pick is used as the still poster shown
   while the clip loads. Pick it INSIDE [clipStartMs, clipEndMs] at the
   most visually representative moment — ideally a frame where the action

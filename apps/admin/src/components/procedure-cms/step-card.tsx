@@ -38,6 +38,7 @@ import {
 import { VoiceoverPanel } from './voiceover-panel';
 import { BlockListEditor } from './block-editor';
 import { CategoryPicker } from './category-picker';
+import { WalkthroughClipPanel } from './walkthrough-clip-panel';
 
 interface Props {
   step: AdminProcedureStep;
@@ -542,6 +543,11 @@ export function StepCard({
             />
 
             <StepVideosPanel step={step} onChanged={onAudioChanged} />
+
+            {/* AI-walkthrough clip trim — only renders when the step carries
+                a video_clip media entry, so manual-authored procedures don't
+                see an empty editor. Lets admins retrim after publish. */}
+            <WalkthroughClipPanel step={step} onChanged={onAudioChanged} />
 
             <VoiceoverPanel step={step} onChanged={onAudioChanged} />
           </div>

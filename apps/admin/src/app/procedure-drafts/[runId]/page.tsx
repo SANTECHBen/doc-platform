@@ -41,7 +41,8 @@ import {
   type AdminDraftStepProposal,
   type ProcedureDraftCategory,
 } from '@/lib/api';
-import { MuxClipPreview } from '@/components/mux-clip-preview';
+import { MuxClipAudioPreview } from '@/components/mux-clip-audio-preview';
+import { formatMmSs, parseMmSs, formatClipDuration } from '@/lib/clip-time';
 
 type Phase =
   | 'loading'
@@ -723,7 +724,7 @@ function DraftStepCard({
       </div>
       {playbackId && (
         <div className="mb-2 mt-1">
-          <MuxClipPreview
+          <MuxClipAudioPreview
             playbackId={playbackId}
             startMs={step.clipStartMs}
             endMs={step.clipEndMs}
@@ -1218,35 +1219,5 @@ function aspectRatioFor(
   return '16 / 9';
 }
 
-function formatMmSs(ms: number): string {
-  const safe = Math.max(0, ms | 0);
-  const totalSec = Math.floor(safe / 1000);
-  const mm = Math.floor(totalSec / 60);
-  const ss = totalSec % 60;
-  return `${mm.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`;
-}
-
-// Parse a user-typed mm:ss (or bare seconds) into milliseconds. Returns
-// null when the input is incomplete or unparseable so the caller can
-// leave the prior value alone while the author is still typing.
-function parseMmSs(input: string): number | null {
-  const trimmed = input.trim();
-  if (!trimmed) return null;
-  const match = trimmed.match(/^(\d+):(\d{1,2})$/);
-  if (match) {
-    const mm = Number(match[1]);
-    const ss = Number(match[2]);
-    if (!Number.isFinite(mm) || !Number.isFinite(ss) || ss >= 60) return null;
-    return (mm * 60 + ss) * 1000;
-  }
-  // Allow plain seconds entry for fast scrubbing.
-  const seconds = Number(trimmed);
-  if (Number.isFinite(seconds) && seconds >= 0) return Math.floor(seconds * 1000);
-  return null;
-}
-
-function formatClipDuration(ms: number): string {
-  const safe = Math.max(0, ms);
-  if (safe < 1000) return `${safe}ms`;
-  return `${(safe / 1000).toFixed(1)}s`;
-}
+// mm:ss + duration helpers now live in @/lib/clip-time so the published
+// step editor can share the same parsing rules — see imports above.

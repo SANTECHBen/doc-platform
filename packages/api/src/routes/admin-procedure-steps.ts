@@ -950,6 +950,124 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
   );
 
   // -------------------------------------------------------------------------
+  // PATCH /admin/procedure-steps/:stepId/clip-range
+  //
+  // Update the [startMs..endMs] window on the step's first video_clip
+  // media entry. Lets admins tighten AI-walkthrough cuts after publish
+  // without rebuilding the procedure — the drafter's first pass often
+  // bleeds into the next step's narration (the segment_size=2 snap on
+  // Mux gives us ~2s granularity at the manifest level; the LLM's pick
+  // can be off by another ~3s before our auto-trim kicks in).
+  //
+  // Validation matches the drafter's clip window (2000..20000ms) so the
+  // runner doesn't get a malformed clip range that loops too tight or
+  // too long. Steps without a video_clip media entry get a 400 — there's
+  // nothing to trim, and the wizard never offers the editor in that case.
+  // -------------------------------------------------------------------------
+  const CLIP_MIN_MS = 2_000;
+  const CLIP_MAX_MS = 20_000;
+  app.patch<{
+    Params: { stepId: string };
+    Body: { startMs: number; endMs: number };
+  }>(
+    '/admin/procedure-steps/:stepId/clip-range',
+    {
+      schema: {
+        params: z.object({ stepId: UuidSchema }),
+        body: z.object({
+          // 24h max bound — covers any plausible source video while
+          // bounding the validator surface.
+          startMs: z.number().int().min(0).max(24 * 60 * 60 * 1000),
+          endMs: z.number().int().min(0).max(24 * 60 * 60 * 1000),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const ctx = await loadStepForWrite(db, request.params.stepId, scope);
+      if (!ctx) return reply.notFound();
+      const { startMs, endMs } = request.body;
+      if (endMs <= startMs) {
+        return reply.badRequest('endMs must be greater than startMs');
+      }
+      const span = endMs - startMs;
+      if (span < CLIP_MIN_MS) {
+        return reply.badRequest(
+          `clip duration ${span}ms is below the minimum ${CLIP_MIN_MS}ms`,
+        );
+      }
+      if (span > CLIP_MAX_MS) {
+        return reply.badRequest(
+          `clip duration ${span}ms exceeds the maximum ${CLIP_MAX_MS}ms`,
+        );
+      }
+
+      // Update the FIRST video_clip media entry in place. A step can in
+      // principle carry several media items; v1 of the drafter writes
+      // exactly one video_clip per step. If a future feature attaches
+      // more, this endpoint targets the first — clear-enough mental model
+      // and avoids a media-id field on the request (which would complicate
+      // the editor for the 99% case).
+      const media = ctx.step.media ?? [];
+      const clipIdx = media.findIndex((m) => m.kind === 'video_clip');
+      if (clipIdx === -1) {
+        return reply.badRequest(
+          'This step has no video clip to trim. Add one before editing the clip range.',
+        );
+      }
+      const target = media[clipIdx]!;
+      if (target.kind !== 'video_clip') {
+        // findIndex above guarantees this; the narrowing is for TS.
+        return reply.internalServerError('clip media kind mismatch');
+      }
+      const prev = { startMs: target.clip.startMs, endMs: target.clip.endMs };
+      const nextMedia = media.map((m, i) =>
+        i === clipIdx && m.kind === 'video_clip'
+          ? {
+              ...m,
+              clip: {
+                ...m.clip,
+                startMs,
+                endMs,
+              },
+            }
+          : m,
+      );
+
+      const [updated] = await db
+        .update(schema.procedureSteps)
+        .set({ media: nextMedia, updatedAt: new Date() })
+        .where(eq(schema.procedureSteps.id, ctx.step.id))
+        .returning();
+      if (!updated) return reply.internalServerError('Update failed.');
+
+      await db.insert(schema.auditEvents).values({
+        organizationId: ctx.ownerOrganizationId,
+        actorUserId: auth.userId,
+        eventType: 'procedure_step.clip_range_edited',
+        targetType: 'procedure_step',
+        targetId: updated.id,
+        payload: {
+          from: prev,
+          to: { startMs, endMs },
+          playbackId: target.clip.playbackId,
+        },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+
+      const [dto] = await rowsToExpandedDTO(db, [updated], {
+        audioPublicUrl: (k) => app.ctx.storage.publicUrl(k),
+        mediaPublicUrl: (k) => app.ctx.storage.publicUrl(k),
+        mux: app.ctx.mux,
+      });
+      return dto;
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // DELETE /admin/procedure-steps/:stepId
   //
   // Returns 409 if any procedure_step_completions reference this step —
