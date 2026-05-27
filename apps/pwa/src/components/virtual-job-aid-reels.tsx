@@ -515,14 +515,14 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
           >
             <div className="vja-reel-completion-card">
               <div className="vja-reel-completion-mark" aria-hidden>
-                <ListChecks size={36} strokeWidth={2} />
+                <ListChecks size={26} strokeWidth={2} />
               </div>
               <h2 className="vja-reel-completion-title">{completion.title}</h2>
               <p className="vja-reel-completion-sub">{completion.subtitle}</p>
               <p className="vja-reel-completion-hint">{completion.hint}</p>
               <button
                 type="button"
-                className="vja-reel-completion-cta"
+                className="btn btn-primary vja-reel-completion-cta"
                 onClick={completion.onMarkComplete}
                 aria-label="Mark procedure complete and close"
               >
