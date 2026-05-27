@@ -11,8 +11,8 @@ import {
   type SafetyFlaggedChunk,
 } from '@platform/ai';
 import { AIChatRequestSchema } from '@platform/shared';
-import { requireAuth } from '../middleware/auth';
 import { getScope, requireOrgInScope } from '../middleware/scope';
+import { requireAuthOrScan } from '../middleware/scan-session';
 import {
   computeVerifyCostCents,
   getUsageSnapshot,
@@ -21,6 +21,7 @@ import {
   resolveQuota,
 } from '../lib/voice-quota';
 import { sniffMime } from '../lib/mime-sniff';
+import { getOrCreateAnonymousPwaUserId } from '../lib/anonymous-pwa-user';
 
 export async function registerAIRoutes(app: FastifyInstance) {
   // Server-Sent Events stream of a grounded troubleshooter turn.
@@ -34,7 +35,10 @@ export async function registerAIRoutes(app: FastifyInstance) {
   // Uses reply.hijack() so Fastify leaves the socket alone and we write raw SSE.
   app.post('/ai/chat', { schema: { body: AIChatRequestSchema } }, async (request, reply) => {
     const { db, anthropic, env, storage } = app.ctx;
-    const auth = requireAuth(request);
+    // Accept either OIDC-authenticated callers (admin) or scan-session
+    // anonymous PWA techs. The PWA chat tab is the anonymous path —
+    // identity comes from the QR-scan cookie, not a Bearer token.
+    requireAuthOrScan(request);
     const body = request.body as import('@platform/shared').AIChatRequest;
 
     // Resolve asset context first (so we can error cleanly before starting the stream).
@@ -43,11 +47,26 @@ export async function registerAIRoutes(app: FastifyInstance) {
       with: { model: true, site: true, pinnedContentPackVersion: true },
     });
     if (!instance) return reply.notFound('Asset instance not found.');
-    // Scope guard: the asset's owning org must be in the caller's scope.
-    // Otherwise a signed-in user could ask the troubleshooter about any
-    // other org's asset and pull knowledge out of its content pack.
-    const scope = await getScope(request, db);
-    requireOrgInScope(scope, instance.site.organizationId);
+    // Scope guard. Auth path uses the user's full org tree; scan path is
+    // locked to the QR's asset — a token issued for asset A cannot ask
+    // about asset B even within the same org. This is a tighter bind than
+    // org-scope and prevents lateral movement within a customer.
+    let userId: string;
+    let organizationId: string;
+    if (request.auth) {
+      const scope = await getScope(request, db);
+      requireOrgInScope(scope, instance.site.organizationId);
+      userId = request.auth.userId;
+      organizationId = request.auth.organizationId;
+    } else {
+      const scan = request.scanSession!;
+      if (scan.assetInstanceId !== instance.id) {
+        return reply.forbidden('Scan session is not authorized for this asset.');
+      }
+      organizationId = scan.organizationId;
+      userId = await getOrCreateAnonymousPwaUserId(db, organizationId);
+    }
+    const auth = { userId, organizationId };
     if (!instance.pinnedContentPackVersionId) {
       return reply.badRequest('Asset has no pinned ContentPack version — AI chat unavailable.');
     }
@@ -834,7 +853,23 @@ If no authored procedure plausibly matches, do NOT improvise a step list. Answer
   // -------------------------------------------------------------------------
   app.post('/ai/chat-images/upload', async (request, reply) => {
     const { db, storage } = app.ctx;
-    const auth = requireAuth(request);
+    requireAuthOrScan(request);
+    // Resolve the (userId, organizationId) pair for ownership-tagging the
+    // upload. Scan-session callers attribute to the per-org anonymous user;
+    // the /ai/chat consumer enforces same-userId, which collapses to
+    // same-org for anonymous traffic. Combined with the unguessability of
+    // the storage key, this preserves the cross-tenant defense from C-AI-1.
+    let userId: string;
+    let organizationId: string;
+    if (request.auth) {
+      userId = request.auth.userId;
+      organizationId = request.auth.organizationId;
+    } else {
+      const scan = request.scanSession!;
+      organizationId = scan.organizationId;
+      userId = await getOrCreateAnonymousPwaUserId(db, organizationId);
+    }
+    const auth = { userId, organizationId };
     if (!request.isMultipart()) {
       return reply.badRequest('Expected multipart/form-data.');
     }
