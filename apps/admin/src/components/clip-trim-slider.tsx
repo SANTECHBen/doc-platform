@@ -275,14 +275,14 @@ export function ClipTrimSlider({
         })}
 
         {/* Played-progress fill — grows inside the selected region as
-            the preview player advances. Brighter than the selected
+            the preview player advances. Darker than the selected
             region so the eye reads it as "played so far" vs. "clip
             range" — same visual idiom as a video scrubber. */}
         {playheadMs != null &&
           playheadMs >= startMs &&
           playheadMs <= endMs && (
             <div
-              className="pointer-events-none absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-accent"
+              className="pointer-events-none absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-ink-primary"
               style={{
                 left: `${startPct}%`,
                 width: `${clamp(
@@ -295,11 +295,11 @@ export function ClipTrimSlider({
             />
           )}
 
-        {/* Live playhead — a clear vertical bar with a circle knob on
-            top so the position is unmistakable even when the clip range
-            is narrow relative to the visible timeline. Sits above the
-            handle hit boxes in source order but is pointer-events-none
-            so handle drags still win. */}
+        {/* Live playhead — a high-contrast vertical bar with a circle
+            knob on top so the position is unmistakable even when the
+            clip range is narrow relative to the visible timeline. Sits
+            above the handle hit boxes in source order but is
+            pointer-events-none so handle drags still win. */}
         {playheadMs != null &&
           playheadMs >= timelineStartMs &&
           playheadMs <= timelineEndMs && (
@@ -314,8 +314,8 @@ export function ClipTrimSlider({
               }}
               aria-hidden
             >
-              <span className="absolute top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full bg-accent shadow-[0_0_0_1px_rgba(255,255,255,0.85)]" />
-              <span className="absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full border border-white bg-accent shadow-md" />
+              <span className="absolute top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full bg-ink-primary shadow-[0_0_0_1px_rgba(255,255,255,0.9)]" />
+              <span className="absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border-2 border-white bg-ink-primary shadow-md" />
             </span>
           )}
 
