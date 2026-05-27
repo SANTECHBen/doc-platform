@@ -136,6 +136,11 @@ interface ResolvedJobAid {
             startMs: number;
             endMs: number;
             streamUrl: string;
+            /** Full source-asset HLS URL, when the API supplies it.
+             *  When present, MuxClipPlayer streams this and clamps to
+             *  [startMs..endMs] for frame-accurate looping. Falls back
+             *  to the segment-aligned streamUrl on older responses. */
+            sourceStreamUrl?: string;
             aspectRatio?: string;
             orientation?: 'portrait' | 'landscape' | 'square';
           };
@@ -1386,7 +1391,18 @@ export function VirtualJobAid({
                         // step unmounts this <video> element and
                         // mounts the next one.
                         <MuxClipPlayer
-                          streamUrl={m.clip.streamUrl}
+                          streamUrl={
+                            m.clip.sourceStreamUrl ?? m.clip.streamUrl
+                          }
+                          // Frame-accurate clip bounds when the server
+                          // returned a source URL; older responses only
+                          // ship streamUrl (segment-aligned).
+                          startMs={
+                            m.clip.sourceStreamUrl ? m.clip.startMs : undefined
+                          }
+                          endMs={
+                            m.clip.sourceStreamUrl ? m.clip.endMs : undefined
+                          }
                           posterUrl={m.url ?? undefined}
                           alt={m.caption ?? step.title}
                           caption={m.caption ?? null}

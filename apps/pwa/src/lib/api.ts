@@ -1143,6 +1143,13 @@ export type ProcedureStepMedia =
          *               (clip bounds are baked into the JWT claims).
          *  See muxClipUrlFor / muxClipStreamUrl in packages/api/src/lib/mux.ts. */
         streamUrl: string;
+        /** Full source-asset HLS URL — no clip bounds baked in. The
+         *  runner streams this and clamps playback to [startMs..endMs]
+         *  via `currentTime`, which is frame-accurate (instant-clip
+         *  URLs above are segment-aligned and can include ±segment_size
+         *  of extra context). Optional for back-compat with older API
+         *  responses that only emit streamUrl. */
+        sourceStreamUrl?: string;
         /** Mux-reported aspect ratio ("16:9", "9:16"). Drives the
          *  player's container framing — portrait clips get a tall
          *  frame, landscape gets the standard 16:9 box. */

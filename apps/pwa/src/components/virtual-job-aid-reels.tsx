@@ -517,12 +517,18 @@ function ReelMedia({
     (heroImage as unknown as { url?: string | null })?.url ??
     null;
   if (heroVideoClip && renderVideo) {
-    const clip = (heroVideoClip as { clip?: { streamUrl: string; startMs: number; endMs: number; aspectRatio?: string; orientation?: 'portrait' | 'landscape' | 'square' } }).clip;
+    const clip = (heroVideoClip as { clip?: { streamUrl: string; sourceStreamUrl?: string; startMs: number; endMs: number; aspectRatio?: string; orientation?: 'portrait' | 'landscape' | 'square' } }).clip;
     if (clip?.streamUrl) {
+      // Prefer sourceStreamUrl + client-side clamping for frame-accurate
+      // loop bounds. Falls back to the pre-trimmed instant-clip URL on
+      // older API responses that don't ship sourceStreamUrl yet.
+      const useClamping = !!clip.sourceStreamUrl;
       return (
         <div className="vja-reel-media">
           <MuxClipPlayer
-            streamUrl={clip.streamUrl}
+            streamUrl={clip.sourceStreamUrl ?? clip.streamUrl}
+            startMs={useClamping ? clip.startMs : undefined}
+            endMs={useClamping ? clip.endMs : undefined}
             posterUrl={heroUrl ?? undefined}
             // Only the active reel autoplays — keeps the neighboring
             // reels primed (HLS attached, first segment prefetched) but

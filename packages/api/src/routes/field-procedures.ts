@@ -35,7 +35,7 @@ import {
 import { sniffMime } from '../lib/mime-sniff';
 import { ensureFieldCapturesVersion } from '../lib/field-captures-pack';
 import { enqueueExtraction } from '../lib/extraction';
-import { muxClipUrlFor } from '../lib/mux';
+import { muxClipUrlFor, muxSourceUrlFor } from '../lib/mux';
 import { expandStep, loadSnippetMap } from '../services/snippet-expansion';
 import {
   procedureStepCategoryToDTO,
@@ -1594,18 +1594,20 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
               url: storage.publicUrl(m.storageKey),
             };
             if (m.kind === 'video_clip') {
-              // Mux instant-clipping URL. The manifest served at this
-              // URL represents only [startMs..endMs] of the source
-              // asset, so the player just treats it as a small native
-              // HLS stream — no JS seek/loop bookkeeping required.
-              // Signed-playback deployments bake the clip bounds into
-              // the JWT so they can't be widened by URL tampering;
-              // muxClipUrlFor handles that decision internally based
-              // on the configured playback policy. The `mux` client is
-              // optional on app.ctx (some deployments run without
-              // Mux), but video_clip media can only have been created
-              // on a Mux-enabled deployment in the first place — the
-              // fallback URL is for type-safety, not runtime use.
+              // Two HLS URLs per clip, both signed when the deployment
+              // uses signed playback:
+              //   * streamUrl — Mux's instant-clipping URL representing
+              //     [startMs..endMs]. Cheap to load (small manifest) but
+              //     segment-aligned, so it can include up to ±segment_
+              //     size seconds of extra context (2s on new uploads,
+              //     ~6s on legacy assets without segment_size:2 set).
+              //   * sourceStreamUrl — the full asset's HLS manifest,
+              //     no clip bounds. The PWA's MuxClipPlayer streams
+              //     this and clamps playback to the exact frame-accurate
+              //     [startMs..endMs] window via `currentTime`, so the
+              //     looped clip never includes neighboring step audio.
+              // Older clients that only know about streamUrl keep
+              // working unchanged; new clients prefer sourceStreamUrl.
               const streamUrl = app.ctx.mux
                 ? muxClipUrlFor(app.ctx.mux, {
                     playbackId: m.clip.playbackId,
@@ -1613,11 +1615,17 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
                     endMs: m.clip.endMs,
                   })
                 : `https://stream.mux.com/${m.clip.playbackId}.m3u8`;
+              const sourceStreamUrl = app.ctx.mux
+                ? muxSourceUrlFor(app.ctx.mux, {
+                    playbackId: m.clip.playbackId,
+                  })
+                : `https://stream.mux.com/${m.clip.playbackId}.m3u8`;
               return {
                 ...base,
                 clip: {
                   ...m.clip,
                   streamUrl,
+                  sourceStreamUrl,
                 },
               };
             }

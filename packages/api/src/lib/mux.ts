@@ -343,3 +343,19 @@ export function muxClipUrlFor(
     signedToken,
   });
 }
+
+/** Build a full source-asset HLS URL (no clip bounds), signed when the
+ *  deployment uses signed playback. Used by clients that want to clamp
+ *  playback to a frame-accurate [startMs..endMs] window themselves via
+ *  `currentTime` — Mux's instant-clipping URL (above) is segment-aligned
+ *  and can include up to ±segment_size of extra context on each end. */
+export function muxSourceUrlFor(
+  mux: MuxClient,
+  args: { playbackId: string },
+): string {
+  const signedToken = mux.signPlaybackToken({
+    playbackId: args.playbackId,
+  });
+  const base = `https://stream.mux.com/${args.playbackId}.m3u8`;
+  return signedToken ? `${base}?token=${signedToken}` : base;
+}

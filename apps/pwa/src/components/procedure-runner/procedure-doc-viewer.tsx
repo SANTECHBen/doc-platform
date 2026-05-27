@@ -486,7 +486,13 @@ function StepBlock({
                     // on a long procedure. The runner / Job Aid view
                     // autoplays the active step's clip; see below.
                     <MuxClipPlayer
-                      streamUrl={m.clip.streamUrl}
+                      streamUrl={m.clip.sourceStreamUrl ?? m.clip.streamUrl}
+                      startMs={
+                        m.clip.sourceStreamUrl ? m.clip.startMs : undefined
+                      }
+                      endMs={
+                        m.clip.sourceStreamUrl ? m.clip.endMs : undefined
+                      }
                       posterUrl={m.url ?? undefined}
                       alt={m.caption ?? step.title}
                       caption={m.caption ?? null}

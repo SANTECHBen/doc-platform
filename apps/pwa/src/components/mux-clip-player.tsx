@@ -37,10 +37,21 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pause, Play } from 'lucide-react';
 
 interface Props {
-  /** Per-step Mux instant-clip HLS URL (see muxClipUrlFor on the
-   *  server). The manifest is pre-trimmed to the clip range, so we
-   *  treat this as a normal standalone HLS source. */
+  /** HLS URL to stream. Two valid shapes:
+   *    1. Source-asset URL (preferred) + startMs/endMs — the runner
+   *       streams the full asset and clamps playback to that window
+   *       via `currentTime` for frame-accurate looping.
+   *    2. Mux instant-clip URL (pre-trimmed manifest) without start/
+   *       endMs — back-compat for callers that only ship the
+   *       segment-aligned URL. The native `loop` attribute wraps it.
+   *  See muxSourceUrlFor / muxClipUrlFor on the server. */
   streamUrl: string;
+  /** When set, the player treats `streamUrl` as a full source asset
+   *  and clamps playback to [startMs..endMs] instead of relying on a
+   *  pre-trimmed manifest. Eliminates the ±segment_size context bleed
+   *  that Mux's instant-clipping URL produces. */
+  startMs?: number;
+  endMs?: number;
   /** Storage-resolved JPEG URL. Shown as poster while HLS loads and
    *  as the fallback if HLS fails. */
   posterUrl?: string;
@@ -108,6 +119,8 @@ function loadHlsModule(): Promise<unknown> {
 
 export function MuxClipPlayer({
   streamUrl,
+  startMs,
+  endMs,
   posterUrl,
   alt,
   caption,
@@ -141,6 +154,20 @@ export function MuxClipPlayer({
   const [userPaused, setUserPaused] = useState(false);
   const [flash, setFlash] = useState<'pause' | 'play' | null>(null);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Source-asset clamping mode (preferred): we received explicit
+  // start/end bounds, so we're playing the full source HLS and clamping
+  // currentTime to that window for frame accuracy. Without these bounds
+  // the player falls back to the legacy native-loop behavior on a
+  // pre-trimmed instant-clip manifest.
+  const clamping = typeof startMs === 'number' && typeof endMs === 'number';
+  // Keep bounds in refs so the timeupdate handler reads the latest
+  // values without re-attaching whenever the parent re-renders.
+  const startMsRef = useRef(startMs ?? 0);
+  const endMsRef = useRef(endMs ?? 0);
+  useEffect(() => {
+    if (typeof startMs === 'number') startMsRef.current = startMs;
+    if (typeof endMs === 'number') endMsRef.current = endMs;
+  }, [startMs, endMs]);
 
   // Attach the HLS source. On Safari / iOS we set src directly (native
   // HLS); elsewhere we dynamic-import hls.js and pipe MSE buffers in.
@@ -269,28 +296,81 @@ export function MuxClipPlayer({
     }
   }, [autoplay]);
 
-  // Track playback position for the loop-progress bar. `timeupdate`
-  // fires ~4×/sec which is plenty for a visual indicator. The browser
-  // resets `currentTime` to 0 on each loop wrap, so progress naturally
-  // resets too — no manual reset needed.
+  // Track playback position for the loop-progress bar, AND (when we're
+  // clamping) wrap playback to [startMs..endMs]. timeupdate fires
+  // ~4×/sec — plenty tight for both visual progress and wrap-on-end.
+  //
+  // Clamping mode: when start/endMs are supplied, the loaded media is
+  // the full source asset and we have to do our own loop bookkeeping —
+  // the native `loop` attribute would replay the entire source every
+  // cycle, the wrong window. Seek to startMs on metadata load, then
+  // snap back to startMs whenever currentTime crosses endMs.
+  //
+  // Legacy mode (no bounds): the manifest IS the trimmed clip, native
+  // `loop` is doing the right thing, and we just paint a progress bar.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     function onTime() {
       const el = videoRef.current;
-      if (!el || !isFinite(el.duration) || el.duration <= 0) {
+      if (!el) return;
+      if (clamping) {
+        const currentMs = el.currentTime * 1000;
+        const span = Math.max(1, endMsRef.current - startMsRef.current);
+        if (currentMs >= endMsRef.current) {
+          try {
+            el.currentTime = startMsRef.current / 1000;
+          } catch {
+            // best-effort
+          }
+          setProgress(0);
+          return;
+        }
+        if (currentMs < startMsRef.current - 100) {
+          // Native or HLS seek slightly undershot the start — pull
+          // forward so the loop doesn't start with a fraction of a
+          // second of pre-clip content.
+          try {
+            el.currentTime = startMsRef.current / 1000;
+          } catch {
+            // best-effort
+          }
+          setProgress(0);
+          return;
+        }
+        setProgress(
+          Math.min(1, Math.max(0, (currentMs - startMsRef.current) / span)),
+        );
+        return;
+      }
+      if (!isFinite(el.duration) || el.duration <= 0) {
         setProgress(0);
         return;
       }
       setProgress(Math.min(1, Math.max(0, el.currentTime / el.duration)));
     }
+    function onMetadata() {
+      if (clamping) {
+        const el = videoRef.current;
+        if (!el) return;
+        try {
+          el.currentTime = startMsRef.current / 1000;
+        } catch {
+          // ignore — some browsers reject seek before canplay
+        }
+      }
+      onTime();
+    }
     v.addEventListener('timeupdate', onTime);
-    v.addEventListener('loadedmetadata', onTime);
+    v.addEventListener('loadedmetadata', onMetadata);
     return () => {
       v.removeEventListener('timeupdate', onTime);
-      v.removeEventListener('loadedmetadata', onTime);
+      v.removeEventListener('loadedmetadata', onMetadata);
     };
-  }, []);
+    // Re-attach when clamping mode flips. Bounds themselves live in
+    // refs so a parent re-render passing fresh start/endMs doesn't
+    // churn the listener.
+  }, [clamping]);
 
   // Always clear the flash timer on unmount; otherwise a fast unmount
   // mid-flash leaves a stale callback firing setState on a dead tree.
@@ -413,9 +493,12 @@ export function MuxClipPlayer({
         muted
         playsInline
         autoPlay={autoplay}
-        // Native loop on the trimmed manifest. The clip wraps cleanly
-        // back to its own start because the manifest IS just the clip.
-        loop
+        // Native loop only when the entire manifest IS the clip.
+        // Clamping mode receives the full source manifest and manages
+        // its own [startMs..endMs] wrap in timeupdate (above) — the
+        // native loop here would replay the whole source asset, the
+        // wrong window.
+        loop={!clamping}
         disablePictureInPicture
         controlsList="nodownload noplaybackrate noremoteplayback"
         preload="auto"
