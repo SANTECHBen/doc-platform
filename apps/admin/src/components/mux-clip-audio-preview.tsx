@@ -170,9 +170,13 @@ export function MuxClipAudioPreview({
   }, [active, streamUrl]);
 
   // Attach the source URL via native HLS (Safari) or hls.js (others).
-  // Re-runs only when streamUrl changes (i.e., not on every clip-range
-  // drag — the source stays the same; we just clamp currentTime).
+  // Depends on both `active` and `streamUrl` because the <video>
+  // element only exists in the active state — without the active dep,
+  // the effect would run once when the token fetch resolves (while
+  // active is still false and videoRef.current is null), bail out, and
+  // never re-fire when the user clicks play.
   useEffect(() => {
+    if (!active) return;
     const v = videoRef.current;
     if (!v || !streamUrl) return;
     let cancelled = false;
@@ -279,7 +283,7 @@ export function MuxClipAudioPreview({
       v.removeEventListener('loadedmetadata', seekToStart);
       teardown();
     };
-  }, [streamUrl]);
+  }, [active, streamUrl]);
 
   // Clamp playback to [startMs..endMs]. The native `loop` attribute
   // would loop the entire source asset, which is the wrong window, so
