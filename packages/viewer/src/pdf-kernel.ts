@@ -44,6 +44,15 @@ let workerSrcConfigured = false;
 const CDN_WORKER_URL =
   'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/build/pdf.worker.min.mjs';
 
+// WASM modules pdfjs v5 dynamic-imports for image decoders (JPEG 2000 / JPX
+// via OpenJPEG, JBIG2, QCMS color profiles, QuickJS for AcroForms). Without a
+// resolvable `wasmUrl`, pdfjs logs "OpenJPEG failed to initialize" and
+// silently drops every JPX/JBIG2 image — scanned manuals turn into pages
+// with text but empty image regions. The URL is a directory and MUST end
+// with a trailing slash because pdfjs concatenates filenames directly.
+const CDN_WASM_URL =
+  'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/wasm/';
+
 function readEnvWorkerUrl(): string | null {
   // `process.env` is statically replaced by Next.js at build time, so this
   // only resolves the configured value — no runtime mutation possible.
@@ -58,9 +67,24 @@ function readEnvWorkerUrl(): string | null {
   }
 }
 
+function readEnvWasmUrl(): string | null {
+  try {
+    const url =
+      typeof process !== 'undefined' &&
+      process.env &&
+      process.env.NEXT_PUBLIC_PDFJS_WASM_URL;
+    return typeof url === 'string' && url.length > 0 ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 const DEFAULT_WORKER_URL = readEnvWorkerUrl() ?? CDN_WORKER_URL;
+const DEFAULT_WASM_URL = readEnvWasmUrl() ?? CDN_WASM_URL;
 
 let workerUrl: string | null = DEFAULT_WORKER_URL;
+let wasmUrl: string = DEFAULT_WASM_URL;
+let wasmUrlConfigured = false;
 
 /**
  * Override the worker URL. Optional — kernel uses a CDN default if you
@@ -74,6 +98,18 @@ export function setupPdfjsWorker(url: string): void {
   if (pdfjsModule) {
     pdfjsModule.GlobalWorkerOptions.workerSrc = url;
   }
+}
+
+/**
+ * Override the WASM directory URL used for image-decoder modules
+ * (OpenJPEG / JBIG2 / QCMS). Must end with a trailing slash. Optional —
+ * defaults to the same CDN as the worker. Ignored after the first call.
+ */
+export function setupPdfjsWasm(url: string): void {
+  if (wasmUrlConfigured) return;
+  if (typeof window === 'undefined') return;
+  wasmUrl = url.endsWith('/') ? url : `${url}/`;
+  wasmUrlConfigured = true;
 }
 
 /**
@@ -119,6 +155,14 @@ export async function loadDocument(opts: LoadDocumentOptions): Promise<PDFDocume
       Authorization: opts.authHeader,
     };
   }
+
+  // wasmUrl points at the directory hosting pdfjs's image-decoder WASM
+  // modules (OpenJPEG / JBIG2 / QCMS). Without it, JPX-compressed images
+  // (common in scanned OEM manuals) fail to decode and render as blank
+  // regions even though text on the same page renders fine. Typed via
+  // cast because `wasmUrl` was added in pdfjs v5 and isn't reflected in
+  // the package's public Parameters<> type yet.
+  (params as { wasmUrl?: string }).wasmUrl = wasmUrl;
 
   const task = pdfjs.getDocument(params);
   return task.promise;
