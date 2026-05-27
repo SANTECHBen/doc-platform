@@ -99,6 +99,16 @@ export function ClipTrimSlider({
   // getBoundingClientRect on every pointermove is fine but caching once
   // per drag avoids reflow churn on long drags.
   const geomRef = useRef<{ left: number; width: number } | null>(null);
+  // Mirror the latest controlled bounds into refs so onCommit handlers
+  // always read the freshest values, not a closure captured one
+  // render ago. Critical for the pointerup path on fast drags and for
+  // keyboard nudges that commit synchronously inside the same render.
+  const startMsRef = useRef(startMs);
+  const endMsRef = useRef(endMs);
+  useEffect(() => {
+    startMsRef.current = startMs;
+    endMsRef.current = endMs;
+  }, [startMs, endMs]);
 
   const timelineSpan = Math.max(1, timelineEndMs - timelineStartMs);
 
@@ -129,24 +139,32 @@ export function ClipTrimSlider({
 
   const updateStart = useCallback(
     (ms: number) => {
-      // start must leave room for min span and respect max span.
+      // start must leave room for min span and respect max span. Read
+      // from refs so a drag tick or keyboard nudge that fires inside
+      // the same render still sees the freshest end value.
       const minStart = timelineStartMs;
-      const maxStart = Math.max(minStart, endMs - minSpanMs);
-      const minStartForMax = endMs - maxSpanMs;
+      const maxStart = Math.max(minStart, endMsRef.current - minSpanMs);
+      const minStartForMax = endMsRef.current - maxSpanMs;
       const next = clamp(ms, Math.max(minStart, minStartForMax), maxStart);
-      if (next !== startMs) onChange({ startMs: next, endMs });
+      if (next !== startMsRef.current) {
+        startMsRef.current = next;
+        onChange({ startMs: next, endMs: endMsRef.current });
+      }
     },
-    [endMs, minSpanMs, maxSpanMs, onChange, startMs, timelineStartMs],
+    [minSpanMs, maxSpanMs, onChange, timelineStartMs],
   );
 
   const updateEnd = useCallback(
     (ms: number) => {
-      const minEnd = startMs + minSpanMs;
-      const maxEnd = Math.min(timelineEndMs, startMs + maxSpanMs);
+      const minEnd = startMsRef.current + minSpanMs;
+      const maxEnd = Math.min(timelineEndMs, startMsRef.current + maxSpanMs);
       const next = clamp(ms, minEnd, maxEnd);
-      if (next !== endMs) onChange({ startMs, endMs: next });
+      if (next !== endMsRef.current) {
+        endMsRef.current = next;
+        onChange({ startMs: startMsRef.current, endMs: next });
+      }
     },
-    [startMs, minSpanMs, maxSpanMs, onChange, endMs, timelineEndMs],
+    [minSpanMs, maxSpanMs, onChange, timelineEndMs],
   );
 
   const onPointerDown = useCallback(
@@ -179,7 +197,9 @@ export function ClipTrimSlider({
     function onUp() {
       setDragging(null);
       geomRef.current = null;
-      onCommit?.({ startMs, endMs });
+      // Read from refs — the closure-captured startMs/endMs might be
+      // one tick behind on a fast drag-then-release sequence.
+      onCommit?.({ startMs: startMsRef.current, endMs: endMsRef.current });
     }
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
@@ -189,11 +209,15 @@ export function ClipTrimSlider({
       document.removeEventListener('pointerup', onUp);
       document.removeEventListener('pointercancel', onUp);
     };
-  }, [dragging, xToMs, updateStart, updateEnd, onCommit, startMs, endMs]);
+    // Bounds removed from deps — onUp reads refs (always current) and
+    // onMove uses xToMs + the stable update helpers. Re-binding on every
+    // drag tick would churn add/removeEventListener uselessly.
+  }, [dragging, xToMs, updateStart, updateEnd, onCommit]);
 
   // Keyboard nudges — left/right arrow adjusts the focused handle by
   // SNAP_MS, shift+arrow by 1s. Matches typical timeline editor a11y
-  // affordances (Premiere, DaVinci, etc.).
+  // affordances (Premiere, DaVinci, etc.). updateStart/updateEnd write
+  // refs synchronously so onCommit fires with the post-nudge value.
   const onKey = useCallback(
     (handle: 'start' | 'end') =>
       (e: React.KeyboardEvent<HTMLButtonElement>) => {
@@ -207,11 +231,14 @@ export function ClipTrimSlider({
         if (step === 0) return;
         e.preventDefault();
         const direction = e.key === 'ArrowLeft' ? -1 : 1;
-        if (handle === 'start') updateStart(startMs + direction * step);
-        else updateEnd(endMs + direction * step);
-        onCommit?.({ startMs, endMs });
+        if (handle === 'start') {
+          updateStart(startMsRef.current + direction * step);
+        } else {
+          updateEnd(endMsRef.current + direction * step);
+        }
+        onCommit?.({ startMs: startMsRef.current, endMs: endMsRef.current });
       },
-    [disabled, startMs, endMs, updateStart, updateEnd, onCommit],
+    [disabled, updateStart, updateEnd, onCommit],
   );
 
   // Major-tick marker positions. We draw ticks every ~10% of the

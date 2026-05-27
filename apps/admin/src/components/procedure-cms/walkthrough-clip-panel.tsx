@@ -11,22 +11,23 @@
 //
 // This panel renders inside the procedure CMS step card, sibling to
 // VoiceoverPanel and StepVideosPanel, and only when the step actually
-// carries a video_clip entry (drafter-built steps). Behavior:
+// carries a video_clip entry (drafter-built steps).
 //
-//   * The preview plays the trimmed clip with audio enabled so the
-//     reviewer can hear the cut. Re-mints the Mux URL on every range
-//     change — auditioning a tighter cut is one save away.
-//   * Two mm:ss inputs for start/end + a duration readout. Same parser
-//     as the draft editor (lib/clip-time.ts).
-//   * Save button PATCHes /admin/procedure-steps/:id/clip-range. The
-//     server validates 2–20s; this UI mirrors that as a visual warning
-//     instead of a hard block so authors aren't fighting mid-edit.
-//   * No autosave. Trim is a deliberate action and a stray keystroke
-//     should not retrigger Mux clipping or invalidate the PWA's cached
-//     clip URL on every running tech's device.
+// Save behavior — autosave on handle release:
+//   * The slider's onCommit fires once per pointerup / keyboard nudge.
+//     We PATCH /admin/procedure-steps/:id/clip-range with the new
+//     bounds at that moment, so the author never has to remember to
+//     click a Save button. A persistent "Saved" / "Saving…" indicator
+//     shows the state so the action isn't invisible.
+//   * Onscreen validation gates the save: bounds in [200ms..20s] and
+//     end strictly greater than start. Out-of-range commits show a
+//     warning and don't fire the PATCH; the local preview still
+//     updates so the author can see what they're dragging into.
+//   * Errors surface inline (and via toast) so a server reject doesn't
+//     get lost.
 
-import { useEffect, useState } from 'react';
-import { Loader2, Save, Scissors, Undo2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { CheckCircle2, Loader2, Scissors, Undo2 } from 'lucide-react';
 import {
   updateProcedureStepClipRange,
   type AdminProcedureStep,
@@ -42,6 +43,9 @@ import { useToast } from '@/components/toast';
 // "brief motion / single click" range.
 const MIN_MS = 200;
 const MAX_MS = 20_000;
+// "Just saved" indicator dwells for this long after a successful save
+// so the author actually sees the confirmation before it disappears.
+const SAVED_INDICATOR_MS = 2_000;
 
 interface Props {
   step: AdminProcedureStep;
@@ -60,29 +64,32 @@ function findVideoClip(step: AdminProcedureStep): VideoClipMedia | null {
 
 export function WalkthroughClipPanel({ step, onChanged }: Props) {
   const clipMedia = findVideoClip(step);
-  // Local edit state, separate from the saved values so an in-flight
-  // edit isn't clobbered by a parent re-render with the old numbers.
-  // Initialized lazily so re-renders during typing don't reset cursor
-  // position.
   const initialStart = clipMedia?.clip.startMs ?? 0;
   const initialEnd = clipMedia?.clip.endMs ?? 0;
   const [startMs, setStartMs] = useState(initialStart);
   const [endMs, setEndMs] = useState(initialEnd);
-  // Mirror the persisted values so we can detect "dirty" and offer Undo.
+  // Mirror the persisted values so we can detect "dirty" and show Undo.
   const [savedStart, setSavedStart] = useState(initialStart);
   const [savedEnd, setSavedEnd] = useState(initialEnd);
   const [saving, setSaving] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Live playback position threaded from the preview player into the
   // trim slider so the reviewer can see where the loop currently is.
   // Null when nothing is playing.
   const [playheadMs, setPlayheadMs] = useState<number | null>(null);
+  // Track the most recent autosave we kicked off so a slow first save
+  // can't clobber a faster second save (last-write-wins on the bounds
+  // the user landed on, not whichever PATCH happens to resolve last).
+  const inFlightTokenRef = useRef(0);
+  const savedIndicatorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const toast = useToast();
 
   // Re-sync from the parent when a different step lands here (e.g., the
-  // author switched cards). We key the panel by step.id at the call site
-  // but also guard against in-place media changes (StepVideosPanel
-  // upload, voiceover panel re-attach) that shouldn't reset our edits.
+  // author switched cards). Key by step.id so in-place media changes
+  // from sibling panels (audio upload, etc.) don't reset our edits.
   useEffect(() => {
     const next = findVideoClip(step);
     if (!next) return;
@@ -92,6 +99,68 @@ export function WalkthroughClipPanel({ step, onChanged }: Props) {
     setSavedEnd(next.clip.endMs);
   }, [step.id]);
 
+  useEffect(
+    () => () => {
+      if (savedIndicatorTimerRef.current) {
+        clearTimeout(savedIndicatorTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  // Persist a (startMs, endMs) commit. Returns silently when bounds are
+  // out of range — the validation message in the UI tells the author
+  // what's wrong, and we don't want to PATCH a value the server will
+  // reject anyway.
+  const save = useCallback(
+    async (next: { startMs: number; endMs: number }) => {
+      const nextSpan = next.endMs - next.startMs;
+      if (next.endMs <= next.startMs) return;
+      if (nextSpan < MIN_MS || nextSpan > MAX_MS) return;
+      if (next.startMs === savedStart && next.endMs === savedEnd) return;
+      const token = ++inFlightTokenRef.current;
+      setSaving(true);
+      setError(null);
+      try {
+        const updatedStep = await updateProcedureStepClipRange(step.id, next);
+        // A later commit superseded this one before the server
+        // returned. Don't apply the older response, otherwise we'd
+        // briefly show stale bounds before the in-flight call lands.
+        if (token !== inFlightTokenRef.current) return;
+        onChanged(updatedStep);
+        const updatedClip = findVideoClip(updatedStep);
+        if (updatedClip) {
+          setSavedStart(updatedClip.clip.startMs);
+          setSavedEnd(updatedClip.clip.endMs);
+        }
+        setJustSaved(true);
+        if (savedIndicatorTimerRef.current) {
+          clearTimeout(savedIndicatorTimerRef.current);
+        }
+        savedIndicatorTimerRef.current = setTimeout(
+          () => setJustSaved(false),
+          SAVED_INDICATOR_MS,
+        );
+      } catch (e) {
+        if (token !== inFlightTokenRef.current) return;
+        const message = e instanceof Error ? e.message : String(e);
+        setError(message);
+        toast.error('Clip range save failed', message);
+      } finally {
+        if (token === inFlightTokenRef.current) {
+          setSaving(false);
+        }
+      }
+    },
+    [step.id, savedStart, savedEnd, onChanged, toast],
+  );
+
+  function onUndo() {
+    setStartMs(savedStart);
+    setEndMs(savedEnd);
+    setError(null);
+  }
+
   if (!clipMedia) return null;
 
   const dirty = startMs !== savedStart || endMs !== savedEnd;
@@ -99,40 +168,7 @@ export function WalkthroughClipPanel({ step, onChanged }: Props) {
   const tooShort = span < MIN_MS;
   const tooLong = span > MAX_MS;
   const invertedRange = endMs <= startMs;
-  const canSave =
-    dirty && !invertedRange && !tooShort && !tooLong && !saving;
-
-  async function onSave() {
-    setSaving(true);
-    setError(null);
-    try {
-      const next = await updateProcedureStepClipRange(step.id, {
-        startMs,
-        endMs,
-      });
-      onChanged(next);
-      const updated = findVideoClip(next);
-      if (updated) {
-        setSavedStart(updated.clip.startMs);
-        setSavedEnd(updated.clip.endMs);
-        setStartMs(updated.clip.startMs);
-        setEndMs(updated.clip.endMs);
-      }
-      toast.success('Clip range updated');
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      setError(message);
-      toast.error('Clip range save failed', message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function onUndo() {
-    setStartMs(savedStart);
-    setEndMs(savedEnd);
-    setError(null);
-  }
+  const invalid = invertedRange || tooShort || tooLong;
 
   return (
     <div className="rounded-md border border-line-subtle bg-surface p-3">
@@ -142,7 +178,7 @@ export function WalkthroughClipPanel({ step, onChanged }: Props) {
           Walkthrough clip
         </span>
         <span className="text-xs text-ink-tertiary">
-          Trim the looped clip the tech sees while running this step.
+          Drag the handles to trim — saves on release.
         </span>
       </div>
 
@@ -153,27 +189,19 @@ export function WalkthroughClipPanel({ step, onChanged }: Props) {
           endMs={endMs}
           aspectRatio={clipMedia.clip.aspectRatio ?? null}
           orientation={clipMedia.clip.orientation ?? null}
-          // Synthesized procedure voiceover — preferred over the
-          // captured walkthrough audio so reviewers audition the
-          // published TTS narration over the visuals. Falls back to
-          // source audio when the step doesn't have one yet (legacy
-          // rows before the audio backfill landed).
           voiceoverUrl={step.audioUrl}
           onTimeUpdate={(ms) => setPlayheadMs(ms)}
         />
       </div>
 
-      {/* Drag-to-trim handles. We don't have the source video duration
-          on procedure_steps.media (drafter writes only the clip bounds
-          + playback id), so the timeline shows a context window around
-          the saved trim: 10s of padding on each side. That gives the
-          reviewer room to extend the clip in either direction by ~10s
-          without us needing to round-trip to Mux for asset metadata,
-          and matches the typical "shave a few seconds" use case. */}
       <div className="mb-2.5">
         <ClipTrimSlider
           startMs={startMs}
           endMs={endMs}
+          // Context window around the saved trim. Drafter writes only
+          // clip bounds + playback id on procedure_steps.media; we don't
+          // have source duration locally. ±10s is enough headroom for
+          // the typical "shave a few seconds" use case.
           timelineStartMs={Math.max(0, savedStart - 10_000)}
           timelineEndMs={savedEnd + 10_000}
           minSpanMs={MIN_MS}
@@ -184,6 +212,12 @@ export function WalkthroughClipPanel({ step, onChanged }: Props) {
             setStartMs(next.startMs);
             setEndMs(next.endMs);
           }}
+          // Auto-save on pointerup / keyboard commit. The slider fires
+          // this once per "release" instead of on every drag tick, so
+          // dragging across the bar generates exactly one PATCH at the
+          // settled position — same UX a video editor's scrubbing
+          // behavior would have.
+          onCommit={(next) => void save(next)}
         />
       </div>
 
@@ -191,9 +225,7 @@ export function WalkthroughClipPanel({ step, onChanged }: Props) {
         <span
           className={[
             'font-mono text-[11px]',
-            invertedRange || tooShort || tooLong
-              ? 'text-signal-warn'
-              : 'text-ink-tertiary',
+            invalid ? 'text-signal-warn' : 'text-ink-tertiary',
           ].join(' ')}
         >
           Clip: {formatClipDuration(Math.max(0, span))}
@@ -209,25 +241,25 @@ export function WalkthroughClipPanel({ step, onChanged }: Props) {
             <Undo2 size={11} /> Revert
           </button>
         )}
-        <button
-          type="button"
-          onClick={() => void onSave()}
-          disabled={!canSave}
-          className="ml-auto inline-flex items-center gap-1 rounded bg-accent px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm hover:bg-accent-strong disabled:opacity-40"
+        <div
+          className="ml-auto inline-flex items-center gap-1 text-[11px] font-medium"
+          aria-live="polite"
         >
           {saving ? (
-            <>
+            <span className="inline-flex items-center gap-1 text-ink-secondary">
               <Loader2 size={11} className="animate-spin" /> Saving…
-            </>
-          ) : (
-            <>
-              <Save size={11} /> Save trim
-            </>
-          )}
-        </button>
+            </span>
+          ) : justSaved ? (
+            <span className="inline-flex items-center gap-1 text-signal-ok">
+              <CheckCircle2 size={11} /> Saved
+            </span>
+          ) : dirty && invalid ? (
+            <span className="text-signal-warn">Adjust to save</span>
+          ) : null}
+        </div>
       </div>
 
-      {(invertedRange || tooShort || tooLong) && (
+      {invalid && (
         <p className="mt-1.5 text-[11px] text-signal-warn">
           {invertedRange
             ? 'End must be after Start.'
@@ -236,7 +268,7 @@ export function WalkthroughClipPanel({ step, onChanged }: Props) {
               : `Clip must be at most ${formatClipDuration(MAX_MS)}.`}
         </p>
       )}
-      {error && !invertedRange && !tooShort && !tooLong && (
+      {error && !invalid && (
         <p className="mt-1.5 text-[11px] text-signal-fault">{error}</p>
       )}
     </div>
