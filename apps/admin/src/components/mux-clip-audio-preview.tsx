@@ -345,7 +345,11 @@ export function MuxClipAudioPreview({
     }
     v.addEventListener('timeupdate', onTime);
     return () => v.removeEventListener('timeupdate', onTime);
-  }, []);
+    // Re-attach when active flips on — the <video> element only exists
+    // in the active branch, so a mount-time attach bails (videoRef is
+    // null while the poster is showing) and the listener would never
+    // fire on subsequent playback.
+  }, [active]);
 
   // Voiceover audio sync. When a voiceoverUrl is provided we mute the
   // video and play the voiceover from a separate <audio> element so
@@ -392,7 +396,10 @@ export function MuxClipAudioPreview({
       v.removeEventListener('pause', syncPause);
       v.removeEventListener('seeked', onSeeked);
     };
-  }, [voiceoverUrl]);
+    // Re-attach when active flips — both the video and the audio
+    // element are conditionally rendered, so a mount-time attach
+    // would have null refs and bail without ever wiring up.
+  }, [voiceoverUrl, active]);
 
   const activate = useCallback(() => {
     setActive(true);
