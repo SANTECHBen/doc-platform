@@ -1107,6 +1107,20 @@ export function VirtualJobAid({
           activePhaseColor={
             resolved.phases.find((p) => stepIdx >= p.start && stepIdx < p.end)?.color ?? null
           }
+          completion={{
+            title: 'All steps complete',
+            subtitle: `${resolved.title} — ${totalSteps} step${totalSteps === 1 ? '' : 's'} reviewed.`,
+            hint: 'Tap Mark complete to close, or swipe down to revisit a step.',
+            onMarkComplete: () => {
+              stopPlayback();
+              onClose({ completed: true });
+            },
+            // When the user swipes onto the completion reel, kill any
+            // voiceover still playing for the last real step.
+            onReached: () => {
+              stopPlayback();
+            },
+          }}
         />
       )}
 

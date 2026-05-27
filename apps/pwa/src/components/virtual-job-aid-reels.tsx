@@ -48,7 +48,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { ChevronUp, ChevronDown, RefreshCw, ShieldAlert, X } from 'lucide-react';
+import { ChevronUp, ChevronDown, ListChecks, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MuxClipPlayer } from './mux-clip-player';
@@ -131,6 +131,22 @@ interface Props {
   /** Resolved category for an active step — drives the section pill on
    *  the reel. The parent computes this once and threads it down. */
   activePhaseColor: string | null;
+  /** Optional trailing "completion" reel. When set, an extra panel is
+   *  appended after the last step so swiping past it lands the tech on
+   *  a confirmation surface with a Mark complete CTA. Mirrors the
+   *  classic mode's showCompletion panel without forcing the reels
+   *  viewport to unmount. */
+  completion?: {
+    title: string;
+    subtitle: string;
+    hint: string;
+    /** Fires when the user taps Mark complete on the completion reel. */
+    onMarkComplete: () => void;
+    /** Fires when the IntersectionObserver settles on the completion
+     *  reel — typically used by the parent to stop any in-flight
+     *  voiceover from the last real step. */
+    onReached?: () => void;
+  };
 }
 
 // How long to wait after a scroll event before treating the new position
@@ -150,6 +166,7 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
       muted,
       phases,
       activePhaseColor,
+      completion,
     },
     ref,
   ) {
@@ -221,10 +238,19 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
           if (best < 0 || bestRatio < 0.5) return;
           dominantIdxRef.current = best;
           // Debounce-settle. We only notify the parent after the scroll
-          // has stopped — that's when voiceover should trigger.
+          // has stopped — that's when voiceover should trigger. The
+          // completion reel (idx === steps.length) is not a real step;
+          // route it through onCompletionReached so the parent can stop
+          // voiceover without us pushing an out-of-range step index into
+          // its state machine.
           if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+          const settled = best;
           settleTimerRef.current = setTimeout(() => {
-            onStepChange(best);
+            if (completion && settled === steps.length) {
+              completion.onReached?.();
+            } else if (settled < steps.length) {
+              onStepChange(settled);
+            }
           }, SCROLL_SETTLE_MS);
         },
         {
@@ -246,7 +272,7 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
           settleTimerRef.current = null;
         }
       };
-    }, [onStepChange, steps.length]);
+    }, [onStepChange, steps.length, completion]);
 
     // Close the text sheet when the active step changes (so the sheet
     // doesn't carry across a swipe — feels broken otherwise).
@@ -473,6 +499,38 @@ export const VirtualJobAidReels = forwardRef<ReelsViewportHandle, Props>(
             </section>
           );
         })}
+        {/* Trailing completion reel. Same vertical-snap geometry as a
+            step reel so swiping up from the last step lands here, and
+            swiping down returns to the last step. Tap Mark complete to
+            close the procedure; the parent wires it to onClose. */}
+        {completion && (
+          <section
+            key="completion"
+            data-reel-idx={steps.length}
+            ref={(el) => {
+              reelRefs.current[steps.length] = el;
+            }}
+            className="vja-reel vja-reel--completion"
+            aria-label="Procedure complete"
+          >
+            <div className="vja-reel-completion-card">
+              <div className="vja-reel-completion-mark" aria-hidden>
+                <ListChecks size={36} strokeWidth={2} />
+              </div>
+              <h2 className="vja-reel-completion-title">{completion.title}</h2>
+              <p className="vja-reel-completion-sub">{completion.subtitle}</p>
+              <p className="vja-reel-completion-hint">{completion.hint}</p>
+              <button
+                type="button"
+                className="vja-reel-completion-cta"
+                onClick={completion.onMarkComplete}
+                aria-label="Mark procedure complete and close"
+              >
+                Mark complete
+              </button>
+            </div>
+          </section>
+        )}
         {/* First-time swipe hint. Shows briefly on initial mount of
             the Reels viewport then fades. We use a CSS animation
             that runs once; no JS state to manage. */}

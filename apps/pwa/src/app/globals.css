@@ -4982,6 +4982,82 @@
     pointer-events: none;
   }
 
+  /* Completion reel — appended after the last step so swiping up from
+     the end lands on a confirmation panel with a Mark complete CTA.
+     Mirrors the classic .vja-completion layout but sized for the reel
+     viewport: dark surround so the deep-brand reels background reads
+     consistently, centered card so the eye lands on the CTA. */
+  .vja-reel--completion {
+    align-items: center;
+    justify-content: center;
+    background:
+      radial-gradient(
+        ellipse 90% 50% at 50% 30%,
+        rgb(var(--signal-ok) / 0.18),
+        transparent 60%
+      ),
+      #0a0c12;
+  }
+  .vja-reel-completion-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    text-align: center;
+    max-width: 420px;
+    padding: 0 28px env(safe-area-inset-bottom);
+  }
+  .vja-reel-completion-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 84px;
+    height: 84px;
+    border-radius: 999px;
+    background: rgb(var(--signal-ok) / 0.18);
+    color: rgb(var(--signal-ok));
+    margin-bottom: 4px;
+  }
+  .vja-reel-completion-title {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 600;
+    color: white;
+    letter-spacing: -0.01em;
+  }
+  .vja-reel-completion-sub {
+    margin: 0;
+    color: rgba(255, 255, 255, 0.78);
+    font-size: 15px;
+    line-height: 1.45;
+  }
+  .vja-reel-completion-hint {
+    margin: 0;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .vja-reel-completion-cta {
+    margin-top: 16px;
+    padding: 12px 28px;
+    border-radius: 999px;
+    background: rgb(var(--brand));
+    color: white;
+    font-size: 15px;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 6px 22px rgb(var(--brand) / 0.45);
+    transition: transform 0.08s ease, box-shadow 0.2s ease;
+  }
+  .vja-reel-completion-cta:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 26px rgb(var(--brand) / 0.55);
+  }
+  .vja-reel-completion-cta:active {
+    transform: translateY(0);
+  }
+
   /* First-time "swipe up" hint — fades in then out via a CSS animation
      keyed off mount. No JS persistence; if it appears every time, that
      reinforces the gesture rather than gating it. Positioned above the
