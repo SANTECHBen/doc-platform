@@ -954,17 +954,17 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
   //
   // Update the [startMs..endMs] window on the step's first video_clip
   // media entry. Lets admins tighten AI-walkthrough cuts after publish
-  // without rebuilding the procedure — the drafter's first pass often
-  // bleeds into the next step's narration (the segment_size=2 snap on
-  // Mux gives us ~2s granularity at the manifest level; the LLM's pick
-  // can be off by another ~3s before our auto-trim kicks in).
+  // without rebuilding the procedure.
   //
-  // Validation matches the drafter's clip window (2000..20000ms) so the
-  // runner doesn't get a malformed clip range that loops too tight or
-  // too long. Steps without a video_clip media entry get a 400 — there's
-  // nothing to trim, and the wizard never offers the editor in that case.
+  // Floor is intentionally lower than the drafter's STEP_CLIP_MIN_MS
+  // (2s). The drafter's floor is a target for LLM emissions — once an
+  // author is hand-trimming, a brief glance of motion (e.g., 300ms of
+  // "click here") is sometimes exactly what they want. 200ms is the
+  // absolute minimum that still renders a discernible frame across
+  // common 30fps source captures. Steps without a video_clip media
+  // entry get a 400; the editor doesn't surface the panel in that case.
   // -------------------------------------------------------------------------
-  const CLIP_MIN_MS = 2_000;
+  const CLIP_MIN_MS = 200;
   const CLIP_MAX_MS = 20_000;
   app.patch<{
     Params: { stepId: string };

@@ -257,6 +257,41 @@ export async function getMuxClipUrl(args: {
   return (await res.json()) as { url: string };
 }
 
+/**
+ * Build a Mux source-asset HLS URL (no clip bounds) for a playback id,
+ * including the JWT when the deployment uses signed playback. Used by
+ * the admin clip-preview player to stream the full source and clamp
+ * playback bounds client-side via `currentTime` — that path gives
+ * frame-accurate trim preview, whereas server-side instant-clipping
+ * (`getMuxClipUrl`) is segment-aligned and can include up to ~2s of
+ * extra context on each end.
+ *
+ * Cached per playbackId for the lifetime of the page — the token
+ * expires in ~1h, well beyond a typical authoring session, and refresh
+ * happens naturally on the next mount.
+ */
+export async function getMuxSourceUrl(playbackId: string): Promise<{
+  url: string;
+  policy: 'public' | 'signed';
+}> {
+  const res = await fetch(`${API_BASE}/media/mux-playback-token`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: {
+      'content-type': 'application/json',
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify({ playbackId, audience: 'v' }),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  const body = (await res.json()) as
+    | { policy: 'public'; playbackId: string }
+    | { policy: 'signed'; playbackId: string; token: string; expiresIn: number };
+  const base = `https://stream.mux.com/${encodeURIComponent(playbackId)}.m3u8`;
+  const url = body.policy === 'signed' ? `${base}?token=${body.token}` : base;
+  return { url, policy: body.policy };
+}
+
 export interface AdminAssetModel {
   id: string;
   modelCode: string;

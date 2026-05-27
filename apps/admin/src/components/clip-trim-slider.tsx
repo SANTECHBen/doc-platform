@@ -47,7 +47,9 @@ interface Props {
    *  when known so the handles can drag the full range; falls back to a
    *  context window around [startMs..endMs] when not available. */
   timelineEndMs: number;
-  /** Minimum legal clip span (ms). Default 2000. */
+  /** Minimum legal clip span (ms). Default 200 — lets a hand-trim dip
+   *  into "brief click" territory; the drafter's 2s LLM-target floor
+   *  applies only to model emissions. */
   minSpanMs?: number;
   /** Maximum legal clip span (ms). Default 20000. */
   maxSpanMs?: number;
@@ -76,7 +78,7 @@ export function ClipTrimSlider({
   endMs,
   timelineStartMs = 0,
   timelineEndMs,
-  minSpanMs = 2_000,
+  minSpanMs = 200,
   maxSpanMs = 20_000,
   disabled = false,
   onChange,

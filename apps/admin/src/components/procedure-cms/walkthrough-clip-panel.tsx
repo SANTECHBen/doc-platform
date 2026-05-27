@@ -37,7 +37,10 @@ import { ClipTrimSlider } from '@/components/clip-trim-slider';
 import { formatClipDuration } from '@/lib/clip-time';
 import { useToast } from '@/components/toast';
 
-const MIN_MS = 2_000;
+// Hard floor — matches the server's PATCH /clip-range validation. Lower
+// than the drafter's 2s LLM target so human trims can dip into the
+// "brief motion / single click" range.
+const MIN_MS = 200;
 const MAX_MS = 20_000;
 
 interface Props {
@@ -162,6 +165,8 @@ export function WalkthroughClipPanel({ step, onChanged }: Props) {
           endMs={endMs}
           timelineStartMs={Math.max(0, savedStart - 10_000)}
           timelineEndMs={savedEnd + 10_000}
+          minSpanMs={MIN_MS}
+          maxSpanMs={MAX_MS}
           disabled={saving}
           onChange={(next) => {
             setStartMs(next.startMs);

@@ -2,29 +2,33 @@
 
 // MuxClipAudioPreview — the admin reviewer's "scrub the cut" player.
 //
-// Per-step clip preview for the procedure-drafts review page and the
-// post-publish clip-range editor. The reviewer needs to hear when
-// narration starts and ends — that's the signal they trim against —
-// so this player:
+// Plays a per-step clip with audio so the reviewer can hear where
+// narration starts and ends — that's the signal they trim against.
 //
-//   * A play button that swaps the GIF for a real HLS player.
-//   * Audio enabled — the original captured walkthrough narration plays
-//     so the reviewer can hear where the next step begins.
-//   * Native controls: scrub, play/pause, volume. The reviewer
-//     intentionally has the same affordances they'd have in a desktop
-//     video player.
-//   * Looped playback constrained to [startMs..endMs] — the URL is a
-//     Mux instant-clip manifest, so `loop` is a free attribute.
-//   * Auto-rebuild when start/end change. Trimming the inputs above the
-//     player should immediately reflect in what plays back.
+// Playback strategy: stream the FULL source asset's HLS manifest and
+// clamp playback to [startMs..endMs] via `currentTime` rather than
+// asking Mux's instant-clipping edge for a trimmed manifest. The
+// instant-clip edge aligns to HLS segments (2s with our upload
+// settings; ~6s on legacy assets), so a 2s ask can return 4–6s of
+// actual playback. Source + client-side clamping gives frame-accurate
+// trim preview at the cost of a marginally heavier manifest fetch.
 //
-// Playback strategy mirrors the PWA's MuxClipPlayer: Safari plays the
-// .m3u8 natively; other browsers lazy-import hls.js and pipe MSE in.
-// hls.js stays out of the initial admin bundle for HLS-native devices.
+// Wrap behavior: on each timeupdate, if currentTime is past endMs we
+// seek back to startMs. The browser's native `loop` attribute would
+// loop the entire source manifest, which is the wrong window — so
+// we manage looping ourselves. Wrap latency is bounded by how often
+// timeupdate fires (~4×/s in browsers), which is plenty tight for an
+// authoring auditioning tool.
+//
+// Strategy across browsers:
+//   * Safari / iOS: native HLS — `<video src>` accepts an .m3u8.
+//   * Chrome / Firefox / Edge: lazy-import hls.js and attach via MSE.
+//     The dep stays out of the initial admin bundle until the first
+//     preview mounts.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, Play } from 'lucide-react';
-import { getMuxClipUrl } from '@/lib/api';
+import { getMuxSourceUrl } from '@/lib/api';
 
 interface Props {
   playbackId: string;
@@ -51,8 +55,9 @@ function frameAspectRatio(
   return '16 / 9';
 }
 
-// Same lazy-load pattern as MuxClipPlayer in the PWA. hls.js stays out
-// of the initial bundle until the first non-Safari player mounts.
+// Lazy-load hls.js. Identical pattern to the PWA's MuxClipPlayer — the
+// dep is heavy enough that we don't want it in the initial bundle for
+// admins on a Safari-equivalent (Mac admins are common in this product).
 let hlsModulePromise: Promise<unknown> | null = null;
 function loadHlsModule(): Promise<unknown> {
   if (!hlsModulePromise) {
@@ -73,64 +78,71 @@ export function MuxClipAudioPreview({
 }: Props): React.ReactElement {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hlsRef = useRef<unknown>(null);
-  // Activated only on play tap. Until then we render a still poster so
-  // a procedure with 30 steps doesn't fire 30 simultaneous HLS attaches.
+  // Activated only on play tap. Keeps a procedure with 30 steps from
+  // mounting 30 HLS instances on first render — each is shown as a
+  // poster until the reviewer asks for playback.
   const [active, setActive] = useState(false);
-  // Loading the clip URL or the HLS handshake.
+  // Loading covers the URL mint AND the initial HLS handshake; cleared
+  // once the manifest is attached.
   const [loading, setLoading] = useState(false);
-  // Resolved clip URL — kept in state so we can show a friendly error if
-  // the mint call fails.
+  // Resolved source-asset URL. Stays stable across clip-range changes
+  // (the bounds clamp playback locally; only the playback id triggers
+  // a re-mint).
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Keep the latest bounds available to the timeupdate handler without
+  // re-binding the listener on every drag. The handler reads the refs
+  // synchronously each tick, so live slider drags reflect immediately.
+  const startMsRef = useRef(startMs);
+  const endMsRef = useRef(endMs);
+  useEffect(() => {
+    startMsRef.current = startMs;
+    endMsRef.current = endMs;
+    // When the bounds change while playing, snap playback back into
+    // the new window if currentTime drifted outside.
+    const v = videoRef.current;
+    if (!v || v.readyState < 1) return;
+    const currentMs = v.currentTime * 1000;
+    if (currentMs < startMs - 100 || currentMs >= endMs) {
+      try {
+        v.currentTime = startMs / 1000;
+      } catch {
+        // Ignore — element may not be ready for a seek yet.
+      }
+    }
+  }, [startMs, endMs]);
 
   // Poster from Mux's image API — works on every playback id without
-  // asset-config changes. We pick the midpoint of the trimmed range so
-  // the still is representative of the action.
+  // asset config. Midpoint of the trimmed range so the still is
+  // representative of the action.
   const midSec = Math.max(0, Math.floor((startMs + endMs) / 2000));
-  const posterUrl = `https://image.mux.com/${playbackId}/thumbnail.jpg?time=${midSec}&width=480`;
+  const posterUrl = `https://image.mux.com/${encodeURIComponent(playbackId)}/thumbnail.jpg?time=${midSec}&width=480`;
 
-  // Mint a clip URL whenever the bounds change AND the player is active.
-  // The URL embeds the bounds (and a JWT on signed-playback deployments),
-  // so a trim of the start/end fields invalidates the previous URL.
-  //
-  // Two guards keep this from spamming /media/mux-clip-url while an
-  // author is mid-edit:
-  //   1. Skip the mint when bounds are an obviously-invalid intermediate
-  //      state (endMs <= startMs). Parents pass these while a user is
-  //      typing into mm:ss inputs (`00:0` parses to 0ms). The server
-  //      would 400 every keystroke; we just hold the previous frame.
-  //   2. Debounce 350ms so the actual mint fires once on a settled value.
+  // Fetch the source URL when the player goes active. Only re-fetches
+  // if the playback id changes — clip bounds are handled client-side.
   useEffect(() => {
     if (!active) return;
-    if (endMs <= startMs) {
-      setLoading(false);
-      return;
-    }
     let cancelled = false;
-    const timer = setTimeout(() => {
-      setLoading(true);
-      setError(null);
-      void getMuxClipUrl({ playbackId, startMs, endMs })
-        .then((r) => {
-          if (cancelled) return;
-          setStreamUrl(r.url);
-        })
-        .catch((e: unknown) => {
-          if (cancelled) return;
-          setError(e instanceof Error ? e.message : String(e));
-          setLoading(false);
-        });
-    }, 350);
+    setLoading(true);
+    setError(null);
+    void getMuxSourceUrl(playbackId)
+      .then((r) => {
+        if (cancelled) return;
+        setStreamUrl(r.url);
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : String(e));
+        setLoading(false);
+      });
     return () => {
       cancelled = true;
-      clearTimeout(timer);
     };
-  }, [active, playbackId, startMs, endMs]);
+  }, [active, playbackId]);
 
-  // Attach the resolved URL via native HLS (Safari) or hls.js (others).
-  // We mirror the PWA's MuxClipPlayer attach logic — tighter buffer
-  // settings keep startup latency low on the short instant-clip
-  // manifests Mux returns for our trimmed ranges.
+  // Attach the source URL via native HLS (Safari) or hls.js (others).
+  // Re-runs only when streamUrl changes (i.e., not on every clip-range
+  // drag — the source stays the same; we just clamp currentTime).
   useEffect(() => {
     const v = videoRef.current;
     if (!v || !streamUrl) return;
@@ -152,11 +164,23 @@ export function MuxClipAudioPreview({
       v.canPlayType('application/vnd.apple.mpegurl') !== '' ||
       v.canPlayType('application/vnd.apple.mpegURL') !== '';
 
+    function seekToStart() {
+      const cur = videoRef.current;
+      if (!cur) return;
+      try {
+        cur.currentTime = startMsRef.current / 1000;
+      } catch {
+        // ignore — pre-load seeks fail silently on some browsers
+      }
+    }
+    v.addEventListener('loadedmetadata', seekToStart);
+
     if (canNative) {
       v.src = streamUrl;
       setLoading(false);
       return () => {
         cancelled = true;
+        v.removeEventListener('loadedmetadata', seekToStart);
         teardown();
         try {
           v.removeAttribute('src');
@@ -178,7 +202,7 @@ export function MuxClipAudioPreview({
             destroy: () => void;
             on: (evt: string, cb: (...args: unknown[]) => void) => void;
           };
-          Events: { ERROR: string };
+          Events: { ERROR: string; MANIFEST_PARSED: string };
         };
         if (!Hls.isSupported()) {
           setError('Your browser does not support clip preview playback.');
@@ -198,6 +222,13 @@ export function MuxClipAudioPreview({
         });
         inst.loadSource(streamUrl);
         inst.attachMedia(v);
+        inst.on(Hls.Events.MANIFEST_PARSED, () => {
+          // Seek to clip start as soon as we have a parsed manifest —
+          // before MEDIA_ATTACHED finishes painting the first frame —
+          // so the user sees the right opening still, not the source's
+          // first frame.
+          seekToStart();
+        });
         inst.on(Hls.Events.ERROR, (...args: unknown[]) => {
           const data = args[1] as { fatal?: boolean } | undefined;
           if (data?.fatal) {
@@ -216,9 +247,42 @@ export function MuxClipAudioPreview({
 
     return () => {
       cancelled = true;
+      v.removeEventListener('loadedmetadata', seekToStart);
       teardown();
     };
   }, [streamUrl]);
+
+  // Clamp playback to [startMs..endMs]. The native `loop` attribute
+  // would loop the entire source asset, which is the wrong window, so
+  // we install our own timeupdate wrap. Ref-reading lets a live slider
+  // drag take effect on the very next tick without re-attaching the
+  // listener.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    function onTime() {
+      const el = videoRef.current;
+      if (!el) return;
+      const currentMs = el.currentTime * 1000;
+      if (currentMs >= endMsRef.current) {
+        try {
+          el.currentTime = startMsRef.current / 1000;
+        } catch {
+          // best-effort
+        }
+      } else if (currentMs < startMsRef.current - 100) {
+        // Native scrub or HLS seek slightly undershot the start — pull
+        // forward to the requested boundary.
+        try {
+          el.currentTime = startMsRef.current / 1000;
+        } catch {
+          // best-effort
+        }
+      }
+    }
+    v.addEventListener('timeupdate', onTime);
+    return () => v.removeEventListener('timeupdate', onTime);
+  }, []);
 
   const activate = useCallback(() => {
     setActive(true);
@@ -251,7 +315,6 @@ export function MuxClipAudioPreview({
             poster={posterUrl}
             playsInline
             autoPlay
-            loop
             controls
             controlsList="nodownload noplaybackrate noremoteplayback"
             disablePictureInPicture

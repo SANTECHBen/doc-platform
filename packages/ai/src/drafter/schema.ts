@@ -83,12 +83,20 @@ export const DraftStepKindSchema = z.enum([
   'measurement_required',
 ]);
 
-// Bounds for per-step video clip ranges. Short enough that a tech glancing
-// at the step sees the action complete in one loop, long enough that the
-// motion is interpretable without scrubbing. 2s minimum is a hard floor —
-// anything shorter is a glance, not a demo. 20s ceiling stops the LLM from
-// dumping the whole video into one step when boundaries are ambiguous.
+// Bounds for per-step video clip ranges.
+//
+// STEP_CLIP_MIN_MS is the LLM's target floor — used by the prompt and by
+// the loop-time auto-trim that extends short LLM picks. Stays at 2s so
+// model emissions read as a real demo, not a glance.
+//
+// STEP_CLIP_HARD_MIN_MS is the schema's hard floor — the lowest value
+// any clip range may take. Lower than STEP_CLIP_MIN_MS so human admins
+// can trim shorter than the LLM would ever pick (a 300ms "click here"
+// loop is legitimate authoring output even though the LLM shouldn't
+// produce it). 200ms is the lowest that reliably renders a recognizable
+// frame across our 24–60fps source captures.
 export const STEP_CLIP_MIN_MS = 2_000;
+export const STEP_CLIP_HARD_MIN_MS = 200;
 export const STEP_CLIP_MAX_MS = 20_000;
 
 export const DraftStepProposalSchema = z
@@ -144,11 +152,11 @@ export const DraftStepProposalSchema = z
       return;
     }
     const span = step.clipEndMs - step.clipStartMs;
-    if (span < STEP_CLIP_MIN_MS) {
+    if (span < STEP_CLIP_HARD_MIN_MS) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['clipEndMs'],
-        message: `clip duration ${span}ms is below minimum ${STEP_CLIP_MIN_MS}ms`,
+        message: `clip duration ${span}ms is below minimum ${STEP_CLIP_HARD_MIN_MS}ms`,
       });
     }
     if (span > STEP_CLIP_MAX_MS) {
