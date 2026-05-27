@@ -240,10 +240,6 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
                   setPendingMaintenanceFilter('scheduled');
                   changeTab('maintenance');
                 }}
-                onOpenLibrary={() => {
-                  setLibrarySection('documents');
-                  changeTab('library');
-                }}
               />
               <DetailsDisclosure
                 preview={
@@ -446,36 +442,25 @@ function LibraryTab({
   );
 }
 
-// Overview action band — top parts list. A tech scanning the QR
-// usually wants to look up a specific part on the equipment (PN
-// match for a sticker, find a sub-assembly to inspect). Surface the
-// BOM here as a one-tap entry instead of authored procedures —
-// procedures live in Maintenance, parts get the prime real estate.
-//
-// The PM-due and Docs tiles are tappable shortcuts into the
-// Maintenance/Action slice and Library tab respectively. The Open
-// work orders tile stays non-interactive because the WO list itself
-// renders right below the summary on the same Overview page — there's
-// nowhere meaningful to navigate to.
+// Overview action summary — two status counts (Open work orders + PM
+// actions due) that share the same "needs attention now" purpose.
+// Docs/training used to live here as a third tile but didn't fit the
+// urgency model and competed with the Parts section below; techs reach
+// Library via the bottom tab. The Open work orders tile stays
+// non-interactive because the WO list renders right below on the same
+// page — there's nowhere meaningful to navigate to.
 function OverviewActionSummary({
   hub,
   openIssueCount,
   onOpenMaintenanceAction,
-  onOpenLibrary,
 }: {
   hub: AssetHubPayload;
   openIssueCount: number;
   onOpenMaintenanceAction: () => void;
-  onOpenLibrary: () => void;
 }) {
   const pmNeedsAction = hub.tabs.pm.needsAction;
-  const docCount = hub.tabs.docs.count + hub.tabs.training.count;
   return (
     <section className="overview-action-summary" aria-label="Asset status">
-      {/* "Today at <site>" header removed — site name is already in the
-          identity band above, so the header was redundant and stole a
-          row of vertical space from the tiles + Details disclosure
-          below it. */}
       <div className="overview-action-summary-grid">
         <div
           className="overview-action-summary-item"
@@ -503,17 +488,6 @@ function OverviewActionSummary({
           <span className="overview-action-summary-label">
             {pmNeedsAction === 1 ? 'PM due now' : 'PM actions due'}
           </span>
-        </button>
-        <button
-          type="button"
-          onClick={onOpenLibrary}
-          className="overview-action-summary-item overview-action-summary-item-button"
-          // Reference data — never urgent. Render as neutral primary ink
-          // (no data-tone), so it doesn't compete with the urgency cells.
-          aria-label={`Open Library — ${docCount} docs and training`}
-        >
-          <span className="overview-action-summary-value">{docCount}</span>
-          <span className="overview-action-summary-label">Docs and training</span>
         </button>
       </div>
     </section>
