@@ -26,9 +26,9 @@
 //     The dep stays out of the initial admin bundle until the first
 //     preview mounts.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Play } from 'lucide-react';
-import { getMuxSourceUrl } from '@/lib/api';
+import { getMuxPlaybackAccess } from '@/lib/api';
 
 interface Props {
   playbackId: string;
@@ -89,6 +89,12 @@ export function MuxClipAudioPreview({
   // (the bounds clamp playback locally; only the playback id triggers
   // a re-mint).
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  // Poster URL builder — set alongside streamUrl so the thumbnail also
+  // carries the right signed token on signed-playback deployments.
+  // Unsigned deployments still get an unsigned URL from the same helper.
+  const [posterUrlFor, setPosterUrlFor] = useState<
+    ((timeSec: number, widthPx?: number) => string) | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   // Keep the latest bounds available to the timeupdate handler without
   // re-binding the listener on every drag. The handler reads the refs
@@ -112,33 +118,56 @@ export function MuxClipAudioPreview({
     }
   }, [startMs, endMs]);
 
-  // Poster from Mux's image API — works on every playback id without
-  // asset config. Midpoint of the trimmed range so the still is
-  // representative of the action.
+  // Mux's image.mux.com endpoints need their own audience-scoped token
+  // on signed-playback deployments. Mint both the source and the
+  // thumbnail tokens up front when the player goes active; reuse the
+  // posterUrlFor builder for every recomputation of the poster as the
+  // user trims (midpoint changes with the bounds).
   const midSec = Math.max(0, Math.floor((startMs + endMs) / 2000));
-  const posterUrl = `https://image.mux.com/${encodeURIComponent(playbackId)}/thumbnail.jpg?time=${midSec}&width=480`;
+  const posterUrl = useMemo(
+    () => (posterUrlFor ? posterUrlFor(midSec, 480) : null),
+    [posterUrlFor, midSec],
+  );
 
-  // Fetch the source URL when the player goes active. Only re-fetches
-  // if the playback id changes — clip bounds are handled client-side.
+  // Fetch playback access (source URL + poster URL builder) on mount,
+  // not on activate. Reasons:
+  //   * The poster needs to render in the inactive state so the
+  //     reviewer sees the clip's keyframe before clicking play.
+  //   * Mux's image.mux.com endpoints 404 without a signed token on
+  //     signed-playback deployments; the unsigned URL we used to build
+  //     locally was the immediate cause of the broken thumbnails.
+  //   * Cost is two small token-mint calls per playback id; we don't
+  //     attach HLS until activate, so the 30-step procedure case still
+  //     only spins up one player.
   useEffect(() => {
-    if (!active) return;
     let cancelled = false;
-    setLoading(true);
     setError(null);
-    void getMuxSourceUrl(playbackId)
+    void getMuxPlaybackAccess(playbackId)
       .then((r) => {
         if (cancelled) return;
-        setStreamUrl(r.url);
+        setStreamUrl(r.sourceUrl);
+        setPosterUrlFor(() => r.posterUrlFor);
       })
       .catch((e: unknown) => {
         if (cancelled) return;
         setError(e instanceof Error ? e.message : String(e));
-        setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [active, playbackId]);
+  }, [playbackId]);
+
+  // Toggle the spinner only while the player is active AND we haven't
+  // resolved a URL yet — the inactive poster state is fine without one.
+  useEffect(() => {
+    if (active && !streamUrl) {
+      setLoading(true);
+    } else if (streamUrl) {
+      // Cleared by the attach effect once HLS is bound; resetting here
+      // covers the rare case of bouncing active→inactive→active.
+      setLoading(false);
+    }
+  }, [active, streamUrl]);
 
   // Attach the source URL via native HLS (Safari) or hls.js (others).
   // Re-runs only when streamUrl changes (i.e., not on every clip-range
@@ -312,7 +341,7 @@ export function MuxClipAudioPreview({
         <>
           <video
             ref={videoRef}
-            poster={posterUrl}
+            poster={posterUrl ?? undefined}
             playsInline
             autoPlay
             controls
@@ -334,11 +363,21 @@ export function MuxClipAudioPreview({
         </>
       ) : (
         <>
-          <img
-            src={posterUrl}
-            alt="Clip preview"
-            className="h-full w-full object-cover"
-          />
+          {posterUrl ? (
+            <img
+              src={posterUrl}
+              alt="Clip preview"
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div className="grid h-full w-full place-items-center text-white/40">
+              {error ? (
+                <span className="px-3 text-center text-[11px]">{error}</span>
+              ) : (
+                <Loader2 className="size-6 animate-spin" />
+              )}
+            </div>
+          )}
           <button
             type="button"
             onClick={activate}

@@ -258,38 +258,75 @@ export async function getMuxClipUrl(args: {
 }
 
 /**
- * Build a Mux source-asset HLS URL (no clip bounds) for a playback id,
- * including the JWT when the deployment uses signed playback. Used by
- * the admin clip-preview player to stream the full source and clamp
- * playback bounds client-side via `currentTime` — that path gives
- * frame-accurate trim preview, whereas server-side instant-clipping
- * (`getMuxClipUrl`) is segment-aligned and can include up to ~2s of
- * extra context on each end.
+ * Build Mux URLs (source HLS + image API) for a playback id, signed
+ * with the appropriate JWTs when the deployment uses signed playback.
+ * Used by the admin clip-preview player to stream the full source and
+ * clamp playback bounds client-side via `currentTime` — that path
+ * gives frame-accurate trim preview, whereas server-side instant-
+ * clipping (`getMuxClipUrl`) is segment-aligned and can include up to
+ * ~2s of extra context on each end.
  *
- * Cached per playbackId for the lifetime of the page — the token
- * expires in ~1h, well beyond a typical authoring session, and refresh
- * happens naturally on the next mount.
+ * Mux's image.mux.com endpoints (thumbnails, animated gifs, storyboards)
+ * each require their own audience-scoped token on signed deployments —
+ * 'v' for video, 't' for thumbnails, 'g' for gifs. We mint 'v' + 't'
+ * here so the player has the source manifest and the poster JPEG ready
+ * without a second round trip.
+ *
+ * Cached per playbackId for the lifetime of the page — tokens expire in
+ * ~1h, well beyond a typical authoring session, and refresh happens
+ * naturally on the next mount.
  */
-export async function getMuxSourceUrl(playbackId: string): Promise<{
-  url: string;
+export async function getMuxPlaybackAccess(playbackId: string): Promise<{
+  sourceUrl: string;
+  /** Returns a thumbnail URL signed for the requested time. Public
+   *  deployments return unsigned URLs from the same helper. */
+  posterUrlFor: (timeSec: number, widthPx?: number) => string;
   policy: 'public' | 'signed';
 }> {
-  const res = await fetch(`${API_BASE}/media/mux-playback-token`, {
-    method: 'POST',
-    cache: 'no-store',
-    headers: {
-      'content-type': 'application/json',
-      ...(await authHeaders()),
-    },
-    body: JSON.stringify({ playbackId, audience: 'v' }),
-  });
-  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
-  const body = (await res.json()) as
+  const [videoRes, thumbRes] = await Promise.all([
+    fetch(`${API_BASE}/media/mux-playback-token`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: {
+        'content-type': 'application/json',
+        ...(await authHeaders()),
+      },
+      body: JSON.stringify({ playbackId, audience: 'v' }),
+    }),
+    fetch(`${API_BASE}/media/mux-playback-token`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: {
+        'content-type': 'application/json',
+        ...(await authHeaders()),
+      },
+      body: JSON.stringify({ playbackId, audience: 't' }),
+    }),
+  ]);
+  if (!videoRes.ok) throw new Error(`API ${videoRes.status}: ${await videoRes.text()}`);
+  if (!thumbRes.ok) throw new Error(`API ${thumbRes.status}: ${await thumbRes.text()}`);
+  type TokenBody =
     | { policy: 'public'; playbackId: string }
     | { policy: 'signed'; playbackId: string; token: string; expiresIn: number };
-  const base = `https://stream.mux.com/${encodeURIComponent(playbackId)}.m3u8`;
-  const url = body.policy === 'signed' ? `${base}?token=${body.token}` : base;
-  return { url, policy: body.policy };
+  const videoBody = (await videoRes.json()) as TokenBody;
+  const thumbBody = (await thumbRes.json()) as TokenBody;
+  const sourceBase = `https://stream.mux.com/${encodeURIComponent(playbackId)}.m3u8`;
+  const sourceUrl =
+    videoBody.policy === 'signed'
+      ? `${sourceBase}?token=${videoBody.token}`
+      : sourceBase;
+  const thumbToken =
+    thumbBody.policy === 'signed' ? thumbBody.token : null;
+  const posterUrlFor = (timeSec: number, widthPx = 480) => {
+    const base = `https://image.mux.com/${encodeURIComponent(playbackId)}/thumbnail.jpg`;
+    const qs = new URLSearchParams({
+      time: String(Math.max(0, Math.floor(timeSec))),
+      width: String(widthPx),
+    });
+    if (thumbToken) qs.set('token', thumbToken);
+    return `${base}?${qs.toString()}`;
+  };
+  return { sourceUrl, posterUrlFor, policy: videoBody.policy };
 }
 
 export interface AdminAssetModel {
