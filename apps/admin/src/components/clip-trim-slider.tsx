@@ -274,14 +274,37 @@ export function ClipTrimSlider({
           );
         })}
 
-        {/* Live playhead. Rendered when the parent's preview player
-            reports a currentTime. Sits behind the handles in z-order
-            so the handle hit boxes always win on a drag. */}
+        {/* Played-progress fill — grows inside the selected region as
+            the preview player advances. Brighter than the selected
+            region so the eye reads it as "played so far" vs. "clip
+            range" — same visual idiom as a video scrubber. */}
+        {playheadMs != null &&
+          playheadMs >= startMs &&
+          playheadMs <= endMs && (
+            <div
+              className="pointer-events-none absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-accent"
+              style={{
+                left: `${startPct}%`,
+                width: `${clamp(
+                  ((playheadMs - startMs) / timelineSpan) * 100,
+                  0,
+                  100,
+                )}%`,
+              }}
+              aria-hidden
+            />
+          )}
+
+        {/* Live playhead — a clear vertical bar with a circle knob on
+            top so the position is unmistakable even when the clip range
+            is narrow relative to the visible timeline. Sits above the
+            handle hit boxes in source order but is pointer-events-none
+            so handle drags still win. */}
         {playheadMs != null &&
           playheadMs >= timelineStartMs &&
           playheadMs <= timelineEndMs && (
             <span
-              className="pointer-events-none absolute top-1/2 h-4 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent shadow-[0_0_0_1px_rgba(255,255,255,0.6)]"
+              className="pointer-events-none absolute top-0 grid h-6 -translate-x-1/2 place-items-center"
               style={{
                 left: `${clamp(
                   ((playheadMs - timelineStartMs) / timelineSpan) * 100,
@@ -290,7 +313,10 @@ export function ClipTrimSlider({
                 )}%`,
               }}
               aria-hidden
-            />
+            >
+              <span className="absolute top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full bg-accent shadow-[0_0_0_1px_rgba(255,255,255,0.85)]" />
+              <span className="absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full border border-white bg-accent shadow-md" />
+            </span>
           )}
 
         {/* Start handle */}
