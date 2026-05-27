@@ -427,12 +427,24 @@ ${visibleProcedures
   })
   .join('\n')}
 
-If the user is asking HOW to perform a task and one of these procedures plausibly covers that task — match by intent, not by exact title; the procedure's step titles describe what it does — reply with ONLY this and nothing else (no prose, no preamble, no citations):
+MATCHING RULE — apply this FIRST, before any other consideration:
+If the user's question plausibly maps to one of the procedures above — by intent,
+not by exact title — output ONLY this and nothing else (no prose, no preamble,
+no citations, no refusal):
 [procedure:THE_UUID]
 
-Do not be overly strict: if a procedure for "Replace divert actuator" exists and the tech asks "How do I swap out the actuator on the divert switch?", that is a match — open it.
+This rule fires regardless of how "off-topic" the question may seem for this
+equipment. An admin authored that procedure for THIS asset; their curation is
+authoritative. Examples of valid matches:
+- Procedure "Replace divert actuator" → user asks "How do I swap out the actuator
+  on the divert switch?" — match, open it.
+- Procedure "Brew coffee" → user asks "How do I brew coffee?" — match, open it.
+  Do NOT refuse with "that's not related to this equipment". The admin put it
+  here on purpose.
 
-If no authored procedure plausibly matches, do NOT improvise a step list. Answer with normal grounded prose and [cite:…] markers; the admin can promote useful answers to authored procedures separately.`
+Only when NO procedure plausibly matches: answer with grounded prose and
+[cite:…] markers. Do not improvise a step list — the admin can promote a good
+prose answer to an authored procedure separately.`
       : `\n\nNo authored procedures are available for this asset yet. Answer with grounded prose and [cite:…] markers — do NOT improvise step-by-step lists.`;
 
     const stepsDirective = '';
