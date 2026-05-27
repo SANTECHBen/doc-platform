@@ -73,6 +73,10 @@ export function WalkthroughClipPanel({ step, onChanged }: Props) {
   const [savedEnd, setSavedEnd] = useState(initialEnd);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Live playback position threaded from the preview player into the
+  // trim slider so the reviewer can see where the loop currently is.
+  // Null when nothing is playing.
+  const [playheadMs, setPlayheadMs] = useState<number | null>(null);
   const toast = useToast();
 
   // Re-sync from the parent when a different step lands here (e.g., the
@@ -149,6 +153,13 @@ export function WalkthroughClipPanel({ step, onChanged }: Props) {
           endMs={endMs}
           aspectRatio={clipMedia.clip.aspectRatio ?? null}
           orientation={clipMedia.clip.orientation ?? null}
+          // Synthesized procedure voiceover — preferred over the
+          // captured walkthrough audio so reviewers audition the
+          // published TTS narration over the visuals. Falls back to
+          // source audio when the step doesn't have one yet (legacy
+          // rows before the audio backfill landed).
+          voiceoverUrl={step.audioUrl}
+          onTimeUpdate={(ms) => setPlayheadMs(ms)}
         />
       </div>
 
@@ -168,6 +179,7 @@ export function WalkthroughClipPanel({ step, onChanged }: Props) {
           minSpanMs={MIN_MS}
           maxSpanMs={MAX_MS}
           disabled={saving}
+          playheadMs={playheadMs}
           onChange={(next) => {
             setStartMs(next.startMs);
             setEndMs(next.endMs);

@@ -40,6 +40,18 @@ interface Props {
   /** Pre-classified orientation. Same data as aspectRatio but cheaper to
    *  consume. Defaults to 'landscape'. */
   orientation?: 'portrait' | 'landscape' | 'square' | null;
+  /** Optional voiceover audio URL. When set, the video plays muted
+   *  and a separate <audio> element plays this track in sync with the
+   *  video's play/pause state. Lets reviewers audition the synthesized
+   *  procedure narration over the clip instead of the captured
+   *  walkthrough audio. Null/undefined falls back to the source video's
+   *  own audio track (the captured tech narration). */
+  voiceoverUrl?: string | null;
+  /** Fires on every video timeupdate (~4×/s) with the current playback
+   *  position in ms. Lets a parent thread the playhead into a trim
+   *  slider so the reviewer can see where in the source the playback
+   *  head is. */
+  onTimeUpdate?: (currentMs: number) => void;
 }
 
 function frameAspectRatio(
@@ -75,9 +87,19 @@ export function MuxClipAudioPreview({
   endMs,
   aspectRatio,
   orientation,
+  voiceoverUrl,
+  onTimeUpdate,
 }: Props): React.ReactElement {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const hlsRef = useRef<unknown>(null);
+  // Hold latest onTimeUpdate in a ref so the timeupdate effect doesn't
+  // re-attach the listener when the parent passes a fresh callback
+  // identity on every render.
+  const onTimeUpdateRef = useRef(onTimeUpdate);
+  useEffect(() => {
+    onTimeUpdateRef.current = onTimeUpdate;
+  }, [onTimeUpdate]);
   // Activated only on play tap. Keeps a procedure with 30 steps from
   // mounting 30 HLS instances on first render — each is shown as a
   // poster until the reviewer asks for playback.
@@ -289,7 +311,9 @@ export function MuxClipAudioPreview({
   // would loop the entire source asset, which is the wrong window, so
   // we install our own timeupdate wrap. Ref-reading lets a live slider
   // drag take effect on the very next tick without re-attaching the
-  // listener.
+  // listener. We also forward the current position to the parent via
+  // onTimeUpdate (read through the ref so the listener doesn't churn
+  // when the callback identity changes between renders).
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -303,7 +327,10 @@ export function MuxClipAudioPreview({
         } catch {
           // best-effort
         }
-      } else if (currentMs < startMsRef.current - 100) {
+        onTimeUpdateRef.current?.(startMsRef.current);
+        return;
+      }
+      if (currentMs < startMsRef.current - 100) {
         // Native scrub or HLS seek slightly undershot the start — pull
         // forward to the requested boundary.
         try {
@@ -311,11 +338,61 @@ export function MuxClipAudioPreview({
         } catch {
           // best-effort
         }
+        onTimeUpdateRef.current?.(startMsRef.current);
+        return;
       }
+      onTimeUpdateRef.current?.(currentMs);
     }
     v.addEventListener('timeupdate', onTime);
     return () => v.removeEventListener('timeupdate', onTime);
   }, []);
+
+  // Voiceover audio sync. When a voiceoverUrl is provided we mute the
+  // video and play the voiceover from a separate <audio> element so
+  // the reviewer hears the synthesized narration instead of the
+  // captured walkthrough audio. The audio loops on its own (its src
+  // is the per-step voiceover, naturally bounded), and we mirror the
+  // video's play/pause state so the native video controls still work.
+  useEffect(() => {
+    if (!voiceoverUrl) return;
+    const v = videoRef.current;
+    const a = audioRef.current;
+    if (!v || !a) return;
+    function syncPlay() {
+      const el = audioRef.current;
+      if (!el) return;
+      // Best-effort — browsers may reject .play() if the original
+      // gesture wasn't on this element. The user can hit play on the
+      // video controls and the audio will follow on the next tick.
+      void el.play().catch(() => {});
+    }
+    function syncPause() {
+      audioRef.current?.pause();
+    }
+    // If playback wraps (video clamps back to clip start), restart the
+    // voiceover audio so the two stay roughly aligned at each loop.
+    function onSeeked() {
+      const vid = videoRef.current;
+      const aud = audioRef.current;
+      if (!vid || !aud) return;
+      const vidMs = vid.currentTime * 1000;
+      if (Math.abs(vidMs - startMsRef.current) < 250) {
+        try {
+          aud.currentTime = 0;
+        } catch {
+          // best-effort
+        }
+      }
+    }
+    v.addEventListener('play', syncPlay);
+    v.addEventListener('pause', syncPause);
+    v.addEventListener('seeked', onSeeked);
+    return () => {
+      v.removeEventListener('play', syncPlay);
+      v.removeEventListener('pause', syncPause);
+      v.removeEventListener('seeked', onSeeked);
+    };
+  }, [voiceoverUrl]);
 
   const activate = useCallback(() => {
     setActive(true);
@@ -352,8 +429,27 @@ export function MuxClipAudioPreview({
             controlsList="nodownload noplaybackrate noremoteplayback"
             disablePictureInPicture
             preload="auto"
+            // Mute the source audio when we're playing the synthesized
+            // voiceover alongside. Without this the reviewer would hear
+            // both the captured tech narration AND the polished TTS at
+            // the same time. When no voiceoverUrl is provided we leave
+            // the original audio on (the draft case — synthesis hasn't
+            // happened yet).
+            muted={!!voiceoverUrl}
             className="h-full w-full object-contain"
           />
+          {voiceoverUrl && (
+            <audio
+              ref={audioRef}
+              src={voiceoverUrl}
+              autoPlay
+              loop
+              preload="auto"
+              // Hidden — controls live on the video element so the
+              // reviewer has one UI surface. The audio just follows.
+              className="hidden"
+            />
+          )}
           {loading && (
             <div className="absolute inset-0 grid place-items-center bg-black/40">
               <Loader2 className="size-6 animate-spin text-white" />

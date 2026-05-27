@@ -54,6 +54,12 @@ interface Props {
   /** Maximum legal clip span (ms). Default 20000. */
   maxSpanMs?: number;
   disabled?: boolean;
+  /** Optional live playhead position in ms (relative to the source).
+   *  When the parent's clip-preview player is playing, threading its
+   *  currentTime through here paints a moving cursor on the timeline
+   *  so the reviewer can see where in the source the playback head is.
+   *  Pass null/undefined to hide the cursor. */
+  playheadMs?: number | null;
   onChange: (next: { startMs: number; endMs: number }) => void;
   /** Optional commit callback — fires once on pointerup, useful for
    *  triggering a debounced server preview that shouldn't run on every
@@ -81,6 +87,7 @@ export function ClipTrimSlider({
   minSpanMs = 200,
   maxSpanMs = 20_000,
   disabled = false,
+  playheadMs,
   onChange,
   onCommit,
 }: Props): React.ReactElement {
@@ -266,6 +273,25 @@ export function ClipTrimSlider({
             />
           );
         })}
+
+        {/* Live playhead. Rendered when the parent's preview player
+            reports a currentTime. Sits behind the handles in z-order
+            so the handle hit boxes always win on a drag. */}
+        {playheadMs != null &&
+          playheadMs >= timelineStartMs &&
+          playheadMs <= timelineEndMs && (
+            <span
+              className="pointer-events-none absolute top-1/2 h-4 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent shadow-[0_0_0_1px_rgba(255,255,255,0.6)]"
+              style={{
+                left: `${clamp(
+                  ((playheadMs - timelineStartMs) / timelineSpan) * 100,
+                  0,
+                  100,
+                )}%`,
+              }}
+              aria-hidden
+            />
+          )}
 
         {/* Start handle */}
         <button

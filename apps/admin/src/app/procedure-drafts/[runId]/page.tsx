@@ -660,6 +660,10 @@ function DraftStepCard({
   onMoveUp: () => void;
   onMoveDown: () => void;
 }) {
+  // Live playhead from the per-step preview player, threaded into the
+  // trim slider so the reviewer can see where the loop currently is on
+  // the timeline. Null while the player is inactive.
+  const [playheadMs, setPlayheadMs] = useState<number | null>(null);
   const confidence =
     step.confidence < 0.4 ? 'low' : step.confidence < 0.7 ? 'med' : 'high';
   const confColor =
@@ -738,6 +742,13 @@ function DraftStepCard({
             endMs={step.clipEndMs}
             aspectRatio={aspectRatio}
             orientation={orientation}
+            // Drafts have no synthesized voiceover yet (TTS happens at
+            // execute time, per the textarea hint below). Leave
+            // voiceoverUrl undefined so the player plays the source
+            // audio — that's the captured tech narration, which is the
+            // closest reviewable approximation of what the final
+            // voiceover will say.
+            onTimeUpdate={(ms) => setPlayheadMs(ms)}
           />
         </div>
       )}
@@ -772,6 +783,7 @@ function DraftStepCard({
             sourceDurationMs ?? step.clipEndMs + 15_000
           }
           disabled={locked}
+          playheadMs={playheadMs}
           onChange={(next) =>
             onChange({
               clipStartMs: next.startMs,
