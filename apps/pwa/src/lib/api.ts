@@ -528,18 +528,18 @@ export async function submitProcedureDraft(input: {
    *  promoted procedure ends up under AND the drafter's template
    *  selection. Set by the shared ProcedureIntake screens. */
   procedureCategory?: AuthoredProcedureCategory;
-  /** Dev-auth credentials. Matches the rest of the PWA writers (start
-   *  procedure run, submit feedback, etc.) — `x-dev-user` header is
-   *  what the API auth middleware accepts in dev. Prod OIDC swap is a
-   *  TODO across the whole PWA. */
+  /** Kept on the signature for parity with the rest of the PWA writers
+   *  (and for a future strict-mode OIDC path) but no longer sent. The
+   *  PWA proxy strips identity headers; scan-session cookie carries
+   *  identity to the API and the row is attributed as "Field tech". */
   devUserId: string;
   devOrgId: string;
 }): Promise<DraftSubmissionResponse> {
   const res = await fetch(`${CLIENT_API_BASE}/pwa/procedure-drafts`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'content-type': 'application/json',
-      'x-dev-user': `${input.devUserId}:${input.devOrgId}`,
     },
     body: JSON.stringify({
       assetInstanceId: input.assetInstanceId,

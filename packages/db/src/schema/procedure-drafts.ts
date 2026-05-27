@@ -152,9 +152,15 @@ export const procedureDraftRuns = pgTable(
     // pending-review row. Length-bounded so a slip of the finger can't
     // dump a whole paragraph.
     submissionNotes: text('submission_notes'),
-    createdByUserId: uuid('created_by_user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'restrict' }),
+    // Nullable since PWA walkthrough submissions arrive with only a
+    // scan-session cookie (no authenticated user). Admin-initiated
+    // drafts still set this; anonymous PWA submissions store null and
+    // render as "Field tech" downstream. ON DELETE set null so an
+    // admin user removal preserves the draft row.
+    createdByUserId: uuid('created_by_user_id').references(
+      () => users.id,
+      { onDelete: 'set null' },
+    ),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

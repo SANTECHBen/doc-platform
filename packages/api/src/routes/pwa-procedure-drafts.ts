@@ -20,7 +20,10 @@ import { z } from 'zod';
 import { schema } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth.js';
-import { getScope, requireOrgInScope } from '../middleware/scope.js';
+import {
+  getEffectiveOrgScope,
+  requireAuthOrScan,
+} from '../middleware/scan-session.js';
 import { makeDraftPassthrough } from '../services/draft-pipeline.js';
 
 const SubmitBody = z.object({
@@ -51,7 +54,11 @@ export async function registerPwaProcedureDrafts(app: FastifyInstance) {
     { schema: { body: SubmitBody } },
     async (request, reply) => {
       const { db } = app.ctx;
-      const auth = requireAuth(request);
+      // Accept either an authenticated tech OR a valid scan-session
+      // cookie. The PWA proxy strips identity headers, so deployed PWA
+      // submissions only carry scan-session — the submission is then
+      // attributed as anonymous "Field tech" (createdByUserId=null).
+      requireAuthOrScan(request);
       if (!app.ctx.mux) {
         return reply.serviceUnavailable('Mux not configured');
       }
@@ -65,13 +72,15 @@ export async function registerPwaProcedureDrafts(app: FastifyInstance) {
         with: { model: true, site: { columns: { organizationId: true } } },
       });
       if (!asset) return reply.notFound('asset instance not found');
-      // Scope check: the asset's owning org must be in the caller's scope.
-      // Without this any authenticated user could pass any asset UUID and
-      // create a draft attributed to that asset's org — and burn Mux
-      // ingest cost on the victim. requireOrgInScope returns 404 (not
-      // 403) so the endpoint isn't an existence oracle.
-      const scope = await getScope(request, db);
-      requireOrgInScope(scope, asset.site.organizationId);
+      // Scope check: the asset's owning org must be in the caller's
+      // scope (whether that scope comes from a logged-in user's home-org
+      // tree or a single scan-session org). 404 (not 403) so the endpoint
+      // isn't an existence oracle.
+      const scope = await getEffectiveOrgScope(request, db);
+      if (!scope) return reply.unauthorized();
+      if (!scope.all && !scope.orgIds.includes(asset.site.organizationId)) {
+        return reply.notFound('asset instance not found');
+      }
 
       // Prefer the asset's pinned version; otherwise the latest published
       // version of any pack owned by the asset model.
@@ -122,6 +131,10 @@ export async function registerPwaProcedureDrafts(app: FastifyInstance) {
         );
       }
 
+      // userId is null for scan-session submissions ("Field tech"); set
+      // when an authenticated tech is calling.
+      const actingUserId = request.auth?.userId ?? null;
+
       const [run] = await db
         .insert(schema.procedureDraftRuns)
         .values({
@@ -130,7 +143,7 @@ export async function registerPwaProcedureDrafts(app: FastifyInstance) {
           proposedTitle: request.body.proposedTitle,
           status: 'uploading',
           pwaSubmitted: true,
-          submittedByUserId: auth.userId,
+          submittedByUserId: actingUserId,
           submittedFromAssetInstanceId: asset.id,
           submissionNotes: request.body.notes ?? null,
           // Stash the tech's orientation hint into the existing
@@ -144,7 +157,7 @@ export async function registerPwaProcedureDrafts(app: FastifyInstance) {
           // the admin reviewer's UI and gates which executor template
           // the drafter uses.
           procedureCategory: request.body.procedureCategory ?? null,
-          createdByUserId: auth.userId,
+          createdByUserId: actingUserId,
         })
         .returning();
       if (!run) return reply.internalServerError('Failed to create draft');
@@ -159,7 +172,7 @@ export async function registerPwaProcedureDrafts(app: FastifyInstance) {
 
       await db.insert(schema.auditEvents).values({
         organizationId: ownerOrganizationId,
-        actorUserId: auth.userId,
+        actorUserId: actingUserId,
         eventType: 'procedure_draft.pwa_submitted',
         targetType: 'procedure_draft_run',
         targetId: run.id,
