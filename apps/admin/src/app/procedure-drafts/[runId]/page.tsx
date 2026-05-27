@@ -42,7 +42,8 @@ import {
   type ProcedureDraftCategory,
 } from '@/lib/api';
 import { MuxClipAudioPreview } from '@/components/mux-clip-audio-preview';
-import { formatMmSs, parseMmSs, formatClipDuration } from '@/lib/clip-time';
+import { ClipTrimSlider } from '@/components/clip-trim-slider';
+import { formatMmSs, formatClipDuration } from '@/lib/clip-time';
 
 type Phase =
   | 'loading'
@@ -495,6 +496,7 @@ export default function DraftReviewerPage() {
               playbackId={detail.playbackId}
               aspectRatio={detail.run.sourceVideoAspectRatio}
               orientation={detail.run.sourceVideoOrientation}
+              sourceDurationMs={detail.run.sourceVideoDurationMs}
               locked={phase !== 'ready'}
               onUpdate={updateStep}
               onRemove={removeStep}
@@ -634,6 +636,7 @@ function DraftStepCard({
   playbackId,
   aspectRatio,
   orientation,
+  sourceDurationMs,
   onChange,
   onRemove,
   onMoveUp,
@@ -647,6 +650,11 @@ function DraftStepCard({
   playbackId: string | null;
   aspectRatio: string | null;
   orientation: 'portrait' | 'landscape' | 'square' | null;
+  /** Full source video duration in ms. When known we use it as the
+   *  upper bound of the trim slider so the reviewer can drag handles
+   *  anywhere in the source; otherwise the slider falls back to a
+   *  context window around the current clip. */
+  sourceDurationMs: number | null;
   onChange: (patch: Partial<AdminDraftStepProposal>) => void;
   onRemove: () => void;
   onMoveUp: () => void;
@@ -748,52 +756,29 @@ function DraftStepCard({
         className="mt-1.5 !text-xs"
         placeholder="Voiceover script (synthesized at execute time)"
       />
-      {/* Editable clip range. Reviewers type mm:ss into start/end and the
-          parent re-validates on save. We don't enforce the 2–20s clamp
-          here client-side — the server's DraftProposalTreeSchema does
-          that on PATCH and surfaces the error in the existing
-          ErrorBanner. Leaving the UI permissive avoids fighting the
-          author while they're mid-edit. */}
-      <div className="mt-1.5 flex items-center gap-1.5 text-[11px]">
-        <label className="flex items-center gap-1 text-ink-tertiary">
-          <span>Clip</span>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={formatMmSs(step.clipStartMs)}
-            onChange={(e) => {
-              const ms = parseMmSs(e.target.value);
-              if (ms != null) onChange({ clipStartMs: ms });
-            }}
-            disabled={locked}
-            className="w-14 rounded border border-line bg-surface-inset px-1.5 py-0.5 text-center font-mono text-[11px] text-ink-primary disabled:opacity-50"
-            aria-label="Clip start"
-          />
-          <span aria-hidden>→</span>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={formatMmSs(step.clipEndMs)}
-            onChange={(e) => {
-              const ms = parseMmSs(e.target.value);
-              if (ms != null) onChange({ clipEndMs: ms });
-            }}
-            disabled={locked}
-            className="w-14 rounded border border-line bg-surface-inset px-1.5 py-0.5 text-center font-mono text-[11px] text-ink-primary disabled:opacity-50"
-            aria-label="Clip end"
-          />
-        </label>
-        <span
-          className={[
-            'font-mono text-[10px]',
-            step.clipEndMs - step.clipStartMs < 2000 ||
-            step.clipEndMs - step.clipStartMs > 20000
-              ? 'text-signal-warn'
-              : 'text-ink-tertiary',
-          ].join(' ')}
-        >
-          ({formatClipDuration(step.clipEndMs - step.clipStartMs)})
-        </span>
+      {/* Drag-to-trim handles. When sourceDurationMs is known, the
+          slider spans the whole source so the reviewer can drag handles
+          anywhere; otherwise it falls back to a context window around
+          the current clip (±15s) which is plenty for normal trim work.
+          Server validation still gates the final save. */}
+      <div className="mt-1.5">
+        <ClipTrimSlider
+          startMs={step.clipStartMs}
+          endMs={step.clipEndMs}
+          timelineStartMs={
+            sourceDurationMs ? 0 : Math.max(0, step.clipStartMs - 15_000)
+          }
+          timelineEndMs={
+            sourceDurationMs ?? step.clipEndMs + 15_000
+          }
+          disabled={locked}
+          onChange={(next) =>
+            onChange({
+              clipStartMs: next.startMs,
+              clipEndMs: next.endMs,
+            })
+          }
+        />
       </div>
       {step.rationale && (
         <p className="mt-1 text-[10px] italic text-ink-tertiary">{step.rationale}</p>
@@ -1045,6 +1030,7 @@ function SectionedSteps({
   playbackId,
   aspectRatio,
   orientation,
+  sourceDurationMs,
   locked,
   onUpdate,
   onRemove,
@@ -1055,6 +1041,7 @@ function SectionedSteps({
   playbackId: string | null;
   aspectRatio: string | null;
   orientation: 'portrait' | 'landscape' | 'square' | null;
+  sourceDurationMs: number | null;
   locked: boolean;
   onUpdate: (id: string, patch: Partial<AdminDraftStepProposal>) => void;
   onRemove: (id: string) => void;
@@ -1077,6 +1064,7 @@ function SectionedSteps({
               playbackId={playbackId}
               aspectRatio={aspectRatio}
               orientation={orientation}
+              sourceDurationMs={sourceDurationMs}
               onChange={(patch) => onUpdate(step.clientId, patch)}
               onRemove={() => onRemove(step.clientId)}
               onMoveUp={() => onMove(step.clientId, -1)}
@@ -1109,6 +1097,7 @@ function SectionedSteps({
         playbackId={playbackId}
         aspectRatio={aspectRatio}
         orientation={orientation}
+        sourceDurationMs={sourceDurationMs}
         onUpdate={onUpdate}
         onRemove={onRemove}
         onMove={onMove}
@@ -1122,6 +1111,7 @@ function SectionedSteps({
         playbackId={playbackId}
         aspectRatio={aspectRatio}
         orientation={orientation}
+        sourceDurationMs={sourceDurationMs}
         onUpdate={onUpdate}
         onRemove={onRemove}
         onMove={onMove}
@@ -1136,6 +1126,7 @@ function SectionedSteps({
           playbackId={playbackId}
           aspectRatio={aspectRatio}
           orientation={orientation}
+          sourceDurationMs={sourceDurationMs}
           onUpdate={onUpdate}
           onRemove={onRemove}
           onMove={onMove}
@@ -1158,6 +1149,7 @@ function SectionGroup({
   playbackId,
   aspectRatio,
   orientation,
+  sourceDurationMs,
   onUpdate,
   onRemove,
   onMove,
@@ -1170,6 +1162,7 @@ function SectionGroup({
   playbackId: string | null;
   aspectRatio: string | null;
   orientation: 'portrait' | 'landscape' | 'square' | null;
+  sourceDurationMs: number | null;
   onUpdate: (id: string, patch: Partial<AdminDraftStepProposal>) => void;
   onRemove: (id: string) => void;
   onMove: (id: string, delta: -1 | 1) => void;
@@ -1194,6 +1187,7 @@ function SectionGroup({
               playbackId={playbackId}
               aspectRatio={aspectRatio}
               orientation={orientation}
+              sourceDurationMs={sourceDurationMs}
               onChange={(patch) => onUpdate(step.clientId, patch)}
               onRemove={() => onRemove(step.clientId)}
               onMoveUp={() => onMove(step.clientId, -1)}

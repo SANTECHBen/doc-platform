@@ -33,7 +33,8 @@ import {
   type AdminStepMedia,
 } from '@/lib/api';
 import { MuxClipAudioPreview } from '@/components/mux-clip-audio-preview';
-import { formatMmSs, parseMmSs, formatClipDuration } from '@/lib/clip-time';
+import { ClipTrimSlider } from '@/components/clip-trim-slider';
+import { formatClipDuration } from '@/lib/clip-time';
 import { useToast } from '@/components/toast';
 
 const MIN_MS = 2_000;
@@ -148,37 +149,28 @@ export function WalkthroughClipPanel({ step, onChanged }: Props) {
         />
       </div>
 
+      {/* Drag-to-trim handles. We don't have the source video duration
+          on procedure_steps.media (drafter writes only the clip bounds
+          + playback id), so the timeline shows a context window around
+          the saved trim: 10s of padding on each side. That gives the
+          reviewer room to extend the clip in either direction by ~10s
+          without us needing to round-trip to Mux for asset metadata,
+          and matches the typical "shave a few seconds" use case. */}
+      <div className="mb-2.5">
+        <ClipTrimSlider
+          startMs={startMs}
+          endMs={endMs}
+          timelineStartMs={Math.max(0, savedStart - 10_000)}
+          timelineEndMs={savedEnd + 10_000}
+          disabled={saving}
+          onChange={(next) => {
+            setStartMs(next.startMs);
+            setEndMs(next.endMs);
+          }}
+        />
+      </div>
+
       <div className="flex flex-wrap items-center gap-3 text-xs">
-        <label className="flex items-center gap-1.5">
-          <span className="text-ink-tertiary">Start</span>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={formatMmSs(startMs)}
-            onChange={(e) => {
-              const ms = parseMmSs(e.target.value);
-              if (ms != null) setStartMs(ms);
-            }}
-            disabled={saving}
-            className="w-16 rounded border border-line bg-surface-inset px-1.5 py-1 text-center font-mono text-[12px] text-ink-primary focus:border-accent focus:outline-none disabled:opacity-50"
-            aria-label="Clip start"
-          />
-        </label>
-        <label className="flex items-center gap-1.5">
-          <span className="text-ink-tertiary">End</span>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={formatMmSs(endMs)}
-            onChange={(e) => {
-              const ms = parseMmSs(e.target.value);
-              if (ms != null) setEndMs(ms);
-            }}
-            disabled={saving}
-            className="w-16 rounded border border-line bg-surface-inset px-1.5 py-1 text-center font-mono text-[12px] text-ink-primary focus:border-accent focus:outline-none disabled:opacity-50"
-            aria-label="Clip end"
-          />
-        </label>
         <span
           className={[
             'font-mono text-[11px]',
@@ -187,7 +179,7 @@ export function WalkthroughClipPanel({ step, onChanged }: Props) {
               : 'text-ink-tertiary',
           ].join(' ')}
         >
-          ({formatClipDuration(Math.max(0, span))})
+          Clip: {formatClipDuration(Math.max(0, span))}
         </span>
         {dirty && (
           <button
