@@ -1069,6 +1069,132 @@
 }
 
 /* =========================================================================
+   PDF FIND BAR — Acrobat-style Ctrl+F toolbar over the Library PDF viewer
+   ========================================================================= */
+.pdf-find-bar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid rgb(var(--line-subtle));
+  background: rgb(var(--surface-raised));
+  padding: 8px 10px;
+  padding-top: max(8px, env(safe-area-inset-top));
+}
+.pdf-find-bar__lead {
+  flex-shrink: 0;
+  color: rgb(var(--ink-tertiary));
+}
+.pdf-find-bar__input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid rgb(var(--line));
+  border-radius: 6px;
+  background: rgb(var(--surface-inset));
+  padding: 7px 10px;
+  color: rgb(var(--ink-primary));
+  font-size: 14px;
+  line-height: 1.2;
+}
+.pdf-find-bar__input::placeholder {
+  color: rgb(var(--ink-tertiary));
+}
+.pdf-find-bar__input:focus {
+  outline: 2px solid rgb(var(--brand) / 0.6);
+  outline-offset: 1px;
+  border-color: rgb(var(--brand) / 0.6);
+}
+.pdf-find-bar__count {
+  flex-shrink: 0;
+  min-width: 64px;
+  text-align: right;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: rgb(var(--ink-secondary));
+}
+.pdf-find-bar__count--empty {
+  color: rgb(var(--signal-fault));
+}
+.pdf-find-bar__indexing {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: rgb(var(--ink-tertiary));
+}
+.pdf-find-bar__spin {
+  animation: pdf-find-spin 0.8s linear infinite;
+}
+.pdf-find-bar__indexing-text {
+  white-space: nowrap;
+}
+.pdf-find-bar__divider {
+  flex-shrink: 0;
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 2px;
+  background: rgb(var(--line-subtle));
+}
+.pdf-find-bar__toggle,
+.pdf-find-bar__nav,
+.pdf-find-bar__close {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  color: rgb(var(--ink-secondary));
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+.pdf-find-bar__toggle:hover,
+.pdf-find-bar__nav:not(:disabled):hover,
+.pdf-find-bar__close:hover {
+  background: rgb(var(--surface-elevated));
+  color: rgb(var(--ink-primary));
+}
+.pdf-find-bar__toggle.is-active {
+  background: rgb(var(--brand) / 0.16);
+  color: rgb(var(--brand));
+}
+.pdf-find-bar__nav:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.pdf-find-bar__toggle:focus-visible,
+.pdf-find-bar__nav:focus-visible,
+.pdf-find-bar__close:focus-visible {
+  outline: 2px solid rgb(var(--brand) / 0.6);
+  outline-offset: 1px;
+}
+
+/* Match highlight boxes painted over the canvas. `multiply` lets the page
+   text read through the translucent fill. */
+.pdf-search-hit {
+  position: absolute;
+  border-radius: 2px;
+  background: rgba(250, 204, 21, 0.4); /* yellow-400 */
+  box-shadow: 0 0 0 1px rgba(202, 138, 4, 0.55);
+  mix-blend-mode: multiply;
+  box-sizing: border-box;
+}
+.pdf-search-hit--active {
+  background: rgba(249, 115, 22, 0.55); /* orange-500 — the current hit */
+  box-shadow: 0 0 0 1px rgba(194, 65, 12, 0.85);
+}
+
+@keyframes pdf-find-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* =========================================================================
    SEMANTIC UTILITIES — used via @apply and directly
    ========================================================================= */
 

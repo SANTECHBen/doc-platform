@@ -70,13 +70,106 @@ export function locateExcerptInPage(opts: LocateOptions): LocateResult | null {
   return { charStart: start, charEnd: end, stage: 'normalized' };
 }
 
+// ---------------------------------------------------------------------------
+// Full-text "Find" — locate every occurrence of a free-text query in a page,
+// the way Acrobat's Ctrl+F bar does. Used by the PWA PDF viewer's find bar.
+//
+// Matching is whitespace-tolerant by design: the PDF text layer fuses runs
+// with spaces and inserts soft line breaks (see getPageTextLayer), so a query
+// like "debris detection" must still match text stored as "debris\ndetection"
+// or "debris   detection". We therefore search against a normalized copy of
+// the page text (collapsed whitespace, optionally case-folded) and map every
+// hit back to original character offsets so the caller can paint highlight
+// rects with rectsForSpan().
+// ---------------------------------------------------------------------------
+
+export interface FindAllOptions {
+  /** Case-sensitive matching. Default: false (case-insensitive). */
+  caseSensitive?: boolean;
+  /** Require the match to sit on word boundaries. Default: false. */
+  wholeWord?: boolean;
+  /** Stop after this many matches (protects against pathological queries on
+   *  huge pages). Default: unlimited. */
+  limit?: number;
+}
+
+export interface SearchMatch {
+  /** Character offset in the original page text where the match starts. */
+  charStart: number;
+  /** Character offset in the original page text where the match ends (exclusive). */
+  charEnd: number;
+}
+
+/** A "word" character for whole-word boundary checks — Unicode letters,
+ *  numbers, and underscore. */
+const WORD_CHAR = /[\p{L}\p{N}_]/u;
+
+function isWordChar(ch: string | undefined): boolean {
+  return ch != null && WORD_CHAR.test(ch);
+}
+
+/**
+ * Find every occurrence of `query` inside `pageText`. Returns matches in
+ * reading order with offsets into the ORIGINAL `pageText` (not the normalized
+ * form), so they can be fed straight into `rectsForSpan`. Matches never
+ * overlap. Returns [] for empty inputs or when nothing matches.
+ */
+export function findAllMatches(
+  pageText: string,
+  query: string,
+  opts?: FindAllOptions,
+): SearchMatch[] {
+  if (!pageText || !query) return [];
+  const caseSensitive = opts?.caseSensitive ?? false;
+  const wholeWord = opts?.wholeWord ?? false;
+  const limit = opts?.limit ?? Infinity;
+
+  const map = buildNormalizedMap(pageText, caseSensitive);
+  const needle = normalizeForLocate(query, caseSensitive);
+  if (!needle) return [];
+
+  const { normalized, indexMap } = map;
+  const needleStartsWord = isWordChar(needle[0]);
+  const needleEndsWord = isWordChar(needle[needle.length - 1]);
+
+  const matches: SearchMatch[] = [];
+  let from = 0;
+  while (matches.length < limit) {
+    const at = normalized.indexOf(needle, from);
+    if (at < 0) break;
+    const end = at + needle.length;
+
+    if (wholeWord) {
+      const leftOk = !needleStartsWord || !isWordChar(normalized[at - 1]);
+      const rightOk = !needleEndsWord || !isWordChar(normalized[end]);
+      if (!leftOk || !rightOk) {
+        // Advance by one so overlapping word-boundary candidates are still
+        // considered (e.g. searching "cat" in "catcat").
+        from = at + 1;
+        continue;
+      }
+    }
+
+    const charStart = indexMap[at];
+    const charEnd = indexMap[end];
+    if (charStart != null && charEnd != null) {
+      matches.push({ charStart, charEnd });
+    }
+    // Non-overlapping: resume past this match. Guard against zero-length
+    // advance (needle is never empty here, so length >= 1).
+    from = end;
+  }
+
+  return matches;
+}
+
 interface NormalizedMap {
   normalized: string;
   /** indexMap[i] = original index of normalized char i (or end position). */
   indexMap: number[];
 }
 
-function buildNormalizedMap(text: string): NormalizedMap {
+function buildNormalizedMap(text: string, caseSensitive = false): NormalizedMap {
   const out: string[] = [];
   const idx: number[] = [];
   let inWhitespace = false;
@@ -89,7 +182,7 @@ function buildNormalizedMap(text: string): NormalizedMap {
       }
       inWhitespace = true;
     } else {
-      out.push(ch.toLowerCase());
+      out.push(caseSensitive ? ch : ch.toLowerCase());
       idx.push(i);
       inWhitespace = false;
     }
@@ -104,8 +197,9 @@ function buildNormalizedMap(text: string): NormalizedMap {
   return { normalized: out.join(''), indexMap: idx };
 }
 
-function normalizeForLocate(text: string): string {
-  return text.toLowerCase().replace(/\s+/g, ' ').trim();
+function normalizeForLocate(text: string, caseSensitive = false): string {
+  const collapsed = text.replace(/\s+/g, ' ').trim();
+  return caseSensitive ? collapsed : collapsed.toLowerCase();
 }
 
 // ---------------------------------------------------------------------------

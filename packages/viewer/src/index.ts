@@ -21,10 +21,13 @@ export {
 export {
   locateExcerptInPage,
   rectsForSpan,
+  findAllMatches,
   type LocateOptions,
   type LocateResult,
   type RunPosition,
   type HighlightRect,
+  type FindAllOptions,
+  type SearchMatch,
 } from './utils/excerpt-locator.js';
 
 export { PdfPage, type PdfPageProps } from './components/pdf-page.js';
