@@ -570,22 +570,105 @@ export async function listAdminUsers(): Promise<AdminUser[]> {
 
 export interface AdminAuditEvent {
   id: string;
+  seq: number | null;
   eventType: string;
   targetType: string;
   targetId: string | null;
   payload: Record<string, unknown>;
   occurredAt: string;
+  organizationId: string;
   organization: string;
+  actorUserId: string | null;
   actor: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  requestId: string | null;
 }
 
-export async function listAuditEvents(): Promise<AdminAuditEvent[]> {
-  const res = await fetch(`${API_BASE}/admin/audit-events`, {
+export interface AuditEventsPage {
+  rows: AdminAuditEvent[];
+  nextCursor: number | null;
+}
+
+export interface AuditQuery {
+  eventType?: string;
+  eventPrefix?: string;
+  actorUserId?: string;
+  targetType?: string;
+  targetId?: string;
+  organizationId?: string;
+  from?: string;
+  to?: string;
+  q?: string;
+  limit?: number;
+  cursor?: number;
+}
+
+function auditQueryString(query: AuditQuery): string {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(query)) {
+    if (v !== undefined && v !== null && v !== '') p.set(k, String(v));
+  }
+  const s = p.toString();
+  return s ? `?${s}` : '';
+}
+
+export async function listAuditEvents(query: AuditQuery = {}): Promise<AuditEventsPage> {
+  const res = await fetch(`${API_BASE}/admin/audit-events${auditQueryString(query)}`, {
     cache: 'no-store',
     headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
-  return (await res.json()) as AdminAuditEvent[];
+  return (await res.json()) as AuditEventsPage;
+}
+
+export interface AuditFacets {
+  eventTypes: string[];
+  actors: Array<{ id: string; name: string }>;
+}
+
+export async function getAuditFacets(): Promise<AuditFacets> {
+  const res = await fetch(`${API_BASE}/admin/audit-events/facets`, {
+    cache: 'no-store',
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AuditFacets;
+}
+
+export interface AuditVerifyResult {
+  ok: boolean;
+  breaks: Array<{ organizationId: string; seq: number; reason: string }>;
+  checked: number;
+}
+
+export async function verifyAuditChain(organizationId?: string): Promise<AuditVerifyResult> {
+  const qs = organizationId ? `?organizationId=${encodeURIComponent(organizationId)}` : '';
+  const res = await fetch(`${API_BASE}/admin/audit-events/verify${qs}`, {
+    cache: 'no-store',
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as AuditVerifyResult;
+}
+
+// Downloads the filtered audit log as CSV. Uses fetch + blob (not a plain
+// link) so the Bearer token rides along on the request.
+export async function downloadAuditCsv(query: AuditQuery = {}): Promise<void> {
+  const res = await fetch(`${API_BASE}/admin/audit-events/export${auditQueryString(query)}`, {
+    cache: 'no-store',
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 export interface AdminAnalytics {

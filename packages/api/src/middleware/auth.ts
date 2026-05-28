@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { eq, sql } from 'drizzle-orm';
 import { createRemoteJWKSet, decodeJwt, jwtVerify, type JWTPayload } from 'jose';
 import { schema } from '@platform/db';
+import { recordAudit } from '../lib/audit.js';
 
 /**
  * Auth middleware.
@@ -67,7 +68,7 @@ export async function registerAuth(app: FastifyInstance) {
             app.log.warn({ tid: claims.tid }, 'auth: tenant not allowed');
             return;
           }
-          const auth = await upsertUserFromClaims(app, claims);
+          const auth = await upsertUserFromClaims(app, claims, request);
           if (auth) request.auth = auth;
           return;
         } catch (err) {
@@ -223,6 +224,7 @@ async function verifyMsIdToken(token: string, audience: string): Promise<MsClaim
 async function upsertUserFromClaims(
   app: FastifyInstance,
   claims: MsClaims,
+  request: FastifyRequest,
 ): Promise<{ userId: string; organizationId: string; platformAdmin: boolean } | null> {
   const { db } = app.ctx;
   // Prefer the verified `email` claim. preferred_username is a UPN and is
@@ -292,7 +294,7 @@ async function upsertUserFromClaims(
       // against the SANTECH org if known (so the event is queryable);
       // otherwise we fall back to the first organization row available.
       // Either way the event records who tried and why.
-      void recordSignInRejection(app, { tid: claims.tid ?? null, email });
+      void recordSignInRejection(app, { tid: claims.tid ?? null, email }, request);
       return null;
     }
     // SANTECH staff with no explicit tenant-mapped org: provision into the
@@ -321,6 +323,20 @@ async function upsertUserFromClaims(
       { userId: user.id, email, platformAdmin: isPlatformAdmin, homeOrgId, tid: claims.tid },
       'auth: provisioned new user from MS sign-in',
     );
+    // First sign-in is account creation — a compliance-relevant identity event.
+    void recordAudit(db, request, {
+      organizationId: user.homeOrganizationId,
+      actorUserId: user.id,
+      eventType: 'auth.user.provisioned',
+      targetType: 'user',
+      targetId: user.id,
+      payload: {
+        email,
+        tid: claims.tid ?? null,
+        platformAdmin: isPlatformAdmin,
+        source: resolvedHomeOrgId ? 'tenant_mapping' : 'platform_admin_grant',
+      },
+    });
   } else {
     // Keep platform_admin in sync with env on every sign-in. Also update
     // homeOrg if the tenant mapping has changed (rare but possible).
@@ -332,7 +348,7 @@ async function upsertUserFromClaims(
     // Audit the platform-admin grant/revoke — silent role changes via env
     // mutation are a quiet escalation path; visibility is the defense.
     if (user.platformAdmin !== isPlatformAdmin) {
-      void db.insert(schema.auditEvents).values({
+      void recordAudit(db, request, {
         organizationId: user.homeOrganizationId,
         actorUserId: user.id,
         eventType: isPlatformAdmin
@@ -341,7 +357,7 @@ async function upsertUserFromClaims(
         targetType: 'user',
         targetId: user.id,
         payload: { email, tid: claims.tid ?? null, source: 'PLATFORM_ADMIN_EMAILS' },
-      }).catch((err) => app.log.warn({ err }, 'audit: platform-admin change write failed'));
+      });
     }
     if (Object.keys(updates).length > 0) {
       const [updated] = await db
@@ -369,13 +385,14 @@ async function upsertUserFromClaims(
 async function recordSignInRejection(
   app: FastifyInstance,
   info: { tid: string | null; email: string },
+  request: FastifyRequest,
 ): Promise<void> {
   try {
     const fallbackOrg = await app.ctx.db.query.organizations.findFirst({
       columns: { id: true },
     });
     if (!fallbackOrg) return;
-    await app.ctx.db.insert(schema.auditEvents).values({
+    await recordAudit(app.ctx.db, request, {
       organizationId: fallbackOrg.id,
       actorUserId: null,
       eventType: 'auth.sign_in.rejected',

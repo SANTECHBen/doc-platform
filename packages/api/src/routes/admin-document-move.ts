@@ -24,6 +24,7 @@ import { schema } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth.js';
 import { getScope, requireOrgInScope } from '../middleware/scope.js';
+import { recordAudit } from '../lib/audit.js';
 
 const MoveBody = z.object({
   targetVersionId: UuidSchema,
@@ -82,9 +83,8 @@ export async function registerAdminDocumentMoveRoutes(app: FastifyInstance) {
         .set({ contentPackVersionId: target.id })
         .where(eq(schema.documents.id, doc.id));
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: doc.packVersion.pack.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'document.moved_version',
         targetType: 'document',
         targetId: doc.id,
@@ -95,8 +95,6 @@ export async function registerAdminDocumentMoveRoutes(app: FastifyInstance) {
           toVersionLabel: target.versionLabel,
           packId: target.contentPackId,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return reply.send({

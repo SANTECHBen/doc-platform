@@ -25,6 +25,7 @@ import {
 } from '@platform/ai';
 import type { FastifyInstance } from 'fastify';
 import { agentBus, runChannel } from './agent-bus.js';
+import { recordAudit } from './audit.js';
 
 const QR_ALPHABET = 'ABCDEFGHJKMNPQRSTVWXYZ0123456789';
 function newQrCode(): string {
@@ -585,7 +586,9 @@ async function writeAudit(
   if (!orgId) return; // can't write a scoped audit yet
 
   const node = tree.nodes.find((n) => n.clientId === step.clientId);
-  await db.insert(schema.auditEvents).values({
+  // Background executor — no Fastify request in scope. Pass the run's acting
+  // user explicitly; ip/user-agent/request-id are legitimately absent.
+  await recordAudit(db, null, {
     organizationId: orgId,
     actorUserId,
     eventType: `agent.${step.kind}.${step.status}`,

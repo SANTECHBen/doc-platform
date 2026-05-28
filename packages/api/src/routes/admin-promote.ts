@@ -19,6 +19,7 @@ import { schema, type Database } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth.js';
 import { getScope, requireOrgInScope } from '../middleware/scope.js';
+import { recordAudit } from '../lib/audit.js';
 
 const PromoteBody = z.object({
   messageId: UuidSchema,
@@ -348,9 +349,8 @@ export async function registerAdminPromoteRoutes(app: FastifyInstance) {
         order += 100;
       }
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: draft.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure.promoted_from_ai',
         targetType: 'document',
         targetId: doc.id,
@@ -360,8 +360,6 @@ export async function registerAdminPromoteRoutes(app: FastifyInstance) {
           stepCount: parsed.steps.length,
           hadStructure: parsed.hadStructure,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return reply.send({

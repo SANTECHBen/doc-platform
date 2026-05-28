@@ -36,6 +36,7 @@ import { z } from 'zod';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth.js';
 import { getScope, requireOrgInScope } from '../middleware/scope.js';
+import { recordAudit } from '../lib/audit.js';
 
 // Curated icon allowlist. Lucide ships hundreds of icons; we ship a
 // small set that maps to authoring contexts a tech would recognize on
@@ -205,9 +206,8 @@ export async function registerAdminProcedureStepCategories(
           .returning();
         if (!row) return reply.internalServerError('Failed to create category.');
 
-        await db.insert(schema.auditEvents).values({
+        await recordAudit(db, request, {
           organizationId: request.params.orgId,
-          actorUserId: auth.userId,
           eventType: 'procedure_step_category.created',
           targetType: 'procedure_step_category',
           targetId: row.id,
@@ -216,8 +216,6 @@ export async function registerAdminProcedureStepCategories(
             color: row.color,
             icon: row.icon,
           },
-          ipAddress: request.ip,
-          userAgent: request.headers['user-agent'] ?? null,
         });
 
         return rowToDTO(row);
@@ -288,7 +286,7 @@ export async function registerAdminProcedureStepCategories(
           .returning();
         if (!updated) return reply.internalServerError('Update failed.');
 
-        await db.insert(schema.auditEvents).values({
+        await recordAudit(db, request, {
           // Audit lands on the owning org for org rows; on a SANTECH-side
           // org for built-ins. We have no SANTECH-internal org row here,
           // so attribute built-in edits to the actor's home org so the
@@ -297,13 +295,10 @@ export async function registerAdminProcedureStepCategories(
             row.organizationId ??
             (auth as { organizationId?: string }).organizationId ??
             row.id,
-          actorUserId: auth.userId,
           eventType: 'procedure_step_category.updated',
           targetType: 'procedure_step_category',
           targetId: updated.id,
           payload: { fields: Object.keys(b) },
-          ipAddress: request.ip,
-          userAgent: request.headers['user-agent'] ?? null,
         });
 
         return rowToDTO(updated);
@@ -348,15 +343,12 @@ export async function registerAdminProcedureStepCategories(
         .delete(schema.procedureStepCategories)
         .where(eq(schema.procedureStepCategories.id, row.id));
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: row.organizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_step_category.deleted',
         targetType: 'procedure_step_category',
         targetId: row.id,
         payload: { name: row.name },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return { ok: true };

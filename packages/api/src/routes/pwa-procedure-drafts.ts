@@ -25,6 +25,7 @@ import {
   requireAuthOrScan,
 } from '../middleware/scan-session.js';
 import { makeDraftPassthrough } from '../services/draft-pipeline.js';
+import { recordAudit } from '../lib/audit.js';
 
 const SubmitBody = z.object({
   assetInstanceId: UuidSchema,
@@ -170,7 +171,7 @@ export async function registerPwaProcedureDrafts(app: FastifyInstance) {
         .set({ muxUploadId: upload.uploadId, updatedAt: new Date() })
         .where(eq(schema.procedureDraftRuns.id, run.id));
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ownerOrganizationId,
         actorUserId: actingUserId,
         eventType: 'procedure_draft.pwa_submitted',
@@ -182,8 +183,6 @@ export async function registerPwaProcedureDrafts(app: FastifyInstance) {
           notes: request.body.notes ?? null,
           procedureCategory: request.body.procedureCategory ?? null,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return reply.code(201).send({

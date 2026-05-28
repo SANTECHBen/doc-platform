@@ -5,6 +5,7 @@ import { schema } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth';
 import { getScope } from '../middleware/scope';
+import { recordAudit } from '../lib/audit.js';
 import {
   getEffectiveOrgScope,
   requireAuthOrScan,
@@ -189,9 +190,8 @@ export async function registerWorkOrderRoutes(app: FastifyInstance) {
         .returning();
       if (!created) return reply.internalServerError();
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: instance.site.organization.id,
-        actorUserId: request.auth?.userId ?? null,
         eventType: 'work_order.opened',
         targetType: 'work_order',
         targetId: created.id,
@@ -202,8 +202,6 @@ export async function registerWorkOrderRoutes(app: FastifyInstance) {
           source: request.auth ? 'auth' : 'scan',
           qrCode: request.scanSession?.qrCode ?? null,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return created;
@@ -263,9 +261,8 @@ export async function registerWorkOrderRoutes(app: FastifyInstance) {
         .returning();
 
       if (request.body.status !== undefined && request.body.status !== wo.status) {
-        await db.insert(schema.auditEvents).values({
+        await recordAudit(db, request, {
           organizationId: wo.assetInstance.site.organization.id,
-          actorUserId: auth.userId,
           eventType: 'work_order.status_changed',
           targetType: 'work_order',
           targetId: wo.id,

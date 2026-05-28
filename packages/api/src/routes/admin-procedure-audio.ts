@@ -18,6 +18,7 @@ import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth.js';
 import { getScope, requireOrgInScope } from '../middleware/scope.js';
 import { sniffMime } from '../lib/mime-sniff.js';
+import { recordAudit } from '../lib/audit.js';
 
 const ACCEPT_MIMES = new Set([
   'audio/mpeg',
@@ -171,9 +172,8 @@ export async function registerAdminProcedureAudioRoutes(app: FastifyInstance) {
         .where(eq(schema.procedureSteps.id, ctx.step.id))
         .returning();
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_step.audio_uploaded',
         targetType: 'procedure_step',
         targetId: ctx.step.id,
@@ -181,8 +181,6 @@ export async function registerAdminProcedureAudioRoutes(app: FastifyInstance) {
           mime,
           sizeBytes: stored.size,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return reply.send({
@@ -278,15 +276,12 @@ export async function registerAdminProcedureAudioRoutes(app: FastifyInstance) {
         .where(eq(schema.procedureSteps.id, ctx.step.id))
         .returning();
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_step.audio_generated',
         targetType: 'procedure_step',
         targetId: ctx.step.id,
         payload: { voice, scriptChars: script.length, sizeBytes: stored.size },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return reply.send({
@@ -330,15 +325,12 @@ export async function registerAdminProcedureAudioRoutes(app: FastifyInstance) {
         })
         .where(eq(schema.procedureSteps.id, ctx.step.id));
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_step.audio_deleted',
         targetType: 'procedure_step',
         targetId: ctx.step.id,
         payload: {},
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return reply.send({ ok: true });
@@ -407,15 +399,12 @@ export async function registerAdminProcedureAudioRoutes(app: FastifyInstance) {
         .set({ media: next, updatedAt: new Date() })
         .where(eq(schema.procedureSteps.id, ctx.step.id));
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_step.media_added',
         targetType: 'procedure_step',
         targetId: ctx.step.id,
         payload: { storageKey: stored.storageKey, mime, sizeBytes: stored.size },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return reply.send({
@@ -455,15 +444,12 @@ export async function registerAdminProcedureAudioRoutes(app: FastifyInstance) {
         .update(schema.procedureSteps)
         .set({ media: next, updatedAt: new Date() })
         .where(eq(schema.procedureSteps.id, ctx.step.id));
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_step.media_removed',
         targetType: 'procedure_step',
         targetId: ctx.step.id,
         payload: { storageKey: removeKey },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
       return reply.send({ ok: true });
     },

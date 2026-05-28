@@ -36,6 +36,7 @@ import { schema, type Database } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth';
 import { sniffMime } from '../lib/mime-sniff';
+import { recordAudit, type AuditEventType } from '../lib/audit.js';
 import {
   expandStep,
   loadSnippetMap,
@@ -348,21 +349,19 @@ async function audit(
   params: {
     organizationId: string;
     actorUserId: string;
-    eventType: string;
+    eventType: AuditEventType;
     targetId: string;
     payload: Record<string, unknown>;
     request: FastifyRequest;
   },
 ): Promise<void> {
-  await db.insert(schema.auditEvents).values({
+  await recordAudit(db, params.request, {
     organizationId: params.organizationId,
     actorUserId: params.actorUserId,
     eventType: params.eventType,
     targetType: 'procedure_run',
     targetId: params.targetId,
     payload: params.payload,
-    ipAddress: params.request.ip,
-    userAgent: params.request.headers['user-agent'] ?? null,
   });
 }
 

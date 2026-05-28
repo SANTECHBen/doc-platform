@@ -32,6 +32,7 @@ import {
   requireAuthOrScan,
   getEffectiveOrgScope,
 } from '../middleware/scan-session.js';
+import { recordAudit } from '../lib/audit.js';
 import { sniffMime } from '../lib/mime-sniff';
 import { ensureFieldCapturesVersion } from '../lib/field-captures-pack';
 import { enqueueExtraction } from '../lib/extraction';
@@ -358,9 +359,8 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
         .returning();
       if (!run) return reply.internalServerError();
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: instance.site.organization.id,
-        actorUserId: auth.userId,
         eventType: 'procedure_run.field_authoring_started',
         targetType: 'procedure_run',
         targetId: run.id,
@@ -369,8 +369,6 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
           assetInstanceId: instance.id,
           assetModelId: instance.assetModelId,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return {
@@ -497,9 +495,8 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
         .set({ lastActivityAt: new Date() })
         .where(eq(schema.procedureRuns.id, ctx.run.id));
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_step.field_authored',
         targetType: 'procedure_step',
         targetId: step.id,
@@ -510,8 +507,6 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
           title: step.title,
           safetyCritical: step.safetyCritical,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return {
@@ -637,9 +632,8 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
         }
       }
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_run.field_authoring_finalized',
         targetType: 'procedure_run',
         targetId: ctx.run.id,
@@ -650,8 +644,6 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
           partCount: body.linkedPartIds.length,
           procedureCategory: body.procedureCategory ?? null,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       // Mark the doc for the worker process to pick up. The worker
@@ -721,15 +713,12 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
         .returning();
       if (!updated) return reply.internalServerError();
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: doc.packVersion.pack.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'document.field_verified',
         targetType: 'document',
         targetId: doc.id,
         payload: { title: doc.title },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return {
@@ -853,15 +842,12 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
         .set({ lastActivityAt: new Date() })
         .where(eq(schema.procedureRuns.id, ctx.run.id));
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_step.field_authored.edited',
         targetType: 'procedure_step',
         targetId: updated.id,
         payload: { runId: ctx.run.id, fields: Object.keys(b) },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return {
@@ -1109,9 +1095,8 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
         .set({ lastActivityAt: new Date() })
         .where(eq(schema.procedureRuns.id, ctx.run.id));
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_run.cloned_from_template',
         targetType: 'procedure_run',
         targetId: ctx.run.id,
@@ -1120,8 +1105,6 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
           templateTitle: template.title,
           stepCount: inserted.length,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return {
@@ -1339,15 +1322,12 @@ export async function registerFieldProcedureRoutes(app: FastifyInstance) {
         .returning();
       if (!updated) return reply.internalServerError();
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_run.authoring_completed',
         targetType: 'procedure_run',
         targetId: ctx.run.id,
         payload: { documentId: ctx.document.id },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return {

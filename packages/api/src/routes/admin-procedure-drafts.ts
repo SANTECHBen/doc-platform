@@ -18,6 +18,7 @@ import {
   type DraftProposalTree,
 } from '@platform/ai';
 import { UuidSchema } from '@platform/shared';
+import { recordAudit } from '../lib/audit.js';
 import { requireAuth } from '../middleware/auth.js';
 import { getScope, requireOrgInScope } from '../middleware/scope.js';
 import { startSse } from '../lib/sse.js';
@@ -191,9 +192,8 @@ export async function registerAdminProcedureDrafts(app: FastifyInstance) {
         .set({ muxUploadId: upload.uploadId, updatedAt: new Date() })
         .where(eq(schema.procedureDraftRuns.id, run.id));
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: body.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_draft.created',
         targetType: 'procedure_draft_run',
         targetId: run.id,
@@ -201,8 +201,6 @@ export async function registerAdminProcedureDrafts(app: FastifyInstance) {
           proposedTitle: body.proposedTitle,
           targetContentPackVersionId: body.targetContentPackVersionId,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return reply.code(201).send({
@@ -334,15 +332,12 @@ export async function registerAdminProcedureDrafts(app: FastifyInstance) {
         .where(eq(schema.procedureDraftProposals.id, proposal.id))
         .returning();
       if (!updated) return reply.internalServerError('proposal update failed');
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: run.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_draft.proposal_edited',
         targetType: 'procedure_draft_run',
         targetId: run.id,
         payload: { version: updated.version, stepCount: request.body.content.steps.length },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
       return proposalToDTO(updated);
     },
@@ -442,9 +437,8 @@ export async function registerAdminProcedureDrafts(app: FastifyInstance) {
           });
       });
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: run.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_draft.executed',
         targetType: 'procedure_draft_run',
         targetId: run.id,
@@ -453,8 +447,6 @@ export async function registerAdminProcedureDrafts(app: FastifyInstance) {
           stepCount: tree.steps.length,
           targetDocumentId: doc.id,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       // Mint an SSE stream token (reusing the agent stream-token issuer
@@ -507,9 +499,8 @@ export async function registerAdminProcedureDrafts(app: FastifyInstance) {
           app.log.error({ err, runId: run.id }, 'run-ai: loop failed');
         });
       });
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: run.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_draft.ai_started',
         targetType: 'procedure_draft_run',
         targetId: run.id,
@@ -517,8 +508,6 @@ export async function registerAdminProcedureDrafts(app: FastifyInstance) {
           pwaSubmitted: run.pwaSubmitted,
           submittedByUserId: run.submittedByUserId,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
       // Mint an SSE token so the admin can subscribe to propose-channel
       // events immediately.
@@ -596,15 +585,12 @@ export async function registerAdminProcedureDrafts(app: FastifyInstance) {
           .set({ procedureMetadata: nextMetadata })
           .where(eq(schema.documents.id, run.targetDocumentId));
       }
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: run.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_draft.category_set',
         targetType: 'procedure_draft_run',
         targetId: run.id,
         payload: { procedureCategory: request.body.procedureCategory },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
       return reply.send({ ok: true });
     },
@@ -680,15 +666,12 @@ export async function registerAdminProcedureDrafts(app: FastifyInstance) {
         .update(schema.procedureDraftRuns)
         .set({ status: 'cancelled', updatedAt: new Date() })
         .where(eq(schema.procedureDraftRuns.id, run.id));
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: run.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_draft.cancelled',
         targetType: 'procedure_draft_run',
         targetId: run.id,
         payload: {},
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
       agentBus.publish(runChannel(run.id, 'propose'), 'cancelled', {});
       agentBus.publish(runChannel(run.id, 'execute'), 'cancelled', {});

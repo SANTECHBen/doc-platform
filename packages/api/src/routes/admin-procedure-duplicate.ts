@@ -39,6 +39,7 @@ import { schema } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth.js';
 import { getScope, orgIdsLiteral, requireOrgInScope } from '../middleware/scope.js';
+import { recordAudit } from '../lib/audit.js';
 
 const DuplicateBody = z.object({
   targetVersionId: UuidSchema,
@@ -273,9 +274,8 @@ export async function registerAdminProcedureDuplicate(app: FastifyInstance) {
         });
       }
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: target.pack.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure.duplicated',
         targetType: 'document',
         targetId: newDoc.id,
@@ -289,8 +289,6 @@ export async function registerAdminProcedureDuplicate(app: FastifyInstance) {
           stepCount: steps.length,
           substepCount: substeps.length,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return reply.send({

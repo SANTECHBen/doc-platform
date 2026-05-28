@@ -20,6 +20,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { getScope, requireOrgInScope, type Scope } from '../middleware/scope.js';
 import { synthesizeStepTts } from '../services/step-tts.js';
 import { sniffMime } from '../lib/mime-sniff.js';
+import { recordAudit } from '../lib/audit.js';
 
 const ACCEPT_MIMES = new Set([
   'audio/mpeg',
@@ -175,15 +176,12 @@ export async function registerAdminSnippetAudioRoutes(app: FastifyInstance) {
         .where(eq(schema.procedureSnippets.id, ctx.snippet.id))
         .returning();
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.auditOrgId,
-        actorUserId: auth.userId,
         eventType: 'procedure_snippet.audio_uploaded',
         targetType: 'procedure_snippet',
         targetId: ctx.snippet.id,
         payload: { mime, sizeBytes: stored.size, isPlatform: ctx.snippet.isPlatform },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return reply.send({
@@ -244,9 +242,8 @@ export async function registerAdminSnippetAudioRoutes(app: FastifyInstance) {
         .where(eq(schema.procedureSnippets.id, ctx.snippet.id))
         .returning();
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.auditOrgId,
-        actorUserId: auth.userId,
         eventType: 'procedure_snippet.audio_generated',
         targetType: 'procedure_snippet',
         targetId: ctx.snippet.id,
@@ -256,8 +253,6 @@ export async function registerAdminSnippetAudioRoutes(app: FastifyInstance) {
           sizeBytes: synth.sizeBytes,
           isPlatform: ctx.snippet.isPlatform,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return reply.send({
@@ -322,15 +317,12 @@ export async function registerAdminSnippetAudioRoutes(app: FastifyInstance) {
           updatedAt: new Date(),
         })
         .where(eq(schema.procedureSnippets.id, ctx.snippet.id));
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.auditOrgId,
-        actorUserId: auth.userId,
         eventType: 'procedure_snippet.audio_removed',
         targetType: 'procedure_snippet',
         targetId: ctx.snippet.id,
         payload: { isPlatform: ctx.snippet.isPlatform },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
       return reply.send({ ok: true });
     },

@@ -29,6 +29,7 @@ import { z } from 'zod';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth.js';
 import { getScope, requireOrgInScope, type Scope } from '../middleware/scope.js';
+import { recordAudit } from '../lib/audit.js';
 
 // ---------------------------------------------------------------------------
 // Zod schemas
@@ -530,9 +531,8 @@ export async function registerAdminSnippets(app: FastifyInstance) {
       // audit_events.organization_id leaves us no choice for a snippet
       // whose owner_organization_id is null).
       const auditOrgId = isPlatform ? auth.organizationId : body.ownerOrganizationId!;
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: auditOrgId,
-        actorUserId: auth.userId,
         eventType: 'procedure_snippet.created',
         targetType: 'procedure_snippet',
         targetId: row.id,
@@ -542,8 +542,6 @@ export async function registerAdminSnippets(app: FastifyInstance) {
           isPlatform: row.isPlatform,
           ownerOrganizationId: row.ownerOrganizationId,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return reply.code(201).send(
@@ -615,9 +613,8 @@ export async function registerAdminSnippets(app: FastifyInstance) {
       const auditOrgId = existing.isPlatform
         ? auth.organizationId
         : existing.ownerOrganizationId!;
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: auditOrgId,
-        actorUserId: auth.userId,
         eventType: 'procedure_snippet.updated',
         targetType: 'procedure_snippet',
         targetId: updated.id,
@@ -626,8 +623,6 @@ export async function registerAdminSnippets(app: FastifyInstance) {
           revisionNumber: nextRevisionNumber,
           isPlatform: updated.isPlatform,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       // Platform-snippet cross-org propagation: emit one audit row per
@@ -665,25 +660,20 @@ export async function registerAdminSnippets(app: FastifyInstance) {
             schema.documents.contentPackVersionId,
           );
 
-        if (affected.length > 0) {
-          await db.insert(schema.auditEvents).values(
-            affected.map((a) => ({
-              organizationId: a.organizationId,
-              actorUserId: auth.userId,
-              eventType: 'procedure_snippet.platform_propagated',
-              targetType: 'procedure_snippet',
-              targetId: updated.id,
-              payload: {
-                snippetId: updated.id,
-                snippetTitle: updated.title,
-                revisionNumber: nextRevisionNumber,
-                contentPackVersionId: a.contentPackVersionId,
-                affectedStepCount: Number(a.stepCount),
-              },
-              ipAddress: request.ip,
-              userAgent: request.headers['user-agent'] ?? null,
-            })),
-          );
+        for (const a of affected) {
+          await recordAudit(db, request, {
+            organizationId: a.organizationId,
+            eventType: 'procedure_snippet.platform_propagated',
+            targetType: 'procedure_snippet',
+            targetId: updated.id,
+            payload: {
+              snippetId: updated.id,
+              snippetTitle: updated.title,
+              revisionNumber: nextRevisionNumber,
+              contentPackVersionId: a.contentPackVersionId,
+              affectedStepCount: Number(a.stepCount),
+            },
+          });
         }
       }
 
@@ -738,9 +728,8 @@ export async function registerAdminSnippets(app: FastifyInstance) {
       const auditOrgId = existing.isPlatform
         ? auth.organizationId
         : existing.ownerOrganizationId!;
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: auditOrgId,
-        actorUserId: auth.userId,
         eventType: 'procedure_snippet.deleted',
         targetType: 'procedure_snippet',
         targetId: existing.id,
@@ -749,8 +738,6 @@ export async function registerAdminSnippets(app: FastifyInstance) {
           isPlatform: existing.isPlatform,
           ownerOrganizationId: existing.ownerOrganizationId,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return { ok: true };

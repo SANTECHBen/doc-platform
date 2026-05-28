@@ -39,6 +39,7 @@ import {
   SlideBlocksSchema,
 } from '@platform/shared';
 import { enqueueExtraction } from '../lib/extraction.js';
+import { recordAudit } from '../lib/audit.js';
 import { requireAuth } from '../middleware/auth.js';
 import { getScope, requireOrgInScope } from '../middleware/scope.js';
 import { sniffMime } from '../lib/mime-sniff.js';
@@ -597,9 +598,8 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
         updatedDoc = { ...ctx.doc, title: nextTitle };
       }
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'slide_deck.updated',
         targetType: 'slide_deck',
         targetId: ctx.deck.id,
@@ -607,8 +607,6 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
           passThreshold: updated.passThreshold,
           titleChanged: request.body.title !== undefined,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return reply.send(deckDto(updated, updatedDoc));
@@ -685,9 +683,8 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
         result.deck.id,
       );
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: version.pack.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'slide_deck.training_course_created',
         targetType: 'slide_deck',
         targetId: result.deck.id,
@@ -695,8 +692,6 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
           documentId: result.document.id,
           trainingModuleId: wrap.moduleId,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return reply.send({
@@ -752,15 +747,12 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
       // step. Idempotent on re-runs.
       await ensureTrainingModuleForDeck(db, doc, created.id);
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: doc.packVersion.pack.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'slide_deck.manually_created',
         targetType: 'slide_deck',
         targetId: created.id,
         payload: { documentId: doc.id },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
       return reply.send(deckDto(created, doc));
     },
@@ -833,15 +825,12 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
 
       await enqueueExtraction(db, doc.id);
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: doc.packVersion.pack.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'slide_deck.auto_convert_requested',
         targetType: 'slide_deck',
         targetId: deck.id,
         payload: { documentId: doc.id },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
       return reply.send(deckDto(deck, doc));
     },
@@ -936,15 +925,12 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
       });
       if (!result) return reply.internalServerError('Failed to create slide.');
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'slide_deck_slide.created',
         targetType: 'slide_deck_slide',
         targetId: result.id,
         payload: { slideIndex: result.slideIndex, contentType: sniffed },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       const imageUrl = result.imageStorageKey
@@ -1052,15 +1038,12 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
       });
       if (!result) return reply.internalServerError('Failed to create blank slide.');
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'slide_deck_slide.created_blank',
         targetType: 'slide_deck_slide',
         targetId: result.id,
         payload: { slideIndex: result.slideIndex },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
       return reply.send(slideDto(result, null, null));
     },
@@ -1120,9 +1103,8 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
           contentType: mime,
           ownerOrganizationId: ctx.ownerOrganizationId,
         });
-        await db.insert(schema.auditEvents).values({
+        await recordAudit(db, request, {
           organizationId: ctx.ownerOrganizationId,
-          actorUserId: auth.userId,
           eventType: 'slide_deck_slide.block_media_uploaded',
           targetType: 'slide_deck_slide',
           targetId: ctx.slide.id,
@@ -1131,8 +1113,6 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
             sizeBytes: stored.size,
             kind: isVideo ? 'video' : 'image',
           },
-          ipAddress: request.ip,
-          userAgent: request.headers['user-agent'] ?? null,
         });
         return reply.send({
           storageKey: stored.storageKey,
@@ -1219,15 +1199,12 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
           contentType: request.body.contentType,
           ownerOrganizationId: ctx.ownerOrganizationId,
         });
-        await db.insert(schema.auditEvents).values({
+        await recordAudit(db, request, {
           organizationId: ctx.ownerOrganizationId,
-          actorUserId: auth.userId,
           eventType: 'slide_deck_slide.block_media_presigned',
           targetType: 'slide_deck_slide',
           targetId: ctx.slide.id,
           payload: { contentType: mime, kind: isVideo ? 'video' : 'image' },
-          ipAddress: request.ip,
-          userAgent: request.headers['user-agent'] ?? null,
         });
         return reply.send({
           uploadUrl,
@@ -1314,15 +1291,12 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
         .returning();
       if (!updated) return reply.internalServerError('Failed to replace image.');
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'slide_deck_slide.image_replaced',
         targetType: 'slide_deck_slide',
         targetId: updated.id,
         payload: { contentType: sniffed },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       const imageUrl = updated.imageStorageKey
@@ -1375,15 +1349,12 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
           .where(eq(schema.slideDecks.id, ctx.deck.id));
       });
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'slide_deck_slide.deleted',
         targetType: 'slide_deck_slide',
         targetId: ctx.slide.id,
         payload: { slideIndex: ctx.slide.slideIndex },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
       return reply.send({ ok: true });
     },
@@ -1418,15 +1389,12 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
         .where(eq(schema.slideDecks.id, ctx.deck.id));
       await enqueueExtraction(db, ctx.doc.id);
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'slide_deck.retry_conversion',
         targetType: 'slide_deck',
         targetId: ctx.deck.id,
         payload: {},
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return reply.send({ ok: true });
@@ -1474,15 +1442,12 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
         .returning();
       if (!updated) return reply.internalServerError('Failed to update slide.');
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'slide_deck_slide.updated',
         targetType: 'slide_deck_slide',
         targetId: ctx.slide.id,
         payload: { fields: Object.keys(b) },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       const imageUrl = updated.imageStorageKey
@@ -1559,15 +1524,12 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
         .returning();
       if (!updated) return reply.internalServerError('Failed to attach voiceover.');
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'slide_deck_slide.voiceover_uploaded',
         targetType: 'slide_deck_slide',
         targetId: ctx.slide.id,
         payload: { mime: sniffed, sizeBytes: stored.size },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return reply.send({
@@ -1608,15 +1570,12 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
           updatedAt: new Date(),
         })
         .where(eq(schema.slideDeckSlides.id, ctx.slide.id));
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'slide_deck_slide.voiceover_deleted',
         targetType: 'slide_deck_slide',
         targetId: ctx.slide.id,
         payload: {},
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
       return reply.send({ ok: true });
     },
@@ -1700,15 +1659,12 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
             );
         }
       });
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'slide_deck.reordered',
         targetType: 'slide_deck',
         targetId: ctx.deck.id,
         payload: { count: request.body.orderings.length },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
       return reply.send({ ok: true });
     },
@@ -1757,15 +1713,12 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
         .returning();
       if (!row) return reply.internalServerError('Failed to create interaction.');
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'slide_interaction.created',
         targetType: 'slide_interaction',
         targetId: row.id,
         payload: { slideId: row.slideId, kind: row.kind },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
       return reply.send(interactionDto(row));
     },
@@ -1810,15 +1763,12 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
         .returning();
       if (!updated) return reply.internalServerError('Failed to update interaction.');
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'slide_interaction.updated',
         targetType: 'slide_interaction',
         targetId: updated.id,
         payload: { fields: Object.keys(b) },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
       return reply.send(interactionDto(updated));
     },
@@ -1839,15 +1789,12 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
       await db
         .delete(schema.slideInteractions)
         .where(eq(schema.slideInteractions.id, ctx.interaction.id));
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'slide_interaction.deleted',
         targetType: 'slide_interaction',
         targetId: ctx.interaction.id,
         payload: {},
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
       return reply.send({ ok: true });
     },
@@ -1968,15 +1915,12 @@ export async function registerAdminSlideCourses(app: FastifyInstance) {
         .returning();
       if (!created) return reply.internalServerError('Failed to create activity.');
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'activity.slide_course_created',
         targetType: 'activity',
         targetId: created.id,
         payload: { trainingModuleId: module.id, slideDeckId: ctx.deck.id },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return reply.send(created);

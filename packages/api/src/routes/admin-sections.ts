@@ -28,6 +28,7 @@ import {
 } from '@platform/ai';
 import { requireAuth } from '../middleware/auth.js';
 import { getScope, requireOrgInScope } from '../middleware/scope.js';
+import { recordAudit } from '../lib/audit.js';
 
 // ---------------------------------------------------------------------------
 // Zod schemas — request bodies
@@ -456,9 +457,8 @@ export async function registerAdminSections(app: FastifyInstance) {
         .returning();
       if (!row) return reply.internalServerError('Failed to create section.');
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'document_section.created',
         targetType: 'document_section',
         targetId: row.id,
@@ -468,8 +468,6 @@ export async function registerAdminSections(app: FastifyInstance) {
           title: row.title,
           safetyCritical: row.safetyCritical,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return rowToDTO(row);
@@ -578,15 +576,12 @@ export async function registerAdminSections(app: FastifyInstance) {
         .returning();
       if (!updated) return reply.internalServerError('Update failed');
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'document_section.updated',
         targetType: 'document_section',
         targetId: updated.id,
         payload: { fields: Object.keys(b), reAnchored },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return rowToDTO(updated);
@@ -619,9 +614,8 @@ export async function registerAdminSections(app: FastifyInstance) {
         .delete(schema.documentSections)
         .where(eq(schema.documentSections.id, ctx.section.id));
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'document_section.deleted',
         targetType: 'document_section',
         targetId: ctx.section.id,
@@ -630,8 +624,6 @@ export async function registerAdminSections(app: FastifyInstance) {
           kind: ctx.section.kind,
           title: ctx.section.title,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return { ok: true };
@@ -740,9 +732,8 @@ export async function registerAdminSections(app: FastifyInstance) {
       });
 
       if (added > 0 || removed > 0) {
-        await db.insert(schema.auditEvents).values({
+        await recordAudit(db, request, {
           organizationId: ctx.ownerOrganizationId,
-          actorUserId: auth.userId,
           eventType: 'document_section.parts.set',
           targetType: 'document_section',
           targetId: ctx.section.id,
@@ -752,8 +743,6 @@ export async function registerAdminSections(app: FastifyInstance) {
             added,
             removed,
           },
-          ipAddress: request.ip,
-          userAgent: request.headers['user-agent'] ?? null,
         });
       }
 
@@ -911,9 +900,8 @@ export async function registerAdminSections(app: FastifyInstance) {
         }
       }
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'document_section.revalidated',
         targetType: 'document',
         targetId: ctx.doc.id,
@@ -923,8 +911,6 @@ export async function registerAdminSections(app: FastifyInstance) {
           total: sections.length,
           trigger: 'manual',
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return { accepted, flagged, total: sections.length };

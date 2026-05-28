@@ -8,6 +8,7 @@ import {
 } from '@platform/db';
 import { AssetHubPayloadSchema, QrCodeStringSchema } from '@platform/shared';
 import { computeScheduleStatus, calendarDayDiff } from '../lib/pm-status';
+import { recordAudit } from '../lib/audit.js';
 import { requireAuthOrScan } from '../middleware/scan-session';
 
 // Two-letter initials from a display name — shown when no logo uploaded.
@@ -352,15 +353,12 @@ export async function registerAssetRoutes(app: FastifyInstance) {
           : source === 'blocked'
           ? 'qr.scan.blocked'
           : 'asset.hub.viewed';
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: instance.site.organization.id,
-        actorUserId: request.auth?.userId ?? null,
         eventType,
         targetType: 'asset_instance',
         targetId: instance.id,
         payload: { qrCode, source },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return payload;

@@ -31,6 +31,7 @@ import {
   requireAuthOrScan,
 } from '../middleware/scan-session.js';
 import { getScope, requireOrgInScope } from '../middleware/scope.js';
+import { recordAudit } from '../lib/audit.js';
 
 // Storyline + Captivate packages routinely top 50–100 MB once images
 // and audio are bundled. 500 MB ceiling per package keeps the API
@@ -396,9 +397,8 @@ export async function registerAdminScormCourses(app: FastifyInstance) {
         inserted.pkg.id,
       );
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ownerOrgId,
-        actorUserId: auth.userId,
         eventType: 'scorm_package.created',
         targetType: 'scorm_package',
         targetId: inserted.pkg.id,
@@ -408,8 +408,6 @@ export async function registerAdminScormCourses(app: FastifyInstance) {
           scormVersion: manifestInfo.scormVersion,
           fileCount: entries.length,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return reply.send({

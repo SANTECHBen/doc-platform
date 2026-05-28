@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { and, eq, desc, inArray, sql } from 'drizzle-orm';
+import { and, eq, desc, inArray, sql, type SQL } from 'drizzle-orm';
 
 // Derived structural role for a part. Lives alongside admin route definitions
 // so the admin parts listing can use it inline; the PWA parts route re-uses
@@ -19,8 +19,9 @@ import { UuidSchema } from '@platform/shared';
 import { isExtractable } from '@platform/ai';
 import { enqueueExtraction } from '../lib/extraction';
 import { requireAuth } from '../middleware/auth';
-import { getScope, orgIdsLiteral, requireOrgInScope } from '../middleware/scope';
+import { getScope, orgIdsLiteral, requireOrgInScope, type Scope } from '../middleware/scope';
 import { createRateLimiter } from '../middleware/ratelimit';
+import { recordAudit } from '../lib/audit.js';
 
 export async function registerAdminRoutes(app: FastifyInstance) {
   // List asset instances with model + site info. Scoped: returns only
@@ -428,6 +429,20 @@ export async function registerAdminMutations(app: FastifyInstance) {
         .where(eq(schema.organizations.id, request.params.id))
         .returning();
       if (!updated) return reply.notFound();
+
+      // Security-relevant settings change — audit who flipped scan-gating or
+      // remapped the org's Microsoft tenant.
+      await recordAudit(db, request, {
+        organizationId: updated.id,
+        eventType: 'organization.privacy_updated',
+        targetType: 'organization',
+        targetId: updated.id,
+        payload: {
+          requireScanAccess:
+            request.body.requireScanAccess !== undefined ? request.body.requireScanAccess : undefined,
+          msftTenantIdChanged: request.body.msftTenantId !== undefined,
+        },
+      });
       return updated;
     },
   );
@@ -2929,9 +2944,8 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
         .delete(schema.contentPackVersions)
         .where(eq(schema.contentPackVersions.id, version.id));
       if (version.status === 'published') {
-        await db.insert(schema.auditEvents).values({
+        await recordAudit(db, request, {
           organizationId: version.pack.ownerOrganizationId,
-          actorUserId: auth.userId,
           eventType: 'content_pack_version.deleted',
           targetType: 'content_pack_version',
           targetId: version.id,
@@ -2940,8 +2954,6 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
             versionLabel: version.versionLabel,
             wasPublished: true,
           },
-          ipAddress: request.ip,
-          userAgent: request.headers['user-agent'] ?? null,
         });
       }
       return { ok: true };
@@ -3010,9 +3022,8 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
         .where(eq(schema.contentPackVersions.id, version.id))
         .returning();
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: version.pack.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'content_pack.published',
         targetType: 'content_pack_version',
         targetId: version.id,
@@ -3021,8 +3032,6 @@ export async function registerAdminAuthoring(app: FastifyInstance) {
           versionNumber: version.versionNumber,
           versionLabel: version.versionLabel,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return updated;
@@ -3851,49 +3860,184 @@ export async function registerAdminListings(app: FastifyInstance) {
     }));
   });
 
-  // Recent audit events. Limited to last 200 entries within scope.
-  app.get('/admin/audit-events', async (request) => {
+  // ---- Audit log -----------------------------------------------------------
+  // Append-only, tamper-evident compliance record. Each row is linked into a
+  // per-org SHA-256 hash chain by DB triggers; UPDATE/DELETE are rejected at
+  // the database (see migration 0049_audit_integrity). These endpoints expose
+  // it for filtered review, CSV export, and on-demand integrity verification.
+
+  // Filtered + keyset-paginated listing. Cursor is the `seq` of the last row
+  // of the previous page; results are ordered newest-first by seq.
+  app.get(
+    '/admin/audit-events',
+    { schema: { querystring: AuditListQuerySchema } },
+    async (request) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const scope = await getScope(request, db);
+      const q = request.query as AuditListQuery;
+
+      const orgIds = auditOrgScope(scope, q.organizationId);
+      if (orgIds && orgIds.length === 0) return { rows: [], nextCursor: null };
+
+      const conds = buildAuditConditions(orgIds, q);
+      if (q.cursor) conds.push(sql`${schema.auditEvents.seq} < ${q.cursor}`);
+
+      const rows = await db
+        .select()
+        .from(schema.auditEvents)
+        .where(conds.length ? and(...conds) : undefined)
+        .orderBy(desc(schema.auditEvents.seq))
+        .limit(q.limit + 1);
+
+      const hasMore = rows.length > q.limit;
+      const page = hasMore ? rows.slice(0, q.limit) : rows;
+      const nextCursor = hasMore ? page[page.length - 1]?.seq ?? null : null;
+
+      const enriched = await enrichAuditRows(db, page);
+      return { rows: enriched, nextCursor };
+    },
+  );
+
+  // CSV export of the filtered set (no pagination; capped). Exporting the log
+  // is itself an auditable action, so we record an `audit.exported` event.
+  app.get(
+    '/admin/audit-events/export',
+    { schema: { querystring: AuditListQuerySchema } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const q = request.query as AuditListQuery;
+
+      const orgIds = auditOrgScope(scope, q.organizationId);
+      const EXPORT_CAP = 50000;
+      let enriched: EnrichedAuditRow[] = [];
+      if (!(orgIds && orgIds.length === 0)) {
+        const conds = buildAuditConditions(orgIds, q);
+        const rows = await db
+          .select()
+          .from(schema.auditEvents)
+          .where(conds.length ? and(...conds) : undefined)
+          .orderBy(desc(schema.auditEvents.seq))
+          .limit(EXPORT_CAP);
+        enriched = await enrichAuditRows(db, rows);
+      }
+
+      await recordAudit(db, request, {
+        organizationId: q.organizationId ?? auth.organizationId,
+        eventType: 'audit.exported',
+        targetType: 'audit_log',
+        payload: {
+          rowCount: enriched.length,
+          capped: enriched.length >= EXPORT_CAP,
+          filters: {
+            eventType: q.eventType ?? null,
+            eventPrefix: q.eventPrefix ?? null,
+            actorUserId: q.actorUserId ?? null,
+            targetType: q.targetType ?? null,
+            targetId: q.targetId ?? null,
+            organizationId: q.organizationId ?? null,
+            from: q.from ?? null,
+            to: q.to ?? null,
+            q: q.q ?? null,
+          },
+        },
+      });
+
+      const header = [
+        'seq', 'occurred_at', 'event_type', 'organization', 'actor', 'actor_user_id',
+        'target_type', 'target_id', 'ip_address', 'user_agent', 'request_id', 'payload',
+      ];
+      const lines = [header.map(csvCell).join(',')];
+      for (const r of enriched) {
+        lines.push(
+          [
+            r.seq, new Date(r.occurredAt).toISOString(), r.eventType, r.organization,
+            r.actor ?? '', r.actorUserId ?? '', r.targetType, r.targetId ?? '',
+            r.ipAddress ?? '', r.userAgent ?? '', r.requestId ?? '', JSON.stringify(r.payload),
+          ].map(csvCell).join(','),
+        );
+      }
+      const filename = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
+      return reply
+        .header('content-type', 'text/csv; charset=utf-8')
+        .header('content-disposition', `attachment; filename="${filename}"`)
+        .send(lines.join('\r\n'));
+    },
+  );
+
+  // Integrity check. Walks the hash chain (DB function audit_events_verify)
+  // and reports any breaks. Scoped: platform admins may verify all orgs or a
+  // specific one; scoped admins verify only org(s) in their scope.
+  app.get(
+    '/admin/audit-events/verify',
+    { schema: { querystring: z.object({ organizationId: z.string().uuid().optional() }) } },
+    async (request) => {
+      const { db } = app.ctx;
+      requireAuth(request);
+      const scope = await getScope(request, db);
+      const requested = (request.query as { organizationId?: string }).organizationId;
+
+      // Determine which org argument(s) to pass to the verifier.
+      let orgArgs: (string | null)[];
+      if (scope.all) {
+        orgArgs = [requested ?? null]; // null ⇒ whole table
+      } else if (requested) {
+        if (!scope.orgIds.includes(requested)) return { ok: true, breaks: [], checked: 0 };
+        orgArgs = [requested];
+      } else {
+        orgArgs = scope.orgIds;
+      }
+      if (orgArgs.length === 0) return { ok: true, breaks: [], checked: 0 };
+
+      const breaks: Array<{ organizationId: string; seq: number; reason: string }> = [];
+      for (const org of orgArgs) {
+        const rows = (await db.execute(
+          sql`SELECT out_org, out_seq, out_reason FROM audit_events_verify(${org}::uuid)`,
+        )) as unknown as Array<{ out_org: string; out_seq: number; out_reason: string }>;
+        for (const r of rows) {
+          breaks.push({ organizationId: r.out_org, seq: Number(r.out_seq), reason: r.out_reason });
+        }
+      }
+      return { ok: breaks.length === 0, breaks, checked: orgArgs.length };
+    },
+  );
+
+  // Facet values for the filter UI (distinct event types + actors), bounded to
+  // the last 90 days within scope to keep the lookup cheap as the table grows.
+  app.get('/admin/audit-events/facets', async (request) => {
     const { db } = app.ctx;
     requireAuth(request);
     const scope = await getScope(request, db);
-    const rows = scope.all
-      ? await db
-          .select()
-          .from(schema.auditEvents)
-          .orderBy(desc(schema.auditEvents.occurredAt))
-          .limit(200)
-      : await db
-          .select()
-          .from(schema.auditEvents)
-          .where(inArray(schema.auditEvents.organizationId, scope.orgIds))
-          .orderBy(desc(schema.auditEvents.occurredAt))
-          .limit(200);
+    const orgIds = auditOrgScope(scope, undefined);
+    if (orgIds && orgIds.length === 0) return { eventTypes: [], actors: [] };
 
-    if (rows.length === 0) return [];
+    const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    const orgFilter = orgIds === null ? sql`` : sql`AND organization_id = ANY(${orgIds}::uuid[])`;
 
-    const orgIds = [...new Set(rows.map((r) => r.organizationId))];
-    const userIds = rows
-      .map((r) => r.actorUserId)
-      .filter((id): id is string => id !== null);
-    const [orgs, users] = await Promise.all([
-      db.query.organizations.findMany({ where: inArray(schema.organizations.id, orgIds) }),
-      userIds.length
-        ? db.query.users.findMany({ where: inArray(schema.users.id, [...new Set(userIds)]) })
-        : Promise.resolve([]),
-    ]);
-    const orgById = new Map(orgs.map((o) => [o.id, o.name]));
-    const userById = new Map(users.map((u) => [u.id, u.displayName]));
+    const etRows = (await db.execute(sql`
+      SELECT DISTINCT event_type FROM audit_events
+      WHERE occurred_at >= ${since} ${orgFilter}
+      ORDER BY event_type LIMIT 300
+    `)) as unknown as Array<{ event_type: string }>;
 
-    return rows.map((r) => ({
-      id: r.id,
-      eventType: r.eventType,
-      targetType: r.targetType,
-      targetId: r.targetId,
-      payload: r.payload,
-      occurredAt: r.occurredAt,
-      organization: orgById.get(r.organizationId) ?? 'Unknown',
-      actor: r.actorUserId ? userById.get(r.actorUserId) ?? 'Unknown' : null,
-    }));
+    const actorIdRows = (await db.execute(sql`
+      SELECT DISTINCT actor_user_id FROM audit_events
+      WHERE occurred_at >= ${since} AND actor_user_id IS NOT NULL ${orgFilter}
+      LIMIT 1000
+    `)) as unknown as Array<{ actor_user_id: string }>;
+
+    const actorIds = actorIdRows.map((r) => r.actor_user_id);
+    const actors = actorIds.length
+      ? (await db.query.users.findMany({ where: inArray(schema.users.id, actorIds) })).map((u) => ({
+          id: u.id,
+          name: u.displayName,
+        }))
+      : [];
+    actors.sort((a, b) => a.name.localeCompare(b.name));
+
+    return { eventTypes: etRows.map((r) => r.event_type), actors };
   });
 }
 
@@ -3903,4 +4047,126 @@ async function scalar(
 ): Promise<number> {
   const rows = (await db.execute(query)) as unknown as Array<{ n: number }>;
   return rows[0]?.n ?? 0;
+}
+
+// ---- Audit log query helpers ------------------------------------------------
+
+const AuditListQuerySchema = z.object({
+  // Exact event-type match (e.g. "work_order.opened").
+  eventType: z.string().min(1).optional(),
+  // Prefix match (e.g. "work_order." for the whole family).
+  eventPrefix: z.string().min(1).optional(),
+  actorUserId: z.string().uuid().optional(),
+  targetType: z.string().min(1).optional(),
+  targetId: z.string().uuid().optional(),
+  organizationId: z.string().uuid().optional(),
+  // ISO date or datetime; normalized server-side.
+  from: z.string().min(1).optional(),
+  to: z.string().min(1).optional(),
+  // Free-text contains-match across event_type / target_type / target_id.
+  q: z.string().min(1).max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  // Keyset cursor: the `seq` of the last row of the previous page.
+  cursor: z.coerce.number().int().positive().optional(),
+});
+type AuditListQuery = z.infer<typeof AuditListQuerySchema>;
+
+interface EnrichedAuditRow {
+  id: string;
+  seq: number | null;
+  eventType: string;
+  targetType: string;
+  targetId: string | null;
+  payload: Record<string, unknown>;
+  occurredAt: Date;
+  organizationId: string;
+  organization: string;
+  actorUserId: string | null;
+  actor: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  requestId: string | null;
+}
+
+/**
+ * Resolve the effective org-id filter for an audit query. Returns null for
+ * "all orgs" (platform admin, no explicit org), or a concrete list — possibly
+ * empty, in which case the caller should short-circuit to an empty result.
+ */
+function auditOrgScope(scope: Scope, requestedOrgId: string | undefined): string[] | null {
+  if (requestedOrgId) {
+    if (scope.all) return [requestedOrgId];
+    return scope.orgIds.includes(requestedOrgId) ? [requestedOrgId] : [];
+  }
+  return scope.all ? null : scope.orgIds;
+}
+
+function isoOrNull(value: string | undefined): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+/** Build the shared WHERE conditions for the list + export queries. */
+function buildAuditConditions(orgIds: string[] | null, q: AuditListQuery): SQL[] {
+  const conds: SQL[] = [];
+  if (orgIds !== null) conds.push(inArray(schema.auditEvents.organizationId, orgIds));
+  if (q.eventType) conds.push(eq(schema.auditEvents.eventType, q.eventType));
+  if (q.eventPrefix) conds.push(sql`${schema.auditEvents.eventType} LIKE ${q.eventPrefix + '%'}`);
+  if (q.actorUserId) conds.push(eq(schema.auditEvents.actorUserId, q.actorUserId));
+  if (q.targetType) conds.push(eq(schema.auditEvents.targetType, q.targetType));
+  if (q.targetId) conds.push(eq(schema.auditEvents.targetId, q.targetId));
+  // Dates are passed as ISO strings (not Date objects) to dodge a postgres@3.4
+  // Bind crash on Date params; Postgres casts text → timestamptz on compare.
+  const fromIso = isoOrNull(q.from);
+  if (fromIso) conds.push(sql`${schema.auditEvents.occurredAt} >= ${fromIso}`);
+  const toIso = isoOrNull(q.to);
+  if (toIso) conds.push(sql`${schema.auditEvents.occurredAt} <= ${toIso}`);
+  if (q.q) {
+    const term = `%${q.q}%`;
+    conds.push(
+      sql`(${schema.auditEvents.eventType} ILIKE ${term} OR ${schema.auditEvents.targetType} ILIKE ${term} OR ${schema.auditEvents.targetId}::text ILIKE ${term})`,
+    );
+  }
+  return conds;
+}
+
+/** Resolve org + actor display names for a page of raw audit rows. */
+async function enrichAuditRows(
+  db: import('@platform/db').Database,
+  rows: Array<typeof schema.auditEvents.$inferSelect>,
+): Promise<EnrichedAuditRow[]> {
+  if (rows.length === 0) return [];
+  const orgIds = [...new Set(rows.map((r) => r.organizationId))];
+  const userIds = [...new Set(rows.map((r) => r.actorUserId).filter((id): id is string => id !== null))];
+  const [orgs, users] = await Promise.all([
+    db.query.organizations.findMany({ where: inArray(schema.organizations.id, orgIds) }),
+    userIds.length
+      ? db.query.users.findMany({ where: inArray(schema.users.id, userIds) })
+      : Promise.resolve([]),
+  ]);
+  const orgById = new Map(orgs.map((o) => [o.id, o.name]));
+  const userById = new Map(users.map((u) => [u.id, u.displayName]));
+  return rows.map((r) => ({
+    id: r.id,
+    seq: r.seq,
+    eventType: r.eventType,
+    targetType: r.targetType,
+    targetId: r.targetId,
+    payload: r.payload,
+    occurredAt: r.occurredAt,
+    organizationId: r.organizationId,
+    organization: orgById.get(r.organizationId) ?? 'Unknown',
+    actorUserId: r.actorUserId,
+    actor: r.actorUserId ? userById.get(r.actorUserId) ?? 'Unknown' : null,
+    ipAddress: r.ipAddress,
+    userAgent: r.userAgent,
+    requestId: r.requestId,
+  }));
+}
+
+/** RFC-4180 CSV cell: quote when needed, double internal quotes. */
+function csvCell(value: unknown): string {
+  const s = value === null || value === undefined ? '' : String(value);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }

@@ -20,6 +20,7 @@ import { z } from 'zod';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth.js';
 import { getScope, requireOrgInScope } from '../middleware/scope.js';
+import { recordAudit } from '../lib/audit.js';
 import {
   expandStep,
   loadSnippetMap,
@@ -670,9 +671,8 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         .returning();
       if (!row) return reply.internalServerError('Failed to create step.');
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_step.created',
         targetType: 'procedure_step',
         targetId: row.id,
@@ -683,8 +683,6 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           safetyCritical: row.safetyCritical,
           snippetId: row.snippetId,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       const [dto] = await rowsToExpandedDTO(db, [row], {
@@ -926,9 +924,8 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         .returning();
       if (!updated) return reply.internalServerError('Update failed.');
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: detachedNow ? 'procedure_step.snippet_detached' : 'procedure_step.updated',
         targetType: 'procedure_step',
         targetId: updated.id,
@@ -936,8 +933,6 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           fields: Object.keys(b),
           ...(detachedNow ? { snippetId: ctx.step.snippetId } : {}),
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       const [dto] = await rowsToExpandedDTO(db, [updated], {
@@ -1043,9 +1038,8 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         .returning();
       if (!updated) return reply.internalServerError('Update failed.');
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_step.clip_range_edited',
         targetType: 'procedure_step',
         targetId: updated.id,
@@ -1054,8 +1048,6 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           to: { startMs, endMs },
           playbackId: target.clip.playbackId,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       const [dto] = await rowsToExpandedDTO(db, [updated], {
@@ -1116,9 +1108,8 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         .delete(schema.procedureSteps)
         .where(eq(schema.procedureSteps.id, ctx.step.id));
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_step.deleted',
         targetType: 'procedure_step',
         targetId: ctx.step.id,
@@ -1127,8 +1118,6 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           title: ctx.step.title,
           kind: ctx.step.kind,
         },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return { ok: true };
@@ -1236,9 +1225,8 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
       }
 
       if (added > 0 || removed > 0) {
-        await db.insert(schema.auditEvents).values({
+        await recordAudit(db, request, {
           organizationId: ctx.ownerOrganizationId,
-          actorUserId: auth.userId,
           eventType: 'procedure_step.parts.set',
           targetType: 'procedure_step',
           targetId: ctx.step.id,
@@ -1248,8 +1236,6 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
             added,
             removed,
           },
-          ipAddress: request.ip,
-          userAgent: request.headers['user-agent'] ?? null,
         });
       }
 
@@ -1307,15 +1293,12 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           .where(eq(schema.procedureSteps.id, id));
       }
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_step.reordered',
         targetType: 'document',
         targetId: ctx.doc.id,
         payload: { count: request.body.orderedIds.length },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return { ok: true, count: request.body.orderedIds.length };
@@ -1463,15 +1446,12 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         .returning();
       if (!row) return reply.internalServerError('Failed to create section.');
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_section.created',
         targetType: 'procedure_section',
         targetId: row.id,
         payload: { documentId: row.documentId, title: row.title },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       const categoriesById = await loadSectionCategoryMap(db, [row]);
@@ -1554,15 +1534,12 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         .returning();
       if (!updated) return reply.internalServerError('Update failed.');
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_section.updated',
         targetType: 'procedure_section',
         targetId: updated.id,
         payload: { fields: Object.keys(b) },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       const categoriesById = await loadSectionCategoryMap(db, [updated]);
@@ -1598,15 +1575,12 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
         .delete(schema.procedureSections)
         .where(eq(schema.procedureSections.id, section.id));
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_section.deleted',
         targetType: 'procedure_section',
         targetId: section.id,
         payload: { documentId: section.documentId, title: section.title },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return { ok: true };
@@ -1656,15 +1630,12 @@ export async function registerAdminProcedureSteps(app: FastifyInstance) {
           .where(eq(schema.procedureSections.id, id));
       }
 
-      await db.insert(schema.auditEvents).values({
+      await recordAudit(db, request, {
         organizationId: ctx.ownerOrganizationId,
-        actorUserId: auth.userId,
         eventType: 'procedure_section.reordered',
         targetType: 'document',
         targetId: ctx.doc.id,
         payload: { count: request.body.orderedIds.length },
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'] ?? null,
       });
 
       return { ok: true, count: request.body.orderedIds.length };
