@@ -15,6 +15,7 @@ import { UserMenu } from '@/components/user-menu';
 import { requireOrgAccess } from '@/lib/org-access';
 import type { ReactNode } from 'react';
 import { OrgWorkspaceContextProvider } from './workspace-context';
+import { WorkspaceFallback } from './workspace-fallback';
 
 export default async function OrgLayout({
   params,
@@ -24,7 +25,20 @@ export default async function OrgLayout({
   children: ReactNode;
 }) {
   const { id } = await params;
-  const { summary } = await requireOrgAccess(id);
+  const result = await requireOrgAccess(id);
+
+  // The API was briefly unreachable from this server (transient Vercel→Fly
+  // network blip). Hand off to a client-side shell that loads the workspace
+  // from the browser instead of crashing the page with a 500.
+  if (result.status === 'unreachable') {
+    return (
+      <WorkspaceFallback orgId={id} userMenu={<UserMenu />}>
+        {children}
+      </WorkspaceFallback>
+    );
+  }
+
+  const { summary } = result;
   const org = summary.organization;
 
   return (

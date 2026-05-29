@@ -1,6 +1,16 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
+import { setDefaultResultOrder } from 'node:dns';
 import { SCAN_COOKIE_NAME } from '@/lib/scan-session';
+
+// Prefer IPv4 for upstream lookups. The Vercel→Fly IPv6 path has been observed
+// to intermittently black-hole (connect timeouts), which would strand every
+// technician API call routed through this proxy. IPv6-only hosts still resolve.
+try {
+  setDefaultResultOrder('ipv4first');
+} catch {
+  // Runtime without the API (e.g. edge) — ignore.
+}
 
 // Catch-all proxy from the PWA to the upstream Fastify API. The browser
 // can't read the HttpOnly scan cookie (by design), and cross-origin cookie

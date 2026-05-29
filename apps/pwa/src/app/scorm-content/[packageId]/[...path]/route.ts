@@ -1,6 +1,15 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
+import { setDefaultResultOrder } from 'node:dns';
 import { SCAN_COOKIE_NAME } from '@/lib/scan-session';
+
+// Prefer IPv4 for upstream lookups — the Vercel→Fly IPv6 path has been observed
+// to intermittently black-hole (connect timeouts). IPv6-only hosts still resolve.
+try {
+  setDefaultResultOrder('ipv4first');
+} catch {
+  // Ignore on runtimes without node:dns.
+}
 
 // Same-origin proxy for SCORM package files.
 //
