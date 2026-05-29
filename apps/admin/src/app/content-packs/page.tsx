@@ -242,6 +242,7 @@ export default function ContentPacksPage() {
       >
         <NewPackForm
           models={modelsForPicker}
+          packs={rows ?? []}
           continueOrg={continueOrg}
           onCreated={async (continueSetup, packId) => {
             setOpen(false);
@@ -340,16 +341,19 @@ function PackCard({ pack }: { pack: AdminContentPack }) {
 
 function NewPackForm({
   models,
+  packs,
   continueOrg,
   onCreated,
 }: {
   models: AdminAssetModel[];
+  packs: AdminContentPack[];
   continueOrg: AdminOrganization | null;
   onCreated: (continueSetup: boolean, packId?: string) => Promise<void>;
 }) {
   const [assetModelId, setAssetModelId] = useState(models[0]?.id ?? '');
   const [layerType, setLayerType] =
     useState<'base' | 'dealer_overlay' | 'site_overlay'>('base');
+  const [basePackId, setBasePackId] = useState('');
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [nameEdited, setNameEdited] = useState(false);
@@ -360,6 +364,34 @@ function NewPackForm({
   const toast = useToast();
 
   const selectedModel = models.find((m) => m.id === assetModelId);
+  const isOverlay = layerType !== 'base';
+
+  // An overlay layers onto an authored base pack for the SAME asset model.
+  // Field-capture packs and other overlays are not valid targets.
+  const basePackOptions = useMemo(
+    () =>
+      packs.filter(
+        (p) =>
+          p.layerType === 'base' &&
+          p.kind === 'authored' &&
+          p.assetModel.id === assetModelId,
+      ),
+    [packs, assetModelId],
+  );
+
+  // Keep basePackId valid as the layer/model change: clear it for base packs,
+  // and for overlays default to the first available base (or clear if the
+  // current selection no longer belongs to this model).
+  useEffect(() => {
+    if (!isOverlay) {
+      setBasePackId('');
+      return;
+    }
+    setBasePackId((current) => {
+      if (current && basePackOptions.some((p) => p.id === current)) return current;
+      return basePackOptions[0]?.id ?? '';
+    });
+  }, [isOverlay, basePackOptions]);
 
   // Auto-fill name from asset model + layer until the user edits either field.
   // The slug follows from the name unless the user has edited it directly.
@@ -394,6 +426,10 @@ function NewPackForm({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    if (isOverlay && !basePackId) {
+      setError('Pick a base pack for this overlay to layer onto.');
+      return;
+    }
     setSubmitting(true);
     try {
       const result = await createContentPack({
@@ -401,6 +437,7 @@ function NewPackForm({
         name: name.trim(),
         slug: slug.trim(),
         layerType,
+        ...(isOverlay ? { basePackId } : {}),
       });
       toast.success(`${name.trim()} created`, 'Draft v1.0.0 is ready for authoring.');
       await onCreated(continueAfter, result.pack.id);
@@ -454,6 +491,28 @@ function NewPackForm({
           <option value="site_overlay">Site overlay</option>
         </Select>
       </Field>
+      {isOverlay &&
+        (basePackOptions.length > 0 ? (
+          <Field label="Base pack" required>
+            <Select
+              value={basePackId}
+              onChange={(e) => setBasePackId(e.target.value)}
+              required
+            >
+              {basePackOptions.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : (
+          <p className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
+            This asset model has no published-or-draft <strong>Base (OEM)</strong> pack
+            yet. An overlay must layer onto a base pack — create the base pack first, then
+            come back to add this overlay.
+          </p>
+        ))}
       <p className="rounded border border-line-subtle bg-surface-inset p-3 text-xs text-ink-secondary">
         A draft v1.0.0 will be created alongside the pack. Add documents to the draft,
         then publish when ready.
@@ -462,7 +521,7 @@ function NewPackForm({
         {continueOrg && (
           <SecondaryButton
             type="submit"
-            disabled={submitting}
+            disabled={submitting || (isOverlay && !basePackId)}
             onClick={() => setContinueAfter(true)}
           >
             {submitting && continueAfter ? 'Saving…' : 'Save & continue setup'}
@@ -470,7 +529,7 @@ function NewPackForm({
         )}
         <PrimaryButton
           type="submit"
-          disabled={submitting}
+          disabled={submitting || (isOverlay && !basePackId)}
           onClick={() => setContinueAfter(false)}
         >
           {submitting && !continueAfter
