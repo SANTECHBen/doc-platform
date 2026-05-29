@@ -1,6 +1,19 @@
 import { z } from 'zod';
 import { UuidSchema } from './ids';
 
+// Engineering specs lifted off OEM drawings (Conveyor / Length / Flow rate /
+// Speed). Stored as free-form strings rather than typed quantities — drawings
+// use mixed unit conventions (10', 175 FPM, 142,884 LBS/HR) and admins type
+// them as printed. Empty strings are normalized to absent on read.
+export const AssetModelSpecsSchema = z.object({
+  conveyor: z.string().nullable().optional(),
+  length: z.string().nullable().optional(),
+  flowRate: z.string().nullable().optional(),
+  speed: z.string().nullable().optional(),
+});
+export type AssetModelSpecs = z.infer<typeof AssetModelSpecsSchema>;
+export const ASSET_MODEL_SPEC_KEYS = ['conveyor', 'length', 'flowRate', 'speed'] as const;
+
 // Shape returned by GET /assets/resolve/:qrCode — the contextual hub payload the
 // PWA renders when a QR scan lands.
 export const AssetHubPayloadSchema = z.object({
@@ -12,6 +25,9 @@ export const AssetHubPayloadSchema = z.object({
     // over the asset model's canonical image. null = fall back to
     // assetModel.imageUrl.
     imageUrl: z.string().nullable().optional().default(null),
+    // Per-install location (e.g. "Columns: B-C/23.5-23" lifted from the
+    // facility drawing). Stored in assetInstances.metadata.location.
+    location: z.string().nullable().optional().default(null),
   }),
   assetModel: z.object({
     id: UuidSchema,
@@ -20,6 +36,7 @@ export const AssetHubPayloadSchema = z.object({
     category: z.string(),
     description: z.string().nullable(),
     imageUrl: z.string().nullable(),
+    specifications: AssetModelSpecsSchema.optional().default({}),
   }),
   site: z.object({
     id: UuidSchema,

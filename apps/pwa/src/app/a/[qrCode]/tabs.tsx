@@ -761,6 +761,12 @@ function formatInstalledAt(iso: string | null | undefined): string {
 }
 
 function OverviewSpecs({ hub, openIssueCount }: { hub: AssetHubPayload; openIssueCount: number }) {
+  // Engineering specs lifted from the OEM drawing. Authored on the
+  // asset model in the admin (Edit drawer → Drawing specs). Each line
+  // only renders if a value is present, so models without drawing
+  // data still look clean.
+  const specs = hub.assetModel.specifications ?? {};
+  const location = hub.assetInstance.location;
   return (
     <div className="spec-grid">
       <SpecField label="Model code" value={hub.assetModel.modelCode} mono />
@@ -774,6 +780,11 @@ function OverviewSpecs({ hub, openIssueCount }: { hub: AssetHubPayload; openIssu
         tone={openIssueCount > 0 ? 'warn' : 'ok'}
       />
       <SpecField label="Installed" value={formatInstalledAt(hub.assetInstance.installedAt)} />
+      {specs.conveyor && <SpecField label="Conveyor" value={specs.conveyor} />}
+      {specs.length && <SpecField label="Length" value={specs.length} mono />}
+      {specs.flowRate && <SpecField label="Flow rate" value={specs.flowRate} mono />}
+      {specs.speed && <SpecField label="Speed" value={specs.speed} mono />}
+      {location && <SpecField label="Location" value={location} mono />}
     </div>
   );
 }

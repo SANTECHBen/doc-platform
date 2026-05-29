@@ -6,7 +6,12 @@ import {
   PM_PLAN_FREQUENCY_DAYS,
   type PmPlanFrequency,
 } from '@platform/db';
-import { AssetHubPayloadSchema, QrCodeStringSchema } from '@platform/shared';
+import {
+  AssetHubPayloadSchema,
+  ASSET_MODEL_SPEC_KEYS,
+  QrCodeStringSchema,
+  type AssetModelSpecs,
+} from '@platform/shared';
 import { computeScheduleStatus, calendarDayDiff } from '../lib/pm-status';
 import { recordAudit } from '../lib/audit.js';
 import { requireAuthOrScan } from '../middleware/scan-session';
@@ -292,12 +297,28 @@ export async function registerAssetRoutes(app: FastifyInstance) {
         ? storage.publicUrl(instance.imageStorageKey)
         : null;
 
+      // Project the model's spec jsonb down to the four typed keys the
+      // PWA renders. Anything else stored there (legacy, future-proofing)
+      // is intentionally dropped so the hub payload schema stays tight.
+      const rawSpecs = (instance.model.specifications ?? {}) as Record<string, unknown>;
+      const specifications: AssetModelSpecs = {};
+      for (const key of ASSET_MODEL_SPEC_KEYS) {
+        const v = rawSpecs[key];
+        if (typeof v === 'string' && v.trim().length > 0) specifications[key] = v;
+      }
+      const rawMeta = (instance.metadata ?? {}) as Record<string, unknown>;
+      const location =
+        typeof rawMeta.location === 'string' && rawMeta.location.trim().length > 0
+          ? rawMeta.location
+          : null;
+
       const payload = AssetHubPayloadSchema.parse({
         assetInstance: {
           id: instance.id,
           serialNumber: instance.serialNumber,
           installedAt: instance.installedAt?.toISOString() ?? null,
           imageUrl: instanceImageUrl,
+          location,
         },
         assetModel: {
           id: instance.model.id,
@@ -306,6 +327,7 @@ export async function registerAssetRoutes(app: FastifyInstance) {
           category: instance.model.category,
           description: instance.model.description,
           imageUrl: modelImageUrl,
+          specifications,
         },
         site: {
           id: instance.site.id,

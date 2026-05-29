@@ -45,6 +45,7 @@ import {
   pinLatestVersion,
   removeBomEntry,
   unpinInstance,
+  updateAssetInstance,
   updateAssetInstanceImage,
   updateAssetModel,
   uploadFile,
@@ -132,6 +133,12 @@ export default function AssetModelDetail({
   const [editDisplayName, setEditDisplayName] = useState('');
   const [editCategory, setEditCategory] = useState('');
   const [editDescription, setEditDescription] = useState('');
+  // Drawing specs — free-form strings keyed off the OEM drawing.
+  // Empty string on save clears that key from the model's specifications jsonb.
+  const [editConveyor, setEditConveyor] = useState('');
+  const [editLength, setEditLength] = useState('');
+  const [editFlowRate, setEditFlowRate] = useState('');
+  const [editSpeed, setEditSpeed] = useState('');
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   // Duplicate drawer state. Pre-populated from the current model so the
@@ -155,7 +162,39 @@ export default function AssetModelDetail({
     AdminContentPackDetail[] | null
   >(null);
   const [pinBusy, setPinBusy] = useState(false);
+  // Per-instance Edit drawer — currently just the Location field
+  // (e.g. "Columns: B-C/23.5-23"), stored on assetInstances.metadata.location.
+  const [editInstance, setEditInstance] = useState<ModelInstance | null>(null);
+  const [editInstanceLocation, setEditInstanceLocation] = useState('');
+  const [editInstanceSaving, setEditInstanceSaving] = useState(false);
+  const [editInstanceError, setEditInstanceError] = useState<string | null>(null);
   const toast = useToast();
+
+  function openInstanceEditDrawer(inst: ModelInstance) {
+    setEditInstance(inst);
+    setEditInstanceLocation(inst.location ?? '');
+    setEditInstanceError(null);
+  }
+
+  async function submitInstanceEdit() {
+    if (!editInstance) return;
+    setEditInstanceSaving(true);
+    setEditInstanceError(null);
+    try {
+      await updateAssetInstance(editInstance.id, {
+        // Send the trimmed string (or empty to clear). Server treats
+        // empty/null identically as "remove the location key".
+        location: editInstanceLocation.trim(),
+      });
+      setEditInstance(null);
+      await refresh();
+      toast.success('Instance updated');
+    } catch (e) {
+      setEditInstanceError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setEditInstanceSaving(false);
+    }
+  }
 
   async function openPinPicker(instanceId: string) {
     setPinPickerForInstance(instanceId);
@@ -181,6 +220,10 @@ export default function AssetModelDetail({
     setEditDisplayName(model.displayName);
     setEditCategory(model.category);
     setEditDescription(model.description ?? '');
+    setEditConveyor(model.specifications?.conveyor ?? '');
+    setEditLength(model.specifications?.length ?? '');
+    setEditFlowRate(model.specifications?.flowRate ?? '');
+    setEditSpeed(model.specifications?.speed ?? '');
     setEditError(null);
     setEditOpen(true);
   }
@@ -199,6 +242,15 @@ export default function AssetModelDetail({
         displayName: editDisplayName.trim(),
         category: editCategory.trim(),
         description: editDescription.trim() || null,
+        // Trim and send all four every time — empty string clears the
+        // key on the server, so an admin can wipe a value by clearing
+        // the input and saving.
+        specifications: {
+          conveyor: editConveyor.trim(),
+          length: editLength.trim(),
+          flowRate: editFlowRate.trim(),
+          speed: editSpeed.trim(),
+        },
       });
       setEditOpen(false);
       await refresh();
@@ -439,6 +491,7 @@ export default function AssetModelDetail({
                 <th className="px-4 py-2">Serial</th>
                 <th className="px-4 py-2">Site</th>
                 <th className="px-4 py-2">Customer</th>
+                <th className="px-4 py-2">Location</th>
                 <th className="px-4 py-2">Pinned version</th>
                 <th className="px-4 py-2">Installed</th>
                 <th className="px-4 py-2"></th>
@@ -453,6 +506,7 @@ export default function AssetModelDetail({
                   <td className="px-4 py-3 font-mono text-xs">{i.serialNumber}</td>
                   <td className="px-4 py-3 text-ink-secondary">{i.site.name}</td>
                   <td className="px-4 py-3 text-ink-secondary">{i.site.organization}</td>
+                  <td className="px-4 py-3 text-ink-secondary">{i.location ?? '—'}</td>
                   <td className="px-4 py-3 text-ink-secondary">
                     {i.pinnedVersion
                       ? `v${i.pinnedVersion.label ?? i.pinnedVersion.number}`
@@ -465,6 +519,14 @@ export default function AssetModelDetail({
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex justify-end gap-1">
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => openInstanceEditDrawer(i)}
+                        title="Edit per-install fields (location, etc.)"
+                      >
+                        Edit
+                      </button>
                       <button
                         type="button"
                         className="btn btn-secondary btn-sm"
@@ -578,12 +640,91 @@ export default function AssetModelDetail({
               rows={3}
             />
           </Field>
+          {/* Drawing specs — these are the values printed on the OEM's
+              engineering drawing for this model SKU. Free-form strings,
+              typed as-printed (e.g. 61.5" CENTERING, 10', 175 FPM). The
+              PWA renders them in the Overview Details disclosure when
+              present. */}
+          <div className="mt-2 rounded border border-line-subtle bg-surface-inset p-3">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-tertiary">
+              Drawing specs
+            </p>
+            <p className="mb-3 text-xs text-ink-secondary">
+              Pulled straight off the OEM drawing. Leave blank to skip.
+            </p>
+            <div className="flex flex-col gap-3">
+              <Field label="Conveyor" hint='e.g. 61.5" CENTERING'>
+                <TextInput
+                  value={editConveyor}
+                  onChange={(e) => setEditConveyor(e.target.value)}
+                  placeholder='61.5" CENTERING'
+                />
+              </Field>
+              <Field label="Length" hint="e.g. 10'">
+                <TextInput
+                  value={editLength}
+                  onChange={(e) => setEditLength(e.target.value)}
+                  placeholder="10'"
+                />
+              </Field>
+              <Field label="Flow rate" hint="e.g. 142,884 LBS / HR">
+                <TextInput
+                  value={editFlowRate}
+                  onChange={(e) => setEditFlowRate(e.target.value)}
+                  placeholder="142,884 LBS / HR"
+                />
+              </Field>
+              <Field label="Speed" hint="e.g. 175 FPM">
+                <TextInput
+                  value={editSpeed}
+                  onChange={(e) => setEditSpeed(e.target.value)}
+                  placeholder="175 FPM"
+                />
+              </Field>
+            </div>
+          </div>
           <div className="flex justify-end gap-2 pt-2">
             <SecondaryButton onClick={() => setEditOpen(false)} disabled={editSaving}>
               Cancel
             </SecondaryButton>
             <PrimaryButton onClick={submitEdit} disabled={editSaving}>
               {editSaving ? 'Saving…' : 'Save changes'}
+            </PrimaryButton>
+          </div>
+        </div>
+      </Drawer>
+
+      <Drawer
+        title={editInstance ? `Edit ${editInstance.serialNumber}` : 'Edit instance'}
+        open={editInstance !== null}
+        onClose={() => setEditInstance(null)}
+      >
+        <div className="flex flex-col gap-3">
+          {editInstanceError && <ErrorBanner error={editInstanceError} />}
+          <p className="text-sm text-ink-secondary">
+            Per-install fields for this specific serial-numbered unit.
+            Model-level specs (Conveyor, Length, Flow rate, Speed) live on
+            the asset model itself — edit them from the model header above.
+          </p>
+          <Field
+            label="Location"
+            hint='From the facility drawing — e.g. "Columns: B-C/23.5-23".'
+          >
+            <TextInput
+              value={editInstanceLocation}
+              onChange={(e) => setEditInstanceLocation(e.target.value)}
+              placeholder="Columns: B-C/23.5-23"
+            />
+          </Field>
+          <div className="flex justify-end gap-2 pt-2">
+            <SecondaryButton
+              onClick={() => setEditInstance(null)}
+              disabled={editInstanceSaving}
+            >
+              Cancel
+            </SecondaryButton>
+            <PrimaryButton onClick={submitInstanceEdit} disabled={editInstanceSaving}>
+              {editInstanceSaving ? 'Saving…' : 'Save changes'}
             </PrimaryButton>
           </div>
         </div>

@@ -631,6 +631,12 @@ export async function registerAdminMutations(app: FastifyInstance) {
       displayName?: string;
       category?: string;
       description?: string | null;
+      specifications?: {
+        conveyor?: string | null;
+        length?: string | null;
+        flowRate?: string | null;
+        speed?: string | null;
+      };
     };
   }>(
     '/admin/asset-models/:id',
@@ -642,6 +648,14 @@ export async function registerAdminMutations(app: FastifyInstance) {
           displayName: z.string().min(1).max(200).optional(),
           category: z.string().min(1).max(80).optional(),
           description: z.string().max(4000).nullable().optional(),
+          specifications: z
+            .object({
+              conveyor: z.string().max(200).nullable().optional(),
+              length: z.string().max(80).nullable().optional(),
+              flowRate: z.string().max(120).nullable().optional(),
+              speed: z.string().max(80).nullable().optional(),
+            })
+            .optional(),
         }),
       },
     },
@@ -660,6 +674,22 @@ export async function registerAdminMutations(app: FastifyInstance) {
       if (request.body.displayName !== undefined) patch.displayName = request.body.displayName;
       if (request.body.category !== undefined) patch.category = request.body.category;
       if (request.body.description !== undefined) patch.description = request.body.description;
+      if (request.body.specifications !== undefined) {
+        // Merge into existing specs jsonb so partial updates don't blow
+        // away any other keys that may already be stored there (e.g. a
+        // future field added before this client was reloaded).
+        const current = (model.specifications ?? {}) as Record<string, unknown>;
+        const next: Record<string, unknown> = { ...current };
+        for (const [k, v] of Object.entries(request.body.specifications)) {
+          // Empty string and null both mean "clear this field".
+          if (v === null || (typeof v === 'string' && v.trim().length === 0)) {
+            delete next[k];
+          } else {
+            next[k] = typeof v === 'string' ? v.trim() : v;
+          }
+        }
+        patch.specifications = next;
+      }
       // Bump updatedAt so admins can see when a model was last touched.
       patch.updatedAt = new Date();
 
@@ -849,14 +879,18 @@ export async function registerAdminMutations(app: FastifyInstance) {
 
   app.patch<{
     Params: { id: string };
-    Body: { pinnedContentPackVersionId: string | null };
+    Body: {
+      pinnedContentPackVersionId?: string | null;
+      location?: string | null;
+    };
   }>(
     '/admin/asset-instances/:id',
     {
       schema: {
         params: z.object({ id: UuidSchema }),
         body: z.object({
-          pinnedContentPackVersionId: UuidSchema.nullable(),
+          pinnedContentPackVersionId: UuidSchema.nullable().optional(),
+          location: z.string().max(200).nullable().optional(),
         }),
       },
     },
@@ -870,9 +904,30 @@ export async function registerAdminMutations(app: FastifyInstance) {
       });
       if (!instance) return reply.notFound();
       requireOrgInScope(scope, instance.site.organizationId);
+
+      const patch: Partial<typeof schema.assetInstances.$inferInsert> = {
+        updatedAt: new Date(),
+      };
+      if (request.body.pinnedContentPackVersionId !== undefined) {
+        patch.pinnedContentPackVersionId = request.body.pinnedContentPackVersionId;
+      }
+      if (request.body.location !== undefined) {
+        // location lives inside the metadata jsonb; merge so we don't
+        // clobber any sibling keys stored there.
+        const current = (instance.metadata ?? {}) as Record<string, unknown>;
+        const next: Record<string, unknown> = { ...current };
+        const v = request.body.location;
+        if (v === null || (typeof v === 'string' && v.trim().length === 0)) {
+          delete next.location;
+        } else {
+          next.location = v.trim();
+        }
+        patch.metadata = next;
+      }
+
       const [updated] = await db
         .update(schema.assetInstances)
-        .set({ pinnedContentPackVersionId: request.body.pinnedContentPackVersionId })
+        .set(patch)
         .where(eq(schema.assetInstances.id, request.params.id))
         .returning();
       if (!updated) return reply.notFound();
@@ -985,25 +1040,33 @@ export async function registerAdminMutations(app: FastifyInstance) {
       const visibleRows = scope.all
         ? rows
         : rows.filter((r) => scope.orgIds.includes(r.site.organization.id));
-      return visibleRows.map((r) => ({
-        id: r.id,
-        serialNumber: r.serialNumber,
-        installedAt: r.installedAt,
-        imageStorageKey: r.imageStorageKey,
-        imageUrl: r.imageStorageKey ? storage.publicUrl(r.imageStorageKey) : null,
-        site: {
-          id: r.site.id,
-          name: r.site.name,
-          organization: r.site.organization.name,
-        },
-        pinnedVersion: r.pinnedContentPackVersion
-          ? {
-              id: r.pinnedContentPackVersion.id,
-              number: r.pinnedContentPackVersion.versionNumber,
-              label: r.pinnedContentPackVersion.versionLabel,
-            }
-          : null,
-      }));
+      return visibleRows.map((r) => {
+        const meta = (r.metadata ?? {}) as Record<string, unknown>;
+        const location =
+          typeof meta.location === 'string' && meta.location.trim().length > 0
+            ? meta.location
+            : null;
+        return {
+          id: r.id,
+          serialNumber: r.serialNumber,
+          installedAt: r.installedAt,
+          imageStorageKey: r.imageStorageKey,
+          imageUrl: r.imageStorageKey ? storage.publicUrl(r.imageStorageKey) : null,
+          location,
+          site: {
+            id: r.site.id,
+            name: r.site.name,
+            organization: r.site.organization.name,
+          },
+          pinnedVersion: r.pinnedContentPackVersion
+            ? {
+                id: r.pinnedContentPackVersion.id,
+                number: r.pinnedContentPackVersion.versionNumber,
+                label: r.pinnedContentPackVersion.versionLabel,
+              }
+            : null,
+        };
+      });
     },
   );
 
@@ -3401,7 +3464,7 @@ export async function registerAdminListings(app: FastifyInstance) {
     const rows = (await db.execute(
       scope.all
         ? sql`SELECT m.id, m.model_code, m.display_name, m.category, m.description,
-                 m.image_storage_key,
+                 m.image_storage_key, m.specifications,
                  o.id AS owner_id, o.name AS owner_name,
                  (SELECT count(*) FROM asset_instances WHERE asset_model_id = m.id)::int AS instance_count,
                  (SELECT count(*) FROM content_packs WHERE asset_model_id = m.id)::int AS pack_count
@@ -3409,7 +3472,7 @@ export async function registerAdminListings(app: FastifyInstance) {
           JOIN organizations o ON o.id = m.owner_organization_id
           ORDER BY m.display_name`
         : sql`SELECT m.id, m.model_code, m.display_name, m.category, m.description,
-                 m.image_storage_key,
+                 m.image_storage_key, m.specifications,
                  o.id AS owner_id, o.name AS owner_name,
                  (SELECT count(*) FROM asset_instances WHERE asset_model_id = m.id)::int AS instance_count,
                  (SELECT count(*) FROM content_packs WHERE asset_model_id = m.id)::int AS pack_count
@@ -3424,23 +3487,35 @@ export async function registerAdminListings(app: FastifyInstance) {
       category: string;
       description: string | null;
       image_storage_key: string | null;
+      specifications: Record<string, unknown> | null;
       owner_id: string;
       owner_name: string;
       instance_count: number;
       pack_count: number;
     }>;
-    return rows.map((r) => ({
-      id: r.id,
-      modelCode: r.model_code,
-      displayName: r.display_name,
-      category: r.category,
-      description: r.description,
-      imageStorageKey: r.image_storage_key,
-      imageUrl: r.image_storage_key ? storage.publicUrl(r.image_storage_key) : null,
-      owner: { id: r.owner_id, name: r.owner_name },
-      instanceCount: r.instance_count,
-      packCount: r.pack_count,
-    }));
+    return rows.map((r) => {
+      const s = (r.specifications ?? {}) as Record<string, unknown>;
+      const pick = (k: string) =>
+        typeof s[k] === 'string' && (s[k] as string).trim().length > 0 ? (s[k] as string) : null;
+      return {
+        id: r.id,
+        modelCode: r.model_code,
+        displayName: r.display_name,
+        category: r.category,
+        description: r.description,
+        imageStorageKey: r.image_storage_key,
+        imageUrl: r.image_storage_key ? storage.publicUrl(r.image_storage_key) : null,
+        specifications: {
+          conveyor: pick('conveyor'),
+          length: pick('length'),
+          flowRate: pick('flowRate'),
+          speed: pick('speed'),
+        },
+        owner: { id: r.owner_id, name: r.owner_name },
+        instanceCount: r.instance_count,
+        packCount: r.pack_count,
+      };
+    });
   });
 
   // Content packs with latest version info.

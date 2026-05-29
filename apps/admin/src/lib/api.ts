@@ -329,6 +329,13 @@ export async function getMuxPlaybackAccess(playbackId: string): Promise<{
   return { sourceUrl, posterUrlFor, policy: videoBody.policy };
 }
 
+export interface AdminAssetModelSpecs {
+  conveyor: string | null;
+  length: string | null;
+  flowRate: string | null;
+  speed: string | null;
+}
+
 export interface AdminAssetModel {
   id: string;
   modelCode: string;
@@ -337,6 +344,7 @@ export interface AdminAssetModel {
   description: string | null;
   imageStorageKey: string | null;
   imageUrl: string | null;
+  specifications: AdminAssetModelSpecs;
   owner: { id: string; name: string };
   instanceCount: number;
   packCount: number;
@@ -362,6 +370,14 @@ export interface AssetModelPatch {
   displayName?: string;
   category?: string;
   description?: string | null;
+  // Each key: string to set, empty string or null to clear that spec.
+  // Omitted keys are left untouched on the server.
+  specifications?: {
+    conveyor?: string | null;
+    length?: string | null;
+    flowRate?: string | null;
+    speed?: string | null;
+  };
 }
 
 /** Edit the core fields of an asset model. Owner org cannot be changed. */
@@ -1480,8 +1496,31 @@ export interface ModelInstance {
   installedAt: string | null;
   imageStorageKey: string | null;
   imageUrl: string | null;
+  /** Per-install location (e.g. "Columns: B-C/23.5-23"). Lives in metadata.location. */
+  location: string | null;
   site: { id: string; name: string; organization: string };
   pinnedVersion: { id: string; number: number; label: string | null } | null;
+}
+
+export interface AssetInstancePatch {
+  pinnedContentPackVersionId?: string | null;
+  /** Empty string or null clears the location; omitted = unchanged. */
+  location?: string | null;
+}
+
+export async function updateAssetInstance(
+  id: string,
+  patch: AssetInstancePatch,
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/admin/asset-instances/${encodeURIComponent(id)}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(patch),
+    },
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 }
 
 export async function updateAssetInstanceImage(

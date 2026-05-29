@@ -2,12 +2,24 @@ import { z } from 'zod';
 
 const UuidSchema = z.string().uuid();
 
+// Mirrors AssetModelSpecsSchema in @platform/shared. Keep in sync.
+const AssetModelSpecsSchema = z.object({
+  conveyor: z.string().nullable().optional(),
+  length: z.string().nullable().optional(),
+  flowRate: z.string().nullable().optional(),
+  speed: z.string().nullable().optional(),
+});
+
 export const AssetHubPayloadSchema = z.object({
   assetInstance: z.object({
     id: UuidSchema,
     serialNumber: z.string(),
     installedAt: z.string().datetime().nullable(),
     imageUrl: z.string().nullable().optional().default(null),
+    // Per-install location (e.g. "Columns: B-C/23.5-23"). Stored on
+    // assetInstances.metadata.location and authored from the admin
+    // instance Edit drawer.
+    location: z.string().nullable().optional().default(null),
   }),
   assetModel: z.object({
     id: UuidSchema,
@@ -16,6 +28,9 @@ export const AssetHubPayloadSchema = z.object({
     category: z.string(),
     description: z.string().nullable(),
     imageUrl: z.string().nullable(),
+    // Engineering specs lifted off the OEM drawing — model SKU level.
+    // Authored from the admin asset model Edit drawer.
+    specifications: AssetModelSpecsSchema.optional().default({}),
   }),
   site: z.object({
     id: UuidSchema,
