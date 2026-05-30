@@ -8,6 +8,12 @@ import { useEffect, useRef, useState } from 'react';
 //
 // The hub content underneath is fully mounted while the splash runs. The
 // overlay provides the brand transition and then gets out of the way.
+//
+// Design intent: a quiet, cinematic reveal — no clipped rectangle, no
+// scan-line clutter. The mark is rendered as inline SVG against a soft
+// translucent surface, with each part of the logo (gear, circuit traces,
+// connector dots, wordmark) animated in sequence and then a brief breath
+// before the overlay fades away.
 export function SplashIntro() {
   const [phase, setPhase] = useState<'enter' | 'hold' | 'exit' | 'done'>('enter');
   const startedRef = useRef(false);
@@ -17,8 +23,8 @@ export function SplashIntro() {
     startedRef.current = true;
 
     // Strip ?intro=1 from the URL immediately so a refresh mid-animation
-    // doesn't trigger the splash again. Use replaceState so this doesn't
-    // add a history entry the back button has to step through.
+    // doesn't trigger the splash again, and so a shared link that happens
+    // to carry the flag doesn't replay it for someone who didn't scan.
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
       if (url.searchParams.has('intro')) {
@@ -31,17 +37,23 @@ export function SplashIntro() {
       }
     }
 
-    // Stagger the phases. enter gives the browser one paint, hold runs
-    // the logo reveal and circuit pulses, exit fades the overlay, then
-    // done unmounts it.
-    const t1 = window.setTimeout(() => setPhase('hold'), 90);
-    const t2 = window.setTimeout(() => setPhase('exit'), 2550);
-    const t3 = window.setTimeout(() => setPhase('done'), 3150);
+    // Respect prefers-reduced-motion — skip the show, just hand off.
+    const reducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
-    // Play a soft two-note chime via WebAudio. No audio asset to bundle.
-    // Wrapped in try/catch because autoplay policy may block on some
-    // browsers if the QR-tap gesture didn't propagate; the visual
-    // intro still runs in that case.
+    if (reducedMotion) {
+      const t = window.setTimeout(() => setPhase('done'), 320);
+      return () => window.clearTimeout(t);
+    }
+
+    // Phase timing. `enter` gives the browser one paint so the initial
+    // state (opacity 0, scaled down) is committed before `hold` flips
+    // the targets and the transitions run.
+    const t1 = window.setTimeout(() => setPhase('hold'), 60);
+    const t2 = window.setTimeout(() => setPhase('exit'), 2200);
+    const t3 = window.setTimeout(() => setPhase('done'), 2820);
+
     void playChime().catch(() => {
       /* autoplay blocked — silent intro is fine */
     });
@@ -56,76 +68,253 @@ export function SplashIntro() {
   if (phase === 'done') return null;
 
   return (
-    <div className="splash-intro" data-phase={phase} role="presentation" aria-hidden="true">
-      <div className="splash-intro-stage">
-        <span className="splash-intro-scan" aria-hidden="true" />
-        <div className="splash-intro-logo-wrap">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/field-support-intro.png"
-            alt=""
-            className="splash-intro-logo"
-            draggable={false}
-          />
-          <span className="splash-intro-red-wake" aria-hidden="true" />
-          <span className="splash-intro-shine" aria-hidden="true" />
-          <span className="splash-intro-node splash-intro-node-a" aria-hidden="true" />
-          <span className="splash-intro-node splash-intro-node-b" aria-hidden="true" />
-          <span className="splash-intro-node splash-intro-node-c" aria-hidden="true" />
-        </div>
-        <span className="splash-intro-underline" aria-hidden="true" />
+    <div className="fs-splash" data-phase={phase} role="presentation" aria-hidden="true">
+      <div className="fs-splash-vignette" aria-hidden="true" />
+      <div className="fs-splash-stage">
+        <FieldSupportMarkSVG />
       </div>
     </div>
   );
 }
 
-// Synthesized chime — a soft two-note bell (perfect-fifth interval,
-// E5 → B5) with a quick decay envelope. Generated with WebAudio so we
-// don't have to ship an audio file, and so the user can't accidentally
-// disable it via missing-asset 404.
+// Inline SVG so each part can be animated individually via CSS classes.
+// viewBox matches the static field-support-logo.svg so visual proportions
+// stay identical to what the user already sees in the topbar.
+function FieldSupportMarkSVG() {
+  return (
+    <svg
+      className="fs-mark"
+      viewBox="0 0 940 240"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <defs>
+        <linearGradient id="fsBrandBlue" x1="480" x2="900" y1="86" y2="146" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#256CD3" />
+          <stop offset="1" stopColor="#1D58B2" />
+        </linearGradient>
+        <linearGradient id="fsTraceSteel" x1="80" x2="540" y1="60" y2="118" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#0E1217" />
+          <stop offset="0.58" stopColor="#4A5560" />
+          <stop offset="1" stopColor="#8892A0" />
+        </linearGradient>
+        <radialGradient id="fsGlow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#256CD3" stopOpacity="0.45" />
+          <stop offset="60%" stopColor="#256CD3" stopOpacity="0.08" />
+          <stop offset="100%" stopColor="#256CD3" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+
+      {/* Soft cyan-blue glow behind the gear. Fades up first, fades back
+          down after the wordmark has landed. */}
+      <circle className="fs-glow" cx="125" cy="118" r="135" fill="url(#fsGlow)" />
+
+      {/* Gear assembly — teeth + dark body + light face + arc highlights. */}
+      <g className="fs-gear" style={{ transformOrigin: '125px 118px' }}>
+        <g className="fs-gear-teeth" fill="#0E1217">
+          {Array.from({ length: 16 }).map((_, i) => (
+            <rect
+              key={i}
+              x="117"
+              y="18"
+              width="16"
+              height="28"
+              rx="2"
+              transform={`rotate(${i * 22.5} 125 118)`}
+            />
+          ))}
+        </g>
+        <circle cx="125" cy="118" r="70" fill="#0E1217" />
+        <circle cx="125" cy="118" r="52" fill="#F5F6F8" />
+        <path
+          d="M125 72a46 46 0 0 0-34.2 76.7"
+          fill="none"
+          stroke="#4A5560"
+          strokeWidth="8"
+          strokeLinecap="round"
+        />
+        <path
+          d="M125 86a32 32 0 0 0-24.4 53"
+          fill="none"
+          stroke="#0E1217"
+          strokeWidth="6"
+          strokeLinecap="round"
+        />
+      </g>
+
+      {/* Circuit traces — drawn left-to-right via stroke-dashoffset. The
+          three paths are individually animated and overlap so the result
+          reads as a single wiring diagram coming online. */}
+      <g
+        className="fs-traces"
+        fill="none"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path
+          className="fs-trace fs-trace-a"
+          d="M154 155h118l34-34h78l30-29h94"
+          stroke="url(#fsTraceSteel)"
+          strokeWidth="13"
+        />
+        <path
+          className="fs-trace fs-trace-b"
+          d="M158 176h130l34-31h78l29-27h94"
+          stroke="#4A5560"
+          strokeWidth="9"
+        />
+        <path
+          className="fs-trace fs-trace-c"
+          d="M207 134h68l27-25h86"
+          stroke="#0E1217"
+          strokeWidth="8"
+        />
+        <path
+          className="fs-trace fs-trace-red"
+          d="M211 134h38"
+          stroke="#B02B3D"
+          strokeWidth="7"
+        />
+        <path
+          className="fs-trace fs-trace-blue-a"
+          d="M323 145h68"
+          stroke="#256CD3"
+          strokeWidth="7"
+        />
+        <path
+          className="fs-trace fs-trace-blue-b"
+          d="M415 118h58"
+          stroke="#256CD3"
+          strokeWidth="6"
+        />
+      </g>
+
+      {/* Connector dots. Pop on sequentially after the traces finish. */}
+      <g className="fs-nodes">
+        <g className="fs-node fs-node-1">
+          <circle cx="391" cy="146" r="16" fill="#F5F6F8" />
+          <circle cx="391" cy="146" r="11.5" fill="#256CD3" />
+          <circle cx="391" cy="146" r="5.5" fill="#F5F6F8" opacity="0.92" />
+        </g>
+        <g className="fs-node fs-node-2">
+          <circle cx="473" cy="118" r="15" fill="#F5F6F8" />
+          <circle cx="473" cy="118" r="10.5" fill="#256CD3" />
+          <circle cx="473" cy="118" r="5.5" fill="#F5F6F8" opacity="0.92" />
+        </g>
+        <g className="fs-node fs-node-3">
+          <circle cx="523" cy="118" r="14" fill="#F5F6F8" />
+          <circle cx="523" cy="118" r="9.5" fill="#B02B3D" />
+          <circle cx="523" cy="118" r="4.5" fill="#F5F6F8" opacity="0.92" />
+        </g>
+      </g>
+
+      {/* Wordmark — italic Field + Support. Skew matches the static SVG.
+          Translated as a group so the rise-in keeps the kerning crisp. */}
+      <g className="fs-wordmark" transform="skewX(-10)">
+        <text
+          x="425"
+          y="194"
+          fill="#0E1217"
+          fontFamily="IBM Plex Sans, Inter, Arial, sans-serif"
+          fontSize="76"
+          fontStyle="italic"
+          fontWeight={700}
+          letterSpacing="-4"
+        >
+          Field
+        </text>
+        <text
+          x="588"
+          y="194"
+          fill="url(#fsBrandBlue)"
+          fontFamily="IBM Plex Sans, Inter, Arial, sans-serif"
+          fontSize="76"
+          fontStyle="italic"
+          fontWeight={800}
+          letterSpacing="-4.5"
+        >
+          Support
+        </text>
+      </g>
+
+      {/* Two understroke swoops, drawn last after the wordmark lands. */}
+      <g className="fs-underline">
+        <path
+          className="fs-underline-line"
+          d="M84 220c143-6 314-5 492 1 125 4 244 2 363-11"
+          fill="none"
+          stroke="#0E1217"
+          strokeWidth="4"
+          strokeLinecap="round"
+          opacity="0.65"
+        />
+        <path
+          className="fs-underline-red"
+          d="M338 232c95 6 189 9 282 6 88-3 180-10 293-23-91 16-187 27-286 32-102 5-199 0-289-15Z"
+          fill="#B02B3D"
+          opacity="0.95"
+        />
+        <path
+          className="fs-underline-blue"
+          d="M422 231c99 5 193 4 282-3 77-6 147-14 207-24-70 16-144 27-222 34-84 8-173 6-267-7Z"
+          fill="#256CD3"
+          opacity="0.3"
+        />
+      </g>
+    </svg>
+  );
+}
+
+// Subtle two-note chime. A perfect-fifth (C5 → G5) on soft sines with
+// gentle attack and long exponential decay. Played at low gain so it
+// lands as ambience, not a tap.
 async function playChime(): Promise<void> {
   if (typeof window === 'undefined') return;
   const AC: typeof AudioContext | undefined =
     window.AudioContext ??
-    (window as unknown as { webkitAudioContext?: typeof AudioContext })
-      .webkitAudioContext;
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (!AC) return;
   const ctx = new AC();
-  // iOS / strict autoplay: resume in case it created the context suspended.
   if (ctx.state === 'suspended') {
     try {
       await ctx.resume();
     } catch {
-      /* fall through — the oscillator schedule will be silent but harmless */
+      /* fall through — silent intro is fine */
     }
   }
   const now = ctx.currentTime;
   const master = ctx.createGain();
-  master.gain.value = 0.18;
+  master.gain.value = 0.12;
   master.connect(ctx.destination);
 
-  const tone = (freq: number, start: number, dur: number) => {
+  // Gentle low-pass keeps the chime warm rather than glassy.
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 2400;
+  lp.Q.value = 0.4;
+  lp.connect(master);
+
+  const tone = (freq: number, start: number, dur: number, peak: number) => {
     const osc = ctx.createOscillator();
     osc.type = 'sine';
     osc.frequency.value = freq;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0, now + start);
-    g.gain.linearRampToValueAtTime(1, now + start + 0.04);
+    g.gain.linearRampToValueAtTime(peak, now + start + 0.08);
     g.gain.exponentialRampToValueAtTime(0.0001, now + start + dur);
     osc.connect(g);
-    g.connect(master);
+    g.connect(lp);
     osc.start(now + start);
     osc.stop(now + start + dur + 0.05);
   };
 
-  // E5 → B5 (perfect fifth) — bright but not piercing. Second note
-  // overlaps the tail of the first so the two ring together briefly.
-  tone(659.25, 0.0, 1.2);
-  tone(987.77, 0.18, 1.4);
+  // C5 → G5 perfect fifth, slightly detuned higher partial for warmth.
+  tone(523.25, 0.18, 1.55, 1.0);
+  tone(783.99, 0.5, 1.7, 0.78);
+  tone(1567.98, 0.5, 1.1, 0.18);
 
-  // Auto-close the context after the chime ends so we don't leave an
-  // open AudioContext lingering on the page.
   window.setTimeout(() => {
     void ctx.close().catch(() => {});
-  }, 1800);
+  }, 2400);
 }

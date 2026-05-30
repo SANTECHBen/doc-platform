@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FieldSupport Intro Preview</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        --fs-ease: cubic-bezier(0.22, 1, 0.36, 1);
+        --fs-ease-out: cubic-bezier(0.16, 0.84, 0.28, 1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        background: #eef1f4;
+      }
+
+      .preview-controls {
+        position: fixed;
+        right: 20px;
+        bottom: 20px;
+        z-index: 10;
+        display: flex;
+        gap: 8px;
+      }
+
+      .replay-button {
+        min-height: 44px;
+        border: 1px solid rgb(20 24 32 / 0.18);
+        border-radius: 8px;
+        padding: 0 16px;
+        background: rgb(255 255 255 / 0.92);
+        color: rgb(20 24 32);
+        font: inherit;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        cursor: pointer;
+        box-shadow: 0 8px 20px rgb(20 24 32 / 0.12);
+      }
+      .replay-button:hover {
+        background: #ffffff;
+      }
+      .replay-button.muted {
+        opacity: 0.7;
+        font-weight: 500;
+      }
+
+      .fake-hub {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        padding: 60px 16px 16px;
+        color: #2b2f36;
+      }
+      .fake-hub h1 {
+        font-size: 22px;
+        margin: 0 0 8px;
+      }
+      .fake-hub p {
+        margin: 0;
+        opacity: 0.65;
+        max-width: 560px;
+      }
+
+      /* ============================================================
+         Splash CSS — kept in sync with apps/pwa/src/app/globals.css
+         so this static preview matches the deployed PWA exactly.
+         ============================================================ */
+      .fs-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 200;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        pointer-events: none;
+        background: #ffffff;
+        opacity: 0;
+        transition: opacity 520ms ease;
+      }
+      .fs-splash[data-phase='hold'] { opacity: 1; }
+      .fs-splash[data-phase='exit'] { opacity: 0; }
+
+      .fs-splash-vignette {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(
+            circle at 50% 50%,
+            rgb(244 247 252 / 0.95) 0%,
+            rgb(246 248 251 / 0.55) 36%,
+            rgb(255 255 255 / 0) 72%
+          ),
+          linear-gradient(180deg, rgb(255 255 255) 0%, rgb(248 250 253) 100%);
+        opacity: 0;
+        transition: opacity 720ms ease;
+      }
+      .fs-splash[data-phase='hold'] .fs-splash-vignette,
+      .fs-splash[data-phase='exit'] .fs-splash-vignette {
+        opacity: 1;
+      }
+
+      .fs-splash-stage {
+        position: relative;
+        width: min(86vw, 720px);
+        max-width: calc(100vw - 32px);
+        opacity: 0;
+        transform: translateY(6px) scale(0.985);
+        transition:
+          opacity 540ms ease,
+          transform 720ms var(--fs-ease);
+        will-change: opacity, transform;
+      }
+      .fs-splash[data-phase='hold'] .fs-splash-stage {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+      .fs-splash[data-phase='exit'] .fs-splash-stage {
+        opacity: 0;
+        transform: translateY(-4px) scale(1.01);
+        transition:
+          opacity 540ms ease,
+          transform 620ms var(--fs-ease);
+      }
+
+      .fs-mark {
+        display: block;
+        width: 100%;
+        height: auto;
+        user-select: none;
+        -webkit-user-drag: none;
+        overflow: visible;
+        filter: drop-shadow(0 14px 28px rgb(14 18 23 / 0.08));
+      }
+
+      .fs-glow { opacity: 0; transform-origin: 125px 118px; transform: scale(0.7); }
+      .fs-splash[data-phase='hold'] .fs-glow {
+        animation: fs-glow-pulse 2200ms var(--fs-ease) 60ms 1 forwards;
+      }
+
+      .fs-gear { opacity: 0; transform: scale(0.94); }
+      .fs-splash[data-phase='hold'] .fs-gear {
+        animation: fs-gear-in 820ms var(--fs-ease) 80ms 1 forwards;
+      }
+
+      .fs-trace {
+        stroke-dasharray: 520;
+        stroke-dashoffset: 520;
+        opacity: 0.95;
+      }
+      .fs-splash[data-phase='hold'] .fs-trace-a {
+        animation: fs-trace-draw 820ms var(--fs-ease) 360ms 1 forwards;
+      }
+      .fs-splash[data-phase='hold'] .fs-trace-b {
+        animation: fs-trace-draw 880ms var(--fs-ease) 420ms 1 forwards;
+      }
+      .fs-splash[data-phase='hold'] .fs-trace-c {
+        animation: fs-trace-draw 720ms var(--fs-ease) 460ms 1 forwards;
+      }
+      .fs-splash[data-phase='hold'] .fs-trace-red,
+      .fs-splash[data-phase='hold'] .fs-trace-blue-a,
+      .fs-splash[data-phase='hold'] .fs-trace-blue-b {
+        animation: fs-trace-draw 600ms var(--fs-ease) 600ms 1 forwards;
+      }
+
+      .fs-node {
+        opacity: 0;
+        transform-box: fill-box;
+        transform-origin: center;
+        transform: scale(0.6);
+      }
+      .fs-splash[data-phase='hold'] .fs-node-1 {
+        animation: fs-node-pop 540ms var(--fs-ease-out) 980ms 1 forwards;
+      }
+      .fs-splash[data-phase='hold'] .fs-node-2 {
+        animation: fs-node-pop 540ms var(--fs-ease-out) 1080ms 1 forwards;
+      }
+      .fs-splash[data-phase='hold'] .fs-node-3 {
+        animation: fs-node-pop 540ms var(--fs-ease-out) 1180ms 1 forwards;
+      }
+
+      .fs-wordmark {
+        opacity: 0;
+        transform: translateY(10px);
+        transform-box: fill-box;
+      }
+      .fs-splash[data-phase='hold'] .fs-wordmark {
+        animation: fs-word-in 700ms var(--fs-ease) 1180ms 1 forwards;
+      }
+
+      .fs-underline { opacity: 0; }
+      .fs-splash[data-phase='hold'] .fs-underline {
+        animation: fs-underline-in 620ms ease 1500ms 1 forwards;
+      }
+
+      @keyframes fs-glow-pulse {
+        0% { opacity: 0; transform: scale(0.7); }
+        40% { opacity: 0.9; transform: scale(1.06); }
+        100% { opacity: 0.45; transform: scale(1); }
+      }
+      @keyframes fs-gear-in {
+        0% { opacity: 0; transform: scale(0.94); }
+        100% { opacity: 1; transform: scale(1); }
+      }
+      @keyframes fs-trace-draw {
+        0% { stroke-dashoffset: 520; }
+        100% { stroke-dashoffset: 0; }
+      }
+      @keyframes fs-node-pop {
+        0% { opacity: 0; transform: scale(0.6); }
+        60% { opacity: 1; transform: scale(1.12); }
+        100% { opacity: 1; transform: scale(1); }
+      }
+      @keyframes fs-word-in {
+        0% { opacity: 0; transform: translateY(10px); }
+        100% { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes fs-underline-in {
+        0% { opacity: 0; }
+        100% { opacity: 1; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="fake-hub">
+      <h1>FieldSupport Hub (mock)</h1>
+      <p>This static page approximates the PWA underneath the splash so you can preview the intro animation in isolation. Click Replay or Mute to iterate without booting the app.</p>
+    </div>
+
+    <div id="splash-root"></div>
+
+    <div class="preview-controls">
+      <button id="mute" class="replay-button muted" type="button">Sound: on</button>
+      <button id="replay" class="replay-button" type="button">Replay intro</button>
+    </div>
+
+    <script>
+      const SPLASH_HTML = `
+        <div class="fs-splash" data-phase="enter" role="presentation" aria-hidden="true">
+          <div class="fs-splash-vignette" aria-hidden="true"></div>
+          <div class="fs-splash-stage">
+            <svg class="fs-mark" viewBox="0 0 940 240" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+              <defs>
+                <linearGradient id="fsBrandBlue" x1="480" x2="900" y1="86" y2="146" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#256CD3" />
+                  <stop offset="1" stop-color="#1D58B2" />
+                </linearGradient>
+                <linearGradient id="fsTraceSteel" x1="80" x2="540" y1="60" y2="118" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#0E1217" />
+                  <stop offset="0.58" stop-color="#4A5560" />
+                  <stop offset="1" stop-color="#8892A0" />
+                </linearGradient>
+                <radialGradient id="fsGlow" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stop-color="#256CD3" stop-opacity="0.45" />
+                  <stop offset="60%" stop-color="#256CD3" stop-opacity="0.08" />
+                  <stop offset="100%" stop-color="#256CD3" stop-opacity="0" />
+                </radialGradient>
+              </defs>
+
+              <circle class="fs-glow" cx="125" cy="118" r="135" fill="url(#fsGlow)" />
+
+              <g class="fs-gear" style="transform-origin:125px 118px">
+                <g class="fs-gear-teeth" fill="#0E1217">
+                  ${gearTeeth()}
+                </g>
+                <circle cx="125" cy="118" r="70" fill="#0E1217" />
+                <circle cx="125" cy="118" r="52" fill="#F5F6F8" />
+                <path d="M125 72a46 46 0 0 0-34.2 76.7" fill="none" stroke="#4A5560" stroke-width="8" stroke-linecap="round" />
+                <path d="M125 86a32 32 0 0 0-24.4 53" fill="none" stroke="#0E1217" stroke-width="6" stroke-linecap="round" />
+              </g>
+
+              <g class="fs-traces" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <path class="fs-trace fs-trace-a" d="M154 155h118l34-34h78l30-29h94" stroke="url(#fsTraceSteel)" stroke-width="13" />
+                <path class="fs-trace fs-trace-b" d="M158 176h130l34-31h78l29-27h94" stroke="#4A5560" stroke-width="9" />
+                <path class="fs-trace fs-trace-c" d="M207 134h68l27-25h86" stroke="#0E1217" stroke-width="8" />
+                <path class="fs-trace fs-trace-red" d="M211 134h38" stroke="#B02B3D" stroke-width="7" />
+                <path class="fs-trace fs-trace-blue-a" d="M323 145h68" stroke="#256CD3" stroke-width="7" />
+                <path class="fs-trace fs-trace-blue-b" d="M415 118h58" stroke="#256CD3" stroke-width="6" />
+              </g>
+
+              <g class="fs-nodes">
+                <g class="fs-node fs-node-1">
+                  <circle cx="391" cy="146" r="16" fill="#F5F6F8" />
+                  <circle cx="391" cy="146" r="11.5" fill="#256CD3" />
+                  <circle cx="391" cy="146" r="5.5" fill="#F5F6F8" opacity="0.92" />
+                </g>
+                <g class="fs-node fs-node-2">
+                  <circle cx="473" cy="118" r="15" fill="#F5F6F8" />
+                  <circle cx="473" cy="118" r="10.5" fill="#256CD3" />
+                  <circle cx="473" cy="118" r="5.5" fill="#F5F6F8" opacity="0.92" />
+                </g>
+                <g class="fs-node fs-node-3">
+                  <circle cx="523" cy="118" r="14" fill="#F5F6F8" />
+                  <circle cx="523" cy="118" r="9.5" fill="#B02B3D" />
+                  <circle cx="523" cy="118" r="4.5" fill="#F5F6F8" opacity="0.92" />
+                </g>
+              </g>
+
+              <g class="fs-wordmark" transform="skewX(-10)">
+                <text x="425" y="194" fill="#0E1217" font-family="IBM Plex Sans, Inter, Arial, sans-serif" font-size="76" font-style="italic" font-weight="700" letter-spacing="-4">Field</text>
+                <text x="588" y="194" fill="url(#fsBrandBlue)" font-family="IBM Plex Sans, Inter, Arial, sans-serif" font-size="76" font-style="italic" font-weight="800" letter-spacing="-4.5">Support</text>
+              </g>
+
+              <g class="fs-underline">
+                <path d="M84 220c143-6 314-5 492 1 125 4 244 2 363-11" fill="none" stroke="#0E1217" stroke-width="4" stroke-linecap="round" opacity="0.65" />
+                <path d="M338 232c95 6 189 9 282 6 88-3 180-10 293-23-91 16-187 27-286 32-102 5-199 0-289-15Z" fill="#B02B3D" opacity="0.95" />
+                <path d="M422 231c99 5 193 4 282-3 77-6 147-14 207-24-70 16-144 27-222 34-84 8-173 6-267-7Z" fill="#256CD3" opacity="0.3" />
+              </g>
+            </svg>
+          </div>
+        </div>
+      `;
+
+      function gearTeeth() {
+        let out = '';
+        for (let i = 0; i < 16; i++) {
+          out += `<rect x="117" y="18" width="16" height="28" rx="2" transform="rotate(${i * 22.5} 125 118)" />`;
+        }
+        return out;
+      }
+
+      let muted = false;
+
+      function playChime() {
+        if (muted) return;
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        const ctx = new AC();
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+        const now = ctx.currentTime;
+        const master = ctx.createGain();
+        master.gain.value = 0.12;
+        master.connect(ctx.destination);
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 2400;
+        lp.Q.value = 0.4;
+        lp.connect(master);
+        const tone = (freq, start, dur, peak) => {
+          const osc = ctx.createOscillator();
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          const g = ctx.createGain();
+          g.gain.setValueAtTime(0, now + start);
+          g.gain.linearRampToValueAtTime(peak, now + start + 0.08);
+          g.gain.exponentialRampToValueAtTime(0.0001, now + start + dur);
+          osc.connect(g);
+          g.connect(lp);
+          osc.start(now + start);
+          osc.stop(now + start + dur + 0.05);
+        };
+        tone(523.25, 0.18, 1.55, 1.0);
+        tone(783.99, 0.5, 1.7, 0.78);
+        tone(1567.98, 0.5, 1.1, 0.18);
+        setTimeout(() => ctx.close().catch(() => {}), 2400);
+      }
+
+      function play() {
+        const host = document.getElementById('splash-root');
+        host.innerHTML = SPLASH_HTML;
+        const el = host.firstElementChild;
+        requestAnimationFrame(() => {
+          setTimeout(() => el.setAttribute('data-phase', 'hold'), 60);
+          setTimeout(() => el.setAttribute('data-phase', 'exit'), 2200);
+          setTimeout(() => host.removeChild(el), 2820);
+        });
+        playChime();
+      }
+
+      document.getElementById('replay').addEventListener('click', play);
+      document.getElementById('mute').addEventListener('click', (e) => {
+        muted = !muted;
+        e.currentTarget.textContent = `Sound: ${muted ? 'off' : 'on'}`;
+      });
+
+      play();
+    </script>
+  </body>
+</html>

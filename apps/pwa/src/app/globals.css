@@ -256,11 +256,14 @@
    ========================================================================= */
 
 /* ---------------------------------------------------------------------
-   FieldSupport intro splash. Overlays the hub on first scan, reveals the
-   logo with a horizontal scan, pulses the red circuit nodes, then fades
-   into the already-mounted app.
+   FieldSupport intro splash. A quiet, cinematic reveal: the mark renders
+   as inline SVG with no clipped rectangle behind it, and each part of
+   the logo (gear, traces, dots, wordmark, swoop) eases in on its own
+   schedule before the overlay fades away. Total runtime ~2.8s.
    ------------------------------------------------------------------ */
-.splash-intro {
+.fs-splash {
+  --fs-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --fs-ease-out: cubic-bezier(0.16, 0.84, 0.28, 1);
   position: fixed;
   inset: 0;
   z-index: 200;
@@ -268,289 +271,200 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  background:
-    linear-gradient(180deg, rgb(249 250 251 / 0.88), rgb(221 225 229 / 0.72)), rgb(255 255 255);
-  opacity: 1;
-  transition: opacity 540ms ease;
   pointer-events: none;
-}
-.splash-intro::before {
-  content: '';
-  position: absolute;
-  inset: -12%;
-  background:
-    linear-gradient(90deg, transparent 0 42%, rgb(255 0 20 / 0.1) 50%, transparent 58%),
-    repeating-linear-gradient(90deg, rgb(20 24 32 / 0.025) 0 1px, transparent 1px 28px);
+  background: #ffffff;
   opacity: 0;
-  transform: translateX(-3%);
-  transition:
-    opacity 720ms ease,
-    transform 1200ms cubic-bezier(0.16, 0.84, 0.28, 1);
+  transition: opacity 520ms ease;
 }
-.splash-intro[data-phase='hold']::before,
-.splash-intro[data-phase='exit']::before {
-  opacity: 1;
-  transform: translateX(0);
-}
-.splash-intro[data-phase='exit'] {
-  opacity: 0;
-}
-.splash-intro-stage {
-  position: relative;
-  width: min(86vw, 760px);
-  max-width: calc(100vw - 28px);
-  transform: translateY(10px) scale(0.985);
-  opacity: 1;
-  transition:
-    opacity 460ms ease,
-    transform 560ms cubic-bezier(0.16, 0.84, 0.28, 1);
-}
-.splash-intro[data-phase='exit'] .splash-intro-stage {
-  transform: translateY(-8px) scale(0.985);
-  opacity: 0;
-}
-.splash-intro-logo-wrap {
-  position: relative;
-  display: block;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-  border-radius: 6px;
-  clip-path: inset(0 100% 0 0);
-  transform: translateY(14px) scale(0.96);
-  opacity: 0;
-  transition:
-    clip-path 940ms cubic-bezier(0.16, 0.84, 0.28, 1),
-    transform 820ms cubic-bezier(0.16, 0.84, 0.28, 1),
-    opacity 520ms ease;
-  will-change: clip-path, opacity, transform;
-}
-.splash-intro[data-phase='hold'] .splash-intro-logo-wrap,
-.splash-intro[data-phase='exit'] .splash-intro-logo-wrap {
-  clip-path: inset(0);
-  transform: scale(1);
+.fs-splash[data-phase='hold'] {
   opacity: 1;
 }
-.splash-intro-logo {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  user-select: none;
-  -webkit-user-drag: none;
-  filter: drop-shadow(0 18px 32px rgb(0 0 0 / 0.22)) saturate(1.05);
-}
-.splash-intro-scan {
-  position: absolute;
-  inset-block: 0;
-  left: 0;
-  z-index: 4;
-  width: 22%;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgb(255 255 255 / 0.28) 42%,
-    rgb(255 0 20 / 0.46) 54%,
-    transparent
-  );
-  filter: blur(1px);
+.fs-splash[data-phase='exit'] {
   opacity: 0;
-  transform: translateX(-130%) skewX(-10deg);
-  pointer-events: none;
-}
-.splash-intro[data-phase='hold'] .splash-intro-scan {
-  animation: splash-scan 1120ms cubic-bezier(0.16, 0.84, 0.28, 1) 100ms 1 forwards;
 }
 
-.splash-intro-red-wake {
-  position: absolute;
-  inset: 18% -12% 18% 30%;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgb(255 0 20 / 0.12) 22%,
-    rgb(255 0 20 / 0.34) 55%,
-    transparent
-  );
-  filter: blur(18px);
-  opacity: 0;
-  transform: translateX(-18%) scaleX(0.4);
-  pointer-events: none;
-}
-.splash-intro[data-phase='hold'] .splash-intro-red-wake {
-  animation: splash-red-wake 1420ms ease-out 520ms 1 forwards;
-}
-
-.splash-intro-shine {
+/* Soft radial spotlight behind the mark. Gives the logo a "stage" without
+   ever drawing a literal box around it. */
+.fs-splash-vignette {
   position: absolute;
   inset: 0;
-  background: linear-gradient(
-    112deg,
-    transparent 32%,
-    rgb(255 255 255 / 0.46) 44%,
-    rgb(20 24 32 / 0.16) 49%,
-    transparent 61%
-  );
+  background:
+    radial-gradient(
+      circle at 50% 50%,
+      rgb(244 247 252 / 0.95) 0%,
+      rgb(246 248 251 / 0.55) 36%,
+      rgb(255 255 255 / 0) 72%
+    ),
+    linear-gradient(180deg, rgb(255 255 255) 0%, rgb(248 250 253) 100%);
   opacity: 0;
-  transform: translateX(-120%);
-  pointer-events: none;
-  mix-blend-mode: screen;
+  transition: opacity 720ms ease;
 }
-.splash-intro[data-phase='hold'] .splash-intro-shine {
-  animation: splash-shine 1320ms ease-out 760ms 1 forwards;
+.fs-splash[data-phase='hold'] .fs-splash-vignette,
+.fs-splash[data-phase='exit'] .fs-splash-vignette {
+  opacity: 1;
 }
 
-.splash-intro-node {
-  position: absolute;
-  z-index: 3;
-  width: clamp(34px, 8.8%, 66px);
-  aspect-ratio: 1;
-  border: 2px solid rgb(255 0 20 / 0.88);
-  border-radius: 999px;
-  box-shadow:
-    0 0 0 7px rgb(255 0 20 / 0.1),
-    0 0 26px rgb(255 0 20 / 0.58);
+.fs-splash-stage {
+  position: relative;
+  width: min(86vw, 720px);
+  max-width: calc(100vw - 32px);
   opacity: 0;
-  transform: translate(-50%, -50%) scale(0.45);
-  pointer-events: none;
+  transform: translateY(6px) scale(0.985);
+  transition:
+    opacity 540ms ease,
+    transform 720ms var(--fs-ease);
+  will-change: opacity, transform;
 }
-.splash-intro-node::after {
-  content: '';
-  position: absolute;
-  inset: 28%;
-  border-radius: inherit;
-  background: rgb(255 0 20 / 0.72);
-  box-shadow: 0 0 18px rgb(255 0 20 / 0.7);
+.fs-splash[data-phase='hold'] .fs-splash-stage {
+  opacity: 1;
+  transform: translateY(0) scale(1);
 }
-.splash-intro-node-a {
-  left: 42.7%;
-  top: 34.8%;
-}
-.splash-intro-node-b {
-  left: 49.5%;
-  top: 39.6%;
-}
-.splash-intro-node-c {
-  left: 37.2%;
-  top: 45.5%;
-}
-.splash-intro[data-phase='hold'] .splash-intro-node {
-  animation: splash-node-pulse 940ms cubic-bezier(0.16, 0.84, 0.28, 1) 1 forwards;
-}
-.splash-intro[data-phase='hold'] .splash-intro-node-a {
-  animation-delay: 650ms;
-}
-.splash-intro[data-phase='hold'] .splash-intro-node-b {
-  animation-delay: 780ms;
-}
-.splash-intro[data-phase='hold'] .splash-intro-node-c {
-  animation-delay: 910ms;
+.fs-splash[data-phase='exit'] .fs-splash-stage {
+  opacity: 0;
+  transform: translateY(-4px) scale(1.01);
+  transition:
+    opacity 540ms ease,
+    transform 620ms var(--fs-ease);
 }
 
-.splash-intro-underline {
-  position: absolute;
-  z-index: 4;
-  left: 13%;
-  right: 2%;
-  top: 69.7%;
-  height: 3px;
-  border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgb(255 0 20 / 0.88) 10%,
-    rgb(255 255 255 / 0.92) 58%,
-    transparent
-  );
-  filter: drop-shadow(0 0 10px rgb(255 0 20 / 0.42));
-  opacity: 0;
-  transform: scaleX(0);
-  transform-origin: left;
-  pointer-events: none;
-}
-.splash-intro[data-phase='hold'] .splash-intro-underline {
-  animation: splash-underline 880ms cubic-bezier(0.16, 0.84, 0.28, 1) 620ms 1 forwards;
+.fs-mark {
+  display: block;
+  width: 100%;
+  height: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+  overflow: visible;
+  filter: drop-shadow(0 14px 28px rgb(14 18 23 / 0.08));
 }
 
-@keyframes splash-scan {
-  0% {
-    opacity: 0;
-    transform: translateX(-130%) skewX(-10deg);
-  }
-  12% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-    transform: translateX(520%) skewX(-10deg);
-  }
+/* --- Element-level animations. Each named after its part in the mark. --- */
+
+/* Glow halo behind the gear: fades up, holds, fades away. */
+.fs-glow {
+  opacity: 0;
+  transform-origin: 125px 118px;
+  transform: scale(0.7);
 }
-@keyframes splash-red-wake {
-  0% {
-    opacity: 0;
-    transform: translateX(-18%) scaleX(0.4);
-  }
-  34% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0.38;
-    transform: translateX(8%) scaleX(1);
-  }
+.fs-splash[data-phase='hold'] .fs-glow {
+  animation: fs-glow-pulse 2200ms var(--fs-ease) 60ms 1 forwards;
 }
-@keyframes splash-shine {
-  0% {
-    opacity: 0;
-    transform: translateX(-120%);
-  }
-  24% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-    transform: translateX(110%);
-  }
+
+/* Gear: gentle scale + fade in. */
+.fs-gear {
+  opacity: 0;
+  transform: scale(0.94);
 }
-@keyframes splash-node-pulse {
-  0% {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(0.45);
-  }
-  42% {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(1.18);
-  }
-  100% {
-    opacity: 0.7;
-    transform: translate(-50%, -50%) scale(1);
-  }
+.fs-splash[data-phase='hold'] .fs-gear {
+  animation: fs-gear-in 820ms var(--fs-ease) 80ms 1 forwards;
 }
-@keyframes splash-underline {
-  0% {
-    opacity: 0;
-    transform: scaleX(0);
-  }
-  18% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0.92;
-    transform: scaleX(1);
-  }
+
+/* Circuit traces: drawn left-to-right with stroke-dashoffset. Lengths
+   set comfortably high so any path renders correctly regardless of
+   exact computed length. */
+.fs-trace {
+  stroke-dasharray: 520;
+  stroke-dashoffset: 520;
+  opacity: 0.95;
 }
+.fs-splash[data-phase='hold'] .fs-trace-a {
+  animation: fs-trace-draw 820ms var(--fs-ease) 360ms 1 forwards;
+}
+.fs-splash[data-phase='hold'] .fs-trace-b {
+  animation: fs-trace-draw 880ms var(--fs-ease) 420ms 1 forwards;
+}
+.fs-splash[data-phase='hold'] .fs-trace-c {
+  animation: fs-trace-draw 720ms var(--fs-ease) 460ms 1 forwards;
+}
+.fs-splash[data-phase='hold'] .fs-trace-red,
+.fs-splash[data-phase='hold'] .fs-trace-blue-a,
+.fs-splash[data-phase='hold'] .fs-trace-blue-b {
+  animation: fs-trace-draw 600ms var(--fs-ease) 600ms 1 forwards;
+}
+
+/* Connector dots: pop on, briefly overshoot, settle. Sequential to read
+   as power flowing along the trace. */
+.fs-node {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(0.6);
+}
+.fs-splash[data-phase='hold'] .fs-node-1 {
+  animation: fs-node-pop 540ms var(--fs-ease-out) 980ms 1 forwards;
+}
+.fs-splash[data-phase='hold'] .fs-node-2 {
+  animation: fs-node-pop 540ms var(--fs-ease-out) 1080ms 1 forwards;
+}
+.fs-splash[data-phase='hold'] .fs-node-3 {
+  animation: fs-node-pop 540ms var(--fs-ease-out) 1180ms 1 forwards;
+}
+
+/* Wordmark: fades up. Italic skew is in the SVG so we only animate the
+   delta, leaving kerning untouched. */
+.fs-wordmark {
+  opacity: 0;
+  transform: translateY(10px);
+  transform-box: fill-box;
+}
+.fs-splash[data-phase='hold'] .fs-wordmark {
+  animation: fs-word-in 700ms var(--fs-ease) 1180ms 1 forwards;
+}
+
+/* Underline swoops: fade in after the wordmark lands. */
+.fs-underline {
+  opacity: 0;
+}
+.fs-splash[data-phase='hold'] .fs-underline {
+  animation: fs-underline-in 620ms ease 1500ms 1 forwards;
+}
+
+@keyframes fs-glow-pulse {
+  0% { opacity: 0; transform: scale(0.7); }
+  40% { opacity: 0.9; transform: scale(1.06); }
+  100% { opacity: 0.45; transform: scale(1); }
+}
+@keyframes fs-gear-in {
+  0% { opacity: 0; transform: scale(0.94); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes fs-trace-draw {
+  0% { stroke-dashoffset: 520; }
+  100% { stroke-dashoffset: 0; }
+}
+@keyframes fs-node-pop {
+  0% { opacity: 0; transform: scale(0.6); }
+  60% { opacity: 1; transform: scale(1.12); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes fs-word-in {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes fs-underline-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .splash-intro-logo-wrap {
-    transition: opacity 220ms ease;
-    clip-path: none !important;
-    transform: none !important;
+  .fs-splash {
+    transition: opacity 240ms ease;
   }
-  .splash-intro-scan,
-  .splash-intro-red-wake,
-  .splash-intro-shine,
-  .splash-intro-node,
-  .splash-intro-underline {
+  .fs-splash[data-phase='hold'] .fs-splash-stage,
+  .fs-splash-stage {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: opacity 240ms ease !important;
+  }
+  .fs-glow,
+  .fs-gear,
+  .fs-trace,
+  .fs-node,
+  .fs-wordmark,
+  .fs-underline {
     animation: none !important;
-    display: none;
+    opacity: 1 !important;
+    transform: none !important;
+    stroke-dashoffset: 0 !important;
   }
 }
 
