@@ -162,9 +162,12 @@ export default function AssetModelDetail({
     AdminContentPackDetail[] | null
   >(null);
   const [pinBusy, setPinBusy] = useState(false);
-  // Per-instance Edit drawer — currently just the Location field
-  // (e.g. "Columns: B-C/23.5-23"), stored on assetInstances.metadata.location.
+  // Per-instance Edit drawer — Serial # and Location. Serial # is the
+  // physical unit's nameplate identifier (unique within a model);
+  // Location is the facility-drawing reference (e.g. "Columns: B-C/23.5-23"),
+  // stored on assetInstances.metadata.location.
   const [editInstance, setEditInstance] = useState<ModelInstance | null>(null);
+  const [editInstanceSerial, setEditInstanceSerial] = useState('');
   const [editInstanceLocation, setEditInstanceLocation] = useState('');
   const [editInstanceSaving, setEditInstanceSaving] = useState(false);
   const [editInstanceError, setEditInstanceError] = useState<string | null>(null);
@@ -172,16 +175,26 @@ export default function AssetModelDetail({
 
   function openInstanceEditDrawer(inst: ModelInstance) {
     setEditInstance(inst);
+    setEditInstanceSerial(inst.serialNumber);
     setEditInstanceLocation(inst.location ?? '');
     setEditInstanceError(null);
   }
 
   async function submitInstanceEdit() {
     if (!editInstance) return;
+    const nextSerial = editInstanceSerial.trim();
+    if (nextSerial.length === 0) {
+      setEditInstanceError('Serial number is required.');
+      return;
+    }
     setEditInstanceSaving(true);
     setEditInstanceError(null);
     try {
       await updateAssetInstance(editInstance.id, {
+        // Only send serialNumber when it changed — saves us from a
+        // pointless DB write and avoids the (now-redundant) uniqueness
+        // check on the server.
+        ...(nextSerial !== editInstance.serialNumber ? { serialNumber: nextSerial } : {}),
         // Send the trimmed string (or empty to clear). Server treats
         // empty/null identically as "remove the location key".
         location: editInstanceLocation.trim(),
@@ -706,6 +719,18 @@ export default function AssetModelDetail({
             Model-level specs (Conveyor, Length, Flow rate, Speed) live on
             the asset model itself — edit them from the model header above.
           </p>
+          <Field
+            label="Serial #"
+            required
+            hint="Nameplate serial. Must be unique across instances of this model."
+          >
+            <TextInput
+              value={editInstanceSerial}
+              onChange={(e) => setEditInstanceSerial(e.target.value)}
+              placeholder="FT-MERGE-90-00042"
+              required
+            />
+          </Field>
           <Field
             label="Location"
             hint='From the facility drawing — e.g. "Columns: B-C/23.5-23".'

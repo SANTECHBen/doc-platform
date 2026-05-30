@@ -1506,6 +1506,8 @@ export interface AssetInstancePatch {
   pinnedContentPackVersionId?: string | null;
   /** Empty string or null clears the location; omitted = unchanged. */
   location?: string | null;
+  /** New serial number for the instance. Server rejects duplicates within the same model. */
+  serialNumber?: string;
 }
 
 export async function updateAssetInstance(

@@ -882,6 +882,7 @@ export async function registerAdminMutations(app: FastifyInstance) {
     Body: {
       pinnedContentPackVersionId?: string | null;
       location?: string | null;
+      serialNumber?: string;
     };
   }>(
     '/admin/asset-instances/:id',
@@ -891,6 +892,7 @@ export async function registerAdminMutations(app: FastifyInstance) {
         body: z.object({
           pinnedContentPackVersionId: UuidSchema.nullable().optional(),
           location: z.string().max(200).nullable().optional(),
+          serialNumber: z.string().min(1).max(120).optional(),
         }),
       },
     },
@@ -910,6 +912,29 @@ export async function registerAdminMutations(app: FastifyInstance) {
       };
       if (request.body.pinnedContentPackVersionId !== undefined) {
         patch.pinnedContentPackVersionId = request.body.pinnedContentPackVersionId;
+      }
+      if (request.body.serialNumber !== undefined) {
+        // Uniqueness is (asset_model_id, serial_number). We don't change
+        // the model on an instance, so we just need to check the new
+        // serial against other instances of the same model.
+        const trimmed = request.body.serialNumber.trim();
+        if (trimmed.length === 0) {
+          return reply.badRequest('Serial number cannot be empty.');
+        }
+        if (trimmed !== instance.serialNumber) {
+          const conflict = await db.query.assetInstances.findFirst({
+            where: and(
+              eq(schema.assetInstances.assetModelId, instance.assetModelId),
+              eq(schema.assetInstances.serialNumber, trimmed),
+            ),
+          });
+          if (conflict && conflict.id !== instance.id) {
+            return reply.badRequest(
+              `Another instance of this model already uses serial "${trimmed}".`,
+            );
+          }
+          patch.serialNumber = trimmed;
+        }
       }
       if (request.body.location !== undefined) {
         // location lives inside the metadata jsonb; merge so we don't
