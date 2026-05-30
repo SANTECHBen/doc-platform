@@ -244,19 +244,26 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
               <DetailsDisclosure
                 preview={
                   <>
-                    <span className="details-disclosure-preview-mono">
-                      SN {hub.assetInstance.serialNumber}
+                    {/* Model # is short and bounded — never shrinks.
+                        Serial # is the variable-length one and lives in
+                        its own shrinkable cell so long serials get an
+                        ellipsis on the value rather than clipping the
+                        whole trailing chunk off the row. */}
+                    <span className="details-disclosure-preview-chunk">
+                      <span>Model #</span>
+                      <span className="details-disclosure-preview-mono">
+                        {hub.assetModel.modelCode}
+                      </span>
                     </span>
-                    {hub.assetInstance.installedAt && (
-                      <>
-                        <span className="details-disclosure-preview-sep" aria-hidden>
-                          ·
-                        </span>
-                        <span>
-                          Installed {formatInstalledAt(hub.assetInstance.installedAt)}
-                        </span>
-                      </>
-                    )}
+                    <span className="details-disclosure-preview-sep" aria-hidden>
+                      ·
+                    </span>
+                    <span className="details-disclosure-preview-chunk details-disclosure-preview-chunk-shrink">
+                      <span>Serial #</span>
+                      <span className="details-disclosure-preview-mono details-disclosure-preview-value">
+                        {hub.assetInstance.serialNumber}
+                      </span>
+                    </span>
                   </>
                 }
               >

@@ -2521,14 +2521,14 @@
     flex-shrink: 0;
   }
   /* Closed-state preview snippet — fills the otherwise-empty middle of
-     the row with the most-asked-about facts (serial, installed date).
-     Muted so the affordance reads as a hint, not a separate UI element. */
+     the row with the most-asked-about facts (Model # + Serial #).
+     Muted so the affordance reads as a hint, not a separate UI element.
+     Two chunks live inside this flex row: Model (never shrinks) and
+     Serial (shrinks with ellipsis on the value when the row is tight)
+     so a long serial doesn't chop the whole trailing chunk off. */
   .details-disclosure-preview {
     flex: 1 1 auto;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     color: rgb(var(--ink-tertiary));
     font-size: 12px;
     font-weight: 400;
@@ -2536,15 +2536,37 @@
     display: inline-flex;
     align-items: baseline;
     gap: 6px;
+    white-space: nowrap;
+  }
+  .details-disclosure-preview-chunk {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    flex-shrink: 0;
+    min-width: 0;
+  }
+  .details-disclosure-preview-chunk-shrink {
+    flex-shrink: 1;
+    overflow: hidden;
   }
   .details-disclosure-preview-mono {
     font-family: var(--font-mono);
     font-size: 11.5px;
     color: rgb(var(--ink-secondary));
   }
+  /* Value cell inside the shrinkable Serial chunk — picks up the
+     ellipsis so a long serial truncates *itself* instead of chopping
+     the "Serial #" label or any later sibling. */
+  .details-disclosure-preview-value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
   .details-disclosure-preview-sep {
     color: rgb(var(--ink-tertiary));
     opacity: 0.6;
+    flex-shrink: 0;
   }
   .details-disclosure-chevron {
     flex-shrink: 0;
