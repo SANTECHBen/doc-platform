@@ -784,7 +784,6 @@ function OverviewSpecs({ hub, openIssueCount }: { hub: AssetHubPayload; openIssu
       <SpecField label="Model #" value={hub.assetModel.modelCode} mono />
       <SpecField label="Location" value={location || dash} mono />
       <SpecField label="Site" value={hub.site.name} />
-      <SpecField label="Customer" value={hub.organization.name} />
       <SpecField
         label="Open issues"
         value={String(openIssueCount)}
