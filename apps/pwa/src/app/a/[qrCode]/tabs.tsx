@@ -761,16 +761,28 @@ function formatInstalledAt(iso: string | null | undefined): string {
 }
 
 function OverviewSpecs({ hub, openIssueCount }: { hub: AssetHubPayload; openIssueCount: number }) {
-  // Engineering specs lifted from the OEM drawing. Authored on the
-  // asset model in the admin (Edit drawer → Drawing specs). Each line
-  // only renders if a value is present, so models without drawing
-  // data still look clean.
+  // Mirrors the DESCRIPTION block on the OEM drawing — same order, same
+  // labels (Conveyor, Length, Flow rate, Speed, Manufacturer, Serial #,
+  // Model #, Location). Drawing-spec values (Conveyor/Length/Flow
+  // rate/Speed) are authored on the asset model in the admin
+  // (Edit drawer → Drawing specs); Location is per-instance, authored
+  // from the asset model's instance row → Edit. Empty values render as
+  // an em-dash so the row is still visible and prompts authoring.
+  // Operational context (Site, Customer, Open issues, Installed) is
+  // appended below — useful to the tech but not on the drawing.
   const specs = hub.assetModel.specifications ?? {};
   const location = hub.assetInstance.location;
+  const dash = '—';
   return (
     <div className="spec-grid">
-      <SpecField label="Model code" value={hub.assetModel.modelCode} mono />
-      <SpecField label="Serial" value={hub.assetInstance.serialNumber} mono brand />
+      <SpecField label="Conveyor" value={specs.conveyor || dash} />
+      <SpecField label="Length" value={specs.length || dash} mono />
+      <SpecField label="Flow rate" value={specs.flowRate || dash} mono />
+      <SpecField label="Speed" value={specs.speed || dash} mono />
+      <SpecField label="Manufacturer" value={hub.brand.displayName} />
+      <SpecField label="Serial #" value={hub.assetInstance.serialNumber} mono brand />
+      <SpecField label="Model #" value={hub.assetModel.modelCode} mono />
+      <SpecField label="Location" value={location || dash} mono />
       <SpecField label="Site" value={hub.site.name} />
       <SpecField label="Customer" value={hub.organization.name} />
       <SpecField
@@ -780,11 +792,6 @@ function OverviewSpecs({ hub, openIssueCount }: { hub: AssetHubPayload; openIssu
         tone={openIssueCount > 0 ? 'warn' : 'ok'}
       />
       <SpecField label="Installed" value={formatInstalledAt(hub.assetInstance.installedAt)} />
-      {specs.conveyor && <SpecField label="Conveyor" value={specs.conveyor} />}
-      {specs.length && <SpecField label="Length" value={specs.length} mono />}
-      {specs.flowRate && <SpecField label="Flow rate" value={specs.flowRate} mono />}
-      {specs.speed && <SpecField label="Speed" value={specs.speed} mono />}
-      {location && <SpecField label="Location" value={location} mono />}
     </div>
   );
 }
