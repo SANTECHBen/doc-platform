@@ -43,6 +43,10 @@ import {
   type TroubleshootingGuide,
 } from '@/lib/api';
 import type { JobAidSource } from '@/components/virtual-job-aid';
+import {
+  planBucketToSteps,
+  troubleshootingToSteps,
+} from '@/lib/pm-troubleshooting-steps';
 
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? '';
 const DEV_ORG_ID = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? '';
@@ -1267,86 +1271,6 @@ function TroubleshootingRow({
       </button>
     </li>
   );
-}
-
-// ─── synth helpers ──────────────────────────────────────────────────
-function planBucketToSteps(bucket: PmPlanBucket): Array<{
-  title: string;
-  bodyMarkdown?: string | null;
-}> {
-  return bucket.items.map((it) => {
-    const parts: string[] = [];
-    if (it.remarks) parts.push(it.remarks);
-    if (it.document) parts.push(`_Linked procedure: ${it.document.title}_`);
-    return {
-      title: `${it.component} — ${it.checkText}`,
-      bodyMarkdown: parts.length > 0 ? parts.join('\n\n') : null,
-    };
-  });
-}
-
-function troubleshootingToSteps(
-  item: TroubleshootingGuide['items'][number],
-): Array<{ title: string; bodyMarkdown?: string | null }> {
-  const out: Array<{ title: string; bodyMarkdown?: string | null }> = [];
-
-  const paired = (item.causes ?? []).filter(
-    (c) =>
-      c.cause.trim().length > 0 ||
-      (c.remedySteps ?? []).some((s) => s.text.trim().length > 0),
-  );
-
-  if (paired.length > 0) {
-    paired.forEach((c) => {
-      const cause = c.cause.trim();
-      const steps = (c.remedySteps ?? []).filter(
-        (s) => s.text.trim().length > 0,
-      );
-      const bullets =
-        steps.length > 0
-          ? steps
-              .map((s, i) => {
-                const prefix = c.remedyStyle === 'numbered' ? `${i + 1}.` : '-';
-                const docHint = s.document
-                  ? ` _(see: ${s.document.title})_`
-                  : '';
-                return `${prefix} ${s.text}${docHint}`;
-              })
-              .join('\n')
-          : '';
-      out.push({
-        title: cause ? `Possible cause: ${cause}` : 'Possible cause',
-        bodyMarkdown: bullets || null,
-      });
-    });
-    return out;
-  }
-
-  const causeText =
-    item.causeItems.length > 0
-      ? item.causeItems
-          .filter((c) => c.text.trim())
-          .map((c) => `- ${c.text}`)
-          .join('\n')
-      : item.cause?.trim() ?? '';
-  const remedyText =
-    item.remedyItems.length > 0
-      ? item.remedyItems
-          .filter((r) => r.text.trim())
-          .map((r, i) => `${i + 1}. ${r.text}`)
-          .join('\n')
-      : item.remedy?.trim() ?? '';
-
-  if (causeText || remedyText) {
-    const sections: string[] = [];
-    if (causeText) sections.push(`**Cause(s)**\n\n${causeText}`);
-    if (remedyText) sections.push(`**Remedy**\n\n${remedyText}`);
-    out.push({
-      title: item.symptom,
-      bodyMarkdown: sections.join('\n\n'),
-    });
-  }
-  return out;
 }
 
 function ProcedureRow({

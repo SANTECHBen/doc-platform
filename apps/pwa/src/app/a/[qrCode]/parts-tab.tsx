@@ -53,7 +53,11 @@ import NoDocuments from '@/components/illustrations/no-documents';
 import NoSearchResults from '@/components/illustrations/no-search-results';
 import { ProcedureRunner } from '@/components/procedure-runner/procedure-runner';
 import { ProcedureDocViewer } from '@/components/procedure-runner/procedure-doc-viewer';
-import { VirtualJobAid } from '@/components/virtual-job-aid';
+import { VirtualJobAid, type JobAidSource } from '@/components/virtual-job-aid';
+import {
+  planBucketToSteps,
+  troubleshootingToSteps,
+} from '@/lib/pm-troubleshooting-steps';
 import { AuthPrompt } from '@/components/auth-prompt';
 import { FEATURE_PROCEDURE_RUN_ENABLED } from '@/lib/feature-flags';
 
@@ -430,11 +434,16 @@ function PartDetailOverlay({
   // Procedure browse → run flow. Mirrors docs-tab so both nav paths
   // (Documents tab, Parts → resources) land on the same intro screen.
   // viewerDocId    = ProcedureDocViewer (read-only intro + scroll view)
-  // jobAidDocId    = step-at-a-time Job Aid overlay
+  // jobAidSource   = step-at-a-time Job Aid overlay. Either an authored
+  //                  doc (kind: 'doc') or an inline cause/remedy / PM
+  //                  bucket walkthrough (kind: 'inline'). Inline lets
+  //                  Related PMs and Related Troubleshooting rows launch
+  //                  the SAME walkthrough the Maintenance tab launches
+  //                  rather than opening a row's see-also reference doc.
   // procedureDocId = ProcedureRunner (evidence capture / "Run") — only
   //                  entered when the user taps "Run with evidence".
   const [viewerDocId, setViewerDocId] = useState<string | null>(null);
-  const [jobAidDocId, setJobAidDocId] = useState<string | null>(null);
+  const [jobAidSource, setJobAidSource] = useState<JobAidSource | null>(null);
   const [procedureDocId, setProcedureDocId] = useState<string | null>(null);
   const [authPromptOpen, setAuthPromptOpen] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -570,7 +579,12 @@ function PartDetailOverlay({
       // it all at once" case. Auth gate stays on the runner's "Run with
       // evidence" button, not here, so techs can browse without signing in.
       if (body.kind === 'structured_procedure') {
-        setJobAidDocId(body.id);
+        setJobAidSource({
+          kind: 'doc',
+          docId: body.id,
+          devUserId: PWA_DEV_USER_ID,
+          devOrgId: PWA_DEV_ORG_ID,
+        });
         return;
       }
       setOpenDoc({ body, sections });
@@ -648,7 +662,7 @@ function PartDetailOverlay({
               pmPlans={pmPlans}
               troubleshooting={troubleshooting}
               onOpenDocument={openDocument}
-              onOpenJobAid={(docId) => setJobAidDocId(docId)}
+              onLaunchJobAid={(source) => setJobAidSource(source)}
             />
           )}
 
@@ -705,20 +719,15 @@ function PartDetailOverlay({
           onBack={() => setOpenDoc(null)}
         />
       )}
-      {jobAidDocId && (
+      {jobAidSource && (
         <VirtualJobAid
-          source={{
-            kind: 'doc',
-            docId: jobAidDocId,
-            devUserId: PWA_DEV_USER_ID,
-            devOrgId: PWA_DEV_ORG_ID,
-          }}
+          source={jobAidSource}
           onClose={() => {
             // Close returns to the parts hub. The previous bounce-to-scroll-
             // viewer behavior made sense when the viewer was the entry
             // surface, but procedures now open straight into Job Aid —
             // closing means done.
-            setJobAidDocId(null);
+            setJobAidSource(null);
           }}
         />
       )}
@@ -731,7 +740,12 @@ function PartDetailOverlay({
           onOpenJobAid={() => {
             const id = viewerDocId;
             setViewerDocId(null);
-            setJobAidDocId(id);
+            setJobAidSource({
+              kind: 'doc',
+              docId: id,
+              devUserId: PWA_DEV_USER_ID,
+              devOrgId: PWA_DEV_ORG_ID,
+            });
           }}
           onRunWithEvidence={
             FEATURE_PROCEDURE_RUN_ENABLED && PWA_DEV_USER_ID
@@ -792,7 +806,12 @@ export function PartInspector({
     body: DocumentBody;
     sections: PwaDocumentSection[] | null;
   } | null>(null);
-  const [jobAidDocId, setJobAidDocId] = useState<string | null>(null);
+  // jobAidSource accepts both a docId launch (structured_procedure docs)
+  // and an inline-steps launch (PM bucket walkthroughs, cause/remedy
+  // walkthroughs). The latter is what fixes Related PMs / Related
+  // Troubleshooting — previously they always opened the row's see-also
+  // reference doc, which was usually the part's Removal & Replacement.
+  const [jobAidSource, setJobAidSource] = useState<JobAidSource | null>(null);
 
   // Reset stack when the entry partId changes (e.g., the tech tapped a
   // different chip on Overview without backing out first).
@@ -853,7 +872,12 @@ export function PartInspector({
       const body = await getDocument(docId);
       if (!body) return;
       if (body.kind === 'structured_procedure') {
-        setJobAidDocId(body.id);
+        setJobAidSource({
+          kind: 'doc',
+          docId: body.id,
+          devUserId: PWA_DEV_USER_ID,
+          devOrgId: PWA_DEV_ORG_ID,
+        });
         return;
       }
       setOpenDoc({ body, sections });
@@ -904,7 +928,7 @@ export function PartInspector({
         pmPlans={pmPlans}
         troubleshooting={troubleshooting}
         onOpenDocument={openDocument}
-        onOpenJobAid={(docId) => setJobAidDocId(docId)}
+        onLaunchJobAid={(source) => setJobAidSource(source)}
       />
 
       {/* Sub-components drill-in. Rendered inline below the procedure
@@ -921,15 +945,10 @@ export function PartInspector({
           onBack={() => setOpenDoc(null)}
         />
       )}
-      {jobAidDocId && (
+      {jobAidSource && (
         <VirtualJobAid
-          source={{
-            kind: 'doc',
-            docId: jobAidDocId,
-            devUserId: PWA_DEV_USER_ID,
-            devOrgId: PWA_DEV_ORG_ID,
-          }}
-          onClose={() => setJobAidDocId(null)}
+          source={jobAidSource}
+          onClose={() => setJobAidSource(null)}
         />
       )}
     </div>
@@ -1239,14 +1258,21 @@ function PartProcedurePane({
   pmPlans,
   troubleshooting,
   onOpenDocument,
-  onOpenJobAid,
+  onLaunchJobAid,
 }: {
   data: PartResources | null;
   pmStatus: PmStatusPayload | null;
   pmPlans: PmPlanStatusPayload | null;
   troubleshooting: TroubleshootingGuide[];
   onOpenDocument: (id: string, sections: PwaDocumentSection[] | null) => void;
-  onOpenJobAid: (docId: string) => void;
+  /** Launches the Virtual Job Aid for either a structured_procedure doc
+   *  (kind: 'doc') or an inline cause/remedy / PM-bucket walkthrough
+   *  (kind: 'inline'). Inline launches are what make Related PMs and
+   *  Related Troubleshooting open the right thing — the PM bucket or
+   *  symptom walkthrough — instead of jumping to a row's see-also
+   *  reference doc (which on most assets was the part's Removal &
+   *  Replacement procedure, a surprising destination). */
+  onLaunchJobAid: (source: JobAidSource) => void;
 }) {
   if (!data) return <RowListSkeleton />;
 
@@ -1263,69 +1289,112 @@ function PartProcedurePane({
   // Procedures card.
   const referenceDocs = data.documents.filter((d) => d.kind !== 'structured_procedure');
 
-  // PM hits: schedules + plan-bucket items that reference a document
-  // this part also references. Schedules carry a single document FK;
-  // plan items carry their own document FK per check row.
-  type PmHit = {
-    key: string;
-    title: string;
-    subtitle: string;
-    docId: string;
-  };
+  // PM hits. Two flavors:
+  //  - schedule: a flat PM schedule with a single linked procedure doc;
+  //    tapping launches THAT doc (kind: 'doc'). Authored 1:1.
+  //  - bucket:   a PM plan bucket containing checklist items. We surface
+  //    the bucket once if ANY of its items references one of this
+  //    part's docs (matched at the BUCKET level — not row-by-row — so
+  //    the tech doesn't see the same plan listed five times). Tapping
+  //    launches the FULL bucket as an inline walkthrough (kind:
+  //    'inline') built via planBucketToSteps — exactly what the
+  //    Maintenance tab does for the same bucket. Previously each
+  //    matching row launched the row's see-also reference doc, which
+  //    on most parts was Removal & Replacement.
+  type PmHit =
+    | {
+        key: string;
+        kind: 'schedule';
+        title: string;
+        subtitle: string;
+        source: JobAidSource;
+      }
+    | {
+        key: string;
+        kind: 'bucket';
+        title: string;
+        subtitle: string;
+        source: JobAidSource;
+      };
   const pmHits: PmHit[] = [];
   for (const s of pmStatus?.schedules ?? []) {
     if (s.schedule.document && partDocIds.has(s.schedule.document.id)) {
       pmHits.push({
         key: `s:${s.schedule.id}`,
+        kind: 'schedule',
         title: s.schedule.name,
         subtitle: `every ${s.schedule.cadenceValue} day${s.schedule.cadenceValue === 1 ? '' : 's'}`,
-        docId: s.schedule.document.id,
+        source: {
+          kind: 'doc',
+          docId: s.schedule.document.id,
+          devUserId: PWA_DEV_USER_ID,
+          devOrgId: PWA_DEV_ORG_ID,
+        },
       });
     }
   }
   for (const p of pmPlans?.plans ?? []) {
     for (const b of p.buckets) {
-      for (const it of b.items) {
-        if (it.document && partDocIds.has(it.document.id)) {
-          pmHits.push({
-            key: `p:${p.plan.id}:${b.frequency}:${it.id}`,
-            title: `${it.component} — ${it.checkText}`,
-            subtitle: `${p.plan.name} · ${b.frequencyLabel}`,
-            docId: it.document.id,
-          });
-        }
-      }
+      const bucketMatches = b.items.some(
+        (it) => it.document && partDocIds.has(it.document.id),
+      );
+      if (!bucketMatches) continue;
+      const steps = planBucketToSteps(b);
+      if (steps.length === 0) continue;
+      pmHits.push({
+        key: `p:${p.plan.id}:${b.frequency}`,
+        kind: 'bucket',
+        title: `${p.plan.name} · ${b.frequencyLabel}`,
+        subtitle: `${b.itemCount} check${b.itemCount === 1 ? '' : 's'}`,
+        source: {
+          kind: 'inline',
+          title: `${p.plan.name} · ${b.frequencyLabel}`,
+          steps,
+        },
+      });
     }
   }
 
-  // Troubleshooting hits: items whose direct document FK is in this
-  // part's doc set, OR whose paired remedy steps link to one.
+  // Troubleshooting hits: a symptom row qualifies when its top-level
+  // document, OR any remedy step's document, is one of this part's
+  // documents. Tapping always launches the symptom's cause/remedy
+  // walkthrough INLINE (built via troubleshootingToSteps) — the same
+  // thing the Maintenance tab launches. Falls back to the symptom's
+  // top-level doc only when the guide has no inline content authored.
   type TsHit = {
     key: string;
     symptom: string;
     guideName: string;
-    docId: string | null;
+    source: JobAidSource | null;
   };
   const tsHits: TsHit[] = [];
   for (const g of troubleshooting) {
     for (const it of g.items) {
-      let docId: string | null = null;
-      if (it.document && partDocIds.has(it.document.id)) {
-        docId = it.document.id;
-      } else {
-        const remedy = it.causes
-          .flatMap((c) => c.remedySteps)
-          .find((s) => s.document && partDocIds.has(s.document.id));
-        if (remedy?.document) docId = remedy.document.id;
+      const directHit = !!(it.document && partDocIds.has(it.document.id));
+      const remedyHit = it.causes
+        .flatMap((c) => c.remedySteps)
+        .some((s) => s.document && partDocIds.has(s.document.id));
+      if (!directHit && !remedyHit) continue;
+
+      const steps = troubleshootingToSteps(it);
+      let source: JobAidSource | null = null;
+      if (steps.length > 0) {
+        source = { kind: 'inline', title: it.symptom, steps };
+      } else if (it.document) {
+        source = {
+          kind: 'doc',
+          docId: it.document.id,
+          devUserId: PWA_DEV_USER_ID,
+          devOrgId: PWA_DEV_ORG_ID,
+        };
       }
-      if (docId) {
-        tsHits.push({
-          key: it.id,
-          symptom: it.symptom,
-          guideName: g.guide.name,
-          docId,
-        });
-      }
+      if (!source) continue;
+      tsHits.push({
+        key: it.id,
+        symptom: it.symptom,
+        guideName: g.guide.name,
+        source,
+      });
     }
   }
 
@@ -1343,7 +1412,14 @@ function PartProcedurePane({
               <li key={p.id}>
                 <button
                   type="button"
-                  onClick={() => onOpenJobAid(p.id)}
+                  onClick={() =>
+                    onLaunchJobAid({
+                      kind: 'doc',
+                      docId: p.id,
+                      devUserId: PWA_DEV_USER_ID,
+                      devOrgId: PWA_DEV_ORG_ID,
+                    })
+                  }
                   className="part-resource-row"
                 >
                   <span className="part-resource-row-icon">
@@ -1398,7 +1474,7 @@ function PartProcedurePane({
               <li key={h.key}>
                 <button
                   type="button"
-                  onClick={() => onOpenJobAid(h.docId)}
+                  onClick={() => onLaunchJobAid(h.source)}
                   className="part-resource-row"
                 >
                   <span className="part-resource-row-icon">
@@ -1428,7 +1504,7 @@ function PartProcedurePane({
               <li key={h.key}>
                 <button
                   type="button"
-                  onClick={() => h.docId && onOpenJobAid(h.docId)}
+                  onClick={() => h.source && onLaunchJobAid(h.source)}
                   className="part-resource-row"
                 >
                   <span className="part-resource-row-icon">
