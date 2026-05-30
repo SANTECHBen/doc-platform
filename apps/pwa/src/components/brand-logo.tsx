@@ -24,14 +24,14 @@ export function BrandLogo({
   const [failed, setFailed] = useState(false);
 
   const content = failed ? (
-    <div className="brand-mark-square" style={{ width: 36, height: 36, fontSize: 14 }}>
+    <div className="brand-mark-square" style={{ width: 44, height: 44, fontSize: 16 }}>
       {initials}
     </div>
   ) : (
     <img
       src={src}
       alt={alt}
-      style={{ maxHeight: 40, maxWidth: 200, objectFit: 'contain' }}
+      style={{ maxHeight: 52, maxWidth: 260, objectFit: 'contain' }}
       onError={() => setFailed(true)}
     />
   );

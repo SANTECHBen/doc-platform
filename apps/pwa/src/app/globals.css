@@ -66,8 +66,11 @@
   --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 
-  /* Sticky offset for the top tabbar so it sits below the .app-topbar. */
-  --app-topbar-h: 52px;
+  /* Sticky offset for the top tabbar so it sits below the .app-topbar.
+     Raised from 52px to give the OEM brand mark enough vertical room
+     to read at a glance — small/illegible OEM logos undermined the
+     "this is YOUR equipment, branded YOUR way" promise. */
+  --app-topbar-h: 64px;
 }
 
 /* Light is the default. Dark opts in via [data-theme="dark"]. */
@@ -127,8 +130,11 @@
   --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 
-  /* Sticky offset for the top tabbar so it sits below the .app-topbar. */
-  --app-topbar-h: 52px;
+  /* Sticky offset for the top tabbar so it sits below the .app-topbar.
+     Raised from 52px to give the OEM brand mark enough vertical room
+     to read at a glance — small/illegible OEM logos undermined the
+     "this is YOUR equipment, branded YOUR way" promise. */
+  --app-topbar-h: 64px;
 }
 
 /* =========================================================================
@@ -296,12 +302,12 @@
   font-weight: 600;
 }
 .app-topbar-brand img {
-  /* 40px in a 52px topbar — 6px breathing room top/bottom. The earlier
-     28px cap made authored OEM logos read as illegible thumbnails;
-     this gives them enough surface to actually be recognizable
-     without crowding the bar's vertical rhythm. */
-  max-height: 40px !important;
-  max-width: 220px !important;
+  /* 52px in a 64px topbar — 6px breathing room top/bottom. Previous
+     28px / 40px caps made authored OEM logos read as illegible
+     thumbnails; this gives them enough surface to dominate the bar
+     the way an OEM identity should. */
+  max-height: 52px !important;
+  max-width: 260px !important;
 }
 /* Brand mark renders as a button when onClick is wired (topbar). Strip
    the default <button> chrome and keep the tap target tight against the
