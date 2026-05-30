@@ -1498,6 +1498,8 @@ export interface ModelInstance {
   imageUrl: string | null;
   /** Per-install location (e.g. "Columns: B-C/23.5-23"). Lives in metadata.location. */
   location: string | null;
+  /** Optional customer-side Equipment Part Number. Lives in metadata.epn. */
+  epn: string | null;
   site: { id: string; name: string; organization: string };
   pinnedVersion: { id: string; number: number; label: string | null } | null;
 }
@@ -1506,6 +1508,8 @@ export interface AssetInstancePatch {
   pinnedContentPackVersionId?: string | null;
   /** Empty string or null clears the location; omitted = unchanged. */
   location?: string | null;
+  /** Empty string or null clears the EPN; omitted = unchanged. */
+  epn?: string | null;
   /** New serial number for the instance. Server rejects duplicates within the same model. */
   serialNumber?: string;
 }

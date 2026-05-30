@@ -311,6 +311,10 @@ export async function registerAssetRoutes(app: FastifyInstance) {
         typeof rawMeta.location === 'string' && rawMeta.location.trim().length > 0
           ? rawMeta.location
           : null;
+      const epn =
+        typeof rawMeta.epn === 'string' && rawMeta.epn.trim().length > 0
+          ? rawMeta.epn
+          : null;
 
       const payload = AssetHubPayloadSchema.parse({
         assetInstance: {
@@ -319,6 +323,7 @@ export async function registerAssetRoutes(app: FastifyInstance) {
           installedAt: instance.installedAt?.toISOString() ?? null,
           imageUrl: instanceImageUrl,
           location,
+          epn,
         },
         assetModel: {
           id: instance.model.id,

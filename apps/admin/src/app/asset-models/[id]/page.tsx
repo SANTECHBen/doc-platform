@@ -169,6 +169,7 @@ export default function AssetModelDetail({
   const [editInstance, setEditInstance] = useState<ModelInstance | null>(null);
   const [editInstanceSerial, setEditInstanceSerial] = useState('');
   const [editInstanceLocation, setEditInstanceLocation] = useState('');
+  const [editInstanceEpn, setEditInstanceEpn] = useState('');
   const [editInstanceSaving, setEditInstanceSaving] = useState(false);
   const [editInstanceError, setEditInstanceError] = useState<string | null>(null);
   const toast = useToast();
@@ -177,6 +178,7 @@ export default function AssetModelDetail({
     setEditInstance(inst);
     setEditInstanceSerial(inst.serialNumber);
     setEditInstanceLocation(inst.location ?? '');
+    setEditInstanceEpn(inst.epn ?? '');
     setEditInstanceError(null);
   }
 
@@ -196,8 +198,9 @@ export default function AssetModelDetail({
         // check on the server.
         ...(nextSerial !== editInstance.serialNumber ? { serialNumber: nextSerial } : {}),
         // Send the trimmed string (or empty to clear). Server treats
-        // empty/null identically as "remove the location key".
+        // empty/null identically as "remove the key".
         location: editInstanceLocation.trim(),
+        epn: editInstanceEpn.trim(),
       });
       setEditInstance(null);
       await refresh();
@@ -505,6 +508,7 @@ export default function AssetModelDetail({
                 <th className="px-4 py-2">Site</th>
                 <th className="px-4 py-2">Customer</th>
                 <th className="px-4 py-2">Location</th>
+                <th className="px-4 py-2">EPN</th>
                 <th className="px-4 py-2">Pinned version</th>
                 <th className="px-4 py-2">Installed</th>
                 <th className="px-4 py-2"></th>
@@ -520,6 +524,7 @@ export default function AssetModelDetail({
                   <td className="px-4 py-3 text-ink-secondary">{i.site.name}</td>
                   <td className="px-4 py-3 text-ink-secondary">{i.site.organization}</td>
                   <td className="px-4 py-3 text-ink-secondary">{i.location ?? '—'}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-ink-secondary">{i.epn ?? '—'}</td>
                   <td className="px-4 py-3 text-ink-secondary">
                     {i.pinnedVersion
                       ? `v${i.pinnedVersion.label ?? i.pinnedVersion.number}`
@@ -739,6 +744,16 @@ export default function AssetModelDetail({
               value={editInstanceLocation}
               onChange={(e) => setEditInstanceLocation(e.target.value)}
               placeholder="Columns: B-C/23.5-23"
+            />
+          </Field>
+          <Field
+            label="EPN"
+            hint="Optional. Customer-side Equipment Part Number, if tagged."
+          >
+            <TextInput
+              value={editInstanceEpn}
+              onChange={(e) => setEditInstanceEpn(e.target.value)}
+              placeholder="e.g. 100123456"
             />
           </Field>
           <div className="flex justify-end gap-2 pt-2">

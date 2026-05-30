@@ -882,6 +882,7 @@ export async function registerAdminMutations(app: FastifyInstance) {
     Body: {
       pinnedContentPackVersionId?: string | null;
       location?: string | null;
+      epn?: string | null;
       serialNumber?: string;
     };
   }>(
@@ -892,6 +893,7 @@ export async function registerAdminMutations(app: FastifyInstance) {
         body: z.object({
           pinnedContentPackVersionId: UuidSchema.nullable().optional(),
           location: z.string().max(200).nullable().optional(),
+          epn: z.string().max(120).nullable().optional(),
           serialNumber: z.string().min(1).max(120).optional(),
         }),
       },
@@ -936,16 +938,27 @@ export async function registerAdminMutations(app: FastifyInstance) {
           patch.serialNumber = trimmed;
         }
       }
-      if (request.body.location !== undefined) {
-        // location lives inside the metadata jsonb; merge so we don't
-        // clobber any sibling keys stored there.
-        const current = (instance.metadata ?? {}) as Record<string, unknown>;
-        const next: Record<string, unknown> = { ...current };
-        const v = request.body.location;
-        if (v === null || (typeof v === 'string' && v.trim().length === 0)) {
-          delete next.location;
-        } else {
-          next.location = v.trim();
+      if (request.body.location !== undefined || request.body.epn !== undefined) {
+        // location + epn both live inside the metadata jsonb; merge so we
+        // don't clobber sibling keys (or each other when sent together).
+        const base = (patch.metadata as Record<string, unknown> | undefined) ??
+          ((instance.metadata ?? {}) as Record<string, unknown>);
+        const next: Record<string, unknown> = { ...base };
+        if (request.body.location !== undefined) {
+          const v = request.body.location;
+          if (v === null || (typeof v === 'string' && v.trim().length === 0)) {
+            delete next.location;
+          } else {
+            next.location = v.trim();
+          }
+        }
+        if (request.body.epn !== undefined) {
+          const v = request.body.epn;
+          if (v === null || (typeof v === 'string' && v.trim().length === 0)) {
+            delete next.epn;
+          } else {
+            next.epn = v.trim();
+          }
         }
         patch.metadata = next;
       }
@@ -1071,6 +1084,10 @@ export async function registerAdminMutations(app: FastifyInstance) {
           typeof meta.location === 'string' && meta.location.trim().length > 0
             ? meta.location
             : null;
+        const epn =
+          typeof meta.epn === 'string' && meta.epn.trim().length > 0
+            ? meta.epn
+            : null;
         return {
           id: r.id,
           serialNumber: r.serialNumber,
@@ -1078,6 +1095,7 @@ export async function registerAdminMutations(app: FastifyInstance) {
           imageStorageKey: r.imageStorageKey,
           imageUrl: r.imageStorageKey ? storage.publicUrl(r.imageStorageKey) : null,
           location,
+          epn,
           site: {
             id: r.site.id,
             name: r.site.name,

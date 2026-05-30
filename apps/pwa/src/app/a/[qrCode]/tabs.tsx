@@ -783,6 +783,11 @@ function OverviewSpecs({ hub, openIssueCount }: { hub: AssetHubPayload; openIssu
       <SpecField label="Serial #" value={hub.assetInstance.serialNumber} mono brand />
       <SpecField label="Model #" value={hub.assetModel.modelCode} mono />
       <SpecField label="Location" value={location || dash} mono />
+      {/* EPN is optional — many installs don't carry one. Only render
+          the row when authored so the grid doesn't pad with em-dashes. */}
+      {hub.assetInstance.epn && (
+        <SpecField label="EPN" value={hub.assetInstance.epn} mono />
+      )}
       <SpecField label="Site" value={hub.site.name} />
       <SpecField
         label="Open issues"

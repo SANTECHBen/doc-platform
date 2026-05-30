@@ -20,6 +20,9 @@ export const AssetHubPayloadSchema = z.object({
     // assetInstances.metadata.location and authored from the admin
     // instance Edit drawer.
     location: z.string().nullable().optional().default(null),
+    // Optional per-install Equipment Part Number. Stored on
+    // assetInstances.metadata.epn.
+    epn: z.string().nullable().optional().default(null),
   }),
   assetModel: z.object({
     id: UuidSchema,

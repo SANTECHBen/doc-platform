@@ -28,6 +28,10 @@ export const AssetHubPayloadSchema = z.object({
     // Per-install location (e.g. "Columns: B-C/23.5-23" lifted from the
     // facility drawing). Stored in assetInstances.metadata.location.
     location: z.string().nullable().optional().default(null),
+    // Optional per-install Equipment Part Number — a customer-side asset
+    // identifier (FedEx and similar end-users tag each installed unit
+    // with one). Stored in assetInstances.metadata.epn.
+    epn: z.string().nullable().optional().default(null),
   }),
   assetModel: z.object({
     id: UuidSchema,
