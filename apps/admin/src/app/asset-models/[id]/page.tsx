@@ -601,7 +601,7 @@ export default function AssetModelDetail({
       <Drawer title="Edit asset model" open={editOpen} onClose={() => setEditOpen(false)}>
         <div className="flex flex-col gap-3">
           {editError && <ErrorBanner error={editError} />}
-          <Field label="Model #" required hint="MODEL # on the OEM drawing.">
+          <Field label="Model code" required>
             <TextInput
               value={editModelCode}
               onChange={(e) => setEditModelCode(e.target.value)}
@@ -649,14 +649,8 @@ export default function AssetModelDetail({
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-tertiary">
               Drawing specs
             </p>
-            <p className="mb-2 text-xs text-ink-secondary">
+            <p className="mb-3 text-xs text-ink-secondary">
               Pulled straight off the OEM drawing. Leave blank to skip.
-            </p>
-            <p className="mb-3 text-xs text-ink-tertiary">
-              <strong>Model #</strong> is the field at the top of this drawer.{' '}
-              <strong>Serial #</strong> and <strong>Location</strong> are
-              per-instance — set them on each row of the instances table via{' '}
-              <em>Edit</em>.
             </p>
             <div className="flex flex-col gap-3">
               <Field label="Conveyor" hint='e.g. 61.5" CENTERING'>
@@ -709,8 +703,8 @@ export default function AssetModelDetail({
           {editInstanceError && <ErrorBanner error={editInstanceError} />}
           <p className="text-sm text-ink-secondary">
             Per-install fields for this specific serial-numbered unit.
-            Model-level specs (Conveyor, Length, Flow rate, Speed, Model #)
-            live on the asset model itself — edit them from the model header above.
+            Model-level specs (Conveyor, Length, Flow rate, Speed) live on
+            the asset model itself — edit them from the model header above.
           </p>
           <Field
             label="Location"
@@ -749,7 +743,7 @@ export default function AssetModelDetail({
             BOM (linked parts) are copied as-is — you can refine them via
             Edit after the new model is created.
           </p>
-          <Field label="New model #" required hint="MODEL # on the OEM drawing.">
+          <Field label="New model code" required>
             <TextInput
               value={dupModelCode}
               onChange={(e) => setDupModelCode(e.target.value)}

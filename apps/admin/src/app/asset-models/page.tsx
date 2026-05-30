@@ -284,9 +284,9 @@ function NewAssetModelForm({
         </Field>
       )}
       <Field
-        label="Model #"
+        label="Model code"
         required
-        hint="OEM's own model identifier — the MODEL # on the drawing. e.g. FT-MERGE-90, MS-4."
+        hint="OEM's own model identifier. e.g. FT-MERGE-90, MS-4."
       >
         <TextInput
           value={modelCode}
