@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { ScanWall } from '@/components/scan-wall';
+import { SplashIntro } from '@/components/splash-intro';
 import { AssetHubTabs } from './tabs';
 import { AssetTopbar } from './topbar';
 import { resolveAssetHub } from '@/lib/api';
@@ -40,8 +41,20 @@ function looksLikeOperationalSignal(rgb: [number, number, number]): boolean {
   return r >= 150 && g <= 140 && b <= 130;
 }
 
-export default async function AssetHubPage({ params }: { params: Promise<{ qrCode: string }> }) {
+export default async function AssetHubPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ qrCode: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { qrCode } = await params;
+  // ?intro=1 is set by /q/<code> on a real QR scan. Only on that arrival
+  // path do we mount the splash; direct nav, refresh, and back-button
+  // returns skip it. The client component strips the param from the URL
+  // on mount so a refresh during the animation doesn't replay it.
+  const sp = await searchParams;
+  const showIntro = sp.intro === '1';
   // Read the scan-session cookie up-front and pass it to every
   // resolveAssetHub call. The /assets/resolve endpoint now requires
   // auth or a scan session; without forwarding the cookie that /q/<code>
@@ -106,6 +119,8 @@ export default async function AssetHubPage({ params }: { params: Promise<{ qrCod
       <div className="app-scroll page-enter flex flex-col gap-4">
         <AssetHubTabs hub={hub} qrCode={qrCode} />
       </div>
+
+      {showIntro && <SplashIntro />}
     </main>
   );
 }

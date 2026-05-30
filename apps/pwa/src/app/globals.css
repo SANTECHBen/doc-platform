@@ -255,6 +255,101 @@
    Fixed top bar, fixed bottom tab bar, scrolling content in between.
    ========================================================================= */
 
+/* ---------------------------------------------------------------------
+   Netflix-style intro splash. Overlays the hub on first scan, plays a
+   synthesized chime, runs a diagonal shine across the FieldSupport
+   wordmark, then fades out. The hub mounts underneath while the splash
+   runs so the page is interactive the instant the overlay leaves.
+   ------------------------------------------------------------------ */
+.splash-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Subtle vignette around a near-black field. Slight radial gradient
+     keeps the logo centered visually instead of floating on flat black. */
+  background:
+    radial-gradient(
+      ellipse at center,
+      rgb(15 18 24) 0%,
+      rgb(6 8 12) 70%,
+      rgb(0 0 0) 100%
+    );
+  opacity: 1;
+  transition: opacity 520ms ease;
+  pointer-events: none;
+}
+.splash-intro[data-phase='exit'] {
+  opacity: 0;
+}
+.splash-intro-logo-wrap {
+  position: relative;
+  display: inline-block;
+  /* Cap so the logo never crowds small phones — the asset is wide. */
+  width: min(78vw, 520px);
+  /* Mask the shine sweep to the logo's silhouette via overflow hidden. */
+  overflow: hidden;
+  transform: scale(0.92);
+  opacity: 0;
+  transition:
+    transform 620ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    opacity 620ms ease;
+}
+.splash-intro[data-phase='hold'] .splash-intro-logo-wrap,
+.splash-intro[data-phase='exit'] .splash-intro-logo-wrap {
+  transform: scale(1);
+  opacity: 1;
+}
+.splash-intro-logo {
+  display: block;
+  width: 100%;
+  height: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+  /* Faint glow behind the mark so it lifts off the dark field. */
+  filter: drop-shadow(0 6px 24px rgb(0 0 0 / 0.55));
+}
+/* Diagonal shimmer that sweeps from bottom-left to top-right across the
+   logo during the hold phase. The overlay is masked to the wrap so it
+   only paints over the artwork's bounding rect, and the gradient itself
+   is a soft white band with feathered edges. */
+.splash-intro-shine {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 35%,
+    rgb(255 255 255 / 0.55) 50%,
+    transparent 65%
+  );
+  transform: translateX(-110%);
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+.splash-intro[data-phase='hold'] .splash-intro-shine {
+  animation: splash-shine 1500ms ease-out 120ms 1 forwards;
+}
+@keyframes splash-shine {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(110%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .splash-intro-logo-wrap {
+    transition: opacity 220ms ease;
+    transform: none !important;
+  }
+  .splash-intro-shine {
+    animation: none !important;
+    display: none;
+  }
+}
+
 .app-shell {
   min-height: 100vh;
   min-height: 100dvh;

@@ -31,7 +31,14 @@ export async function GET(
     new URL(request.url).protocol.replace(':', '');
   const isHttps = proto === 'https';
 
-  const response = NextResponse.redirect(new URL(`/a/${qrCode}`, request.url));
+  // Tag the redirect so the asset hub knows to play the intro splash on
+  // this arrival. The client component strips ?intro=1 from the URL on
+  // mount so a refresh during the animation doesn't replay it, and so
+  // a shared /a/<code>?intro=1 link doesn't replay it for someone who
+  // didn't actually scan a code.
+  const target = new URL(`/a/${qrCode}`, request.url);
+  target.searchParams.set('intro', '1');
+  const response = NextResponse.redirect(target);
   response.cookies.set(SCAN_COOKIE_NAME, mintScanSessionValue(qrCode), {
     httpOnly: true,
     secure: isHttps,
