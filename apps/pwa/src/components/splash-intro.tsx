@@ -6,17 +6,14 @@ import { useEffect, useRef, useState } from 'react';
 // the /q/<code> route handler sets that flag on QR scans, so the splash
 // plays on first arrival without replaying on refresh or back navigation.
 //
-// The hub content underneath is fully mounted while the splash runs. The
-// overlay provides the brand transition and then gets out of the way.
-//
-// Design intent: a quiet, cinematic reveal — no clipped rectangle, no
-// scan-line clutter. The mark is rendered as inline SVG against a soft
-// translucent surface, with each part of the logo (gear, circuit traces,
-// connector dots, wordmark) animated in sequence and then a brief breath
-// before the overlay fades away.
+// The overlay covers the hub from the very first painted frame (no
+// opacity fade-in) so the user never sees the underlying page flash
+// before the splash takes over. Each part of the mark then eases in
+// on its own schedule on top of the opaque surface.
 export function SplashIntro() {
   const [phase, setPhase] = useState<'enter' | 'hold' | 'exit' | 'done'>('enter');
   const startedRef = useRef(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     if (startedRef.current) return;
@@ -43,18 +40,19 @@ export function SplashIntro() {
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
     if (reducedMotion) {
-      const t = window.setTimeout(() => setPhase('done'), 320);
+      const t = window.setTimeout(() => setPhase('done'), 360);
       return () => window.clearTimeout(t);
     }
 
-    // Phase timing. `enter` gives the browser one paint so the initial
-    // state (opacity 0, scaled down) is committed before `hold` flips
-    // the targets and the transitions run.
-    const t1 = window.setTimeout(() => setPhase('hold'), 60);
-    const t2 = window.setTimeout(() => setPhase('exit'), 2200);
-    const t3 = window.setTimeout(() => setPhase('done'), 2820);
+    // Phase timing (~5.3s total).
+    //   enter (0–80ms)     paint the opaque overlay before any animation kicks.
+    //   hold  (80–4660ms)  run all the per-part keyframe animations.
+    //   exit  (4660–5300)  fade the overlay back out.
+    const t1 = window.setTimeout(() => setPhase('hold'), 80);
+    const t2 = window.setTimeout(() => setPhase('exit'), 4660);
+    const t3 = window.setTimeout(() => setPhase('done'), 5300);
 
-    void playChime().catch(() => {
+    void playIntroSound(audioRef).catch(() => {
       /* autoplay blocked — silent intro is fine */
     });
 
@@ -62,6 +60,17 @@ export function SplashIntro() {
       window.clearTimeout(t1);
       window.clearTimeout(t2);
       window.clearTimeout(t3);
+      const audio = audioRef.current;
+      if (audio) {
+        try {
+          audio.pause();
+          audio.src = '';
+          audio.load();
+        } catch {
+          /* element may already be detached */
+        }
+        audioRef.current = null;
+      }
     };
   }, []);
 
@@ -266,55 +275,15 @@ function FieldSupportMarkSVG() {
   );
 }
 
-// Subtle two-note chime. A perfect-fifth (C5 → G5) on soft sines with
-// gentle attack and long exponential decay. Played at low gain so it
-// lands as ambience, not a tap.
-async function playChime(): Promise<void> {
+// Play the production intro sound. Returns once playback is started (or
+// rejects if autoplay was blocked, in which case the visual still runs).
+// The element is stashed on a ref so the cleanup function in the host
+// effect can pause + release it if the splash unmounts early.
+async function playIntroSound(ref: React.MutableRefObject<HTMLAudioElement | null>): Promise<void> {
   if (typeof window === 'undefined') return;
-  const AC: typeof AudioContext | undefined =
-    window.AudioContext ??
-    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!AC) return;
-  const ctx = new AC();
-  if (ctx.state === 'suspended') {
-    try {
-      await ctx.resume();
-    } catch {
-      /* fall through — silent intro is fine */
-    }
-  }
-  const now = ctx.currentTime;
-  const master = ctx.createGain();
-  master.gain.value = 0.12;
-  master.connect(ctx.destination);
-
-  // Gentle low-pass keeps the chime warm rather than glassy.
-  const lp = ctx.createBiquadFilter();
-  lp.type = 'lowpass';
-  lp.frequency.value = 2400;
-  lp.Q.value = 0.4;
-  lp.connect(master);
-
-  const tone = (freq: number, start: number, dur: number, peak: number) => {
-    const osc = ctx.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.value = freq;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0, now + start);
-    g.gain.linearRampToValueAtTime(peak, now + start + 0.08);
-    g.gain.exponentialRampToValueAtTime(0.0001, now + start + dur);
-    osc.connect(g);
-    g.connect(lp);
-    osc.start(now + start);
-    osc.stop(now + start + dur + 0.05);
-  };
-
-  // C5 → G5 perfect fifth, slightly detuned higher partial for warmth.
-  tone(523.25, 0.18, 1.55, 1.0);
-  tone(783.99, 0.5, 1.7, 0.78);
-  tone(1567.98, 0.5, 1.1, 0.18);
-
-  window.setTimeout(() => {
-    void ctx.close().catch(() => {});
-  }, 2400);
+  const audio = new Audio('/intro-sound.wav');
+  audio.preload = 'auto';
+  audio.volume = 0.85;
+  ref.current = audio;
+  await audio.play();
 }

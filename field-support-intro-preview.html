@@ -87,10 +87,9 @@
         overflow: hidden;
         pointer-events: none;
         background: #ffffff;
-        opacity: 0;
-        transition: opacity 520ms ease;
+        opacity: 1;
+        transition: opacity 720ms ease;
       }
-      .fs-splash[data-phase='hold'] { opacity: 1; }
       .fs-splash[data-phase='exit'] { opacity: 0; }
 
       .fs-splash-vignette {
@@ -104,11 +103,6 @@
             rgb(255 255 255 / 0) 72%
           ),
           linear-gradient(180deg, rgb(255 255 255) 0%, rgb(248 250 253) 100%);
-        opacity: 0;
-        transition: opacity 720ms ease;
-      }
-      .fs-splash[data-phase='hold'] .fs-splash-vignette,
-      .fs-splash[data-phase='exit'] .fs-splash-vignette {
         opacity: 1;
       }
 
@@ -117,10 +111,10 @@
         width: min(86vw, 720px);
         max-width: calc(100vw - 32px);
         opacity: 0;
-        transform: translateY(6px) scale(0.985);
+        transform: translateY(8px) scale(0.984);
         transition:
-          opacity 540ms ease,
-          transform 720ms var(--fs-ease);
+          opacity 880ms ease,
+          transform 1100ms var(--fs-ease);
         will-change: opacity, transform;
       }
       .fs-splash[data-phase='hold'] .fs-splash-stage {
@@ -129,10 +123,10 @@
       }
       .fs-splash[data-phase='exit'] .fs-splash-stage {
         opacity: 0;
-        transform: translateY(-4px) scale(1.01);
+        transform: translateY(-6px) scale(1.012);
         transition:
-          opacity 540ms ease,
-          transform 620ms var(--fs-ease);
+          opacity 760ms ease,
+          transform 880ms var(--fs-ease);
       }
 
       .fs-mark {
@@ -147,12 +141,12 @@
 
       .fs-glow { opacity: 0; transform-origin: 125px 118px; transform: scale(0.7); }
       .fs-splash[data-phase='hold'] .fs-glow {
-        animation: fs-glow-pulse 2200ms var(--fs-ease) 60ms 1 forwards;
+        animation: fs-glow-pulse 3600ms var(--fs-ease) 120ms 1 forwards;
       }
 
       .fs-gear { opacity: 0; transform: scale(0.94); }
       .fs-splash[data-phase='hold'] .fs-gear {
-        animation: fs-gear-in 820ms var(--fs-ease) 80ms 1 forwards;
+        animation: fs-gear-in 1380ms var(--fs-ease) 160ms 1 forwards;
       }
 
       .fs-trace {
@@ -161,18 +155,18 @@
         opacity: 0.95;
       }
       .fs-splash[data-phase='hold'] .fs-trace-a {
-        animation: fs-trace-draw 820ms var(--fs-ease) 360ms 1 forwards;
+        animation: fs-trace-draw 1400ms var(--fs-ease) 620ms 1 forwards;
       }
       .fs-splash[data-phase='hold'] .fs-trace-b {
-        animation: fs-trace-draw 880ms var(--fs-ease) 420ms 1 forwards;
+        animation: fs-trace-draw 1500ms var(--fs-ease) 720ms 1 forwards;
       }
       .fs-splash[data-phase='hold'] .fs-trace-c {
-        animation: fs-trace-draw 720ms var(--fs-ease) 460ms 1 forwards;
+        animation: fs-trace-draw 1220ms var(--fs-ease) 800ms 1 forwards;
       }
       .fs-splash[data-phase='hold'] .fs-trace-red,
       .fs-splash[data-phase='hold'] .fs-trace-blue-a,
       .fs-splash[data-phase='hold'] .fs-trace-blue-b {
-        animation: fs-trace-draw 600ms var(--fs-ease) 600ms 1 forwards;
+        animation: fs-trace-draw 1000ms var(--fs-ease) 1040ms 1 forwards;
       }
 
       .fs-node {
@@ -182,27 +176,27 @@
         transform: scale(0.6);
       }
       .fs-splash[data-phase='hold'] .fs-node-1 {
-        animation: fs-node-pop 540ms var(--fs-ease-out) 980ms 1 forwards;
+        animation: fs-node-pop 880ms var(--fs-ease-out) 1700ms 1 forwards;
       }
       .fs-splash[data-phase='hold'] .fs-node-2 {
-        animation: fs-node-pop 540ms var(--fs-ease-out) 1080ms 1 forwards;
+        animation: fs-node-pop 880ms var(--fs-ease-out) 1900ms 1 forwards;
       }
       .fs-splash[data-phase='hold'] .fs-node-3 {
-        animation: fs-node-pop 540ms var(--fs-ease-out) 1180ms 1 forwards;
+        animation: fs-node-pop 880ms var(--fs-ease-out) 2100ms 1 forwards;
       }
 
       .fs-wordmark {
         opacity: 0;
-        transform: translateY(10px);
+        transform: translateY(12px);
         transform-box: fill-box;
       }
       .fs-splash[data-phase='hold'] .fs-wordmark {
-        animation: fs-word-in 700ms var(--fs-ease) 1180ms 1 forwards;
+        animation: fs-word-in 1180ms var(--fs-ease) 2150ms 1 forwards;
       }
 
       .fs-underline { opacity: 0; }
       .fs-splash[data-phase='hold'] .fs-underline {
-        animation: fs-underline-in 620ms ease 1500ms 1 forwards;
+        animation: fs-underline-in 1040ms ease 2900ms 1 forwards;
       }
 
       @keyframes fs-glow-pulse {
@@ -224,7 +218,7 @@
         100% { opacity: 1; transform: scale(1); }
       }
       @keyframes fs-word-in {
-        0% { opacity: 0; transform: translateY(10px); }
+        0% { opacity: 0; transform: translateY(12px); }
         100% { opacity: 1; transform: translateY(0); }
       }
       @keyframes fs-underline-in {
@@ -332,39 +326,23 @@
       }
 
       let muted = false;
+      let currentAudio = null;
 
-      function playChime() {
+      function playIntroSound() {
         if (muted) return;
-        const AC = window.AudioContext || window.webkitAudioContext;
-        if (!AC) return;
-        const ctx = new AC();
-        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-        const now = ctx.currentTime;
-        const master = ctx.createGain();
-        master.gain.value = 0.12;
-        master.connect(ctx.destination);
-        const lp = ctx.createBiquadFilter();
-        lp.type = 'lowpass';
-        lp.frequency.value = 2400;
-        lp.Q.value = 0.4;
-        lp.connect(master);
-        const tone = (freq, start, dur, peak) => {
-          const osc = ctx.createOscillator();
-          osc.type = 'sine';
-          osc.frequency.value = freq;
-          const g = ctx.createGain();
-          g.gain.setValueAtTime(0, now + start);
-          g.gain.linearRampToValueAtTime(peak, now + start + 0.08);
-          g.gain.exponentialRampToValueAtTime(0.0001, now + start + dur);
-          osc.connect(g);
-          g.connect(lp);
-          osc.start(now + start);
-          osc.stop(now + start + dur + 0.05);
-        };
-        tone(523.25, 0.18, 1.55, 1.0);
-        tone(783.99, 0.5, 1.7, 0.78);
-        tone(1567.98, 0.5, 1.1, 0.18);
-        setTimeout(() => ctx.close().catch(() => {}), 2400);
+        try {
+          if (currentAudio) {
+            currentAudio.pause();
+            currentAudio.src = '';
+          }
+          const a = new Audio('apps/pwa/public/intro-sound.wav');
+          a.preload = 'auto';
+          a.volume = 0.85;
+          currentAudio = a;
+          a.play().catch(() => {});
+        } catch {
+          /* autoplay blocked — silent preview is fine */
+        }
       }
 
       function play() {
@@ -372,11 +350,18 @@
         host.innerHTML = SPLASH_HTML;
         const el = host.firstElementChild;
         requestAnimationFrame(() => {
-          setTimeout(() => el.setAttribute('data-phase', 'hold'), 60);
-          setTimeout(() => el.setAttribute('data-phase', 'exit'), 2200);
-          setTimeout(() => host.removeChild(el), 2820);
+          setTimeout(() => el.setAttribute('data-phase', 'hold'), 80);
+          setTimeout(() => el.setAttribute('data-phase', 'exit'), 4660);
+          setTimeout(() => {
+            host.removeChild(el);
+            if (currentAudio) {
+              currentAudio.pause();
+              currentAudio.src = '';
+              currentAudio = null;
+            }
+          }, 5300);
         });
-        playChime();
+        playIntroSound();
       }
 
       document.getElementById('replay').addEventListener('click', play);

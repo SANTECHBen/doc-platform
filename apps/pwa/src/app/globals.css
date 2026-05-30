@@ -256,10 +256,11 @@
    ========================================================================= */
 
 /* ---------------------------------------------------------------------
-   FieldSupport intro splash. A quiet, cinematic reveal: the mark renders
-   as inline SVG with no clipped rectangle behind it, and each part of
-   the logo (gear, traces, dots, wordmark, swoop) eases in on its own
-   schedule before the overlay fades away. Total runtime ~2.8s.
+   FieldSupport intro splash. The overlay is opaque white from the first
+   painted frame (no fade-in) so the hub never flashes underneath. Each
+   part of the inline-SVG mark (glow, gear, traces, dots, wordmark, swoop)
+   then eases in on its own schedule before the overlay fades away.
+   Total runtime ~5.3s.
    ------------------------------------------------------------------ */
 .fs-splash {
   --fs-ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -273,18 +274,16 @@
   overflow: hidden;
   pointer-events: none;
   background: #ffffff;
-  opacity: 0;
-  transition: opacity 520ms ease;
-}
-.fs-splash[data-phase='hold'] {
   opacity: 1;
+  transition: opacity 720ms ease;
 }
 .fs-splash[data-phase='exit'] {
   opacity: 0;
 }
 
-/* Soft radial spotlight behind the mark. Gives the logo a "stage" without
-   ever drawing a literal box around it. */
+/* Soft radial spotlight behind the mark. Painted on the same first frame
+   as the overlay — no opacity transition — so the white surface and the
+   spotlight come up together with zero flash. */
 .fs-splash-vignette {
   position: absolute;
   inset: 0;
@@ -296,11 +295,6 @@
       rgb(255 255 255 / 0) 72%
     ),
     linear-gradient(180deg, rgb(255 255 255) 0%, rgb(248 250 253) 100%);
-  opacity: 0;
-  transition: opacity 720ms ease;
-}
-.fs-splash[data-phase='hold'] .fs-splash-vignette,
-.fs-splash[data-phase='exit'] .fs-splash-vignette {
   opacity: 1;
 }
 
@@ -309,10 +303,10 @@
   width: min(86vw, 720px);
   max-width: calc(100vw - 32px);
   opacity: 0;
-  transform: translateY(6px) scale(0.985);
+  transform: translateY(8px) scale(0.984);
   transition:
-    opacity 540ms ease,
-    transform 720ms var(--fs-ease);
+    opacity 880ms ease,
+    transform 1100ms var(--fs-ease);
   will-change: opacity, transform;
 }
 .fs-splash[data-phase='hold'] .fs-splash-stage {
@@ -321,10 +315,10 @@
 }
 .fs-splash[data-phase='exit'] .fs-splash-stage {
   opacity: 0;
-  transform: translateY(-4px) scale(1.01);
+  transform: translateY(-6px) scale(1.012);
   transition:
-    opacity 540ms ease,
-    transform 620ms var(--fs-ease);
+    opacity 760ms ease,
+    transform 880ms var(--fs-ease);
 }
 
 .fs-mark {
@@ -346,7 +340,7 @@
   transform: scale(0.7);
 }
 .fs-splash[data-phase='hold'] .fs-glow {
-  animation: fs-glow-pulse 2200ms var(--fs-ease) 60ms 1 forwards;
+  animation: fs-glow-pulse 3600ms var(--fs-ease) 120ms 1 forwards;
 }
 
 /* Gear: gentle scale + fade in. */
@@ -355,7 +349,7 @@
   transform: scale(0.94);
 }
 .fs-splash[data-phase='hold'] .fs-gear {
-  animation: fs-gear-in 820ms var(--fs-ease) 80ms 1 forwards;
+  animation: fs-gear-in 1380ms var(--fs-ease) 160ms 1 forwards;
 }
 
 /* Circuit traces: drawn left-to-right with stroke-dashoffset. Lengths
@@ -367,18 +361,18 @@
   opacity: 0.95;
 }
 .fs-splash[data-phase='hold'] .fs-trace-a {
-  animation: fs-trace-draw 820ms var(--fs-ease) 360ms 1 forwards;
+  animation: fs-trace-draw 1400ms var(--fs-ease) 620ms 1 forwards;
 }
 .fs-splash[data-phase='hold'] .fs-trace-b {
-  animation: fs-trace-draw 880ms var(--fs-ease) 420ms 1 forwards;
+  animation: fs-trace-draw 1500ms var(--fs-ease) 720ms 1 forwards;
 }
 .fs-splash[data-phase='hold'] .fs-trace-c {
-  animation: fs-trace-draw 720ms var(--fs-ease) 460ms 1 forwards;
+  animation: fs-trace-draw 1220ms var(--fs-ease) 800ms 1 forwards;
 }
 .fs-splash[data-phase='hold'] .fs-trace-red,
 .fs-splash[data-phase='hold'] .fs-trace-blue-a,
 .fs-splash[data-phase='hold'] .fs-trace-blue-b {
-  animation: fs-trace-draw 600ms var(--fs-ease) 600ms 1 forwards;
+  animation: fs-trace-draw 1000ms var(--fs-ease) 1040ms 1 forwards;
 }
 
 /* Connector dots: pop on, briefly overshoot, settle. Sequential to read
@@ -390,24 +384,24 @@
   transform: scale(0.6);
 }
 .fs-splash[data-phase='hold'] .fs-node-1 {
-  animation: fs-node-pop 540ms var(--fs-ease-out) 980ms 1 forwards;
+  animation: fs-node-pop 880ms var(--fs-ease-out) 1700ms 1 forwards;
 }
 .fs-splash[data-phase='hold'] .fs-node-2 {
-  animation: fs-node-pop 540ms var(--fs-ease-out) 1080ms 1 forwards;
+  animation: fs-node-pop 880ms var(--fs-ease-out) 1900ms 1 forwards;
 }
 .fs-splash[data-phase='hold'] .fs-node-3 {
-  animation: fs-node-pop 540ms var(--fs-ease-out) 1180ms 1 forwards;
+  animation: fs-node-pop 880ms var(--fs-ease-out) 2100ms 1 forwards;
 }
 
 /* Wordmark: fades up. Italic skew is in the SVG so we only animate the
    delta, leaving kerning untouched. */
 .fs-wordmark {
   opacity: 0;
-  transform: translateY(10px);
+  transform: translateY(12px);
   transform-box: fill-box;
 }
 .fs-splash[data-phase='hold'] .fs-wordmark {
-  animation: fs-word-in 700ms var(--fs-ease) 1180ms 1 forwards;
+  animation: fs-word-in 1180ms var(--fs-ease) 2150ms 1 forwards;
 }
 
 /* Underline swoops: fade in after the wordmark lands. */
@@ -415,7 +409,7 @@
   opacity: 0;
 }
 .fs-splash[data-phase='hold'] .fs-underline {
-  animation: fs-underline-in 620ms ease 1500ms 1 forwards;
+  animation: fs-underline-in 1040ms ease 2900ms 1 forwards;
 }
 
 @keyframes fs-glow-pulse {
@@ -437,7 +431,7 @@
   100% { opacity: 1; transform: scale(1); }
 }
 @keyframes fs-word-in {
-  0% { opacity: 0; transform: translateY(10px); }
+  0% { opacity: 0; transform: translateY(12px); }
   100% { opacity: 1; transform: translateY(0); }
 }
 @keyframes fs-underline-in {
@@ -447,13 +441,13 @@
 
 @media (prefers-reduced-motion: reduce) {
   .fs-splash {
-    transition: opacity 240ms ease;
+    transition: opacity 280ms ease;
   }
   .fs-splash[data-phase='hold'] .fs-splash-stage,
   .fs-splash-stage {
     opacity: 1 !important;
     transform: none !important;
-    transition: opacity 240ms ease !important;
+    transition: opacity 280ms ease !important;
   }
   .fs-glow,
   .fs-gear,
