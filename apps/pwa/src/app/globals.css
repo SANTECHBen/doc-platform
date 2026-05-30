@@ -296,7 +296,12 @@
   font-weight: 600;
 }
 .app-topbar-brand img {
-  max-height: 28px !important;
+  /* 40px in a 52px topbar — 6px breathing room top/bottom. The earlier
+     28px cap made authored OEM logos read as illegible thumbnails;
+     this gives them enough surface to actually be recognizable
+     without crowding the bar's vertical rhythm. */
+  max-height: 40px !important;
+  max-width: 220px !important;
 }
 /* Brand mark renders as a button when onClick is wired (topbar). Strip
    the default <button> chrome and keep the tap target tight against the
