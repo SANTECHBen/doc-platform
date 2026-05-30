@@ -2,16 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-// Netflix-style intro splash. Mounts only when the URL carries
-// ?intro=1 — the /q/<code> route handler sets that flag on every QR
-// scan, so the splash plays on first arrival but not on direct
-// navigation, browser refresh, or back-button returns. The flag is
-// stripped from the URL on mount so a refresh during the animation
-// doesn't replay it.
+// FieldSupport intro splash. Mounts only when the URL carries ?intro=1;
+// the /q/<code> route handler sets that flag on QR scans, so the splash
+// plays on first arrival without replaying on refresh or back navigation.
 //
-// The hub content underneath is fully mounted while the splash runs;
-// the splash just overlays it. That means the page is interactive the
-// instant the splash fades, with no second loading state.
+// The hub content underneath is fully mounted while the splash runs. The
+// overlay provides the brand transition and then gets out of the way.
 export function SplashIntro() {
   const [phase, setPhase] = useState<'enter' | 'hold' | 'exit' | 'done'>('enter');
   const startedRef = useRef(false);
@@ -35,11 +31,12 @@ export function SplashIntro() {
       }
     }
 
-    // Stagger the phases. enter (logo fades + scales in) → hold (shine
-    // sweeps across) → exit (everything fades out) → done (unmount).
-    const t1 = window.setTimeout(() => setPhase('hold'), 350);
-    const t2 = window.setTimeout(() => setPhase('exit'), 2100);
-    const t3 = window.setTimeout(() => setPhase('done'), 2700);
+    // Stagger the phases. enter gives the browser one paint, hold runs
+    // the logo reveal and circuit pulses, exit fades the overlay, then
+    // done unmounts it.
+    const t1 = window.setTimeout(() => setPhase('hold'), 90);
+    const t2 = window.setTimeout(() => setPhase('exit'), 2550);
+    const t3 = window.setTimeout(() => setPhase('done'), 3150);
 
     // Play a soft two-note chime via WebAudio. No audio asset to bundle.
     // Wrapped in try/catch because autoplay policy may block on some
@@ -59,21 +56,24 @@ export function SplashIntro() {
   if (phase === 'done') return null;
 
   return (
-    <div
-      className="splash-intro"
-      data-phase={phase}
-      role="presentation"
-      aria-hidden="true"
-    >
-      <div className="splash-intro-logo-wrap">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/field-support-intro.png"
-          alt=""
-          className="splash-intro-logo"
-          draggable={false}
-        />
-        <span className="splash-intro-shine" aria-hidden="true" />
+    <div className="splash-intro" data-phase={phase} role="presentation" aria-hidden="true">
+      <div className="splash-intro-stage">
+        <span className="splash-intro-scan" aria-hidden="true" />
+        <div className="splash-intro-logo-wrap">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/field-support-intro.png"
+            alt=""
+            className="splash-intro-logo"
+            draggable={false}
+          />
+          <span className="splash-intro-red-wake" aria-hidden="true" />
+          <span className="splash-intro-shine" aria-hidden="true" />
+          <span className="splash-intro-node splash-intro-node-a" aria-hidden="true" />
+          <span className="splash-intro-node splash-intro-node-b" aria-hidden="true" />
+          <span className="splash-intro-node splash-intro-node-c" aria-hidden="true" />
+        </div>
+        <span className="splash-intro-underline" aria-hidden="true" />
       </div>
     </div>
   );
