@@ -268,15 +268,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Subtle vignette around a near-black field. Slight radial gradient
-     keeps the logo centered visually instead of floating on flat black. */
-  background:
-    radial-gradient(
-      ellipse at center,
-      rgb(15 18 24) 0%,
-      rgb(6 8 12) 70%,
-      rgb(0 0 0) 100%
-    );
+  /* Flat white field — the FieldSupport mark is designed for light
+     backgrounds, and the red accents pop more against white than
+     against the prior dark vignette. */
+  background: rgb(255 255 255);
   opacity: 1;
   transition: opacity 520ms ease;
   pointer-events: none;
@@ -308,8 +303,10 @@
   height: auto;
   user-select: none;
   -webkit-user-drag: none;
-  /* Faint glow behind the mark so it lifts off the dark field. */
-  filter: drop-shadow(0 6px 24px rgb(0 0 0 / 0.55));
+  /* Soft shadow beneath the mark so it grounds on the white field
+     instead of floating. Lower opacity than the prior dark-field glow
+     since heavy shadow on white reads as a halo, not depth. */
+  filter: drop-shadow(0 8px 18px rgb(0 0 0 / 0.18));
 }
 /* Diagonal shimmer that sweeps from bottom-left to top-right across the
    logo during the hold phase. The overlay is masked to the wrap so it
@@ -318,15 +315,17 @@
 .splash-intro-shine {
   position: absolute;
   inset: 0;
+  /* On white, a white shine is invisible — switch to a soft graphite
+     band that reads as a metallic sweep across the artwork. */
   background: linear-gradient(
     115deg,
     transparent 35%,
-    rgb(255 255 255 / 0.55) 50%,
+    rgb(20 24 32 / 0.18) 50%,
     transparent 65%
   );
   transform: translateX(-110%);
   pointer-events: none;
-  mix-blend-mode: screen;
+  mix-blend-mode: multiply;
 }
 .splash-intro[data-phase='hold'] .splash-intro-shine {
   animation: splash-shine 1500ms ease-out 120ms 1 forwards;
