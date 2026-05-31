@@ -30,6 +30,7 @@ import { PageHeader, PageShell, Pill } from '@/components/page-shell';
 import {
   EmptyState,
   ErrorBanner,
+  SantechWordmark,
   SegmentCard,
   Skeleton,
 } from '@platform/ui';
@@ -468,11 +469,44 @@ export default function DesignSystemPage() {
         </SubSection>
       </Section>
 
-      <Section id="brand" title="Brand mark" description="The FS monogram. Use brand-mark-square for any compact placeholder where the OEM logo isn't authored.">
-        <div className="flex items-center gap-4">
-          <div className="brand-mark-square">FS</div>
-          <code className="font-mono text-xs text-ink-tertiary">{`<div className="brand-mark-square">FS</div>`}</code>
-        </div>
+      <Section id="brand" title="Brand" description="The product brand assets. FieldSupport is the product; SANTECH is the parent company. Both appear on the same surfaces (sidebar, sign-in, PWA topbar), in different roles.">
+        <SubSection title="Product monogram" description="The FS monogram used as a compact placeholder when the OEM logo isn't authored (sidebar header, sign-in card, PWA home page header).">
+          <div className="flex items-center gap-4">
+            <div className="brand-mark-square">FS</div>
+            <code className="font-mono text-xs text-ink-tertiary">{`<div className="brand-mark-square">FS</div>`}</code>
+          </div>
+        </SubSection>
+
+        <SubSection title="SANTECH wordmark" description='Parent-company attribution. Rendered as "Powered by SANTECH" on the PWA topbar and at the bottom of the sign-in card. The "SAN" portion uses currentColor (theme-adapts); "TECH" stays the brand red regardless. Width is auto so the aspect ratio is preserved when you set height.'>
+          <div className="flex flex-wrap items-center gap-8">
+            <div className="flex flex-col items-center gap-2">
+              <SantechWordmark className="h-4 w-auto text-ink-secondary" />
+              <code className="font-mono text-[10px] text-ink-tertiary">14–16px (caption use)</code>
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              <SantechWordmark className="h-8 w-auto text-ink-primary" />
+              <code className="font-mono text-[10px] text-ink-tertiary">32px</code>
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              <SantechWordmark className="h-14 w-auto text-ink-primary" />
+              <code className="font-mono text-[10px] text-ink-tertiary">56px</code>
+            </div>
+          </div>
+          <CodeBlock>{`import { SantechWordmark } from '@platform/ui';
+
+// PWA topbar — sits to the right of the OEM brand mark.
+<SantechWordmark className="app-topbar-powered-by-mark" />
+
+// Sign-in card footer.
+<SantechWordmark className="signin-santech-mark" />
+
+// Custom — set height; width auto-derives.
+<SantechWordmark className="h-5 w-auto text-ink-secondary" />`}</CodeBlock>
+        </SubSection>
+
+        <SubSection title="FieldSupport mark" description='The animated "circuit-and-gear" SVG that plays as the post-scan splash (apps/pwa/src/components/splash-intro.tsx). Not exposed as a primitive — the animation is tightly bound to the splash sequence. For a static FieldSupport identity, use the FS monogram above; for the wordmark, the public/field-support-logo.svg asset is the cleanest reference.'>
+          <p className="text-xs text-ink-tertiary">No live preview — see <code className="font-mono text-[11px]">apps/pwa/src/components/splash-intro.tsx</code> for the full animation source.</p>
+        </SubSection>
       </Section>
 
       <PageFooter />
@@ -497,7 +531,7 @@ function TableOfContents() {
     { id: 'shared-ui', label: 'Shared @platform/ui' },
     { id: 'skeletons', label: 'Skeletons' },
     { id: 'patterns', label: 'Patterns' },
-    { id: 'brand', label: 'Brand mark' },
+    { id: 'brand', label: 'Brand' },
   ];
   return (
     <nav

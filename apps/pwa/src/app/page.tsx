@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ScanLine } from 'lucide-react';
+import { QrCode, ScanLine } from 'lucide-react';
 import { ThemeToggle } from '@/components/theme-toggle';
 
 export default function Home() {
@@ -24,16 +24,15 @@ export default function Home() {
 
       <div className="relative mt-auto flex flex-col items-center gap-5 pt-12 text-center">
         <div className="qr-tile">
-          <svg
-            width="50"
-            height="50"
-            viewBox="0 0 50 50"
+          {/* Lucide QrCode icon — replaces a hand-rolled SVG pixel-art
+              approximation. Same 50px target, stroke-based rendering
+              for a sharper look on high-DPI screens. */}
+          <QrCode
+            size={50}
+            strokeWidth={1.5}
             className="text-ink-primary opacity-90"
-            fill="currentColor"
             aria-hidden
-          >
-            <path d="M0 0h14v14H0zm4 4v6h6V4H4z M36 0h14v14H36zm4 4v6h6V4h-6z M0 36h14v14H0zm4 4v6h6v-6H4z M18 0h4v4h-4z M26 0h4v8h-4z M18 6h4v4h-4z M22 10h4v4h-4z M30 8h6v4h-6z M18 14h4v8h-4z M26 14h8v4h-8z M24 18h4v4h-4z M30 22h6v4h-6z M40 18h6v4h-6z M18 26h4v4h-4z M24 26h6v4h-6z M34 26h4v4h-4z M42 30h4v4h-4z M20 32h8v4h-8z M30 32h4v8h-4z M18 38h4v8h-4z M24 40h4v4h-4z M36 36h6v4h-6z M44 36h4v10h-4z M28 44h4v4h-4z M38 44h4v4h-4z" />
-          </svg>
+          />
         </div>
 
         <div className="flex flex-col gap-2">

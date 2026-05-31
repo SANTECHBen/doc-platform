@@ -10,3 +10,4 @@ export { EmptyState, type EmptyStateProps, type EmptyStateTone, type Illustratio
 export { ErrorBanner, type ErrorBannerProps } from './error-banner';
 export { Skeleton, type SkeletonProps } from './skeleton';
 export { SegmentCard, type SegmentCardProps, type SegmentCardTone } from './segment-card';
+export { SantechWordmark, type SantechWordmarkProps } from './santech-wordmark';
