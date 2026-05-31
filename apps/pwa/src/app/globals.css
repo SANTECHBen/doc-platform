@@ -1135,41 +1135,13 @@
 }
 .app-tabbar-item[data-active='true'] {
   color: rgb(var(--brand));
-  /* Stronger brand-tinted background and bolder label — earlier draft
-     used the standard brand-soft tint which read as a faint
-     highlight on glossy phone screens in shop-floor lighting. The
-     2x background opacity plus weight bump puts the active tab in
-     no-doubt territory at arm's length. */
+  /* Brand-tinted background + 600-weight label carry the entire
+     active-tab signal now. Earlier iterations added a 3–4px brand
+     bar on top/bottom of the active tab; the tint + weight contrast
+     is enough on its own, and the extra line read as visual noise
+     once it was prominent enough to actually be seen. */
   background: rgb(var(--brand) / 0.14);
   font-weight: 600;
-}
-.app-tabbar-item[data-active='true']::before {
-  content: '';
-  position: absolute;
-  /* Wider (10% → 14%-wider span via narrower inset margin) and thicker
-     (3 → 4px) brand bar so the active indicator survives at glance
-     distance. Border-radius nudged up to match the new thickness. */
-  inset: 4px 14% auto 14%;
-  height: 4px;
-  bottom: auto;
-  background: rgb(var(--brand));
-  border-radius: 2px;
-  opacity: 0;
-  transition: opacity 140ms ease;
-}
-/* Top variant — show the brand bar so the active tab reads as anchored to
-   the doc/section content scrolling beneath. */
-.app-tabbar.app-tabbar-top .app-tabbar-item[data-active='true']::before {
-  inset: auto 14% 0 14%;
-  opacity: 1;
-}
-/* Phone bottom variant — the brand bar appears on the inner edge of the
-   bar so it reads as anchored to the content above (which is where the
-   tech's eye lives). Without this rule the ::before is invisible (opacity:0)
-   on the bottom variant; the bg-tint alone wasn't enough contrast. */
-.app-tabbar.app-tabbar-bottom .app-tabbar-item[data-active='true']::before {
-  inset: 4px 14% auto 14%;
-  opacity: 1;
 }
 .app-tabbar-item:active {
   background: rgb(var(--surface-inset));
