@@ -2876,6 +2876,187 @@
     color: rgb(var(--brand));
   }
 
+  /* Show-more / show-less toggle that sits below an action-band-list
+     when there are more rows than the initial cap. Quiet but
+     unambiguous — small mono-uppercase label with a chevron, brand-
+     tinted on hover. Used for Parts Quick Actions when an asset's
+     BOM exceeds the 12-row preview. */
+  .parts-show-more {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    align-self: center;
+    margin-top: 2px;
+    padding: 8px 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-secondary));
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .parts-show-more:hover {
+    background: rgb(var(--brand) / 0.06);
+    color: rgb(var(--brand));
+  }
+  .parts-show-more:focus-visible {
+    outline: 2px solid rgb(var(--brand));
+    outline-offset: 2px;
+  }
+
+  /* Scan-page torch button — floating circular toggle anchored at
+     bottom-center of the camera viewfinder. Only mounted when the
+     device's camera reports the torch capability (Chrome Android +
+     iOS Safari with limitations). Reuses the FAB visual treatment
+     so the affordance reads "primary action overlay on dark video"
+     consistent with the bottom-tabbar create FAB. Active state
+     glows brand-yellow because a torch turning on should look like
+     a torch turning on. */
+  .scan-torch-btn {
+    appearance: none;
+    border: 0;
+    position: absolute;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgb(255 255 255 / 0.16);
+    backdrop-filter: blur(12px) saturate(1.4);
+    -webkit-backdrop-filter: blur(12px) saturate(1.4);
+    color: #fff;
+    cursor: pointer;
+    box-shadow:
+      0 6px 14px rgba(0, 0, 0, 0.35),
+      0 0 0 1px rgba(255, 255, 255, 0.18) inset;
+    transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease, transform 120ms ease;
+  }
+  .scan-torch-btn:hover {
+    background: rgb(255 255 255 / 0.22);
+  }
+  .scan-torch-btn:active {
+    transform: translateX(-50%) translateY(0.5px);
+  }
+  .scan-torch-btn:focus-visible {
+    outline: 2px solid rgb(var(--brand));
+    outline-offset: 3px;
+  }
+  .scan-torch-btn[data-on='true'] {
+    background: rgb(var(--signal-safety));
+    color: #1a1300;
+    box-shadow:
+      0 6px 14px rgb(var(--signal-safety) / 0.35),
+      0 0 24px rgb(var(--signal-safety) / 0.45),
+      0 0 0 1px rgba(255, 255, 255, 0.24) inset;
+  }
+  .scan-torch-btn[data-on='true']:hover {
+    background: rgb(var(--signal-safety));
+    filter: brightness(1.08);
+  }
+
+  /* Mark-Performed bottom sheet — inherits the .create-sheet primitive
+     (slide-up, backdrop, drag handle) and adds the items-list + notes
+     textarea + action-row composition specific to the evidence flow. */
+  .mark-sheet {
+    /* Slightly more vertical breathing room than the create-sheet
+       because there's an optional list + textarea + 2-button action
+       row stacking inside. */
+    gap: 14px;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+  .mark-sheet-items {
+    list-style: none;
+    margin: 0;
+    padding: 12px 14px;
+    background: rgb(var(--surface-inset));
+    border: 1px solid rgb(var(--line-subtle));
+    border-radius: 8px;
+    max-height: 30vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .mark-sheet-items li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13.5px;
+    color: rgb(var(--ink-primary));
+  }
+  .mark-sheet-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .mark-sheet-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .mark-sheet-hint {
+    margin: 0;
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: rgb(var(--ink-tertiary));
+  }
+  .mark-sheet-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  /* Batch "Mark all due performed" button — promoted at the top of
+     the Scheduled slice when there are 2+ due items. Brand-tinted
+     surface with a check glyph; sits above the per-item cards as a
+     single-tap shortcut for techs who've already done the work and
+     want to log it in bulk. */
+  .maint-batch-mark {
+    appearance: none;
+    border: 1px solid rgb(var(--brand) / 0.35);
+    background: rgba(var(--brand-soft-v), var(--brand-soft-a));
+    color: rgb(var(--ink-brand));
+    border-radius: 8px;
+    padding: 10px 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    cursor: pointer;
+    transition:
+      background 140ms ease,
+      border-color 140ms ease,
+      color 140ms ease;
+    margin-bottom: 4px;
+  }
+  .maint-batch-mark:hover {
+    background: rgba(var(--brand-soft-v), 0.16);
+    border-color: rgb(var(--brand) / 0.55);
+    color: rgb(var(--brand));
+  }
+  .maint-batch-mark:active {
+    transform: translateY(0.5px);
+  }
+  .maint-batch-mark:focus-visible {
+    outline: 2px solid rgb(var(--brand));
+    outline-offset: 2px;
+  }
+
   /* ------------------------------------------------------------
      PART RESOURCE ROW — entries inside a PartResourceCard
      Used on the Part page's Procedure tab to list procedures, PMs,
@@ -4245,6 +4426,32 @@
     font-size: 14px;
     line-height: 1.5;
     text-align: right;
+  }
+
+  /* Sending indicator — sits below the user message bubble after the
+     send() call but before the assistant produces its first streamed
+     token. Tells the tech "your message was received, processing now"
+     so they don't double-tap send. The pulsing dot reuses the .led
+     primitive's visual vocabulary (brand-tinted, ledPulse keyframe). */
+  .user-msg-sending {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding-right: 8px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-tertiary));
+  }
+  .user-msg-sending-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgb(var(--brand));
+    box-shadow: 0 0 6px rgb(var(--brand) / 0.45);
+    animation: ledPulse 1.4s ease-in-out infinite;
+    flex-shrink: 0;
   }
   .assistant-msg {
     padding: 12px 0 12px 14px;

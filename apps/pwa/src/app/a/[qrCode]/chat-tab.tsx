@@ -487,15 +487,31 @@ export function ChatTab({
             </div>
           </div>
         )}
-        {turns.map((t, i) => (
-          <TurnView
-            key={i}
-            turn={t}
-            canPromote={!!me?.platformAdmin}
-            promotingMessageId={promoting}
-            onPromote={onPromote}
-          />
-        ))}
+        {turns.map((t, i) => {
+          // A user turn is "awaiting response" when the very next turn
+          // is an assistant turn that's still streaming and hasn't
+          // produced any text yet. That window — between send and the
+          // first streamed token — is when users sometimes double-tap
+          // send because the only feedback is the Send→Stop swap on
+          // the composer button. The user-message cue makes "your
+          // message is being processed" unambiguous on the bubble itself.
+          const next = turns[i + 1];
+          const awaitingResponse =
+            t.role === 'user' &&
+            next?.role === 'assistant' &&
+            next.streaming === true &&
+            next.text.length === 0;
+          return (
+            <TurnView
+              key={i}
+              turn={t}
+              awaitingResponse={awaitingResponse}
+              canPromote={!!me?.platformAdmin}
+              promotingMessageId={promoting}
+              onPromote={onPromote}
+            />
+          );
+        })}
         {error && (
           <div
             className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm"
@@ -678,11 +694,13 @@ function updateLastAssistant(turns: Turn[], fn: (a: AssistantTurn) => AssistantT
 
 function TurnView({
   turn,
+  awaitingResponse,
   canPromote,
   promotingMessageId,
   onPromote,
 }: {
   turn: Turn;
+  awaitingResponse: boolean;
   canPromote: boolean;
   promotingMessageId: string | null;
   onPromote: (t: AssistantTurn) => void;
@@ -699,6 +717,12 @@ function TurnView({
           />
         )}
         {turn.text && turn.text !== '[photo]' && <div className="user-msg">{turn.text}</div>}
+        {awaitingResponse && (
+          <div className="user-msg-sending" aria-live="polite">
+            <span className="user-msg-sending-dot" aria-hidden />
+            <span>Sending</span>
+          </div>
+        )}
       </div>
     );
   }

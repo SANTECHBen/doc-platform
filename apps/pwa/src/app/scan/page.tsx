@@ -5,16 +5,31 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { BrowserQRCodeReader } from '@zxing/browser';
 import type { IScannerControls } from '@zxing/browser';
+import { Flashlight, FlashlightOff } from 'lucide-react';
+
+// Torch capability detection types — the MediaStream torch API is not in
+// standard TS lib.dom.d.ts yet, but it's supported on Chrome Android
+// and (more inconsistently) on iOS Safari. We narrow ad-hoc.
+interface TorchCapableTrack extends MediaStreamTrack {
+  getCapabilities(): MediaTrackCapabilities & { torch?: boolean };
+  applyConstraints(constraints: MediaTrackConstraints & {
+    advanced?: Array<{ torch?: boolean }>;
+  }): Promise<void>;
+}
 
 export default function ScanPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const [torchSupported, setTorchSupported] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
+  const trackRef = useRef<TorchCapableTrack | null>(null);
   const router = useRouter();
 
   useEffect(() => {
     const reader = new BrowserQRCodeReader();
     let controls: IScannerControls | undefined;
     let cancelled = false;
+    let probeTimer: ReturnType<typeof setTimeout> | undefined;
 
     let errorTimer: ReturnType<typeof setTimeout> | undefined;
     function showTransientError(message: string) {
@@ -39,12 +54,54 @@ export default function ScanPage() {
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
 
+    // After the reader starts, the video element's srcObject is the live
+    // MediaStream. Probe it for the torch capability. We give it a tick
+    // so the stream is settled — getCapabilities() returns an empty
+    // object before the first frame is available on some devices.
+    probeTimer = setTimeout(() => {
+      if (cancelled) return;
+      const stream = videoRef.current?.srcObject;
+      if (!(stream instanceof MediaStream)) return;
+      const [track] = stream.getVideoTracks();
+      if (!track) return;
+      const torchTrack = track as TorchCapableTrack;
+      const caps = torchTrack.getCapabilities?.();
+      if (caps && 'torch' in caps && caps.torch === true) {
+        trackRef.current = torchTrack;
+        setTorchSupported(true);
+      }
+    }, 500);
+
     return () => {
       cancelled = true;
       if (errorTimer) clearTimeout(errorTimer);
+      if (probeTimer) clearTimeout(probeTimer);
+      // Always release the torch on unmount — leaving it on after
+      // navigating away would burn battery and surprise the tech.
+      const track = trackRef.current;
+      if (track) {
+        try {
+          void track.applyConstraints({ advanced: [{ torch: false }] });
+        } catch {
+          /* track may already be stopped — fine */
+        }
+        trackRef.current = null;
+      }
       controls?.stop();
     };
   }, [router]);
+
+  async function toggleTorch() {
+    const track = trackRef.current;
+    if (!track) return;
+    const next = !torchOn;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: next }] });
+      setTorchOn(next);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not toggle torch');
+    }
+  }
 
   return (
     <main id="main" tabIndex={-1} className="mx-auto flex min-h-screen max-w-2xl flex-col gap-4 px-4 py-4 focus:outline-none">
@@ -74,6 +131,26 @@ export default function ScanPage() {
             <span className="absolute bottom-0 right-0 h-6 w-6 border-b-2 border-r-2 border-brand" />
           </div>
         </div>
+
+        {/* Torch toggle — only rendered when the device's camera reports
+            the torch capability. Bottom-center floating button so it's
+            within thumb reach without occluding the QR target frame. */}
+        {torchSupported && (
+          <button
+            type="button"
+            onClick={toggleTorch}
+            className="scan-torch-btn"
+            data-on={torchOn ? 'true' : 'false'}
+            aria-label={torchOn ? 'Turn flashlight off' : 'Turn flashlight on'}
+            aria-pressed={torchOn}
+          >
+            {torchOn ? (
+              <Flashlight size={20} strokeWidth={2} />
+            ) : (
+              <FlashlightOff size={20} strokeWidth={2} />
+            )}
+          </button>
+        )}
       </div>
 
       <p className="text-center text-sm text-ink-secondary">

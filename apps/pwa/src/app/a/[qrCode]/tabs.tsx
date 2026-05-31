@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CalendarClock,
   ChevronDown,
+  ChevronUp,
   FileText,
   GraduationCap,
   Home,
@@ -478,6 +479,13 @@ function OverviewActionSummary({
   );
 }
 
+// Initial cap on Overview. Tunable — 12 was chosen as enough rows for
+// a typical conveyor / pump / motor BOM to feel like a meaningful
+// preview, while leaving a clear "All parts" affordance when the BOM
+// runs longer than that. Complex equipment with hundreds of parts
+// expand on tap.
+const PARTS_QUICK_INITIAL_CAP = 12;
+
 function PartsQuickActions({
   assetModelId,
   onOpenPart,
@@ -485,7 +493,11 @@ function PartsQuickActions({
   assetModelId: string;
   onOpenPart: (partId: string) => void;
 }): React.ReactElement | null {
-  const [parts, setParts] = useState<BomEntry[] | null>(null);
+  // Full sorted list — surface-top-level items first, then alpha. The
+  // visible slice is computed downstream so we can toggle expanded
+  // state without re-fetching.
+  const [allParts, setAllParts] = useState<BomEntry[] | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -494,24 +506,19 @@ function PartsQuickActions({
         const rows = await listParts(assetModelId);
         if (cancelled) return;
         // Surface top-level structural items first (assemblies and
-        // sub-assemblies sort above loose parts); cap at 6 so the
-        // Overview doesn't drown in BOM rows. Full list is one tap
-        // away in the Parts tab.
+        // sub-assemblies sort above loose parts), then alpha within rank.
         const rank = (r: BomEntry) =>
           r.role === 'assembly' ? 0 : r.role === 'sub_assembly' ? 1 : 2;
-        const top = rows
-          .slice()
-          .sort((a, b) => {
-            const rd = rank(a) - rank(b);
-            if (rd !== 0) return rd;
-            return a.displayName.localeCompare(b.displayName, undefined, {
-              sensitivity: 'base',
-            });
-          })
-          .slice(0, 6);
-        setParts(top);
+        const sorted = rows.slice().sort((a, b) => {
+          const rd = rank(a) - rank(b);
+          if (rd !== 0) return rd;
+          return a.displayName.localeCompare(b.displayName, undefined, {
+            sensitivity: 'base',
+          });
+        });
+        setAllParts(sorted);
       } catch {
-        if (!cancelled) setParts([]);
+        if (!cancelled) setAllParts([]);
       }
     })();
     return () => {
@@ -519,7 +526,10 @@ function PartsQuickActions({
     };
   }, [assetModelId]);
 
-  if (!parts || parts.length === 0) return null;
+  if (!allParts || allParts.length === 0) return null;
+
+  const hasMore = allParts.length > PARTS_QUICK_INITIAL_CAP;
+  const visible = expanded ? allParts : allParts.slice(0, PARTS_QUICK_INITIAL_CAP);
 
   return (
     <section aria-label="Parts and procedures" className="flex flex-col gap-2">
@@ -532,7 +542,7 @@ function PartsQuickActions({
           path techs were missing under the bare "Parts" label). */}
       <h2 className="section-heading">Parts and procedures</h2>
       <div className="action-band-list">
-        {parts.map((p) => {
+        {visible.map((p) => {
           const partNumber = p.oemPartNumber?.trim();
           const showPartNumber =
             partNumber && partNumber.toLowerCase() !== p.displayName.trim().toLowerCase();
@@ -561,6 +571,26 @@ function PartsQuickActions({
           );
         })}
       </div>
+      {hasMore && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="parts-show-more"
+          aria-expanded={expanded}
+        >
+          {expanded ? (
+            <>
+              <ChevronUp size={14} strokeWidth={2.25} aria-hidden />
+              Show top {PARTS_QUICK_INITIAL_CAP}
+            </>
+          ) : (
+            <>
+              All parts ({allParts.length})
+              <ChevronDown size={14} strokeWidth={2.25} aria-hidden />
+            </>
+          )}
+        </button>
+      )}
     </section>
   );
 }

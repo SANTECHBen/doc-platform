@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { QrCode, ScanLine } from 'lucide-react';
+import { ChevronRight, QrCode, ScanLine } from 'lucide-react';
 import { ThemeToggle } from '@/components/theme-toggle';
 
 export default function Home() {
@@ -59,6 +59,17 @@ export default function Home() {
         <p className="max-w-[280px] text-center text-xs text-ink-tertiary">
           Hands busy? Hold the QR steady — the hub loads in under a second.
         </p>
+        {/* Secondary path — for damaged stickers, work-order IDs, or any
+            case where the tech has the code but can't get a camera scan
+            to read it. Kept quiet (small text link) so the camera scan
+            remains the canonical action. */}
+        <Link
+          href="/enter"
+          className="inline-flex items-center gap-1 pt-1 text-[13px] font-medium text-ink-secondary transition hover:text-ink-primary"
+        >
+          Sticker damaged? Enter ID manually
+          <ChevronRight size={13} strokeWidth={2} aria-hidden />
+        </Link>
       </div>
     </main>
   );

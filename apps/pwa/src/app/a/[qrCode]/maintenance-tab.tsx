@@ -44,6 +44,10 @@ import {
 } from '@/lib/api';
 import type { JobAidSource } from '@/components/virtual-job-aid';
 import {
+  MarkPerformedSheet,
+  type MarkableItem,
+} from '@/components/mark-performed-sheet';
+import {
   planBucketToSteps,
   troubleshootingToSteps,
 } from '@/lib/pm-troubleshooting-steps';
@@ -178,6 +182,15 @@ export function MaintenanceTab({
   // Tracks the schedule / plan-bucket whose Mark performed is
   // currently in-flight, so the right button can show a spinner.
   const [marking, setMarking] = useState<string | null>(null);
+  // Mark-performed sheet state. Single-item or batch flow. When set,
+  // the MarkPerformedSheet renders modally to capture optional notes
+  // before the actual API calls fire. `perform` is the closure that
+  // runs the API calls with the notes the user typed.
+  const [pendingMark, setPendingMark] = useState<{
+    items: MarkableItem[];
+    perform: (notes: string) => Promise<void>;
+  } | null>(null);
+  const [markBusy, setMarkBusy] = useState(false);
   // Scroll the expanded row into view so the slice content doesn't
   // appear below the fold on phones.
   const expandedRef = useRef<HTMLDivElement | null>(null);
@@ -210,6 +223,7 @@ export function MaintenanceTab({
     planId: string,
     frequency: PmPlanBucket['frequency'],
     bucketLabel: string,
+    notes: string,
   ) {
     const key = `${planId}:${frequency}`;
     setMarking(key);
@@ -218,6 +232,7 @@ export function MaintenanceTab({
         assetInstanceId,
         planId,
         frequency,
+        notes: notes.trim() || null,
         devUserId: DEV_USER_ID,
         devOrgId: DEV_ORG_ID,
       });
@@ -350,13 +365,14 @@ export function MaintenanceTab({
     troubleshooting.length > 0;
   const nothingScheduled = !anyMaintenance;
 
-  async function logServicePerformed(s: PmScheduleStatusItem) {
+  async function logServicePerformed(s: PmScheduleStatusItem, notes: string) {
     setMarking(s.schedule.id);
     try {
       await createPmServiceRecord({
         assetInstanceId,
         pmScheduleId: s.schedule.id,
         documentId: s.schedule.document?.id ?? null,
+        notes: notes.trim() || null,
         devUserId: DEV_USER_ID,
         devOrgId: DEV_ORG_ID,
       });
@@ -372,6 +388,77 @@ export function MaintenanceTab({
       );
     } finally {
       setMarking(null);
+    }
+  }
+
+  // Open the evidence-capture sheet for a single schedule. The sheet's
+  // onConfirm callback runs the actual log call with whatever notes
+  // the tech typed in.
+  function openMarkScheduleSheet(s: PmScheduleStatusItem) {
+    setPendingMark({
+      items: [{ key: `schedule:${s.schedule.id}`, label: s.schedule.name }],
+      perform: (notes) => logServicePerformed(s, notes),
+    });
+  }
+  function openMarkBucketSheet(
+    plan: { id: string; name: string },
+    bucket: PmPlanBucket,
+  ) {
+    setPendingMark({
+      items: [
+        {
+          key: `bucket:${plan.id}:${bucket.frequency}`,
+          label: `${plan.name} · ${bucket.frequencyLabel}`,
+        },
+      ],
+      perform: (notes) =>
+        logPlanPerformed(
+          plan.id,
+          bucket.frequency,
+          `${plan.name} · ${bucket.frequencyLabel}`,
+          notes,
+        ),
+    });
+  }
+  // Batch flow — "Mark all due performed" at the top of the Scheduled
+  // slice opens the sheet with all overdue schedules + buckets at
+  // once. One notes value applies to every record (the tech is
+  // attesting "I did all of these"); the actual API calls fire in
+  // parallel.
+  function openMarkAllDueSheet() {
+    const scheduleItems = dueNow.map((s) => ({
+      key: `schedule:${s.schedule.id}`,
+      label: s.schedule.name,
+      perform: (notes: string) => logServicePerformed(s, notes),
+    }));
+    const bucketItems = overdueBuckets.map((row) => ({
+      key: `bucket:${row.plan.id}:${row.bucket.frequency}`,
+      label: `${row.plan.name} · ${row.bucket.frequencyLabel}`,
+      perform: (notes: string) =>
+        logPlanPerformed(
+          row.plan.id,
+          row.bucket.frequency,
+          `${row.plan.name} · ${row.bucket.frequencyLabel}`,
+          notes,
+        ),
+    }));
+    const combined = [...scheduleItems, ...bucketItems];
+    if (combined.length === 0) return;
+    setPendingMark({
+      items: combined.map((it) => ({ key: it.key, label: it.label })),
+      perform: async (notes) => {
+        await Promise.all(combined.map((it) => it.perform(notes)));
+      },
+    });
+  }
+  async function onConfirmMark(notes: string) {
+    if (!pendingMark) return;
+    setMarkBusy(true);
+    try {
+      await pendingMark.perform(notes);
+    } finally {
+      setMarkBusy(false);
+      setPendingMark(null);
     }
   }
 
@@ -471,6 +558,12 @@ export function MaintenanceTab({
     { key: 'history', label: 'History', count: historyRecords.length },
   ];
 
+  // Number of items eligible for the "Mark all due performed" batch
+  // button. Promotes the batch affordance only when there are at
+  // least 2 due items — for a single item the regular card-level
+  // Mark Performed is already a one-tap path.
+  const allDueCount = dueNow.length + overdueBuckets.length;
+
   function renderSlice(key: FilterKey): ReactNode {
     switch (key) {
       case 'scheduled': {
@@ -484,6 +577,17 @@ export function MaintenanceTab({
         }
         return (
           <div className="flex flex-col gap-2">
+            {allDueCount >= 2 && (
+              <button
+                type="button"
+                onClick={openMarkAllDueSheet}
+                className="maint-batch-mark"
+                aria-label={`Mark all ${allDueCount} due PMs as performed`}
+              >
+                <Check size={14} strokeWidth={2.25} aria-hidden />
+                Mark all {allDueCount} due as performed
+              </button>
+            )}
             {dueNow.map((s) => (
               <ScheduleCard
                 key={s.schedule.id}
@@ -499,7 +603,7 @@ export function MaintenanceTab({
                   }
                   launchDoc(s.schedule.document.id, () => void refresh());
                 }}
-                onMarkDone={() => void logServicePerformed(s)}
+                onMarkDone={() => openMarkScheduleSheet(s)}
               />
             ))}
             {overdueBuckets
@@ -522,16 +626,11 @@ export function MaintenanceTab({
                           row.plan.id,
                           row.bucket.frequency,
                           `${row.plan.name} · ${row.bucket.frequencyLabel}`,
+                          '',
                         ),
                     )
                   }
-                  onMarkPerformed={() =>
-                    void logPlanPerformed(
-                      row.plan.id,
-                      row.bucket.frequency,
-                      `${row.plan.name} · ${row.bucket.frequencyLabel}`,
-                    )
-                  }
+                  onMarkPerformed={() => openMarkBucketSheet(row.plan, row.bucket)}
                 />
               ))}
             {upcoming.map((s) => (
@@ -550,7 +649,7 @@ export function MaintenanceTab({
                   }
                   launchDoc(s.schedule.document.id, () => void refresh());
                 }}
-                onMarkDone={() => void logServicePerformed(s)}
+                onMarkDone={() => openMarkScheduleSheet(s)}
               />
             ))}
             {upcomingBuckets
@@ -571,16 +670,11 @@ export function MaintenanceTab({
                           row.plan.id,
                           row.bucket.frequency,
                           `${row.plan.name} - ${row.bucket.frequencyLabel}`,
+                          '',
                         ),
                     )
                   }
-                  onMarkPerformed={() =>
-                    void logPlanPerformed(
-                      row.plan.id,
-                      row.bucket.frequency,
-                      `${row.plan.name} - ${row.bucket.frequencyLabel}`,
-                    )
-                  }
+                  onMarkPerformed={() => openMarkBucketSheet(row.plan, row.bucket)}
                 />
               ))}
           </div>
@@ -624,16 +718,11 @@ export function MaintenanceTab({
                               row.plan.id,
                               row.bucket.frequency,
                               `${row.plan.name} · ${row.bucket.frequencyLabel}`,
+                              '',
                             ),
                         )
                       }
-                      onMarkPerformed={() =>
-                        void logPlanPerformed(
-                          row.plan.id,
-                          row.bucket.frequency,
-                          `${row.plan.name} · ${row.bucket.frequencyLabel}`,
-                        )
-                      }
+                      onMarkPerformed={() => openMarkBucketSheet(row.plan, row.bucket)}
                     />
                   ))}
               </div>
@@ -748,7 +837,7 @@ export function MaintenanceTab({
             }
             launchDoc(s.schedule.document.id, () => void refresh());
           }}
-          onMarkSchedule={(s) => void logServicePerformed(s)}
+          onMarkSchedule={(s) => openMarkScheduleSheet(s)}
           onRunBucket={(plan, bucket) =>
             launchInline(
               `${plan.name} · ${bucket.frequencyLabel}`,
@@ -758,16 +847,11 @@ export function MaintenanceTab({
                   plan.id,
                   bucket.frequency,
                   `${plan.name} · ${bucket.frequencyLabel}`,
+                  '',
                 ),
             )
           }
-          onMarkBucket={(plan, bucket) =>
-            void logPlanPerformed(
-              plan.id,
-              bucket.frequency,
-              `${plan.name} · ${bucket.frequencyLabel}`,
-            )
-          }
+          onMarkBucket={(plan, bucket) => openMarkBucketSheet(plan, bucket)}
         />
       ) : (
         <HeroEmpty nextItem={nextItem} />
@@ -809,6 +893,17 @@ export function MaintenanceTab({
           })}
         </div>
       </section>
+
+      {pendingMark && (
+        <MarkPerformedSheet
+          items={pendingMark.items}
+          busy={markBusy}
+          onClose={() => {
+            if (!markBusy) setPendingMark(null);
+          }}
+          onConfirm={(notes) => void onConfirmMark(notes)}
+        />
+      )}
     </div>
   );
 }
