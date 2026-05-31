@@ -2,7 +2,7 @@
   "name": "FieldSupport",
   "short_name": "FieldSupport",
   "description": "Scan equipment QR codes to access documentation, training, parts, and AI troubleshooting.",
-  "start_url": "/",
+  "start_url": "/?intro=1",
   "scope": "/",
   "display": "standalone",
   "display_override": ["standalone", "fullscreen"],

@@ -1,8 +1,24 @@
 import Link from 'next/link';
 import { ChevronRight, QrCode, ScanLine } from 'lucide-react';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { SplashIntro } from '@/components/splash-intro';
 
-export default function Home() {
+// The manifest sets start_url to "/?intro=1" so launching the installed
+// PWA from the home screen arrives with intro=1 set, which triggers the
+// SplashIntro mount on the root page (same animated logo that plays on
+// a QR scan). The OS-level launch screen — the static Android icon
+// flash that happens before any JS runs — is unavoidable and rendered
+// from manifest.webmanifest + public/icon.svg; this splash takes over
+// the moment the React tree mounts.
+//
+// Direct browser visits to "/" (no intro param) skip the animation.
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
+  const showIntro = sp.intro === '1';
   return (
     <main id="main" tabIndex={-1} className="relative mx-auto flex min-h-screen max-w-md flex-col px-6 py-6 focus:outline-none">
       <div
@@ -71,6 +87,8 @@ export default function Home() {
           <ChevronRight size={13} strokeWidth={2} aria-hidden />
         </Link>
       </div>
+
+      {showIntro && <SplashIntro />}
     </main>
   );
 }

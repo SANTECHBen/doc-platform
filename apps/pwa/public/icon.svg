@@ -1,7 +1,56 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#256CD3"/>
-  <g fill="#fff" font-family="system-ui, -apple-system, 'IBM Plex Sans', sans-serif" font-weight="700">
-    <text x="256" y="300" font-size="220" text-anchor="middle" letter-spacing="-6">FS</text>
+  <title>FieldSupport</title>
+  <defs>
+    <linearGradient id="fsIconBg" x1="68" x2="446" y1="52" y2="460" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#256CD3" />
+      <stop offset="1" stop-color="#1D58B2" />
+    </linearGradient>
+    <filter id="fsIconShadow" x="-8%" y="-8%" width="116%" height="116%">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#0E1217" flood-opacity="0.24" />
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#fsIconBg)" />
+  <g filter="url(#fsIconShadow)">
+    <g transform="translate(74 112)">
+      <g fill="#0E1217">
+        <rect x="105" y="-32" width="24" height="44" rx="4" transform="rotate(0 117 140)" />
+        <rect x="105" y="-32" width="24" height="44" rx="4" transform="rotate(22.5 117 140)" />
+        <rect x="105" y="-32" width="24" height="44" rx="4" transform="rotate(45 117 140)" />
+        <rect x="105" y="-32" width="24" height="44" rx="4" transform="rotate(67.5 117 140)" />
+        <rect x="105" y="-32" width="24" height="44" rx="4" transform="rotate(90 117 140)" />
+        <rect x="105" y="-32" width="24" height="44" rx="4" transform="rotate(112.5 117 140)" />
+        <rect x="105" y="-32" width="24" height="44" rx="4" transform="rotate(135 117 140)" />
+        <rect x="105" y="-32" width="24" height="44" rx="4" transform="rotate(157.5 117 140)" />
+        <rect x="105" y="-32" width="24" height="44" rx="4" transform="rotate(180 117 140)" />
+        <rect x="105" y="-32" width="24" height="44" rx="4" transform="rotate(202.5 117 140)" />
+        <rect x="105" y="-32" width="24" height="44" rx="4" transform="rotate(225 117 140)" />
+        <rect x="105" y="-32" width="24" height="44" rx="4" transform="rotate(247.5 117 140)" />
+        <rect x="105" y="-32" width="24" height="44" rx="4" transform="rotate(270 117 140)" />
+        <rect x="105" y="-32" width="24" height="44" rx="4" transform="rotate(292.5 117 140)" />
+        <rect x="105" y="-32" width="24" height="44" rx="4" transform="rotate(315 117 140)" />
+        <rect x="105" y="-32" width="24" height="44" rx="4" transform="rotate(337.5 117 140)" />
+      </g>
+      <circle cx="117" cy="140" r="104" fill="#0E1217" />
+      <circle cx="117" cy="140" r="76" fill="#F5F6F8" />
+      <path d="M117 73a67 67 0 0 0-50 111" fill="none" stroke="#4A5560" stroke-width="13" stroke-linecap="round" />
+      <path d="M117 96a44 44 0 0 0-34 73" fill="none" stroke="#0E1217" stroke-width="9" stroke-linecap="round" />
+    </g>
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M119 249h142l39-39h80" stroke="#F5F6F8" stroke-width="20" opacity="0.96" />
+      <path d="M120 287h166l44-43h89" stroke="#0E1217" stroke-width="15" opacity="0.94" />
+      <path d="M212 217h76l32-30h78" stroke="#F5F6F8" stroke-width="13" opacity="0.96" />
+      <path d="M211 217h46" stroke="#B02B3D" stroke-width="11" />
+    </g>
+    <g>
+      <circle cx="331" cy="244" r="28" fill="#F5F6F8" />
+      <circle cx="331" cy="244" r="18" fill="#0E1217" />
+      <circle cx="331" cy="244" r="8" fill="#F5F6F8" />
+      <circle cx="400" cy="187" r="24" fill="#F5F6F8" />
+      <circle cx="400" cy="187" r="15" fill="#B02B3D" />
+      <circle cx="400" cy="187" r="7" fill="#F5F6F8" />
+      <circle cx="420" cy="287" r="23" fill="#F5F6F8" />
+      <circle cx="420" cy="287" r="14" fill="#0E1217" />
+    </g>
   </g>
-  <rect x="96" y="372" width="320" height="8" rx="4" fill="#fff" opacity="0.85"/>
+  <path d="M112 375h288" stroke="#F5F6F8" stroke-width="9" stroke-linecap="round" opacity="0.9" />
 </svg>
