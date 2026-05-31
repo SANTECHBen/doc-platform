@@ -158,9 +158,18 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
     // the hash so we sync to Overview without requiring the user to use
     // the phone's back button.
     window.addEventListener('asset-hub:tab', onPop);
+    // Topbar's tablet+ "Create" button dispatches this. On phones the
+    // bottom-bar FAB calls setCreateSheetOpen directly; tablet/desktop
+    // hide the bottom bar entirely, so the topbar button is the only
+    // entry point at those widths.
+    function onCreateRequested() {
+      setCreateSheetOpen(true);
+    }
+    window.addEventListener('asset-hub:create', onCreateRequested);
     return () => {
       window.removeEventListener('popstate', onPop);
       window.removeEventListener('asset-hub:tab', onPop);
+      window.removeEventListener('asset-hub:create', onCreateRequested);
     };
   }, []);
 

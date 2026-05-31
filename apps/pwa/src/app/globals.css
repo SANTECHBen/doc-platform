@@ -910,6 +910,46 @@
   flex-shrink: 0;
 }
 
+/* Topbar "Create" button — tablet+ equivalent of the bottom-bar FAB.
+   Phones hide this and rely on the FAB; tablet/desktop hide the FAB
+   (the bottom bar is gone) and rely on this. Brand-tinted pill so it
+   sits at the same affordance weight as the FAB without competing
+   with the OEM logo on the left side of the bar. */
+.app-topbar-create {
+  display: none;
+  appearance: none;
+  border: 0;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: rgb(var(--brand));
+  color: rgb(var(--brand-on-primary, 255 255 255));
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    transform 120ms ease;
+}
+.app-topbar-create:hover {
+  background: rgb(var(--brand-strong));
+}
+.app-topbar-create:active {
+  transform: translateY(1px);
+}
+.app-topbar-create:focus-visible {
+  outline: 2px solid rgb(var(--brand) / 0.6);
+  outline-offset: 2px;
+}
+@media (min-width: 768px) {
+  .app-topbar-create {
+    display: inline-flex;
+  }
+}
+
 /* Compact asset chip — shown on every tab EXCEPT Overview so the tech
    never loses identity context. Status LED + asset name only — no
    thumbnail, no serial number. Per UX feedback the chip should read
@@ -1095,13 +1135,22 @@
 }
 .app-tabbar-item[data-active='true'] {
   color: rgb(var(--brand));
-  background: rgba(var(--brand-soft-v), var(--brand-soft-a));
+  /* Stronger brand-tinted background and bolder label — earlier draft
+     used the standard brand-soft tint which read as a faint
+     highlight on glossy phone screens in shop-floor lighting. The
+     2x background opacity plus weight bump puts the active tab in
+     no-doubt territory at arm's length. */
+  background: rgb(var(--brand) / 0.14);
+  font-weight: 600;
 }
 .app-tabbar-item[data-active='true']::before {
   content: '';
   position: absolute;
-  inset: 4px 18% auto 18%;
-  height: 3px;
+  /* Wider (10% → 14%-wider span via narrower inset margin) and thicker
+     (3 → 4px) brand bar so the active indicator survives at glance
+     distance. Border-radius nudged up to match the new thickness. */
+  inset: 4px 14% auto 14%;
+  height: 4px;
   bottom: auto;
   background: rgb(var(--brand));
   border-radius: 2px;
@@ -1111,7 +1160,15 @@
 /* Top variant — show the brand bar so the active tab reads as anchored to
    the doc/section content scrolling beneath. */
 .app-tabbar.app-tabbar-top .app-tabbar-item[data-active='true']::before {
-  inset: auto 18% 0 18%;
+  inset: auto 14% 0 14%;
+  opacity: 1;
+}
+/* Phone bottom variant — the brand bar appears on the inner edge of the
+   bar so it reads as anchored to the content above (which is where the
+   tech's eye lives). Without this rule the ::before is invisible (opacity:0)
+   on the bottom variant; the bg-tint alone wasn't enough contrast. */
+.app-tabbar.app-tabbar-bottom .app-tabbar-item[data-active='true']::before {
+  inset: 4px 14% auto 14%;
   opacity: 1;
 }
 .app-tabbar-item:active {
@@ -1255,8 +1312,10 @@
   border: 0;
   background: transparent;
   color: rgb(var(--ink-tertiary));
-  width: 32px;
-  height: 32px;
+  /* 44×44 hit target — touch-ergonomics minimum. The X glyph stays
+     visually compact; the surrounding padding does the work. */
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
@@ -1698,9 +1757,12 @@
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
+  /* 44×44 minimum hit target. Find-bar is used while reading on a
+     phone, often with the document held up at arm's length — too
+     small to tap reliably at 32×32. */
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
   color: rgb(var(--ink-secondary));
   transition:
     background 120ms ease,
@@ -1838,14 +1900,18 @@
    ========================================================================= */
 
 @layer components {
-  /* Tiny segmented toggle for view-mode swaps (e.g., docs grid/list). */
+  /* Segmented toggle for view-mode swaps (e.g., docs grid/list).
+     Sized at 44×44 to meet the touch-target minimum — earlier 30×30
+     was readable but fiddly with gloves. Border-radius bumped from
+     3px to 6px to keep the chip proportions sensible at the larger
+     size. */
   .docs-view-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 30px;
-    height: 30px;
-    border-radius: 3px;
+    width: 44px;
+    height: 44px;
+    border-radius: 6px;
     color: rgb(var(--ink-secondary));
     background: transparent;
     border: none;
@@ -2511,7 +2577,14 @@
     background: #000;
     aspect-ratio: 16 / 9;
   }
-  @media (min-width: 768px) {
+  /* 21:9 hero only kicks in at landscape-tablet / desktop widths.
+     At 768×1024 (tablet portrait) a 21:9 hero is only ~315px tall on
+     a 1024px-tall viewport but lands wider than the surrounding
+     content stack feels — keeping 16:9 there matches the phone
+     framing the tech is used to. The breakpoint deliberately lands
+     at the iPad-landscape short-edge (1024px) so flipping the device
+     to landscape promotes the hero to the wider crop. */
+  @media (min-width: 1024px) {
     .identity-band {
       aspect-ratio: 21 / 9;
     }
@@ -3574,7 +3647,11 @@
     background: rgb(var(--surface-inset));
     border: 1px solid rgb(var(--line));
     border-radius: 5px;
-    gap: 2px;
+    /* 6px between adjacent segments — the 44px target heights still
+       hit the 8px-min for diagonal centers because of the 3px chrome
+       padding. Earlier 2px caused techs to land on the neighboring
+       segment with cold hands or gloves. */
+    gap: 6px;
     width: 100%;
     overflow-x: auto;
   }
@@ -5142,16 +5219,18 @@
   .voice-mode-bar-actions {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    /* 8px keeps adjacent buttons distinguishable for gloved taps. */
+    gap: 8px;
     flex-shrink: 0;
   }
   .voice-mode-bar-action {
     appearance: none;
     border: 0;
     background: transparent;
-    width: 40px;
-    height: 40px;
-    border-radius: 8px;
+    /* 44×44 minimum hit target — gloved-finger ergonomics. */
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -5175,13 +5254,13 @@
     background: rgb(var(--signal-warn) / 0.14);
     color: rgb(var(--signal-warn));
   }
-  .voice-mode-bar-action-end {
-    color: rgb(var(--signal-fault));
-  }
-  .voice-mode-bar-action-end:hover:not(:disabled) {
-    background: rgb(var(--signal-fault) / 0.1);
-    color: rgb(var(--signal-fault));
-  }
+  /* "End voice mode" gets the same neutral treatment as the other two
+     bar actions. Earlier draft tinted it signal-fault red, which
+     reads as "destructive / something went wrong" — but ending a
+     conversation is a normal close, not a fault state. We reserve
+     fault red for actual error states (mic-permission denied,
+     transcription failure). The X icon already signals "close"
+     unambiguously. */
   @keyframes voiceModeIn {
     from {
       opacity: 0;

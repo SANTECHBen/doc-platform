@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
 import { SantechWordmark } from '@platform/ui';
 import type { AssetHubPayload } from '@/lib/shared-schema';
 import { BrandLogo } from '@/components/brand-logo';
@@ -81,6 +82,23 @@ export function AssetTopbar({ hub }: { hub: AssetHubPayload }) {
         </div>
       )}
       <div className="app-topbar-actions">
+        {/* Tablet+ create affordance. On phones the bottom-bar FAB handles
+            this; on tablet (≥768px) the bottom bar is hidden and the FAB
+            disappears with it, leaving the topbar as the only persistent
+            global chrome. Dispatching a window event (rather than
+            threading a callback) keeps the topbar a thin presentation
+            component — AssetHubTabs owns the create state and listens
+            for 'asset-hub:create' the same way it already listens for
+            'asset-hub:tab' on brand-mark taps. */}
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new Event('asset-hub:create'))}
+          className="app-topbar-create"
+          aria-label="Document a procedure"
+        >
+          <Plus size={16} strokeWidth={2.5} aria-hidden />
+          <span>Create</span>
+        </button>
         <PoweredBy />
       </div>
     </header>
