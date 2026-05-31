@@ -65,6 +65,17 @@ export interface PrefetchedGreeting {
   blob: Blob | null;
 }
 
+/** Presentation mode for VoiceMode.
+ *  • 'fullscreen' — original full-viewport overlay with large orb + asset
+ *    header + bottom action bar. Used standalone (e.g., from a "Talk to
+ *    asset" entry that bypasses the chat tab).
+ *  • 'bar' — compact horizontal bar that mounts inline (typically above
+ *    the chat composer it temporarily replaces). Shrunken orb, inline
+ *    status label, icon-only mute/keyboard/end buttons. The chat thread
+ *    above stays visible while voice is active — the headline UX change
+ *    from the audit. */
+export type VoiceModeVariant = 'fullscreen' | 'bar';
+
 interface Props {
   assetInstanceId: string;
   partId?: string;
@@ -77,6 +88,10 @@ interface Props {
    *  was on screen) to pre-warm the preflight + greeting TTS. When provided
    *  and resolved with a blob, the greeting plays immediately on unlock. */
   prefetched?: Promise<PrefetchedGreeting | null>;
+  /** Presentation mode. Defaults to 'fullscreen' for backwards-compat;
+   *  the chat tab now passes 'bar' so voice lives above the composer
+   *  instead of as a full-screen takeover. */
+  variant?: VoiceModeVariant;
   onClose: (state: {
     conversationId?: string;
     turns: VoiceTurn[];
@@ -96,6 +111,7 @@ const SILENCE_HOLD_MS = 1500; // how long quiet must persist before we stop
 const MIN_UTTERANCE_MS = 350; // ignore micro-clicks shorter than this
 
 export function VoiceMode(props: Props): React.ReactElement {
+  const variant: VoiceModeVariant = props.variant ?? 'fullscreen';
   const [orbState, setOrbState] = useState<VoiceOrbState>('idle');
   const [transcript, setTranscript] = useState<string>('');
   const [statusLine, setStatusLine] = useState<string>('Tap to start voice assistant');
@@ -123,9 +139,15 @@ export function VoiceMode(props: Props): React.ReactElement {
   // Dialog chrome — Escape to close, focus trap, body scroll lock,
   // focus restoration to the trigger element. The orb button is the
   // first focusable inside the dialog, so it gets initial focus.
+  //
+  // Only applies to fullscreen variant. Bar-variant voice sits inline
+  // inside the chat tab; trapping focus there would prevent the user
+  // from scrolling the chat thread above and using the topbar, which
+  // is exactly the multi-modal interaction the bar variant exists to
+  // enable.
   const dialogRef = useRef<HTMLDivElement>(null);
   useDialogChrome({
-    open: true,
+    open: variant === 'fullscreen',
     onClose: () => close(),
     dialogRef,
   });
@@ -447,7 +469,23 @@ export function VoiceMode(props: Props): React.ReactElement {
   async function playAudioBlob(blob: Blob) {
     if (closedRef.current) return;
     setOrbState('speaking');
-    setStatusLine('Speaking');
+    // Speaking-state label includes the interrupt hint. The orb has
+    // always supported tap-to-interrupt during speaking via onOrbTap;
+    // surfacing it in the status line is the difference between users
+    // discovering the affordance and not.
+    //
+    // True voice-based interrupt (talk over the AI without tapping)
+    // requires keeping the mic stream alive during 'speaking' and
+    // running a high-threshold VAD against it. The current
+    // architecture deliberately releases the mic after recording
+    // (releaseMic at the end of onRecordingStopped) because Android
+    // routes audio through the communication/earpiece bus when the
+    // mic is open — keeping it open during TTS would make the AI's
+    // response play quietly through the earpiece instead of the
+    // speaker. Talking-over-AI is queued as a follow-up that needs
+    // an audio-routing rework (Web Audio API graph that decouples
+    // mic-open state from TTS playback bus selection).
+    setStatusLine('Speaking · tap orb to interrupt');
     // Pass null analyser — the orb falls back to a procedural "speaking"
     // pulse instead of audio-reactive amplitude. Trade-off: we can't tap
     // HTMLAudioElement output for an analyser without routing through
@@ -881,6 +919,73 @@ export function VoiceMode(props: Props): React.ReactElement {
   // Show "Muted" instead of the live state when the mic is off — clearer
   // signal to the tech that the assistant isn't ignoring them.
   const stateLabel = error ? error : muted && orbState === 'listening' ? 'Muted' : statusLine;
+
+  // Bar variant — voice lives inline above the chat composer. Tech sees
+  // chat thread continuously while voice is active; muting / ending /
+  // switching to keyboard happens with one-tap icon buttons. The orb
+  // shrinks to a 48px visualization sized like the composer's other
+  // icon-only controls (camera, mic-mode entry point).
+  if (variant === 'bar') {
+    return (
+      <div
+        className="voice-mode-bar"
+        role="region"
+        aria-label="Voice assistant"
+        data-state={orbState}
+        data-muted={muted ? 'true' : 'false'}
+        data-error={error ? 'true' : 'false'}
+      >
+        <button
+          type="button"
+          className="voice-mode-bar-orb"
+          onClick={onOrbTap}
+          aria-label={
+            needsGesture
+              ? 'Tap to start voice assistant'
+              : orbState === 'listening'
+                ? 'Stop listening'
+                : orbState === 'speaking'
+                  ? 'Interrupt'
+                  : 'Voice'
+          }
+        >
+          <VoiceOrb state={orbState} analyser={activeAnalyser} size={44} />
+        </button>
+        <div className="voice-mode-bar-state" aria-live="polite">
+          {stateLabel}
+        </div>
+        <div className="voice-mode-bar-actions" role="toolbar" aria-label="Voice controls">
+          <button
+            type="button"
+            className="voice-mode-bar-action"
+            onClick={toggleMute}
+            disabled={needsGesture}
+            aria-label={muted ? 'Unmute microphone' : 'Mute microphone'}
+            aria-pressed={muted}
+            data-active={muted ? 'true' : 'false'}
+          >
+            {muted ? <MicOff size={18} strokeWidth={2} /> : <Mic size={18} strokeWidth={2} />}
+          </button>
+          <button
+            type="button"
+            className="voice-mode-bar-action"
+            onClick={() => close({ switchToChat: true })}
+            aria-label="Switch to keyboard"
+          >
+            <Keyboard size={18} strokeWidth={2} />
+          </button>
+          <button
+            type="button"
+            className="voice-mode-bar-action voice-mode-bar-action-end"
+            onClick={() => close()}
+            aria-label="End voice mode"
+          >
+            <X size={18} strokeWidth={2} />
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

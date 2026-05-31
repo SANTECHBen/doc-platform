@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
+  AlertTriangle,
   CalendarClock,
   ChevronLeft,
   ChevronRight,
@@ -27,6 +28,7 @@ import {
 } from 'lucide-react';
 import type { AssetHubPayload } from '@/lib/shared-schema';
 import {
+  createWorkOrder,
   fetchPmPlanStatus,
   fetchPmStatus,
   fetchTroubleshooting,
@@ -36,6 +38,7 @@ import {
   type BomEntry,
   type DocumentBody,
   type PartResources,
+  type PmServiceRecordItem,
   type PartRole,
   type PmPlanStatusPayload,
   type PmStatusPayload,
@@ -54,6 +57,12 @@ import NoSearchResults from '@/components/illustrations/no-search-results';
 import { ProcedureRunner } from '@/components/procedure-runner/procedure-runner';
 import { ProcedureDocViewer } from '@/components/procedure-runner/procedure-doc-viewer';
 import { VirtualJobAid, type JobAidSource } from '@/components/virtual-job-aid';
+import { ImageZoom } from '@/components/image-zoom';
+import {
+  MarkReplacementSheet,
+  type WorkOrderSeverity as MarkReplacementSeverity,
+} from '@/components/mark-replacement-sheet';
+import { useToast } from '@/components/toast';
 import {
   planBucketToSteps,
   troubleshootingToSteps,
@@ -812,6 +821,12 @@ export function PartInspector({
   // Troubleshooting — previously they always opened the row's see-also
   // reference doc, which was usually the part's Removal & Replacement.
   const [jobAidSource, setJobAidSource] = useState<JobAidSource | null>(null);
+  // Mark-needs-replacement sheet state. Open = the sheet renders;
+  // busy = the createWorkOrder call is in flight (drives the Create
+  // button's spinner).
+  const [replacementSheetOpen, setReplacementSheetOpen] = useState(false);
+  const [replacementBusy, setReplacementBusy] = useState(false);
+  const toast = useToast();
 
   // Reset stack when the entry partId changes (e.g., the tech tapped a
   // different chip on Overview without backing out first).
@@ -867,6 +882,36 @@ export function PartInspector({
     setStack((s) => s.slice(0, -1));
   }
 
+  async function fileReplacementWorkOrder(payload: {
+    title: string;
+    description: string;
+    severity: MarkReplacementSeverity;
+  }) {
+    setReplacementBusy(true);
+    try {
+      await createWorkOrder({
+        assetInstanceId: hub.assetInstance.id,
+        title: payload.title,
+        description: payload.description || undefined,
+        severity: payload.severity,
+        devUserId: PWA_DEV_USER_ID,
+        devOrgId: PWA_DEV_ORG_ID,
+      });
+      toast.success(
+        'Work order filed',
+        'Replacement request created and visible in Open issues.',
+      );
+      setReplacementSheetOpen(false);
+    } catch (e) {
+      toast.error(
+        'Could not file work order',
+        e instanceof Error ? e.message : String(e),
+      );
+    } finally {
+      setReplacementBusy(false);
+    }
+  }
+
   async function openDocument(docId: string, sections: PwaDocumentSection[] | null) {
     try {
       const body = await getDocument(docId);
@@ -902,7 +947,17 @@ export function PartInspector({
           <ChevronLeft size={22} strokeWidth={2} />
         </button>
         {data?.part.imageUrl ? (
-          <img src={data.part.imageUrl} alt="" className="part-inspector-thumb" />
+          <ImageZoom
+            src={data.part.imageUrl}
+            alt={data.part.displayName}
+            triggerLabel={`Enlarge ${data.part.displayName} photo`}
+          >
+            <img
+              src={data.part.imageUrl}
+              alt=""
+              className="part-inspector-thumb"
+            />
+          </ImageZoom>
         ) : (
           <span className="part-inspector-thumb part-inspector-thumb-fallback">
             <Wrench size={18} strokeWidth={2} />
@@ -922,6 +977,20 @@ export function PartInspector({
         </p>
       )}
 
+      {/* Primary action button — file a work order against this part.
+          Sits above the procedure pane because "this part is failing"
+          is the moment of intent the tech most often comes here for. */}
+      {data?.part && (
+        <button
+          type="button"
+          onClick={() => setReplacementSheetOpen(true)}
+          className="btn btn-outline part-replacement-cta"
+        >
+          <AlertTriangle size={16} strokeWidth={2.25} aria-hidden />
+          Mark needs replacement
+        </button>
+      )}
+
       <PartProcedurePane
         data={data}
         pmStatus={pmStatus}
@@ -930,6 +999,10 @@ export function PartInspector({
         onOpenDocument={openDocument}
         onLaunchJobAid={(source) => setJobAidSource(source)}
       />
+
+      {data?.part && pmStatus?.history && (
+        <PartServiceHistory part={data.part} history={pmStatus.history} />
+      )}
 
       {/* Sub-components drill-in. Rendered inline below the procedure
           content so the user can step into a sub-assembly without an
@@ -951,8 +1024,137 @@ export function PartInspector({
           onClose={() => setJobAidSource(null)}
         />
       )}
+
+      {replacementSheetOpen && data?.part && (
+        <MarkReplacementSheet
+          partLabel={data.part.displayName}
+          partNumber={data.part.oemPartNumber}
+          busy={replacementBusy}
+          onClose={() => {
+            if (!replacementBusy) setReplacementSheetOpen(false);
+          }}
+          onConfirm={(payload) => void fileReplacementWorkOrder(payload)}
+        />
+      )}
     </div>
   );
+}
+
+// Part-specific service history — filters the asset's PM history for
+// records that mention this part by display name or OEM part number.
+//
+// This is a heuristic. The current schema doesn't link service records
+// to parts directly; a service record carries a schedule/plan/document
+// reference and free-text notes. We surface records whose surface text
+// mentions the part as "likely touched this part." Per-part replacement
+// history at full fidelity needs a CMMS integration where service work
+// is captured against the specific part on the specific asset instance.
+//
+// When no records match, the placeholder copy spells out the CMMS gap
+// so the tech understands the absence isn't a fetch failure — the
+// system just doesn't have per-part tracking yet.
+function PartServiceHistory({
+  part,
+  history,
+}: {
+  part: PartResources['part'];
+  history: PmServiceRecordItem[];
+}) {
+  const matches = useMemo(() => {
+    const needles = [part.displayName, part.oemPartNumber]
+      .filter((s): s is string => Boolean(s) && s.trim().length > 1)
+      .map((s) => s.toLowerCase());
+    if (needles.length === 0) return [];
+    return history
+      .filter((record) => {
+        const haystack = [
+          record.pmSchedule?.name,
+          record.pmPlan?.name,
+          record.document?.title,
+          record.notes,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return needles.some((n) => haystack.includes(n));
+      })
+      .slice(0, 5);
+  }, [history, part]);
+
+  const hasMatches = matches.length > 0;
+
+  return (
+    <section
+      className="part-service-history"
+      aria-labelledby="part-service-history-h"
+    >
+      <header className="part-service-history-head">
+        <h3 id="part-service-history-h" className="section-heading">
+          Service history
+        </h3>
+        {hasMatches && (
+          <span className="cap-mono part-service-history-last">
+            Last {formatRelativePast(matches[0]!.performedAt)}
+          </span>
+        )}
+      </header>
+      {hasMatches ? (
+        <ul className="part-service-history-list">
+          {matches.map((r) => {
+            const label =
+              r.pmSchedule?.name ??
+              r.pmPlan?.name ??
+              r.document?.title ??
+              'Service record';
+            const performer = r.performedBy?.displayName ?? 'Field tech';
+            return (
+              <li key={r.id} className="part-service-history-row">
+                <div className="part-service-history-row-main">
+                  <span className="part-service-history-row-label">
+                    {label}
+                  </span>
+                  {r.notes && (
+                    <span className="part-service-history-row-notes">
+                      {r.notes}
+                    </span>
+                  )}
+                </div>
+                <div className="part-service-history-row-meta">
+                  <span>{formatRelativePast(r.performedAt)}</span>
+                  <span className="part-service-history-row-sep" aria-hidden>·</span>
+                  <span>{performer}</span>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="part-service-history-empty">
+          No service records reference this part by name yet. Per-part
+          replacement history will surface here when CMMS integration is
+          configured — until then, history lives at the asset level on
+          the Maintenance tab.
+        </p>
+      )}
+    </section>
+  );
+}
+
+// "14 months ago" / "3 days ago" — coarse relative time. Days under 30,
+// months under 12, then years. Tuned for the "when was this part last
+// touched" question; precision in hours isn't useful at this scope.
+function formatRelativePast(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return '—';
+  const now = Date.now();
+  const days = Math.floor((now - then) / 86400000);
+  if (days < 1) return 'today';
+  if (days < 2) return 'yesterday';
+  if (days < 30) return `${days} days ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} ${months === 1 ? 'month' : 'months'} ago`;
+  const years = Math.floor(days / 365);
+  return `${years} ${years === 1 ? 'year' : 'years'} ago`;
 }
 
 // Matches the equipment-page nameplate shell: milled-aluminum plate with

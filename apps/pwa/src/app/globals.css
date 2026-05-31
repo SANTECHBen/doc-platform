@@ -3057,6 +3057,218 @@
     outline-offset: 2px;
   }
 
+  /* PartInspector — Service history section. Filtered records that
+     mention this part show as compact rows with relative time + label
+     + performer. The "Last X ago" caption in the section header gives
+     a glanceable "when was this part last touched" answer at the top. */
+  .part-service-history {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .part-service-history-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 2px;
+  }
+  .part-service-history-last {
+    color: rgb(var(--ink-secondary));
+    white-space: nowrap;
+  }
+  .part-service-history-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    background: rgb(var(--surface-raised));
+    border: 1px solid rgb(var(--line));
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .part-service-history-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 12px 14px;
+  }
+  .part-service-history-row + .part-service-history-row {
+    border-top: 1px solid rgb(var(--line-subtle));
+  }
+  .part-service-history-row-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .part-service-history-row-label {
+    font-size: 13.5px;
+    font-weight: 500;
+    color: rgb(var(--ink-primary));
+    letter-spacing: -0.005em;
+  }
+  .part-service-history-row-notes {
+    font-size: 12.5px;
+    line-height: 1.4;
+    color: rgb(var(--ink-secondary));
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .part-service-history-row-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: rgb(var(--ink-tertiary));
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .part-service-history-row-sep {
+    opacity: 0.5;
+  }
+  .part-service-history-empty {
+    margin: 0;
+    padding: 14px 16px;
+    background: rgb(var(--surface-raised));
+    border: 1px dashed rgb(var(--line));
+    border-radius: 10px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: rgb(var(--ink-secondary));
+  }
+
+  /* PartInspector — "Mark needs replacement" CTA button. Outline
+     treatment with an AlertTriangle glyph; sits above the procedure
+     pane because "I'm here because this part is broken" is the most
+     common intent. The btn-outline base provides hover/focus states. */
+  .part-replacement-cta {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* MarkReplacementSheet — extends .mark-sheet with the severity grid
+     and part-target header that's specific to filing a replacement
+     work order. */
+  .mark-replacement-target {
+    margin: 0;
+    padding: 12px 14px;
+    background: rgb(var(--surface-inset));
+    border: 1px solid rgb(var(--line-subtle));
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .mark-replacement-target strong {
+    font-size: 14.5px;
+    font-weight: 600;
+    color: rgb(var(--ink-primary));
+    letter-spacing: -0.005em;
+  }
+  .mark-replacement-target-pn {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: rgb(var(--ink-secondary));
+  }
+  .mark-replacement-severity {
+    border: 0;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .mark-replacement-severity legend {
+    /* Browsers float fieldset legends in their own row; explicit
+       block + 100% width keeps the cap-mono caption left-aligned
+       like the other field labels in the sheet. */
+    display: block;
+    width: 100%;
+  }
+  .mark-replacement-severity-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .mark-replacement-severity-card {
+    appearance: none;
+    background: rgb(var(--surface-raised));
+    border: 1px solid rgb(var(--line));
+    border-radius: 8px;
+    padding: 12px 14px;
+    text-align: left;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition:
+      border-color 140ms ease,
+      background 140ms ease,
+      color 140ms ease;
+  }
+  .mark-replacement-severity-card:hover {
+    border-color: rgb(var(--line-strong));
+  }
+  .mark-replacement-severity-card:focus-visible {
+    outline: 2px solid rgb(var(--brand));
+    outline-offset: 2px;
+  }
+  .mark-replacement-severity-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-tertiary));
+    transition: color 140ms ease;
+  }
+  .mark-replacement-severity-hint {
+    font-size: 12.5px;
+    line-height: 1.35;
+    color: rgb(var(--ink-secondary));
+    transition: color 140ms ease;
+  }
+  /* Active state — selected card lights up with severity-tinted accents.
+     Low → info-blue (informational), Medium → warn-amber, High → warn
+     stronger, Critical → fault-red. The hint text gets the tint too so
+     the urgency reads at a glance. */
+  .mark-replacement-severity-card[data-active='true'][data-severity='low'] {
+    border-color: rgb(var(--signal-info) / 0.6);
+    background: rgb(var(--signal-info) / 0.08);
+  }
+  .mark-replacement-severity-card[data-active='true'][data-severity='low'] .mark-replacement-severity-label,
+  .mark-replacement-severity-card[data-active='true'][data-severity='low'] .mark-replacement-severity-hint {
+    color: rgb(var(--signal-info));
+  }
+  .mark-replacement-severity-card[data-active='true'][data-severity='medium'] {
+    border-color: rgb(var(--signal-warn) / 0.6);
+    background: rgb(var(--signal-warn) / 0.08);
+  }
+  .mark-replacement-severity-card[data-active='true'][data-severity='medium'] .mark-replacement-severity-label,
+  .mark-replacement-severity-card[data-active='true'][data-severity='medium'] .mark-replacement-severity-hint {
+    color: rgb(var(--signal-warn));
+  }
+  .mark-replacement-severity-card[data-active='true'][data-severity='high'] {
+    border-color: rgb(var(--signal-warn));
+    background: rgb(var(--signal-warn) / 0.14);
+  }
+  .mark-replacement-severity-card[data-active='true'][data-severity='high'] .mark-replacement-severity-label,
+  .mark-replacement-severity-card[data-active='true'][data-severity='high'] .mark-replacement-severity-hint {
+    color: rgb(var(--signal-warn));
+  }
+  .mark-replacement-severity-card[data-active='true'][data-severity='critical'] {
+    border-color: rgb(var(--signal-fault));
+    background: rgb(var(--signal-fault) / 0.12);
+  }
+  .mark-replacement-severity-card[data-active='true'][data-severity='critical'] .mark-replacement-severity-label,
+  .mark-replacement-severity-card[data-active='true'][data-severity='critical'] .mark-replacement-severity-hint {
+    color: rgb(var(--signal-fault));
+  }
+
   /* ------------------------------------------------------------
      PART RESOURCE ROW — entries inside a PartResourceCard
      Used on the Part page's Procedure tab to list procedures, PMs,
@@ -4857,6 +5069,118 @@
     background: rgb(var(--surface-base));
     color: rgb(var(--ink-primary));
     animation: voiceModeIn 280ms cubic-bezier(0.2, 0.6, 0.2, 1);
+  }
+
+  /* Voice as a pinned bar — inline above the chat composer (which it
+     replaces while active). 60-72px tall, shrunken orb, inline status
+     label, three icon-only controls (mute / keyboard / end). The chat
+     thread stays visible above so the tech can read previous turns
+     during voice conversations — the headline UX change from the audit
+     ("voice as bottom bar, not full-screen takeover"). */
+  .voice-mode-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background: rgb(var(--surface-raised));
+    border: 1px solid rgb(var(--line));
+    border-radius: 12px;
+    box-shadow:
+      inset 0 1px 0 rgb(var(--surface-plate-top)),
+      0 1px 2px rgba(0, 0, 0, 0.04);
+    /* Subtle brand-tinted glow when the assistant is actively listening
+       or speaking — tells the tech at a glance that voice is engaged. */
+    transition: border-color 200ms ease, box-shadow 200ms ease;
+  }
+  .voice-mode-bar[data-state='listening'] {
+    border-color: rgb(var(--brand) / 0.45);
+    box-shadow:
+      inset 0 1px 0 rgb(var(--surface-plate-top)),
+      0 0 18px rgb(var(--brand) / 0.18);
+  }
+  .voice-mode-bar[data-state='speaking'] {
+    border-color: rgb(var(--brand-strong) / 0.5);
+  }
+  .voice-mode-bar[data-error='true'] {
+    border-color: rgb(var(--signal-fault) / 0.45);
+  }
+  .voice-mode-bar-orb {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .voice-mode-bar-orb:focus-visible {
+    outline: 2px solid rgb(var(--brand));
+    outline-offset: 3px;
+  }
+  .voice-mode-bar-state {
+    flex: 1;
+    min-width: 0;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: rgb(var(--ink-primary));
+    letter-spacing: -0.005em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .voice-mode-bar[data-muted='true'] .voice-mode-bar-state {
+    color: rgb(var(--ink-tertiary));
+  }
+  .voice-mode-bar[data-error='true'] .voice-mode-bar-state {
+    color: rgb(var(--signal-fault));
+  }
+  .voice-mode-bar-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .voice-mode-bar-action {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: rgb(var(--ink-secondary));
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .voice-mode-bar-action:hover:not(:disabled) {
+    background: rgb(var(--surface-elevated));
+    color: rgb(var(--ink-primary));
+  }
+  .voice-mode-bar-action:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .voice-mode-bar-action:focus-visible {
+    outline: 2px solid rgb(var(--brand) / 0.6);
+    outline-offset: 1px;
+  }
+  .voice-mode-bar-action[data-active='true'] {
+    background: rgb(var(--signal-warn) / 0.14);
+    color: rgb(var(--signal-warn));
+  }
+  .voice-mode-bar-action-end {
+    color: rgb(var(--signal-fault));
+  }
+  .voice-mode-bar-action-end:hover:not(:disabled) {
+    background: rgb(var(--signal-fault) / 0.1);
+    color: rgb(var(--signal-fault));
   }
   @keyframes voiceModeIn {
     from {

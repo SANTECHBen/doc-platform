@@ -569,6 +569,39 @@ export function ChatTab({
         </div>
       )}
 
+      {voiceOpen ? (
+        /* Voice as a pinned bar — replaces the composer while active.
+           The chat thread above stays visible so the tech can see prior
+           turns mid-conversation. Tapping the mute / keyboard / end
+           controls in the bar dismisses voice and brings the composer
+           back. */
+        <VoiceMode
+          variant="bar"
+          assetInstanceId={hub.assetInstance.id}
+          {...(partId ? { partId } : {})}
+          {...(conversationId ? { initialConversationId: conversationId } : {})}
+          devUserId={DEV_USER_ID}
+          devOrgId={DEV_ORG_ID}
+          onClose={({ conversationId: cid, turns: voiceTurns }) => {
+            setVoiceOpen(false);
+            if (cid) setConversationId(cid);
+            if (voiceTurns.length === 0) return;
+            setTurns((existing) => [
+              ...existing,
+              ...voiceTurns.map((t) =>
+                t.role === 'user'
+                  ? ({ role: 'user', text: t.text } satisfies UserTurn)
+                  : ({
+                      role: 'assistant',
+                      text: t.text,
+                      citations: [],
+                      streaming: false,
+                    } satisfies AssistantTurn),
+              ),
+            ]);
+          }}
+        />
+      ) : (
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -636,33 +669,6 @@ export function ChatTab({
           </button>
         )}
       </form>
-
-      {voiceOpen && (
-        <VoiceMode
-          assetInstanceId={hub.assetInstance.id}
-          {...(partId ? { partId } : {})}
-          {...(conversationId ? { initialConversationId: conversationId } : {})}
-          devUserId={DEV_USER_ID}
-          devOrgId={DEV_ORG_ID}
-          onClose={({ conversationId: cid, turns: voiceTurns }) => {
-            setVoiceOpen(false);
-            if (cid) setConversationId(cid);
-            if (voiceTurns.length === 0) return;
-            setTurns((existing) => [
-              ...existing,
-              ...voiceTurns.map((t) =>
-                t.role === 'user'
-                  ? ({ role: 'user', text: t.text } satisfies UserTurn)
-                  : ({
-                      role: 'assistant',
-                      text: t.text,
-                      citations: [],
-                      streaming: false,
-                    } satisfies AssistantTurn),
-              ),
-            ]);
-          }}
-        />
       )}
 
       {jobAid && (
