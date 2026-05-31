@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useDialogChrome } from '@/lib/use-dialog-chrome';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -402,6 +403,17 @@ export function VirtualJobAid({
   );
   const [error, setError] = useState<string | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
+  // Dialog chrome — Escape closes, focus trap inside the procedure
+  // overlay, focus restoration to the trigger element on unmount. The
+  // hook gates on `resolved` so the trap only kicks in once the main
+  // step UI is mounted; the transient loading/error branches don't
+  // need it.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogChrome({
+    open: !!resolved,
+    onClose: () => onClose({ completed: false }),
+    dialogRef,
+  });
   // Sub-procedure stack: when the tech taps "Run sub-procedure" on a step
   // that carries a linkedSubProcedure, we push that doc onto the stack
   // and mount a nested VirtualJobAid as an overlay. The nested instance
@@ -923,10 +935,13 @@ export function VirtualJobAid({
 
   return (
     <div
-      className="vja-root"
+      ref={dialogRef}
+      className="vja-root focus:outline-none"
       role="dialog"
+      aria-modal="true"
       aria-label={resolved.title}
       data-nested={isNested ? 'true' : undefined}
+      tabIndex={-1}
     >
       {/* Sub-procedure banner — only when nested. Spans full width above the
           topbar so it's the first thing the tech sees. Tapping ← closes this

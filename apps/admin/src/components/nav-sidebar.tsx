@@ -10,7 +10,7 @@
 // of truth; the wrappers (sidebar.tsx, org-sidebar.tsx) now only
 // declare their groups + header.
 
-import { Info, type LucideIcon } from 'lucide-react';
+import { Info, Palette, type LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -194,7 +194,16 @@ export function NavSidebar({
         style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
       >
         {userMenu}
-        <div className="flex items-center justify-end">
+        <div className="flex items-center justify-between">
+          <Link
+            href="/design-system"
+            className="inline-flex items-center gap-1.5 text-[10.5px] font-medium uppercase tracking-[0.08em] transition"
+            style={{ color: 'rgba(255,255,255,0.4)' }}
+            title="Tokens + primitives reference"
+          >
+            <Palette size={10} strokeWidth={2.25} />
+            <span>Design system</span>
+          </Link>
           <ThemeToggle />
         </div>
       </footer>

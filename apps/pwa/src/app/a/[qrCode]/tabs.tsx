@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CalendarClock,
   ChevronDown,
@@ -197,7 +197,21 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
         onCreateTap={() => setCreateSheetOpen(true)}
       />
 
-      <div key={inspectingPartId ?? active} className="tab-pane flex flex-col gap-4">
+      <div
+        key={inspectingPartId ?? active}
+        className="tab-pane flex flex-col gap-4 focus:outline-none"
+        role="tabpanel"
+        // The tabpanel needs to be focusable so a keyboard user can
+        // Shift+Tab from the tablist into the panel. aria-label echoes
+        // the active tab's name so screen readers announce "Home tab
+        // panel" etc. when the panel takes focus.
+        tabIndex={0}
+        aria-label={
+          inspectingPartId
+            ? 'Part details panel'
+            : `${TABS.find((t) => t.key === active)?.label ?? ''} tab panel`
+        }
+      >
         {inspectingPartId ? (
           // Inline part view — replaces the active tab's body but the
           // bottom TabBar stays visible. Same nav as the rest of the app;
@@ -258,11 +272,19 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
                 <OverviewSpecs hub={hub} openIssueCount={openIssueCount} />
               </DetailsDisclosure>
             </div>
-            <IssuesPanel assetInstanceId={hub.assetInstance.id} onCountChange={setOpenIssueCount} />
-            <PartsQuickActions
-              assetModelId={hub.assetModel.id}
-              onOpenPart={(partId) => setInspectingPartId(partId)}
-            />
+            {/* Issues + Parts grid — single column on phones, two
+                equal-width columns on tablet+ so the asset hub uses
+                the iPad/desktop real estate instead of leaving 270px
+                gutters around a vertical stack. PartsQuickActions
+                returns null when there's no BOM, in which case the
+                IssuesPanel naturally fills the row via flex-grow. */}
+            <div className="home-grid">
+              <IssuesPanel assetInstanceId={hub.assetInstance.id} onCountChange={setOpenIssueCount} />
+              <PartsQuickActions
+                assetModelId={hub.assetModel.id}
+                onOpenPart={(partId) => setInspectingPartId(partId)}
+              />
+            </div>
           </div>
         ) : active === 'library' ? (
           /* Library renders directly into the scroll region — its
@@ -281,7 +303,7 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
               : {})}
           />
         ) : (
-          <section className="rounded-md border border-line bg-surface-raised p-4 md:p-6">
+          <section className="chat-tab-section rounded-md border border-line bg-surface-raised p-4 md:p-6">
             {active === 'chat' && <ChatTab hub={hub} qrCode={qrCode} />}
           </section>
         )}
@@ -658,17 +680,46 @@ function TabBar({
   const half = Math.ceil(TABS.length / 2);
   const lead = TABS.slice(0, half);
   const tail = TABS.slice(half);
-  const renderTab = (t: (typeof TABS)[number]) => {
+
+  // Roving tabindex — only the active tab is in the document's tab
+  // sequence; arrow keys navigate the rest. Refs are indexed by the
+  // tab's position in TABS so the keydown handler can move focus to
+  // the next button regardless of whether the bar splits around a FAB.
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLButtonElement>, index: number) {
+    let nextIndex = -1;
+    if (e.key === 'ArrowRight') nextIndex = (index + 1) % TABS.length;
+    else if (e.key === 'ArrowLeft') nextIndex = (index - 1 + TABS.length) % TABS.length;
+    else if (e.key === 'Home') nextIndex = 0;
+    else if (e.key === 'End') nextIndex = TABS.length - 1;
+    else return;
+    e.preventDefault();
+    const nextTab = TABS[nextIndex];
+    if (!nextTab) return;
+    setActive(nextTab.key);
+    // Move focus too — automatic-activation tablist pattern from the
+    // WAI-ARIA Authoring Practices: arrow keys activate AND focus the
+    // newly-active tab.
+    tabRefs.current[nextIndex]?.focus();
+  }
+
+  const renderTab = (t: (typeof TABS)[number], index: number) => {
     const Icon = t.icon;
     const isActive = active === t.key;
     return (
       <button
         key={t.key}
+        ref={(el) => {
+          tabRefs.current[index] = el;
+        }}
         role="tab"
         aria-selected={isActive}
         aria-current={isActive ? 'page' : undefined}
+        tabIndex={isActive ? 0 : -1}
         data-active={isActive}
         onClick={() => setActive(t.key)}
+        onKeyDown={(e) => handleKeyDown(e, index)}
         className="app-tabbar-item"
       >
         <Icon size={22} strokeWidth={isActive ? 2.25 : 1.75} />
@@ -679,7 +730,7 @@ function TabBar({
   if (position === 'bottom' && onCreateTap) {
     return (
       <nav className={className} role="tablist" aria-label="Sections">
-        {lead.map(renderTab)}
+        {lead.map((t, i) => renderTab(t, i))}
         {/* The FAB sits inside an equal-flex slot so it occupies the same
             horizontal share as each flat tab — that's what keeps it on
             exact screen center, even when neighboring labels have
@@ -695,13 +746,13 @@ function TabBar({
             <Plus size={20} strokeWidth={2.5} />
           </button>
         </span>
-        {tail.map(renderTab)}
+        {tail.map((t, i) => renderTab(t, half + i))}
       </nav>
     );
   }
   return (
     <nav className={className} role="tablist" aria-label="Sections">
-      {TABS.map(renderTab)}
+      {TABS.map((t, i) => renderTab(t, i))}
     </nav>
   );
 }

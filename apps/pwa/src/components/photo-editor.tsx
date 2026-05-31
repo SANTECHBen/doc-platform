@@ -362,7 +362,7 @@ export function PhotoEditor({
             className="w-full max-w-md rounded-md bg-zinc-900 p-4 text-white"
             onClick={(e) => e.stopPropagation()}
           >
-            <p className="caption mb-2 text-zinc-400">LABEL TEXT</p>
+            <p className="cap-mono mb-2 text-zinc-400">LABEL TEXT</p>
             <input
               autoFocus
               type="text"

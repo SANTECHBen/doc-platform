@@ -184,6 +184,103 @@
     100% { background-position: -200% 0; }
   }
 
+  /* Print rules — admin pages get a sane paper-friendly rendering when a
+     user hits Cmd+P / Ctrl+P. Primary use case: printing work orders for
+     an inspector's clipboard. Strategy:
+       • Force a light-theme palette regardless of the current data-theme,
+         so printed pages don't waste toner on dark backgrounds.
+       • Hide UI chrome that's useless on paper (sidebar, topbar, command
+         palette trigger, theme toggle, every button + interactive form
+         control, role=dialog overlays).
+       • Avoid splitting individual rows / articles across page breaks.
+       • Strip box-shadow / text-shadow for crisp ink. */
+  @media print {
+    :root,
+    :root[data-theme='dark'] {
+      --surface-base:      255 255 255;
+      --surface-raised:    255 255 255;
+      --surface-elevated:  248 248 248;
+      --surface-inset:     244 244 244;
+      --surface-sidebar:   255 255 255;
+      --surface-plate-top: 255 255 255;
+      --surface-plate-bottom: 255 255 255;
+      --surface-plate-edge: 200 200 200;
+      --line-subtle:       230 230 230;
+      --line:              200 200 200;
+      --line-strong:       150 150 150;
+      --ink-primary:       0 0 0;
+      --ink-secondary:     50 50 50;
+      --ink-tertiary:      90 90 90;
+      --ink-inverse:       255 255 255;
+      --ink-brand:         0 0 0;
+      --brand:             0 0 0;
+      --brand-strong:      0 0 0;
+      --brand-ink:         255 255 255;
+    }
+    body {
+      background: white !important;
+      color: black !important;
+      font-size: 11pt;
+    }
+    /* Chrome that's worthless on paper. */
+    aside, /* sidebar */
+    nav,   /* breadcrumbs + tablists */
+    .skip-to-content,
+    .quickfind-btn,
+    .scope-chip,
+    .scope-chip-org,
+    .scope-chip-global,
+    .signin-page,
+    [role='dialog'],
+    [role='tab'],
+    [role='tablist'],
+    button,
+    select,
+    .btn,
+    input[type='button'],
+    input[type='submit'] {
+      display: none !important;
+    }
+    /* Force the top bar to flow with the page instead of stickying. */
+    header[class*='sticky'] {
+      position: static !important;
+      background: white !important;
+    }
+    /* Page-break rules — one work order article per "row group" should
+       stay together rather than split mid-row. */
+    article,
+    .pm-row,
+    .data-table tr,
+    .list-row {
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    h1, h2, h3 {
+      page-break-after: avoid;
+      break-after: avoid;
+    }
+    /* Strip ink-wasting shadows and animations. */
+    * {
+      box-shadow: none !important;
+      text-shadow: none !important;
+      animation: none !important;
+      transition: none !important;
+    }
+    /* Anchor links — show the URL inline so a paper reader can navigate. */
+    a[href]:not([href^='#']):not([href^='javascript:'])::after {
+      content: ' (' attr(href) ')';
+      font-size: 0.85em;
+      color: #555;
+      word-break: break-all;
+    }
+    /* Restore main flow so the page body fills the page. */
+    main {
+      width: 100% !important;
+      max-width: none !important;
+      padding: 0 !important;
+    }
+  }
+
   /* Skip-to-content link. First focusable element in the body, off-screen
      by default, becomes visible when a keyboard user Tabs to it. Activates
      into the page's #main element, bypassing the sidebar + topbar so the

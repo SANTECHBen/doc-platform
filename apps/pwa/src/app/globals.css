@@ -286,6 +286,131 @@
     }
   }
 
+  /* Print rules — when a tech hits Cmd+P / Ctrl+P on a procedure doc or
+     asset page, they get a sane paper-friendly rendering instead of the
+     SCADA dark surface and stickied chrome. Strategy:
+       • Force a light-theme palette regardless of the active data-theme,
+         so we don't waste toner.
+       • Hide the topbar, tabbar, create FAB, and any role=dialog overlays
+         that are useless on paper.
+       • Let the doc-overlay body flow into the page, with the toolbar
+         hidden so the printed sheet is content-only.
+       • Avoid page breaks mid-step in procedures so a job aid stays
+         readable when split across sheets. */
+  @media print {
+    :root,
+    :root[data-theme='dark'] {
+      --surface-base:      255 255 255;
+      --surface-raised:    255 255 255;
+      --surface-elevated:  248 248 248;
+      --surface-inset:     244 244 244;
+      --surface-sidebar:   255 255 255;
+      --surface-plate-top: 255 255 255;
+      --surface-plate-bottom: 255 255 255;
+      --surface-plate-edge: 200 200 200;
+      --line-subtle:       230 230 230;
+      --line:              200 200 200;
+      --line-strong:       150 150 150;
+      --ink-primary:       0 0 0;
+      --ink-secondary:     50 50 50;
+      --ink-tertiary:      90 90 90;
+      --ink-inverse:       255 255 255;
+      --ink-brand:         0 0 0;
+      --brand:             0 0 0;
+      --brand-strong:      0 0 0;
+      --brand-ink:         255 255 255;
+    }
+    body {
+      background: white !important;
+      color: black !important;
+      font-size: 11pt;
+      padding: 0 !important;
+    }
+    /* Chrome that's worthless on paper. The voice / video / camera
+       overlays would split awkwardly across pages and are interactive-
+       only anyway. */
+    .app-topbar,
+    .app-tabbar,
+    .app-tabbar-fab,
+    .skip-to-content,
+    .fs-splash,
+    .create-sheet,
+    .create-sheet-backdrop,
+    .doc-overlay-bar,
+    .pdf-find-bar,
+    .framed-pdf-footer,
+    [role='dialog'][aria-modal='true'] .voice-mode-root,
+    .voice-mode-root,
+    .talk-fab,
+    button[aria-label='Skip intro'],
+    nav[role='tablist'] {
+      display: none !important;
+    }
+    /* Convert the asset hub / doc overlay surfaces into a flat document
+       flow so paper reads top-to-bottom without weird fixed positions. */
+    .app-shell,
+    .app-scroll,
+    .doc-overlay,
+    .doc-overlay-scroll,
+    .doc-overlay-frame,
+    main {
+      position: static !important;
+      width: 100% !important;
+      max-width: none !important;
+      height: auto !important;
+      overflow: visible !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      background: white !important;
+    }
+    /* Procedure steps and major doc sections should stay together when
+       split across pages. */
+    .vja-step,
+    .procedure-step,
+    .doc-overlay-scroll > *,
+    article,
+    section,
+    .list-row,
+    .action-row,
+    .doc-row,
+    .nameplate {
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    h1, h2, h3 {
+      page-break-after: avoid;
+      break-after: avoid;
+    }
+    /* Strip ink-wasting shadows and animations. */
+    *,
+    *::before,
+    *::after {
+      box-shadow: none !important;
+      text-shadow: none !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      animation: none !important;
+      transition: none !important;
+    }
+    /* Inline-print absolute URLs so a paper reader can transcribe a link. */
+    a[href]:not([href^='#']):not([href^='javascript:'])::after {
+      content: ' (' attr(href) ')';
+      font-size: 0.85em;
+      color: #555;
+      word-break: break-all;
+    }
+    /* Images and PDF canvases — let them be naturally sized but cap to
+       page width so they don't overflow paper. */
+    img,
+    canvas,
+    video {
+      max-width: 100% !important;
+      height: auto !important;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+  }
+
   /* Skip-to-content link. First focusable element in the body, off-screen
      by default, becomes visible when a keyboard user Tabs to it. Activates
      into the page's #main element, bypassing the topbar / tabbar so the
@@ -762,6 +887,58 @@
   max-width: 820px;
   width: 100%;
   margin: 0 auto;
+}
+
+/* Tablet / desktop layout — the 820px column above was tuned for phones
+   on hand. On an iPad in landscape (1024-1366px) or a desktop browser,
+   that column leaves massive gutters and forces the Library doc grid
+   to render 1-2 docs per row when it could comfortably show 3. Bump the
+   column responsively so the existing Tailwind grids (md:grid-cols-2,
+   lg:grid-cols-3) actually get the width they were sized for. */
+@media (min-width: 768px) {
+  .app-scroll {
+    max-width: 1120px;
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+}
+@media (min-width: 1280px) {
+  .app-scroll {
+    max-width: 1280px;
+    padding-left: 32px;
+    padding-right: 32px;
+  }
+}
+
+/* The Assistant tab is the one surface where a wider column hurts —
+   long chat messages become hard to scan at 1200px+ line lengths.
+   Cap the chat surface to its phone width regardless of viewport so
+   message readability stays consistent. */
+.chat-tab-section {
+  max-width: 820px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* Home tab — Issues + Parts grid. Single column on phones (default flex
+   column), two equal-width columns on tablet+ via flex-wrap with a
+   min-width floor so they don't shrink unreadably. When only one child
+   renders (PartsQuickActions returns null when there's no BOM),
+   flex-grow lets the surviving child fill the row. */
+.home-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+@media (min-width: 1024px) {
+  .home-grid {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .home-grid > * {
+    flex: 1 1 calc(50% - 8px);
+    min-width: 360px;
+  }
 }
 
 /* Bottom tab bar — iOS-style. Phone-only; hidden on tablet/desktop where
@@ -1746,12 +1923,25 @@
     color: rgb(var(--ink-secondary));
   }
 
-  /* Generic small label — supporting copy above a value or beside a
-     control. Sentence-case sans-serif so it reads as prose, not SCADA
-     data. Authors should still write the string in sentence case; the
-     uppercase treatment was an over-application of the instrumented
-     aesthetic. Reserve mono + caps for true machine values (PN,
-     serials, ref codes) via .part-num / .serial / .mono. */
+  /* CAPTION TYPOGRAPHY — two distinct primitives, different intents.
+   *
+   * .caption / .cap  → sentence-case sans-serif. Use for supporting
+   *                    copy above a value or beside a control where
+   *                    the label reads as prose. Authors write the
+   *                    string in sentence case; no CSS uppercasing.
+   *
+   * .cap-mono        → mono + uppercase, tracked. Use for data-adjacent
+   *                    labels in an "instrument panel" surface (next to
+   *                    a PN, serial, measurement spec, scope chip).
+   *                    The CSS does the uppercase work — authors should
+   *                    write the source text as it should READ, NOT
+   *                    pre-uppercased. e.g., write "Step title", not
+   *                    "STEP TITLE".
+   *
+   * Common mistake: putting ALL-CAPS source text on .caption expecting
+   * a SCADA appearance. The result is literal CAPS in sans-serif, which
+   * is visually awkward. If you want the SCADA look, switch to .cap-mono
+   * and let the CSS handle text-transform. */
   .caption,
   .cap {
     font-family: var(--font-sans);
@@ -1761,9 +1951,6 @@
     font-weight: 500;
     color: rgb(var(--ink-tertiary));
   }
-  /* Opt-in classic SCADA caption — kept available for data-adjacent
-     labels (e.g., next to a PN field) where the uppercase mono
-     treatment carries actual semantic weight. */
   .cap-mono {
     font-family: var(--font-mono);
     font-size: 10.5px;

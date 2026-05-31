@@ -6,6 +6,7 @@ import { VoiceOrb, type VoiceOrbState } from './voice-orb';
 import { VirtualJobAid } from './virtual-job-aid';
 import { SectionViewerOverlay, type SectionViewerSource } from './section-viewer-overlay';
 import { fetchPreflight, speak, streamChat, transcribeAudio, type PreflightBrief } from '@/lib/api';
+import { useDialogChrome } from '@/lib/use-dialog-chrome';
 
 const PROCEDURE_DIRECTIVE_RE =
   /\[procedure:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/i;
@@ -119,6 +120,15 @@ export function VoiceMode(props: Props): React.ReactElement {
   // playback (in-flight TTS fetch, awaited prefetch blob) abandons
   // instead of starting audio after the user has dismissed voice mode.
   const closedRef = useRef(false);
+  // Dialog chrome — Escape to close, focus trap, body scroll lock,
+  // focus restoration to the trigger element. The orb button is the
+  // first focusable inside the dialog, so it gets initial focus.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogChrome({
+    open: true,
+    onClose: () => close(),
+    dialogRef,
+  });
 
   // Audio infra. Allocated lazily on first user gesture so iOS doesn't
   // mark the AudioContext as auto-started (which would silence everything).
@@ -874,11 +884,14 @@ export function VoiceMode(props: Props): React.ReactElement {
 
   return (
     <div
-      className="voice-mode-root"
+      ref={dialogRef}
+      className="voice-mode-root focus:outline-none"
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
       role="dialog"
+      aria-modal="true"
       aria-label="Voice assistant"
+      tabIndex={-1}
     >
       <header className="voice-mode-topbar">
         <div className="voice-mode-asset">

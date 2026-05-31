@@ -1057,7 +1057,7 @@ function MeasurementBlock({
 }) {
   return (
     <section className="rounded-md border border-line bg-surface-raised p-4">
-      <span className="caption">MEASUREMENT</span>
+      <span className="cap-mono">MEASUREMENT</span>
       <p className="mt-1 mb-3 text-base font-medium text-ink-primary">{spec.label}</p>
       {spec.kind === 'numeric' && (
         <NumericInput spec={spec} draft={draft} onChange={onChange} />

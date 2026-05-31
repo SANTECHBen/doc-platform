@@ -5,6 +5,7 @@ import {
   Building2,
   FileStack,
   GraduationCap,
+  Palette,
   QrCode,
   ScrollText,
   Search,
@@ -44,6 +45,7 @@ const NAV: Item[] = [
   { id: 'nav-qr', label: 'QR codes', href: '/qr-codes', group: 'Navigate', icon: QrCode, keywords: 'labels stickers print generate mint' },
   { id: 'nav-users', label: 'Users', href: '/users', group: 'Navigate', icon: Users, keywords: 'people roles' },
   { id: 'nav-audit', label: 'Audit log', href: '/audit', group: 'Navigate', icon: ScrollText, keywords: 'events history compliance' },
+  { id: 'nav-design-system', label: 'Design system', href: '/design-system', group: 'Reference', icon: Palette, keywords: 'tokens primitives buttons pills leds components style guide' },
 ];
 
 export function CommandPalette() {

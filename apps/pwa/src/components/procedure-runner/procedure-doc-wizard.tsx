@@ -501,7 +501,7 @@ export function ProcedureDocWizard({
       >
         <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-6 py-6">
           <div>
-            <p className="caption mb-1">PROCEDURE</p>
+            <p className="cap-mono mb-1">PROCEDURE</p>
             <h2 className="text-2xl font-bold text-ink-primary">
               {procedureTitle.trim() || 'Untitled procedure'}
             </h2>
@@ -599,7 +599,7 @@ export function ProcedureDocWizard({
         </div>
 
         <label className="flex flex-col gap-2">
-          <span className="caption">STEP TITLE</span>
+          <span className="cap-mono">STEP TITLE</span>
           <div className="flex items-center gap-2">
             <input
               type="text"
@@ -618,7 +618,7 @@ export function ProcedureDocWizard({
         </label>
 
         <label className="flex flex-col gap-2">
-          <span className="caption">DETAILS (OPTIONAL)</span>
+          <span className="cap-mono">DETAILS (OPTIONAL)</span>
           <div className="flex items-start gap-2">
             <textarea
               value={currentStep.body}
@@ -641,7 +641,7 @@ export function ProcedureDocWizard({
 
         <section className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
-            <span className="caption">PHOTOS &amp; VIDEO</span>
+            <span className="cap-mono">PHOTOS &amp; VIDEO</span>
             <button
               type="button"
               onClick={openMediaPicker}
@@ -845,7 +845,7 @@ function FullScreenShell({
           <ChevronLeft size={22} strokeWidth={2} />
         </button>
         <div className="doc-overlay-title">
-          <span className="caption">DOCUMENT A PROCEDURE</span>
+          <span className="cap-mono">DOCUMENT A PROCEDURE</span>
           <h2 className="truncate text-base font-semibold">{title}</h2>
         </div>
         <button

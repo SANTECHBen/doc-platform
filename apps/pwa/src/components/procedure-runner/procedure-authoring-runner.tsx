@@ -602,7 +602,7 @@ export function ProcedureAuthoringRunner({
 
         {/* Procedure-level title — editable at top, carried into Finalize. */}
         <div className="mx-auto mt-4 flex max-w-3xl flex-col gap-1.5 px-4">
-          <span className="caption">PROCEDURE TITLE</span>
+          <span className="cap-mono">PROCEDURE TITLE</span>
           <div className="flex items-center gap-2">
             <input
               type="text"
@@ -707,7 +707,7 @@ export function ProcedureAuthoringRunner({
           </h3>
 
           <label className="flex flex-col gap-1.5">
-            <span className="caption">STEP TITLE</span>
+            <span className="cap-mono">STEP TITLE</span>
             <div className="flex items-center gap-2">
               <input
                 type="text"
@@ -726,7 +726,7 @@ export function ProcedureAuthoringRunner({
           </label>
 
           <label className="flex flex-col gap-1.5">
-            <span className="caption">KIND</span>
+            <span className="cap-mono">KIND</span>
             <select
               value={draft.kind}
               onChange={(e) => {
@@ -755,7 +755,7 @@ export function ProcedureAuthoringRunner({
           </label>
 
           <label className="flex flex-col gap-1.5">
-            <span className="caption">DETAILS (OPTIONAL)</span>
+            <span className="cap-mono">DETAILS (OPTIONAL)</span>
             <div className="flex items-start gap-2">
               <textarea
                 value={draft.bodyMarkdown}
@@ -811,7 +811,7 @@ export function ProcedureAuthoringRunner({
           )}
 
           <label className="flex flex-col gap-1.5">
-            <span className="caption">NOTES (OPTIONAL)</span>
+            <span className="cap-mono">NOTES (OPTIONAL)</span>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -965,10 +965,10 @@ function MeasurementSpecAuthoring({
 }) {
   return (
     <section className="rounded-md border border-line bg-surface-raised p-4">
-      <span className="caption">MEASUREMENT SPEC + VALUE</span>
+      <span className="cap-mono">MEASUREMENT SPEC + VALUE</span>
       <div className="mt-2 flex flex-col gap-3">
         <label className="flex flex-col gap-1.5">
-          <span className="caption">TYPE</span>
+          <span className="cap-mono">TYPE</span>
           <select
             value={spec.kind}
             onChange={(e) => {
@@ -985,7 +985,7 @@ function MeasurementSpecAuthoring({
           </select>
         </label>
         <label className="flex flex-col gap-1.5">
-          <span className="caption">LABEL</span>
+          <span className="cap-mono">LABEL</span>
           <input
             type="text"
             value={spec.label}
@@ -997,7 +997,7 @@ function MeasurementSpecAuthoring({
         {spec.kind === 'numeric' && (
           <>
             <label className="flex flex-col gap-1.5">
-              <span className="caption">UNIT</span>
+              <span className="cap-mono">UNIT</span>
               <input
                 type="text"
                 value={spec.unit}
@@ -1008,7 +1008,7 @@ function MeasurementSpecAuthoring({
             </label>
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1.5">
-                <span className="caption">MIN</span>
+                <span className="cap-mono">MIN</span>
                 <input
                   type="number"
                   inputMode="decimal"
@@ -1024,7 +1024,7 @@ function MeasurementSpecAuthoring({
                 />
               </label>
               <label className="flex flex-col gap-1.5">
-                <span className="caption">MAX</span>
+                <span className="cap-mono">MAX</span>
                 <input
                   type="number"
                   inputMode="decimal"
@@ -1041,7 +1041,7 @@ function MeasurementSpecAuthoring({
               </label>
             </div>
             <label className="flex flex-col gap-1.5">
-              <span className="caption">VALUE YOU MEASURED</span>
+              <span className="cap-mono">VALUE YOU MEASURED</span>
               <input
                 type="number"
                 inputMode="decimal"
@@ -1074,7 +1074,7 @@ function MeasurementSpecAuthoring({
         )}
         {spec.kind === 'free_text' && (
           <label className="flex flex-col gap-1.5">
-            <span className="caption">VALUE YOU OBSERVED</span>
+            <span className="cap-mono">VALUE YOU OBSERVED</span>
             <textarea
               value={value.freeText ?? ''}
               onChange={(e) => onValueChange({ ...value, freeText: e.target.value })}
@@ -1199,7 +1199,7 @@ function FinalizeDialog({
           {stepCount} step{stepCount === 1 ? '' : 's'} captured.
         </p>
         <label className="mt-4 flex flex-col gap-1.5">
-          <span className="caption">PROCEDURE TITLE</span>
+          <span className="cap-mono">PROCEDURE TITLE</span>
           <input
             type="text"
             value={title}
@@ -1210,7 +1210,7 @@ function FinalizeDialog({
           />
         </label>
         <fieldset className="mt-4 flex flex-col gap-2 rounded border border-line p-3">
-          <legend className="caption px-1">SCOPE</legend>
+          <legend className="cap-mono px-1">SCOPE</legend>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="radio"

@@ -25,8 +25,9 @@
 //   * IOS PWA: overscroll-behavior: contain on the sheet body so a drag
 //     past the bottom doesn't pull-to-refresh the hub.
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useId, useRef } from 'react';
 import { Camera, ListOrdered, X } from 'lucide-react';
+import { useDialogChrome } from '@/lib/use-dialog-chrome';
 
 interface Props {
   open: boolean;
@@ -58,27 +59,12 @@ export function CreateProcedureSheet({ open, onClose, onPick }: Props) {
     deltaRef.current = 0;
   }, [onClose]);
 
-  // Close on Escape — even on a touch device, keyboards may be attached
-  // (BT keyboard while on a maintenance laptop running the PWA).
-  useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
-
-  // Lock body scroll while the sheet is open so flicking the tile
-  // doesn't scroll the hub behind it.
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
+  // Standard dialog chrome: scroll lock, Escape, focus trap, focus
+  // restoration to the FAB on close. Wired through the shared hook so
+  // every PWA overlay behaves the same.
+  const dialogRef = useRef<HTMLElement>(null);
+  const titleId = useId();
+  useDialogChrome({ open, onClose, dialogRef });
 
   return (
     <>
@@ -89,18 +75,20 @@ export function CreateProcedureSheet({ open, onClose, onPick }: Props) {
         aria-hidden
       />
       <aside
+        ref={dialogRef}
         className="create-sheet"
         data-open={open ? 'true' : 'false'}
         role="dialog"
         aria-modal="true"
-        aria-label="Document a procedure"
+        aria-labelledby={titleId}
+        tabIndex={-1}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
         <div className="create-sheet-handle" aria-hidden />
         <header className="create-sheet-header">
-          <h2 className="create-sheet-title">
+          <h2 id={titleId} className="create-sheet-title">
             How do you want to capture this procedure?
           </h2>
           <button
