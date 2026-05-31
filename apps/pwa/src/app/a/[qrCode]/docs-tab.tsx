@@ -800,14 +800,6 @@ function DocView({
         </button>
       </header>
       <div className={isFramed ? 'doc-overlay-frame' : 'doc-overlay-scroll'}>
-        {isFramed && (
-          <>
-            <span className="corner-mark tl" aria-hidden />
-            <span className="corner-mark tr" aria-hidden />
-            <span className="corner-mark bl" aria-hidden />
-            <span className="corner-mark br" aria-hidden />
-          </>
-        )}
         {doc.safetyCritical && doc.kind !== 'pdf' && (
           <div className="mx-auto mb-4 max-w-3xl rounded-md border border-signal-safety/50 bg-signal-safety/10 p-4">
             <div className="flex items-start gap-3">

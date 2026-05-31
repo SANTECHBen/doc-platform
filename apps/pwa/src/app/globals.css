@@ -16,7 +16,12 @@
   --surface-inset: 12 16 22;
   --surface-sidebar: 10 13 18;
 
-  --surface-plate-top: 28 32 40;
+  /* Plate-top widened from 28 32 40 to 36 42 52 — the previous 4-RGB
+     gap from surface-raised was invisible on standard monitors, which
+     meant the etched-surface inset highlight failed to register. The
+     wider 12-point gap makes the "milled console face" aesthetic
+     actually visible without becoming a hard line. */
+  --surface-plate-top: 36 42 52;
   --surface-plate-bottom: 20 24 31;
   --surface-plate-edge: 38 43 52;
 
@@ -1450,30 +1455,12 @@
   pointer-events: none;
   z-index: 1;
 }
-.doc-overlay-frame > .corner-mark.tl {
-  top: 8px;
-  left: 8px;
-  right: auto;
-  bottom: auto;
-}
-.doc-overlay-frame > .corner-mark.tr {
-  top: 8px;
-  right: 8px;
-  left: auto;
-  bottom: auto;
-}
-.doc-overlay-frame > .corner-mark.bl {
-  bottom: 8px;
-  left: 8px;
-  right: auto;
-  top: auto;
-}
-.doc-overlay-frame > .corner-mark.br {
-  bottom: 8px;
-  right: 8px;
-  left: auto;
-  top: auto;
-}
+/* Corner marks were previously rendered inside doc-overlay-frame as
+   well as on the identity-band fallback and the nameplate primitive.
+   That tripled the motif's frequency — corner marks have been pruned
+   here so the L-bracket detail stays distinctive to identity moments
+   only (nameplate, identity-band-placeholder). The doc-overlay-frame
+   keeps its own 1px hairline frame via the ::before rule above. */
 .doc-overlay-frame > * {
   flex: 1;
   min-height: 0;
@@ -2667,7 +2654,12 @@
   }
   .overview-action-summary-value {
     font-family: var(--font-sans);
-    font-size: 26px;
+    /* 24px (lowered from 26px) so the Identity Band title above —
+       which also sits at 26px — leads typographic hierarchy
+       unambiguously. The urgent-count still reads loud because its
+       weight (600) and tabular numerics give it disproportionate
+       presence against the 12px label below. */
+    font-size: 24px;
     font-weight: 600;
     line-height: 1;
     /* Default (idle) — values read as neutral data so the urgent count
@@ -3887,17 +3879,26 @@
   /* ------------------------------------------------------------
      LANDING — QR tile + scan button with shine sweep
      ------------------------------------------------------------ */
+  /* QR tile — the visual host for the Lucide QrCode icon on the
+     landing page. Previously a 135° linear-gradient "polished metal"
+     treatment that read 2018-era against the modern stroke-based
+     icon inside. Now flat raised surface with the same etched-
+     primitive shadow vocabulary used everywhere else in the product:
+     a thin top highlight + a soft bottom shadow + 1px border. */
   .qr-tile {
     width: 88px;
     height: 88px;
     border-radius: 12px;
-    background: linear-gradient(135deg, rgb(var(--surface-raised)), rgb(var(--surface-elevated)));
+    background: rgb(var(--surface-raised));
     border: 1px solid rgb(var(--line));
     display: flex;
     align-items: center;
     justify-content: center;
     position: relative;
-    box-shadow: var(--shadow-md);
+    box-shadow:
+      inset 0 1px 0 rgb(var(--surface-plate-top)),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.04),
+      0 1px 2px rgba(0, 0, 0, 0.04);
   }
 
   .scan-btn {
@@ -3933,7 +3934,13 @@
     width: 100%;
     height: 100%;
     background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-    animation: scanShine 3s ease-in-out infinite;
+    /* 3 sweeps (9 seconds total) is enough to draw the eye on first
+       page load without becoming visual nagging. Previously
+       `infinite` looped the shine every 3 seconds for as long as
+       the user remained on the landing — which read as constant
+       movement rather than a one-time "tap me" cue. */
+    animation: scanShine 3s ease-in-out 3;
+    animation-fill-mode: forwards;
   }
   @keyframes scanShine {
     0%,

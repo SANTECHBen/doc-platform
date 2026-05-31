@@ -7,7 +7,11 @@ import './globals.css';
 
 const sans = IBM_Plex_Sans({
   subsets: ['latin'],
-  weight: ['300', '400', '500', '600', '700'],
+  // Four weights cover every label, body, button, and heading in the
+  // product. Weight 300 (Light) was previously loaded but never used —
+  // the design system uses 400/500/600/700. Dropping 300 saves ~40 kB
+  // per route on the first paint.
+  weight: ['400', '500', '600', '700'],
   variable: '--font-sans',
   display: 'swap',
 });

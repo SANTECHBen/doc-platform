@@ -8,23 +8,33 @@
    ========================================================================= */
 
 :root[data-theme='dark'] {
-  --surface-base:      10 13 17;
-  --surface-raised:    18 22 28;
-  --surface-elevated:  26 31 39;
-  --surface-inset:     8 10 14;
-  --surface-sidebar:   5 7 10;
+  /* Unified dark surfaces — adopted from the PWA's "warm graphite,
+     slight blue undertone, control-cabinet" palette so the two apps
+     match when rendered side-by-side (sales demos, training docs,
+     screenshot grids). Sidebar specifically stays a few RGB points
+     darker than surface-base to preserve the "tool vs content" rail
+     contrast that the admin needs but the PWA doesn't have a rail
+     for. */
+  --surface-base:      16 20 26;
+  --surface-raised:    24 29 37;
+  --surface-elevated:  32 38 48;
+  --surface-inset:     12 16 22;
+  --surface-sidebar:   8 11 15;
 
-  --surface-plate-top:    28 32 40;
+  /* Plate-top widened from 28 32 40 to 36 42 52 — the previous 4-RGB
+     gap from surface-raised was invisible on standard monitors, which
+     meant the etched-surface inset highlight failed to register. */
+  --surface-plate-top:    36 42 52;
   --surface-plate-bottom: 20 24 31;
   --surface-plate-edge:   38 43 52;
 
-  --line-subtle:   22 27 35;
-  --line:          38 45 55;
-  --line-strong:   58 68 82;
+  --line-subtle:   31 37 47;
+  --line:          47 56 68;
+  --line-strong:   73 84 99;
 
-  --ink-primary:   232 236 241;
-  --ink-secondary: 155 166 179;
-  --ink-tertiary:  92 102 116;
+  --ink-primary:   237 240 244;
+  --ink-secondary: 169 179 191;
+  --ink-tertiary:  112 123 137;
   --ink-inverse:   10 13 17;
   --ink-brand:     127 176 240;
 
@@ -763,7 +773,11 @@
     flex-shrink: 0;
   }
 
-  /* Metric tile — dashboard hero */
+  /* Metric tile — dashboard hero. Hover treatment mirrors the etched-
+     surface primitive used everywhere else in the product: a brand-
+     tinted border on hover rather than the previous radial-gradient
+     "glow" which felt like a Tailwind-UI demo against the rest of
+     the FieldSupport vocabulary. */
   .metric-tile {
     background: rgb(var(--surface-raised));
     border: 1px solid rgb(var(--line));
@@ -771,21 +785,11 @@
     padding: 18px 20px;
     position: relative;
     cursor: default;
-    transition: all 180ms ease;
-    overflow: hidden;
+    transition: border-color 140ms ease, background 140ms ease;
   }
-  .metric-tile::after {
-    content: '';
-    position: absolute;
-    top: 0; right: 0;
-    width: 80px; height: 80px;
-    background: radial-gradient(circle at top right, rgba(var(--brand-soft-v), var(--brand-soft-a)), transparent 70%);
-    opacity: 0;
-    transition: opacity 200ms ease;
-    pointer-events: none;
+  .metric-tile:hover {
+    border-color: rgb(var(--brand) / 0.4);
   }
-  .metric-tile:hover { border-color: rgb(var(--line-strong)); }
-  .metric-tile:hover::after { opacity: 1; }
   .metric-tile-top {
     display: flex;
     align-items: center;
@@ -980,6 +984,27 @@
     color: rgb(var(--ink-secondary));
     font-size: 14px;
     line-height: 1.55;
+  }
+  /* Auth options section — wraps the "Continue with" caption + the
+     Microsoft button as one visual affordance. Even though Microsoft
+     is currently the only auth option, the framing reads as
+     "this is your auth choice" rather than "Microsoft button just
+     happens to be here," which makes the Microsoft-branded button
+     (with its hard-coded white surface and Segoe UI per Microsoft's
+     brand spec) feel hosted rather than dropped in. */
+  .signin-auth-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .signin-auth-caption {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-tertiary));
+    padding-left: 2px;
   }
   .signin-microsoft-btn {
     display: inline-flex;

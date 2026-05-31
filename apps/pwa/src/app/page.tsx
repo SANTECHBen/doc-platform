@@ -26,10 +26,12 @@ export default function Home() {
         <div className="qr-tile">
           {/* Lucide QrCode icon — replaces a hand-rolled SVG pixel-art
               approximation. Same 50px target, stroke-based rendering
-              for a sharper look on high-DPI screens. */}
+              for a sharper look on high-DPI screens. strokeWidth=1.75
+              matches the system default so the icon reads as anchored
+              against the tile rather than wispy against its surface. */}
           <QrCode
             size={50}
-            strokeWidth={1.5}
+            strokeWidth={1.75}
             className="text-ink-primary opacity-90"
             aria-hidden
           />

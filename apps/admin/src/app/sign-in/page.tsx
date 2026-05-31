@@ -65,23 +65,32 @@ export default async function SignInPage({
         )}
 
         <p className="signin-lede">
-          Sign in with your Microsoft work account to manage equipment,
-          documentation, training, and field captures.
+          Sign in to manage equipment, documentation, training, and field
+          captures.
         </p>
 
-        <form
-          action={async () => {
-            'use server';
-            await signIn('microsoft-entra-id', {
-              redirectTo: callbackUrl,
-            });
-          }}
-        >
-          <button type="submit" className="signin-microsoft-btn">
-            <MicrosoftLogo />
-            <span>Sign in with Microsoft</span>
-          </button>
-        </form>
+        {/* Continue-with framing. The "Continue with" caption + the
+            Microsoft-branded button reads top-to-bottom as one auth
+            affordance rather than a foreign Microsoft button bolted
+            into a FieldSupport card. Microsoft's brand guidelines
+            accept the short form "Microsoft" on the button when the
+            framing supplies the verb. */}
+        <div className="signin-auth-section">
+          <span className="signin-auth-caption">Continue with</span>
+          <form
+            action={async () => {
+              'use server';
+              await signIn('microsoft-entra-id', {
+                redirectTo: callbackUrl,
+              });
+            }}
+          >
+            <button type="submit" className="signin-microsoft-btn">
+              <MicrosoftLogo />
+              <span>Microsoft</span>
+            </button>
+          </form>
+        </div>
 
         <p className="signin-help">
           Don't have access? Contact your FieldSupport administrator.

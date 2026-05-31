@@ -1703,14 +1703,6 @@ function PartDocView({
         </button>
       </header>
       <div className={isFramed ? 'doc-overlay-frame' : 'doc-overlay-scroll'}>
-        {isFramed && (
-          <>
-            <span className="corner-mark tl" aria-hidden />
-            <span className="corner-mark tr" aria-hidden />
-            <span className="corner-mark bl" aria-hidden />
-            <span className="corner-mark br" aria-hidden />
-          </>
-        )}
         {sectionMode && (
           <div className="flex flex-col gap-1 pb-6">
             {sections!.map((s, i) => (
