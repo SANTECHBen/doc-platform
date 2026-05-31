@@ -11,9 +11,10 @@ import { useEffect, useRef, useState } from 'react';
 //     entirely — the splash becomes friction on the 20th scan, even if
 //     it's delightful on the 1st. The threshold is a small integer; we
 //     don't grow it unboundedly.
-//   • The intro WAV plays ONLY on the first ever play. Repeat scans
-//     stay silent so the tech isn't surprised by audio in a quiet
-//     customer office or annoyed by it in a loud plant.
+//   • The intro WAV plays on EVERY splash within that threshold, not
+//     just the first scan. Audio is part of the brand reveal — if the
+//     animation plays, the sound plays with it. Once the threshold cap
+//     skips the visual entirely, no audio either.
 //
 // Skip affordance: a small "Skip" pill fades in 1.5s after the
 // animation starts. Available to everyone (not just repeat viewers),
@@ -157,13 +158,14 @@ export function SplashIntro() {
     const t4 = window.setTimeout(() => setShowSkip(true), 1500);
     timersRef.current = [t1, t2, t3, t4];
 
-    // Sound only ever plays once per device — first scan = delight,
-    // subsequent scans = noise. The visual still runs on plays 2 and 3.
-    if (plays === 0) {
-      void playIntroSound(audioRef).catch(() => {
-        /* autoplay blocked — silent intro is fine */
-      });
-    }
+    // Audio runs alongside the visual on every play within the threshold.
+    // The catch swallows autoplay rejections — browsers may block audio
+    // when the splash mounts after a same-origin redirect from /q/<code>
+    // if the original gesture is considered stale; the visual still
+    // runs in that case.
+    void playIntroSound(audioRef).catch(() => {
+      /* autoplay blocked — silent intro is fine */
+    });
 
     return () => {
       clearTimers();
