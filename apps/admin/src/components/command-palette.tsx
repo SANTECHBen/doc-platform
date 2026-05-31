@@ -5,7 +5,6 @@ import {
   Building2,
   FileStack,
   GraduationCap,
-  LayoutDashboard,
   QrCode,
   ScrollText,
   Search,
@@ -37,8 +36,7 @@ interface Item {
 // Static navigation items — always present. Dynamic items (orgs, assets, etc.)
 // are loaded on open so the palette is fresh every time it's invoked.
 const NAV: Item[] = [
-  { id: 'nav-dashboard', label: 'Dashboard', href: '/', group: 'Navigate', icon: LayoutDashboard, keywords: 'home overview' },
-  { id: 'nav-orgs', label: 'Organizations', href: '/tenants', group: 'Navigate', icon: Building2, keywords: 'tenants oem dealer customer' },
+  { id: 'nav-orgs', label: 'Organizations', href: '/orgs', group: 'Navigate', icon: Building2, keywords: 'orgs tenants oem dealer customer home overview dashboard' },
   { id: 'nav-models', label: 'Asset models', href: '/asset-models', group: 'Navigate', icon: Boxes, keywords: 'equipment sku' },
   { id: 'nav-packs', label: 'Content packs', href: '/content-packs', group: 'Navigate', icon: FileStack, keywords: 'documents publish version' },
   { id: 'nav-training', label: 'Training', href: '/training', group: 'Navigate', icon: GraduationCap, keywords: 'modules enrollment quiz' },
@@ -91,7 +89,7 @@ export function CommandPalette() {
           id: `org-${o.id}`,
           label: o.name,
           hint: `${o.type.replace('_', ' ')} · ${o.slug}`,
-          href: `/tenants/${o.id}`,
+          href: `/orgs/${o.id}`,
           group: 'Organizations',
           icon: Building2,
           keywords: `${o.slug} ${o.oemCode ?? ''} ${o.type}`,

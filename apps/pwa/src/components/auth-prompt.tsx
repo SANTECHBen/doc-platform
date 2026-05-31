@@ -10,7 +10,9 @@
 // API auth setup. For now, dev environments set the env var and prod is
 // pending integration.
 
+import { useId, useRef } from 'react';
 import { LogIn, X } from 'lucide-react';
+import { useDialogChrome } from '@/lib/use-dialog-chrome';
 
 export function AuthPrompt({
   reason = 'start a procedure',
@@ -19,13 +21,22 @@ export function AuthPrompt({
   reason?: string;
   onClose: () => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  useDialogChrome({ open: true, onClose, dialogRef });
+
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-md border border-line bg-surface-raised p-5 shadow-lg"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className="w-full max-w-md rounded-md border border-line bg-surface-raised p-5 shadow-lg focus:outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-start justify-between gap-3">
@@ -33,7 +44,9 @@ export function AuthPrompt({
             <div className="icon-chip icon-chip-info">
               <LogIn size={16} strokeWidth={2} />
             </div>
-            <h3 className="text-base font-semibold text-ink-primary">Sign in required</h3>
+            <h3 id={titleId} className="text-base font-semibold text-ink-primary">
+              Sign in required
+            </h3>
           </div>
           <button
             type="button"
@@ -51,9 +64,8 @@ export function AuthPrompt({
           attributable to you.
         </p>
         <p className="mt-3 text-xs text-ink-tertiary">
-          OIDC sign-in via Microsoft Entra ID is being wired up for the PWA;
-          until then, ask your admin to provision dev identity in this
-          environment.
+          Sign-in is being wired up; until then, ask your administrator to provision
+          access for this device.
         </p>
         <div className="mt-5 flex justify-end">
           <button type="button" onClick={onClose} className="btn btn-secondary">

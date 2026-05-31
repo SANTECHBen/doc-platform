@@ -1,19 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-// Search icon used by the voice-search trigger. The button is hidden
-// from the beta topbar (see commented block below); keep the import
-// commented out so eslint doesn't flag it, and uncomment alongside the
-// JSX to re-enable.
-// import { Search } from 'lucide-react';
 import type { AssetHubPayload } from '@/lib/shared-schema';
 import { BrandLogo } from '@/components/brand-logo';
-// ThemeToggle removed from the topbar for now — keep the import path
-// reference here for the day we re-enable dark-mode switching, but the
-// JSX usage below is also commented out so eslint doesn't flag this
-// as an unused import. To bring it back: uncomment both the import
-// (this line) and the <ThemeToggle /> render in the actions cluster.
-// import { ThemeToggle } from '@/components/theme-toggle';
 
 // Asset hub topbar. Two presentations driven by the URL hash:
 //
@@ -24,10 +13,10 @@ import { BrandLogo } from '@/components/brand-logo';
 //     Library / Parts / Maintenance / Assistant. The status LED before
 //     the name communicates whether anything needs attention.
 //
-// Right cluster: Powered-by wordmark + voice-search trigger as a
-// single tight group. Dark-mode toggle was removed for the beta —
-// the codebase still ships ThemeToggle (commented out at the import
-// above) for easy re-enablement.
+// Right cluster: Powered-by wordmark. Voice-search and dark-mode toggle
+// have been removed from the beta topbar; both features remain in the
+// codebase (VoiceSearch component, ThemeToggle component) and can be
+// re-introduced through a new entry point.
 
 export function AssetTopbar({ hub }: { hub: AssetHubPayload }) {
   const [showChip, setShowChip] = useState(false);
@@ -90,33 +79,8 @@ export function AssetTopbar({ hub }: { hub: AssetHubPayload }) {
           )}
         </div>
       )}
-      {/* Right cluster — Powered-by wordmark and voice-search sit
-          together with a tighter gap than the topbar's default 8px,
-          so they read as one group rather than two free-floating
-          elements with a gap between them. */}
       <div className="app-topbar-actions">
         <PoweredBy />
-        {/* Voice search trigger — hidden from the beta topbar so the
-            feature isn't user-accessible yet. The voice-search code,
-            event wiring, and styles remain intact; uncomment this block
-            (and the `Search` import above) to bring the button back.
-
-            Voice search is distinct from the post-scan Voice assistant
-            mode: search returns a ranked list of docs/steps; Voice
-            assistant opens a conversational AI. Dispatching a window
-            event keeps the topbar (server-rendered) decoupled from the
-            asset-hub tabs tree (client-rendered with its own state).
-        <button
-          type="button"
-          onClick={() => window.dispatchEvent(new Event('asset-hub:open-search'))}
-          aria-label="Voice search — find a document, step, or section"
-          title="Voice search — find a doc, step, or section (separate from Voice assistant)"
-          className="app-topbar-search-btn"
-        >
-          <Search size={16} strokeWidth={2.25} aria-hidden />
-        </button>
-        */}
-        {/* <ThemeToggle /> — removed from beta; see import comment above. */}
       </div>
     </header>
   );

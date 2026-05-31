@@ -478,8 +478,8 @@ export default function AssetModelDetail({
                 </li>
               </ul>
               <p className="mt-2 text-ink-secondary">
-                Open <a className="underline" href={`/tenants/${model.owner.id}`}>{model.owner.name}</a>{' '}
-                (or any other tenant in scope) and add a site there, then come back to
+                Open <a className="underline" href={`/orgs/${model.owner.id}`}>{model.owner.name}</a>{' '}
+                (or any other organization in scope) and add a site there, then come back to
                 click Add instance.
               </p>
             </div>
@@ -843,7 +843,7 @@ export default function AssetModelDetail({
             setNewOpen(false);
             await refresh();
             if (continueSetup && continueOrgId) {
-              router.push(`/tenants/${continueOrgId}?step=qr_code`);
+              router.push(`/orgs/${continueOrgId}?step=qr_code`);
             }
           }}
         />

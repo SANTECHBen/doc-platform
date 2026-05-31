@@ -11,9 +11,9 @@ export function Breadcrumbs({
   return (
     <nav className="flex items-center gap-1.5 text-sm text-ink-tertiary" aria-label="Breadcrumb">
       <Link
-        href="/"
+        href="/orgs"
         className="inline-flex items-center text-ink-tertiary transition hover:text-ink-primary"
-        aria-label="Dashboard"
+        aria-label="All organizations"
       >
         <Home size={14} strokeWidth={2} />
       </Link>

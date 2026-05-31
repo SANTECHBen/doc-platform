@@ -21,7 +21,6 @@ import { PartInspector } from './parts-tab';
 import { IssuesPanel } from './issues-panel';
 import { MaintenanceTab } from './maintenance-tab';
 import { VirtualJobAid, type JobAidSource } from '@/components/virtual-job-aid';
-import { VoiceSearch } from '@/components/voice-search';
 import { ImageZoom } from '@/components/image-zoom';
 import { CreateProcedureSheet } from '@/components/create-procedure-sheet';
 import { SegmentCard } from '@/components/segment-card';
@@ -114,12 +113,6 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
      *  matched step directly. */
     initialStepId?: string;
   } | null>(null);
-  // Voice-search overlay state. Distinct from voice mode (chat) — search
-  // returns ranked results + a spoken preview, not a streamed answer.
-  // Opened by the topbar's magnifier button via a window event so the
-  // server-rendered topbar stays decoupled from this client tree.
-  const [voiceSearchOpen, setVoiceSearchOpen] = useState(false);
-
   // Center "+" FAB → CreateProcedureSheet → one of two authoring flows.
   // Hoisted to this top-level component so the FAB works from any tab
   // (the previous in-Maintenance buttons only worked while the tech was
@@ -142,11 +135,6 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
     if (mode === 'ai') setVideoSubmissionOpen(true);
     else setManualAuthoringOpen(true);
   }
-  useEffect(() => {
-    const onOpen = () => setVoiceSearchOpen(true);
-    window.addEventListener('asset-hub:open-search', onOpen);
-    return () => window.removeEventListener('asset-hub:open-search', onOpen);
-  }, []);
 
   // Hydrate the active tab from the URL hash on mount so deep links
   // (`#docs`) land on the right tab. Then keep the hash in sync as the
@@ -364,43 +352,10 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
         />
       )}
 
-      {/* Voice search is launched from the topbar (search icon) — not a
-          floating FAB — so it never covers content. The topbar dispatches
-          `asset-hub:open-search`; the listener below opens the overlay. */}
-      {voiceSearchOpen && (
-        <VoiceSearch
-          assetInstanceId={hub.assetInstance.id}
-          onClose={() => setVoiceSearchOpen(false)}
-          onJump={(result) => {
-            setVoiceSearchOpen(false);
-            if (!result.jumpTarget) return;
-            if (result.jumpTarget.kind === 'jobaid' && DEV_USER_ID && DEV_ORG_ID) {
-              setJobAidRequest({
-                source: {
-                  kind: 'doc',
-                  docId: result.jumpTarget.docId,
-                  devUserId: DEV_USER_ID,
-                  devOrgId: DEV_ORG_ID,
-                },
-                initialStepId: result.jumpTarget.initialStepId,
-              });
-              return;
-            }
-            // doc + section jumps route to the Library tab; the existing
-            // SectionViewerOverlay flow inside the voice-mode handler is
-            // tuned for hands-free chat. For v1 we surface a fallback that
-            // navigates to the Library tab and the user can click through
-            // — a future iteration can mount SectionViewerOverlay directly.
-            const params = new URLSearchParams();
-            params.set('docId', result.jumpTarget.docId);
-            if (result.jumpTarget.kind === 'section') {
-              params.set('sectionId', result.jumpTarget.sectionId);
-            }
-            window.location.hash = `library?${params.toString()}`;
-            changeTab('library');
-          }}
-        />
-      )}
+      {/* VoiceSearch is currently unmounted — the beta topbar's search
+          trigger is removed. The component (apps/pwa/src/components/
+          voice-search.tsx) remains feature-complete and ready to be
+          re-mounted when a new entry point is added. */}
     </>
   );
 }

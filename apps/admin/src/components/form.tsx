@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useId, useRef } from 'react';
 import type {
   ButtonHTMLAttributes,
   InputHTMLAttributes,
@@ -8,6 +8,8 @@ import type {
   TextareaHTMLAttributes,
   ReactNode,
 } from 'react';
+import { X } from 'lucide-react';
+import { useDialogChrome } from '@/lib/use-dialog-chrome';
 
 export function Field({
   label,
@@ -94,6 +96,9 @@ export function Drawer({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  useDialogChrome({ open, onClose, dialogRef });
   if (!open) return null;
   return (
     <div
@@ -101,17 +106,25 @@ export function Drawer({
       onClick={onClose}
     >
       <div
-        className="flex h-full w-full max-w-xl flex-col bg-surface-raised shadow-2xl"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className="flex h-full w-full max-w-xl flex-col bg-surface-raised shadow-2xl focus:outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-line px-6 py-4">
-          <h2 className="text-lg font-semibold">{title}</h2>
+          <h2 id={titleId} className="text-lg font-semibold">
+            {title}
+          </h2>
           <button
+            type="button"
             onClick={onClose}
-            className="text-ink-tertiary hover:text-ink-primary"
+            className="-mr-1 inline-flex h-8 w-8 items-center justify-center rounded text-ink-tertiary transition hover:bg-surface-elevated hover:text-ink-primary"
             aria-label="Close"
           >
-            ✕
+            <X size={16} strokeWidth={2} />
           </button>
         </header>
         <div className="flex-1 overflow-y-auto p-6">{children}</div>
@@ -136,33 +149,33 @@ export function FullPageOverlay({
   onClose: () => void;
   children: ReactNode;
 }) {
-  // Lock body scroll while the overlay is up — otherwise both the
-  // underlying page AND the overlay's inner content scroll, which
-  // shows two scrollbars and feels broken. Restored when the overlay
-  // closes (or when this component unmounts).
-  useEffect(() => {
-    if (!open) return undefined;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
-
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  useDialogChrome({ open, onClose, dialogRef });
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-surface-base">
+    <div
+      ref={dialogRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      tabIndex={-1}
+      className="fixed inset-0 z-50 flex flex-col bg-surface-base focus:outline-none"
+    >
       <header className="flex items-center justify-between border-b border-line bg-surface-raised px-6 py-3">
         <div className="min-w-0">
-          <h2 className="truncate text-lg font-semibold text-ink-primary">{title}</h2>
+          <h2 id={titleId} className="truncate text-lg font-semibold text-ink-primary">
+            {title}
+          </h2>
           {subtitle && <p className="truncate text-xs text-ink-tertiary">{subtitle}</p>}
         </div>
         <button
+          type="button"
           onClick={onClose}
-          className="rounded p-1.5 text-ink-tertiary hover:bg-surface hover:text-ink-primary"
+          className="-mr-1 inline-flex h-8 w-8 items-center justify-center rounded text-ink-tertiary transition hover:bg-surface-elevated hover:text-ink-primary"
           aria-label="Close"
         >
-          ✕
+          <X size={16} strokeWidth={2} />
         </button>
       </header>
       {/* The single scroll context for tall forms. Body scroll above

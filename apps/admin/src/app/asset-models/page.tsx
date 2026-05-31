@@ -193,7 +193,7 @@ export default function AssetModelsPage() {
             await refresh();
             if (continueSetup && continueOrg) {
               const next = nextStepAfterSave('asset_model', continueOrg.type) ?? 'parts_bom';
-              router.push(`/tenants/${continueOrg.id}?step=${next}`);
+              router.push(`/orgs/${continueOrg.id}?step=${next}`);
             }
           }}
         />

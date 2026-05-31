@@ -579,35 +579,6 @@
   flex-shrink: 0;
 }
 
-/* Voice-search trigger in the topbar. Visually weighted slightly heavier
-   than the theme toggle so the affordance reads as "useful tool" not
-   "settings knob" — matches the brand color on hover/focus so the tech
-   recognizes it as a primary find-stuff entry. Lives in the topbar
-   (always visible, never covers content) rather than a floating FAB so
-   the bottom-right of every tab stays usable. */
-.app-topbar-search-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: rgb(var(--ink-secondary));
-  cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
-}
-.app-topbar-search-btn:hover {
-  background: rgb(var(--brand) / 0.08);
-  color: rgb(var(--brand));
-  border-color: rgb(var(--brand) / 0.18);
-}
-.app-topbar-search-btn:focus-visible {
-  outline: 2px solid rgb(var(--brand));
-  outline-offset: 2px;
-}
-
 /* Compact asset chip — shown on every tab EXCEPT Overview so the tech
    never loses identity context. Status LED + asset name only — no
    thumbnail, no serial number. Per UX feedback the chip should read
@@ -4501,49 +4472,6 @@
     color: rgb(180 40 40);
     background: rgb(220 90 90 / 0.14);
     border-color: rgb(220 90 90 / 0.4);
-  }
-
-  /* =========================================================================
-     TALK FAB — re-entry pill for voice mode. Anchored bottom-right above
-     the bottom tab bar (z-index 40), visible on every non-chat tab.
-     ========================================================================= */
-
-  .app-talk-fab {
-    position: fixed;
-    right: max(16px, env(safe-area-inset-right));
-    /* Sit above both the bottom tab bar (~84px) AND the chat composer
-       (~64px) on the Assistant tab so the pill never blocks the send /
-       camera / mic action buttons in the composer row. */
-    bottom: calc(84px + 64px + 12px + env(safe-area-inset-bottom));
-    z-index: 39;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    height: 44px;
-    padding: 0 18px 0 16px;
-    border-radius: 999px;
-    border: 1px solid rgb(var(--brand) / 0.4);
-    background: rgb(var(--brand) / 0.14);
-    color: rgb(var(--brand));
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: 0.005em;
-    box-shadow:
-      0 6px 16px -8px rgb(0 0 0 / 0.5),
-      0 0 0 1px rgb(0 0 0 / 0.04);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    transition:
-      background 140ms ease,
-      border-color 140ms ease,
-      transform 120ms ease;
-  }
-  .app-talk-fab:hover {
-    background: rgb(var(--brand) / 0.22);
-    border-color: rgb(var(--brand) / 0.55);
-  }
-  .app-talk-fab:active {
-    transform: translateY(0.5px);
   }
 
   /* =========================================================================

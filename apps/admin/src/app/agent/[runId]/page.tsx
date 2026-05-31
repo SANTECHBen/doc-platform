@@ -316,7 +316,7 @@ export default function AgentRunDetailPage({
               <Activity size={14} className="animate-pulse" /> Streaming…
             </span>
           ) : detail.run.status === 'completed' ? (
-            <Link href="/tenants">
+            <Link href="/orgs">
               <SecondaryButton>
                 View created entities <ChevronRight size={14} />
               </SecondaryButton>

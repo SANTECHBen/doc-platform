@@ -2,8 +2,9 @@
 
 // Hands the layout-fetched OrganizationSummary down to nested client
 // components without forcing each page to re-fetch it. Read with
-// useOrgWorkspace() inside a server-rendered client tree under
-// /orgs/[id]/...
+// useOrgWorkspace() (asserts presence) or useOrgWorkspaceOptional()
+// (returns null outside an org workspace, used by global chrome like
+// the TopBar that needs to detect scope).
 //
 // Pages that need fresher data still fetch via the client API (e.g.
 // after a mutation) — this context is just the cheap bootstrap value
@@ -35,6 +36,7 @@ export function OrgWorkspaceContextProvider({
   );
 }
 
+// Strict: throws if called outside an /orgs/[id]/* route.
 export function useOrgWorkspace(): OrgWorkspaceValue {
   const ctx = useContext(OrgWorkspaceContext);
   if (!ctx) {
@@ -43,4 +45,11 @@ export function useOrgWorkspace(): OrgWorkspaceValue {
     );
   }
   return ctx;
+}
+
+// Optional: returns null outside an /orgs/[id]/* route. Used by global
+// chrome like the TopBar's scope chip to detect whether it's rendering
+// inside an org workspace.
+export function useOrgWorkspaceOptional(): OrgWorkspaceValue | null {
+  return useContext(OrgWorkspaceContext);
 }

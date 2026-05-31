@@ -99,8 +99,8 @@ export default function QrCodesPage() {
       const refreshed = await listQrCodes();
       setCodes(refreshed);
       if (continueAfter && continueOrgId) {
-        toast.success('QR code minted', 'Tenant setup complete.');
-        router.push(`/tenants/${continueOrgId}`);
+        toast.success('QR code minted', 'Organization setup complete.');
+        router.push(`/orgs/${continueOrgId}`);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

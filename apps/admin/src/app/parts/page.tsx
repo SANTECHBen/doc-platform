@@ -136,7 +136,7 @@ export default function PartsPage() {
             await refresh();
             if (continueSetup && continueOrg) {
               const next = nextStepAfterSave('parts_bom', continueOrg.type) ?? 'content_published';
-              router.push(`/tenants/${continueOrg.id}?step=${next}`);
+              router.push(`/orgs/${continueOrg.id}?step=${next}`);
             }
           }}
         />

@@ -256,7 +256,7 @@ export default function ContentPacksPage() {
               } else {
                 const next =
                   nextStepAfterSave('content_published', continueOrg.type) ?? 'asset_instance';
-                router.push(`/tenants/${continueOrg.id}?step=${next}`);
+                router.push(`/orgs/${continueOrg.id}?step=${next}`);
               }
             }
           }}

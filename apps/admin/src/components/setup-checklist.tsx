@@ -30,7 +30,7 @@ export function SetupChecklist({ metrics }: { metrics: AdminMetrics }) {
       title: 'Create an organization',
       description:
         'Add your first OEM, dealer, or end customer. Everything else hangs off this.',
-      href: '/tenants',
+      href: '/orgs',
       done: metrics.organizations > 0,
     },
     {

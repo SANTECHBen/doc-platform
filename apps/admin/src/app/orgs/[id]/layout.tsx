@@ -14,7 +14,7 @@ import { OrgSidebar } from '@/components/org-sidebar';
 import { UserMenu } from '@/components/user-menu';
 import { requireOrgAccess } from '@/lib/org-access';
 import type { ReactNode } from 'react';
-import { OrgWorkspaceContextProvider } from './workspace-context';
+import { OrgWorkspaceContextProvider } from '@/lib/org-workspace-context';
 import { WorkspaceFallback } from './workspace-fallback';
 
 export default async function OrgLayout({

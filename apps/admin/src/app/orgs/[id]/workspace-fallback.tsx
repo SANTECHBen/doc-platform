@@ -15,7 +15,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { OrgSidebar } from '@/components/org-sidebar';
 import { getOrganizationSummary, type OrganizationSummary } from '@/lib/api';
-import { OrgWorkspaceContextProvider } from './workspace-context';
+import { OrgWorkspaceContextProvider } from '@/lib/org-workspace-context';
 
 type LoadState = 'loading' | 'error' | 'denied';
 
