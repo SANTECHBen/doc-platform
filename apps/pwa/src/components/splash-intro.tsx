@@ -7,28 +7,53 @@ import { useEffect, useRef, useState } from 'react';
 // plays on first arrival without replaying on refresh or back navigation.
 //
 // View gating (per-device, via localStorage):
-//   • After SPLASH_VIEW_THRESHOLD complete plays the animation skips
-//     entirely — the splash becomes friction on the 20th scan, even if
-//     it's delightful on the 1st. The threshold is a small integer; we
-//     don't grow it unboundedly.
-//   • The intro WAV plays ONLY on the first ever play. Repeat scans
-//     stay silent so the tech isn't surprised by audio in a quiet
-//     customer office or annoyed by it in a loud plant.
+//   • Play 1                     — full 5.3s reveal (gear → traces →
+//                                  nodes → wordmark → underline). Intro
+//                                  WAV plays only here.
+//   • Plays 2, 3                 — condensed ~2s variant: wordmark only,
+//                                  no audio. Brand identity survives
+//                                  without the full theatre.
+//   • Plays SPLASH_VIEW_THRESHOLD+  — skipped entirely. The splash becomes
+//                                  friction on the 20th scan.
 //
-// Skip affordance: a small "Skip" pill fades in 1.5s after the
-// animation starts. Available to everyone (not just repeat viewers),
-// so an impatient first-timer can advance without waiting through the
-// whole 5.3s sequence.
+// Skip affordance: a small "Skip" pill fades in 1.5s (full) / 600ms
+// (condensed) after the animation starts. Available to everyone — even
+// the first-time viewer gets an escape hatch.
 //
 // Reset for development: `localStorage.removeItem('fs:splash:plays')`.
 //
-// The overlay covers the hub from the very first painted frame (no
-// opacity fade-in) so the user never sees the underlying page flash
-// before the splash takes over. Each part of the mark then eases in
-// on its own schedule on top of the opaque surface.
+// Theme: the splash is canonically a white-background brand moment
+// regardless of the user's app theme preference, so the root element
+// declares data-theme="light". CSS custom properties cascade — every
+// fill/stroke inside the SVG resolves to the light token even when
+// the document has data-theme="dark".
 
 const SPLASH_PLAYS_KEY = 'fs:splash:plays';
 const SPLASH_VIEW_THRESHOLD = 3;
+
+// Phase timing differs by variant. Full runs the full gear/circuit/
+// wordmark reveal at the original tempo; condensed strips to wordmark
+// only at ~2s.
+const PHASE_TIMING_FULL = {
+  hold: 80,
+  exit: 4660,
+  done: 5300,
+  skipBtn: 1500,
+};
+const PHASE_TIMING_CONDENSED = {
+  hold: 80,
+  exit: 1700,
+  done: 2080,
+  skipBtn: 600,
+};
+
+// SVG viewBox per variant. Full shows the whole 940x240 composition.
+// Condensed zooms into the wordmark area so it sits centered in the
+// viewport rather than the right-third of the full viewBox.
+const VIEWBOX_FULL = '0 0 940 240';
+const VIEWBOX_CONDENSED = '380 110 480 140';
+
+type Variant = 'full' | 'condensed';
 
 function getSplashPlays(): number {
   if (typeof window === 'undefined') return 0;
@@ -57,6 +82,7 @@ function incrementSplashPlays(): void {
 
 export function SplashIntro() {
   const [phase, setPhase] = useState<'enter' | 'hold' | 'exit' | 'done'>('enter');
+  const [variant, setVariant] = useState<Variant>('full');
   const [showSkip, setShowSkip] = useState(false);
   const startedRef = useRef(false);
   const animatedRef = useRef(false);
@@ -116,8 +142,8 @@ export function SplashIntro() {
 
     // After N complete plays this device has earned the right to skip
     // the show. Hand off to the hub on the same frame — no animation,
-    // no sound. The threshold-gate increment in this branch is so the
-    // count keeps incrementing (useful for telemetry / future tuning).
+    // no sound. The threshold-gate increment in this branch keeps the
+    // count incrementing (useful for telemetry / future tuning).
     if (plays >= SPLASH_VIEW_THRESHOLD) {
       setPhase('done');
       incrementSplashPlays();
@@ -144,21 +170,27 @@ export function SplashIntro() {
 
     animatedRef.current = true;
 
-    // Phase timing (~5.3s total).
-    //   enter (0–80ms)     paint the opaque overlay before any animation kicks.
-    //   hold  (80–4660ms)  run all the per-part keyframe animations.
-    //   exit  (4660–5300)  fade the overlay back out.
-    const t1 = window.setTimeout(() => setPhase('hold'), 80);
-    const t2 = window.setTimeout(() => setPhase('exit'), 4660);
-    const t3 = window.setTimeout(() => setPhase('done'), 5300);
-    // Skip pill fades in after the first 1.5s of the show so a
-    // first-time viewer gets the unmistakable initial reveal before
-    // being offered an escape hatch.
-    const t4 = window.setTimeout(() => setShowSkip(true), 1500);
+    // Variant selection. First play = full reveal (the brand-identity
+    // moment). Plays 2-3 = condensed (just the wordmark) so a tech
+    // who scans three machines in a row doesn't sit through three full
+    // shows. The threshold check above already handled plays 4+.
+    const playVariant: Variant = plays === 0 ? 'full' : 'condensed';
+    setVariant(playVariant);
+    const timing = playVariant === 'condensed' ? PHASE_TIMING_CONDENSED : PHASE_TIMING_FULL;
+
+    const t1 = window.setTimeout(() => setPhase('hold'), timing.hold);
+    const t2 = window.setTimeout(() => setPhase('exit'), timing.exit);
+    const t3 = window.setTimeout(() => setPhase('done'), timing.done);
+    // Skip pill fades in only after the initial reveal so first-time
+    // viewers get the show before being offered an escape hatch. The
+    // condensed variant's skip pill appears faster since the whole
+    // reveal is shorter.
+    const t4 = window.setTimeout(() => setShowSkip(true), timing.skipBtn);
     timersRef.current = [t1, t2, t3, t4];
 
-    // Sound only ever plays once per device — first scan = delight,
-    // subsequent scans = noise. The visual still runs on plays 2 and 3.
+    // Sound only ever plays on the FIRST scan ever. Plays 2-3 (which
+    // already get the condensed visual) stay silent — the WAV is a
+    // delight on first scan and noise on repeat scans.
     if (plays === 0) {
       void playIntroSound(audioRef).catch(() => {
         /* autoplay blocked — silent intro is fine */
@@ -185,10 +217,17 @@ export function SplashIntro() {
   if (phase === 'done') return null;
 
   return (
-    <div className="fs-splash" data-phase={phase} role="presentation" aria-hidden="true">
+    <div
+      className="fs-splash"
+      data-phase={phase}
+      data-variant={variant}
+      data-theme="light"
+      role="presentation"
+      aria-hidden="true"
+    >
       <div className="fs-splash-vignette" aria-hidden="true" />
       <div className="fs-splash-stage">
-        <FieldSupportMarkSVG />
+        <FieldSupportMarkSVG variant={variant} />
       </div>
       {/* Skip pill — visible only after the initial reveal so a
           first-time viewer still gets the show. Always rendered (not
@@ -209,31 +248,34 @@ export function SplashIntro() {
 }
 
 // Inline SVG so each part can be animated individually via CSS classes.
-// viewBox matches the static field-support-logo.svg so visual proportions
-// stay identical to what the user already sees in the topbar.
-function FieldSupportMarkSVG() {
+// All color values resolve from CSS custom properties (forced light
+// theme on the parent .fs-splash element) so the splash adopts the
+// canonical brand palette without hard-coded hex literals. This also
+// means future OEM-co-branded splashes only need to inject brand
+// custom properties on a parent element.
+function FieldSupportMarkSVG({ variant }: { variant: Variant }) {
   return (
     <svg
       className="fs-mark"
-      viewBox="0 0 940 240"
+      viewBox={variant === 'condensed' ? VIEWBOX_CONDENSED : VIEWBOX_FULL}
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden="true"
       focusable="false"
     >
       <defs>
         <linearGradient id="fsBrandBlue" x1="480" x2="900" y1="86" y2="146" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#256CD3" />
-          <stop offset="1" stopColor="#1D58B2" />
+          <stop style={{ stopColor: 'rgb(var(--brand))' }} />
+          <stop offset="1" style={{ stopColor: 'rgb(var(--brand-strong))' }} />
         </linearGradient>
         <linearGradient id="fsTraceSteel" x1="80" x2="540" y1="60" y2="118" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#0E1217" />
-          <stop offset="0.58" stopColor="#4A5560" />
-          <stop offset="1" stopColor="#8892A0" />
+          <stop style={{ stopColor: 'rgb(var(--ink-primary))' }} />
+          <stop offset="0.58" style={{ stopColor: 'rgb(var(--ink-secondary))' }} />
+          <stop offset="1" style={{ stopColor: 'rgb(var(--ink-tertiary))' }} />
         </linearGradient>
         <radialGradient id="fsGlow" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#256CD3" stopOpacity="0.45" />
-          <stop offset="60%" stopColor="#256CD3" stopOpacity="0.08" />
-          <stop offset="100%" stopColor="#256CD3" stopOpacity="0" />
+          <stop offset="0%" style={{ stopColor: 'rgb(var(--brand))' }} stopOpacity="0.45" />
+          <stop offset="60%" style={{ stopColor: 'rgb(var(--brand))' }} stopOpacity="0.08" />
+          <stop offset="100%" style={{ stopColor: 'rgb(var(--brand))' }} stopOpacity="0" />
         </radialGradient>
       </defs>
 
@@ -243,7 +285,7 @@ function FieldSupportMarkSVG() {
 
       {/* Gear assembly — teeth + dark body + light face + arc highlights. */}
       <g className="fs-gear" style={{ transformOrigin: '125px 118px' }}>
-        <g className="fs-gear-teeth" fill="#0E1217">
+        <g className="fs-gear-teeth" style={{ fill: 'rgb(var(--ink-primary))' }}>
           {Array.from({ length: 16 }).map((_, i) => (
             <rect
               key={i}
@@ -256,19 +298,19 @@ function FieldSupportMarkSVG() {
             />
           ))}
         </g>
-        <circle cx="125" cy="118" r="70" fill="#0E1217" />
-        <circle cx="125" cy="118" r="52" fill="#F5F6F8" />
+        <circle cx="125" cy="118" r="70" style={{ fill: 'rgb(var(--ink-primary))' }} />
+        <circle cx="125" cy="118" r="52" style={{ fill: 'rgb(var(--surface-base))' }} />
         <path
           d="M125 72a46 46 0 0 0-34.2 76.7"
           fill="none"
-          stroke="#4A5560"
+          style={{ stroke: 'rgb(var(--ink-secondary))' }}
           strokeWidth="8"
           strokeLinecap="round"
         />
         <path
           d="M125 86a32 32 0 0 0-24.4 53"
           fill="none"
-          stroke="#0E1217"
+          style={{ stroke: 'rgb(var(--ink-primary))' }}
           strokeWidth="6"
           strokeLinecap="round"
         />
@@ -292,31 +334,31 @@ function FieldSupportMarkSVG() {
         <path
           className="fs-trace fs-trace-b"
           d="M158 176h130l34-31h78l29-27h94"
-          stroke="#4A5560"
+          style={{ stroke: 'rgb(var(--ink-secondary))' }}
           strokeWidth="9"
         />
         <path
           className="fs-trace fs-trace-c"
           d="M207 134h68l27-25h86"
-          stroke="#0E1217"
+          style={{ stroke: 'rgb(var(--ink-primary))' }}
           strokeWidth="8"
         />
         <path
           className="fs-trace fs-trace-red"
           d="M211 134h38"
-          stroke="#B02B3D"
+          style={{ stroke: 'rgb(var(--signal-fault))' }}
           strokeWidth="7"
         />
         <path
           className="fs-trace fs-trace-blue-a"
           d="M323 145h68"
-          stroke="#256CD3"
+          style={{ stroke: 'rgb(var(--brand))' }}
           strokeWidth="7"
         />
         <path
           className="fs-trace fs-trace-blue-b"
           d="M415 118h58"
-          stroke="#256CD3"
+          style={{ stroke: 'rgb(var(--brand))' }}
           strokeWidth="6"
         />
       </g>
@@ -324,19 +366,19 @@ function FieldSupportMarkSVG() {
       {/* Connector dots. Pop on sequentially after the traces finish. */}
       <g className="fs-nodes">
         <g className="fs-node fs-node-1">
-          <circle cx="391" cy="146" r="16" fill="#F5F6F8" />
-          <circle cx="391" cy="146" r="11.5" fill="#256CD3" />
-          <circle cx="391" cy="146" r="5.5" fill="#F5F6F8" opacity="0.92" />
+          <circle cx="391" cy="146" r="16" style={{ fill: 'rgb(var(--surface-base))' }} />
+          <circle cx="391" cy="146" r="11.5" style={{ fill: 'rgb(var(--brand))' }} />
+          <circle cx="391" cy="146" r="5.5" style={{ fill: 'rgb(var(--surface-base))' }} opacity="0.92" />
         </g>
         <g className="fs-node fs-node-2">
-          <circle cx="473" cy="118" r="15" fill="#F5F6F8" />
-          <circle cx="473" cy="118" r="10.5" fill="#256CD3" />
-          <circle cx="473" cy="118" r="5.5" fill="#F5F6F8" opacity="0.92" />
+          <circle cx="473" cy="118" r="15" style={{ fill: 'rgb(var(--surface-base))' }} />
+          <circle cx="473" cy="118" r="10.5" style={{ fill: 'rgb(var(--brand))' }} />
+          <circle cx="473" cy="118" r="5.5" style={{ fill: 'rgb(var(--surface-base))' }} opacity="0.92" />
         </g>
         <g className="fs-node fs-node-3">
-          <circle cx="523" cy="118" r="14" fill="#F5F6F8" />
-          <circle cx="523" cy="118" r="9.5" fill="#B02B3D" />
-          <circle cx="523" cy="118" r="4.5" fill="#F5F6F8" opacity="0.92" />
+          <circle cx="523" cy="118" r="14" style={{ fill: 'rgb(var(--surface-base))' }} />
+          <circle cx="523" cy="118" r="9.5" style={{ fill: 'rgb(var(--signal-fault))' }} />
+          <circle cx="523" cy="118" r="4.5" style={{ fill: 'rgb(var(--surface-base))' }} opacity="0.92" />
         </g>
       </g>
 
@@ -346,7 +388,7 @@ function FieldSupportMarkSVG() {
         <text
           x="425"
           y="194"
-          fill="#0E1217"
+          style={{ fill: 'rgb(var(--ink-primary))' }}
           fontFamily="IBM Plex Sans, Inter, Arial, sans-serif"
           fontSize="76"
           fontStyle="italic"
@@ -375,7 +417,7 @@ function FieldSupportMarkSVG() {
           className="fs-underline-line"
           d="M84 220c143-6 314-5 492 1 125 4 244 2 363-11"
           fill="none"
-          stroke="#0E1217"
+          style={{ stroke: 'rgb(var(--ink-primary))' }}
           strokeWidth="4"
           strokeLinecap="round"
           opacity="0.65"
@@ -383,13 +425,13 @@ function FieldSupportMarkSVG() {
         <path
           className="fs-underline-red"
           d="M338 232c95 6 189 9 282 6 88-3 180-10 293-23-91 16-187 27-286 32-102 5-199 0-289-15Z"
-          fill="#B02B3D"
+          style={{ fill: 'rgb(var(--signal-fault))' }}
           opacity="0.95"
         />
         <path
           className="fs-underline-blue"
           d="M422 231c99 5 193 4 282-3 77-6 147-14 207-24-70 16-144 27-222 34-84 8-173 6-267-7Z"
-          fill="#256CD3"
+          style={{ fill: 'rgb(var(--brand))' }}
           opacity="0.3"
         />
       </g>
