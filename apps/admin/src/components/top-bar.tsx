@@ -25,8 +25,7 @@ export function TopBar({ children }: { children?: React.ReactNode }) {
 
   return (
     <header
-      className="sticky top-0 z-30 flex items-center gap-3 border-b border-line px-6 py-3.5 backdrop-blur-md lg:px-10"
-      style={{ background: 'rgb(var(--surface-base) / 0.85)' }}
+      className="sticky top-0 z-30 flex items-center gap-3 border-b border-line bg-surface-base/85 px-6 py-3.5 backdrop-blur-md lg:px-10"
     >
       <div className="flex min-h-[32px] min-w-0 flex-1 items-center gap-3">
         <div className="min-w-0 flex-1">{children}</div>

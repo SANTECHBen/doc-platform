@@ -102,9 +102,7 @@ function GlobalHeader() {
     <header className="flex items-center gap-3 px-5 py-5">
       <div className="brand-mark-square">FS</div>
       <div className="flex flex-col leading-tight">
-        <span className="text-sm font-semibold" style={{ color: '#fff' }}>
-          FieldSupport
-        </span>
+        <span className="text-sm font-semibold text-white">FieldSupport</span>
       </div>
     </header>
   );

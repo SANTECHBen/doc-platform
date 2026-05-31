@@ -110,6 +110,63 @@
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 }
 
+/* Scoped light theme — when [data-theme='light'] is set on a sub-tree
+   (e.g., the /sign-in page's main element), this rule redefines the
+   theme tokens on that element with the light-mode values. Because CSS
+   custom properties cascade, every descendant resolves to the light
+   palette even if the document root has data-theme='dark'. Useful for
+   the auth/sign-in surfaces that we deliberately ship light-only — the
+   Microsoft brand button is canonically white, and the SaaS sign-in
+   convention (Notion, Linear, Vercel) is to stay light regardless of
+   the user's app-level theme preference. */
+[data-theme='light'] {
+  --surface-base:      245 246 248;
+  --surface-raised:    255 255 255;
+  --surface-elevated:  249 250 251;
+  --surface-inset:     240 242 246;
+  --surface-sidebar:   14 18 23;
+
+  --surface-plate-top:    255 255 255;
+  --surface-plate-bottom: 246 248 251;
+  --surface-plate-edge:   222 228 235;
+
+  --line-subtle:   234 237 242;
+  --line:          221 226 233;
+  --line-strong:   189 197 209;
+
+  --ink-primary:   14 18 23;
+  --ink-secondary: 74 85 96;
+  --ink-tertiary:  128 138 150;
+  --ink-inverse:   255 255 255;
+  --ink-brand:     29 96 180;
+
+  --brand:         37 108 211;
+  --brand-strong:  29 88 178;
+  --brand-soft-v:  37 108 211;
+  --brand-soft-a:  0.09;
+  --brand-glow:    37 108 211;
+  --brand-glow-a:  0.16;
+  --brand-ink:     255 255 255;
+
+  --signal-ok:     31 133 83;
+  --signal-warn:   191 111 26;
+  --signal-fault:  176 43 61;
+  --signal-info:   37 108 211;
+  --signal-safety: 171 126 30;
+
+  --shadow-sm: 0 1px 2px rgba(14,18,23,0.05);
+  --shadow-md: 0 2px 6px rgba(14,18,23,0.05), 0 1px 2px rgba(14,18,23,0.04);
+  --shadow-lg: 0 12px 24px rgba(14,18,23,0.08), 0 2px 4px rgba(14,18,23,0.04);
+  --shadow-plate: 0 1px 0 rgba(255,255,255,0.9) inset, 0 0 0 1px rgba(14,18,23,0.03) inset, 0 4px 10px rgba(14,18,23,0.04);
+  --shadow-brand: 0 1px 2px rgba(14,18,23,0.08), 0 2px 6px rgba(37,108,211,0.14);
+  --shadow-led-brand: 0 0 8px rgba(37,108,211,0.4);
+  --shadow-led-ok:    0 0 8px rgba(31,133,83,0.4);
+  --shadow-led-warn:  0 0 8px rgba(191,111,26,0.4);
+  --shadow-led-fault: 0 0 8px rgba(176,43,61,0.45);
+
+  --grid-line: rgba(14,18,23,0.035);
+}
+
 @layer base {
   html { -webkit-text-size-adjust: 100%; text-rendering: optimizeLegibility; }
   body {

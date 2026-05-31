@@ -209,8 +209,7 @@ function OrgHeader({ org }: { org: OrgSummaryHeader }) {
     <header className="flex flex-col gap-2.5 px-4 pb-3 pt-4">
       <Link
         href="/orgs"
-        className="inline-flex w-fit items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-medium uppercase tracking-[0.08em] transition"
-        style={{ color: 'rgba(255,255,255,0.5)' }}
+        className="inline-flex w-fit items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-medium uppercase tracking-[0.08em] text-white/50 transition hover:text-white/80"
       >
         <ChevronLeft size={11} strokeWidth={2.25} />
         <span>All organizations</span>
@@ -220,27 +219,19 @@ function OrgHeader({ org }: { org: OrgSummaryHeader }) {
         className="flex items-start gap-2.5 rounded px-1 py-0.5"
       >
         <div
-          className="grid h-8 w-8 shrink-0 place-items-center rounded font-mono text-xs font-bold"
-          style={{
-            background: 'rgb(var(--brand) / 0.18)',
-            color: 'rgb(var(--brand))',
-          }}
+          className="grid h-8 w-8 shrink-0 place-items-center rounded bg-brand/[0.18] font-mono text-xs font-bold text-brand"
           aria-hidden
         >
           {initials(org.name)}
         </div>
         <div className="flex min-w-0 flex-col leading-tight">
           <span
-            className="truncate text-sm font-semibold"
-            style={{ color: '#fff' }}
+            className="truncate text-sm font-semibold text-white"
             title={org.name}
           >
             {org.name}
           </span>
-          <span
-            className="font-mono text-[10px] font-medium uppercase tracking-[0.08em]"
-            style={{ color: 'rgba(255,255,255,0.45)' }}
-          >
+          <span className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-white/[0.45]">
             {typeLabel}
           </span>
         </div>

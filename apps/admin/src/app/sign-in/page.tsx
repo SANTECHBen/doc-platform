@@ -38,7 +38,12 @@ export default async function SignInPage({
   const signedOutForInactivity = reason === 'inactive';
 
   return (
-    <main id="main" tabIndex={-1} className="signin-page focus:outline-none">
+    <main
+      id="main"
+      tabIndex={-1}
+      data-theme="light"
+      className="signin-page focus:outline-none"
+    >
       <div className="signin-card">
         <header className="signin-brand">
           <span className="signin-product-mark" aria-hidden>
