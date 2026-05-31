@@ -159,13 +159,36 @@ export function SplashIntro() {
     timersRef.current = [t1, t2, t3, t4];
 
     // Audio runs alongside the visual on every play within the threshold.
-    // The catch swallows autoplay rejections — browsers may block audio
-    // when the splash mounts after a same-origin redirect from /q/<code>
-    // if the original gesture is considered stale; the visual still
-    // runs in that case.
-    void playIntroSound(audioRef).catch(() => {
-      /* autoplay blocked — silent intro is fine */
-    });
+    // Chrome on Android blocks autoplay unless there's a recent user
+    // gesture on the page itself — the QR-scan gesture happens in the
+    // camera app, so the redirect into the PWA arrives without a
+    // gesture banked. To keep the sound from silently dropping, we
+    // register a one-shot pointerdown fallback on the document: if
+    // autoplay was blocked, the audio fires on the first tap (Skip pill
+    // tap, splash dismiss, or any tap as the splash fades out).
+    let fallbackArmed = false;
+    function armFallback() {
+      if (fallbackArmed) return;
+      fallbackArmed = true;
+      const onFirstTap = () => {
+        document.removeEventListener('pointerdown', onFirstTap, true);
+        document.removeEventListener('touchstart', onFirstTap, true);
+        void playIntroSound(audioRef).catch((err) => {
+          console.warn('[SplashIntro] fallback audio play failed', err);
+        });
+      };
+      document.addEventListener('pointerdown', onFirstTap, { capture: true, once: true });
+      document.addEventListener('touchstart', onFirstTap, { capture: true, once: true });
+    }
+    void playIntroSound(audioRef).then(
+      () => {
+        console.info('[SplashIntro] audio playing');
+      },
+      (err) => {
+        console.warn('[SplashIntro] autoplay blocked, will play on first tap', err);
+        armFallback();
+      },
+    );
 
     return () => {
       clearTimers();
