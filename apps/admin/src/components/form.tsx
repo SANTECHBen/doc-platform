@@ -185,11 +185,18 @@ export function FullPageOverlay({
   );
 }
 
-export function ErrorBanner({ error }: { error: string | null }) {
-  if (!error) return null;
-  return (
-    <div className="mb-4 rounded border border-signal-fault/40 bg-signal-fault/10 px-3 py-2 text-sm text-signal-fault">
-      {error}
-    </div>
-  );
+// ErrorBanner — thin wrapper over @platform/ui's shared ErrorBanner.
+// Defaults to `mb-4` because admin call sites (~70 today) rely on the
+// historical baked-in margin to stack cleanly above the form body.
+// New callers can opt out by passing className="".
+import { ErrorBanner as SharedErrorBanner } from '@platform/ui';
+
+export function ErrorBanner({
+  error,
+  className = 'mb-4',
+}: {
+  error: string | null;
+  className?: string;
+}) {
+  return <SharedErrorBanner error={error} className={className} />;
 }

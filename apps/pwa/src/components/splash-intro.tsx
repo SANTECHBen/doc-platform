@@ -6,14 +6,92 @@ import { useEffect, useRef, useState } from 'react';
 // the /q/<code> route handler sets that flag on QR scans, so the splash
 // plays on first arrival without replaying on refresh or back navigation.
 //
+// View gating (per-device, via localStorage):
+//   • After SPLASH_VIEW_THRESHOLD complete plays the animation skips
+//     entirely — the splash becomes friction on the 20th scan, even if
+//     it's delightful on the 1st. The threshold is a small integer; we
+//     don't grow it unboundedly.
+//   • The intro WAV plays ONLY on the first ever play. Repeat scans
+//     stay silent so the tech isn't surprised by audio in a quiet
+//     customer office or annoyed by it in a loud plant.
+//
+// Skip affordance: a small "Skip" pill fades in 1.5s after the
+// animation starts. Available to everyone (not just repeat viewers),
+// so an impatient first-timer can advance without waiting through the
+// whole 5.3s sequence.
+//
+// Reset for development: `localStorage.removeItem('fs:splash:plays')`.
+//
 // The overlay covers the hub from the very first painted frame (no
 // opacity fade-in) so the user never sees the underlying page flash
 // before the splash takes over. Each part of the mark then eases in
 // on its own schedule on top of the opaque surface.
+
+const SPLASH_PLAYS_KEY = 'fs:splash:plays';
+const SPLASH_VIEW_THRESHOLD = 3;
+
+function getSplashPlays(): number {
+  if (typeof window === 'undefined') return 0;
+  try {
+    const raw = window.localStorage.getItem(SPLASH_PLAYS_KEY);
+    const n = raw ? parseInt(raw, 10) : 0;
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  } catch {
+    // Safari in private mode and locked-down enterprise browsers throw on
+    // localStorage access. Falling through to 0 means the splash plays
+    // every time for these users — acceptable, since the show is short
+    // and they're a small minority.
+    return 0;
+  }
+}
+
+function incrementSplashPlays(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const cur = getSplashPlays();
+    window.localStorage.setItem(SPLASH_PLAYS_KEY, String(cur + 1));
+  } catch {
+    /* localStorage unavailable — ignore */
+  }
+}
+
 export function SplashIntro() {
   const [phase, setPhase] = useState<'enter' | 'hold' | 'exit' | 'done'>('enter');
+  const [showSkip, setShowSkip] = useState(false);
   const startedRef = useRef(false);
+  const animatedRef = useRef(false);
+  const incrementedRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const timersRef = useRef<number[]>([]);
+
+  function clearTimers() {
+    timersRef.current.forEach((id) => window.clearTimeout(id));
+    timersRef.current = [];
+  }
+
+  function stopAudio() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    try {
+      audio.pause();
+      audio.src = '';
+      audio.load();
+    } catch {
+      /* element may already be detached */
+    }
+    audioRef.current = null;
+  }
+
+  function skipSplash() {
+    // User-initiated skip. Cancel running timers, stop audio
+    // immediately, and play a brief 280ms exit fade rather than
+    // disappearing instantly — abrupt cuts feel like a glitch.
+    clearTimers();
+    stopAudio();
+    setPhase('exit');
+    const t = window.setTimeout(() => setPhase('done'), 280);
+    timersRef.current = [t];
+  }
 
   useEffect(() => {
     if (startedRef.current) return;
@@ -34,15 +112,37 @@ export function SplashIntro() {
       }
     }
 
+    const plays = getSplashPlays();
+
+    // After N complete plays this device has earned the right to skip
+    // the show. Hand off to the hub on the same frame — no animation,
+    // no sound. The threshold-gate increment in this branch is so the
+    // count keeps incrementing (useful for telemetry / future tuning).
+    if (plays >= SPLASH_VIEW_THRESHOLD) {
+      setPhase('done');
+      incrementSplashPlays();
+      return;
+    }
+
     // Respect prefers-reduced-motion — skip the show, just hand off.
+    // We still count this as a "play" so a user who later turns motion
+    // back on doesn't suddenly start seeing the full sequence after
+    // having already used the app extensively.
     const reducedMotion =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
     if (reducedMotion) {
-      const t = window.setTimeout(() => setPhase('done'), 360);
-      return () => window.clearTimeout(t);
+      const t = window.setTimeout(() => {
+        setPhase('done');
+        incrementSplashPlays();
+        incrementedRef.current = true;
+      }, 360);
+      timersRef.current = [t];
+      return () => clearTimers();
     }
+
+    animatedRef.current = true;
 
     // Phase timing (~5.3s total).
     //   enter (0–80ms)     paint the opaque overlay before any animation kicks.
@@ -51,28 +151,36 @@ export function SplashIntro() {
     const t1 = window.setTimeout(() => setPhase('hold'), 80);
     const t2 = window.setTimeout(() => setPhase('exit'), 4660);
     const t3 = window.setTimeout(() => setPhase('done'), 5300);
+    // Skip pill fades in after the first 1.5s of the show so a
+    // first-time viewer gets the unmistakable initial reveal before
+    // being offered an escape hatch.
+    const t4 = window.setTimeout(() => setShowSkip(true), 1500);
+    timersRef.current = [t1, t2, t3, t4];
 
-    void playIntroSound(audioRef).catch(() => {
-      /* autoplay blocked — silent intro is fine */
-    });
+    // Sound only ever plays once per device — first scan = delight,
+    // subsequent scans = noise. The visual still runs on plays 2 and 3.
+    if (plays === 0) {
+      void playIntroSound(audioRef).catch(() => {
+        /* autoplay blocked — silent intro is fine */
+      });
+    }
 
     return () => {
-      window.clearTimeout(t1);
-      window.clearTimeout(t2);
-      window.clearTimeout(t3);
-      const audio = audioRef.current;
-      if (audio) {
-        try {
-          audio.pause();
-          audio.src = '';
-          audio.load();
-        } catch {
-          /* element may already be detached */
-        }
-        audioRef.current = null;
-      }
+      clearTimers();
+      stopAudio();
     };
   }, []);
+
+  // Increment the play count exactly once, the first time we reach the
+  // 'done' phase after actually animating. Guarded so threshold-skipped
+  // and reduced-motion mounts don't double-count.
+  useEffect(() => {
+    if (phase !== 'done') return;
+    if (!animatedRef.current) return;
+    if (incrementedRef.current) return;
+    incrementedRef.current = true;
+    incrementSplashPlays();
+  }, [phase]);
 
   if (phase === 'done') return null;
 
@@ -82,6 +190,20 @@ export function SplashIntro() {
       <div className="fs-splash-stage">
         <FieldSupportMarkSVG />
       </div>
+      {/* Skip pill — visible only after the initial reveal so a
+          first-time viewer still gets the show. Always rendered (not
+          conditionally mounted) so the CSS fade-in animation runs
+          smoothly via the data-visible attribute instead of a mount
+          transition. */}
+      <button
+        type="button"
+        className="fs-splash-skip"
+        data-visible={showSkip ? 'true' : 'false'}
+        onClick={skipSplash}
+        aria-label="Skip intro"
+      >
+        Skip
+      </button>
     </div>
   );
 }

@@ -113,7 +113,7 @@ export default async function AssetHubPage({
     : undefined;
 
   return (
-    <main className="app-shell" style={brandStyle}>
+    <main id="main" tabIndex={-1} className="app-shell focus:outline-none" style={brandStyle}>
       <AssetTopbar hub={hub} />
 
       <div className="app-scroll page-enter flex flex-col gap-4">

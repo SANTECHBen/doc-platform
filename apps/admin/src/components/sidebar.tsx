@@ -100,10 +100,10 @@ export function Sidebar({ userMenu }: { userMenu?: ReactNode }) {
 function GlobalHeader() {
   return (
     <header className="flex items-center gap-3 px-5 py-5">
-      <div className="brand-mark-square">EH</div>
+      <div className="brand-mark-square">FS</div>
       <div className="flex flex-col leading-tight">
         <span className="text-sm font-semibold" style={{ color: '#fff' }}>
-          Equipment Hub
+          FieldSupport
         </span>
       </div>
     </header>

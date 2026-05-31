@@ -47,7 +47,7 @@ export default function ScanPage() {
   }, [router]);
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-4 px-4 py-4">
+    <main id="main" tabIndex={-1} className="mx-auto flex min-h-screen max-w-2xl flex-col gap-4 px-4 py-4 focus:outline-none">
       <header className="flex items-center justify-between">
         <Link href="/" className="text-sm text-ink-secondary hover:text-ink-primary">
           ← Back

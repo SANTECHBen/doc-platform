@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Paperclip } from 'lucide-react';
 import { PageHeader, PageShell, Pill } from '@/components/page-shell';
+import { ErrorBanner } from '@/components/form';
+import { EmptyState } from '@/components/empty-state';
 import { useToast } from '@/components/toast';
 import {
   listAdminWorkOrders,
@@ -78,32 +80,29 @@ export default function WorkOrdersPage() {
           </div>
         }
       />
-      {error && (
-        <div
-          className="mb-4 rounded-md border p-3 text-sm"
-          style={{
-            borderColor: 'rgba(var(--signal-fault) / 0.3)',
-            background: 'rgba(var(--signal-fault) / 0.1)',
-            color: 'rgb(var(--signal-fault))',
-          }}
-        >
-          {error}
-        </div>
-      )}
+      <ErrorBanner error={error} />
 
       {!rows ? (
         <p className="p-6 text-center text-sm text-ink-tertiary">Loading…</p>
       ) : rows.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-md border border-dashed border-line bg-surface-raised py-16 text-center">
-          <CheckCircle2 size={32} className="text-signal-ok" strokeWidth={1.5} />
-          <p className="text-ink-secondary">
-            {filter === 'open'
-              ? 'No open work orders. Equipment is running clean.'
+        <EmptyState
+          icon={CheckCircle2}
+          tone="ok"
+          title={
+            filter === 'open'
+              ? 'No open work orders'
               : filter === 'closed'
-              ? 'No closed work orders in this view.'
-              : 'No work orders at all yet.'}
-          </p>
-        </div>
+              ? 'No closed work orders'
+              : 'No work orders yet'
+          }
+          description={
+            filter === 'open'
+              ? 'Equipment is running clean — nothing to acknowledge or resolve right now.'
+              : filter === 'closed'
+              ? 'Nothing in this view. Switch filters to see open or all work orders.'
+              : 'When a technician reports an issue from the PWA, it shows up here.'
+          }
+        />
       ) : (
         <div className="flex flex-col gap-3">
           {openCount !== undefined && filter === 'open' && openCount > 0 && (

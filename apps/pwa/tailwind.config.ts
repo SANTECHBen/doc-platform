@@ -4,7 +4,13 @@ import type { Config } from 'tailwindcss';
 // intent-driven; components don't hard-code hue + shade. Raw colors live in
 // globals.css as CSS custom properties so themes can swap without rebuilding.
 export default {
-  content: ['./src/**/*.{ts,tsx}'],
+  content: [
+    './src/**/*.{ts,tsx}',
+    // Pull Tailwind classes used by shared primitives in @platform/ui
+    // (Skeleton, EmptyState, ErrorBanner, SegmentCard) so they're not
+    // tree-shaken from the production bundle.
+    '../../packages/ui/src/**/*.{ts,tsx}',
+  ],
   theme: {
     extend: {
       colors: {

@@ -37,14 +37,14 @@ export default async function SignInPage({
   const signedOutForInactivity = reason === 'inactive';
 
   return (
-    <main className="signin-page">
+    <main id="main" tabIndex={-1} className="signin-page focus:outline-none">
       <div className="signin-card">
         <header className="signin-brand">
           <span className="signin-product-mark" aria-hidden>
-            EH
+            FS
           </span>
           <div>
-            <h1 className="signin-product-name">Equipment Hub</h1>
+            <h1 className="signin-product-name">FieldSupport</h1>
             <p className="signin-product-tagline">Admin console</p>
           </div>
         </header>
@@ -78,7 +78,7 @@ export default async function SignInPage({
         </form>
 
         <p className="signin-help">
-          Don't have access? Contact your Equipment Hub administrator.
+          Don't have access? Contact your FieldSupport administrator.
         </p>
 
         <footer className="signin-footer">

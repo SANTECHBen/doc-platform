@@ -1,4 +1,4 @@
-// Equipment Hub PWA service worker (built with Serwist).
+// FieldSupport PWA service worker (built with Serwist).
 //
 // Goal during beta: a tech who scans a QR, opens a manual, then walks into
 // a dead-zone in the warehouse should still see the manual they just opened.

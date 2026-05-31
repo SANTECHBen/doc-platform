@@ -20,7 +20,7 @@ export default function SlideCourseRoute({
   const router = useRouter();
 
   return (
-    <main className="mx-auto max-w-2xl px-3 pt-3">
+    <main id="main" tabIndex={-1} className="mx-auto max-w-2xl px-3 pt-3 focus:outline-none">
       <SlideCoursePlayer
         activityId={activityId}
         onExit={() => router.push(`/a/${encodeURIComponent(qrCode)}?tab=training`)}

@@ -9,11 +9,11 @@
 import { WifiOff } from 'lucide-react';
 import Link from 'next/link';
 
-export const metadata = { title: 'Offline · Equipment Hub' };
+export const metadata = { title: 'Offline · FieldSupport' };
 
 export default function OfflinePage() {
   return (
-    <main className="app-shell">
+    <main id="main" tabIndex={-1} className="app-shell focus:outline-none">
       <div className="app-scroll flex flex-1 items-center justify-center">
         <div className="flex max-w-sm flex-col items-center gap-5 text-center">
           <div className="icon-chip icon-chip-lg icon-chip-warn">

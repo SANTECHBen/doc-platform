@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@platform/shared": "workspace:*",
+    "@platform/ui": "workspace:*",
     "@platform/viewer": "workspace:*",
     "@sentry/nextjs": "^10.52.0",
     "@tiptap/extension-image": "^2",

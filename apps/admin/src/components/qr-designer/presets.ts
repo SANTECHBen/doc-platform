@@ -81,7 +81,7 @@ export const QR_STYLE_PRESETS: QrStylePreset[] = [
   {
     id: 'brand-blue',
     label: 'Brand Blue',
-    hint: 'Equipment Hub primary',
+    hint: 'FieldSupport primary',
     patch: {
       dotShape: 'rounded',
       dotColor: { mode: 'solid', color: '#0B5FBF' },

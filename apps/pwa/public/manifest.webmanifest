@@ -1,6 +1,6 @@
 {
-  "name": "Equipment Hub",
-  "short_name": "EquipHub",
+  "name": "FieldSupport",
+  "short_name": "FieldSupport",
   "description": "Scan equipment QR codes to access documentation, training, parts, and AI troubleshooting.",
   "start_url": "/",
   "scope": "/",

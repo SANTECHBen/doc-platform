@@ -4,7 +4,7 @@ import { ThemeToggle } from '@/components/theme-toggle';
 
 export default function Home() {
   return (
-    <main className="relative mx-auto flex min-h-screen max-w-md flex-col px-6 py-6">
+    <main id="main" tabIndex={-1} className="relative mx-auto flex min-h-screen max-w-md flex-col px-6 py-6 focus:outline-none">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 h-[60%]"
@@ -16,8 +16,8 @@ export default function Home() {
 
       <header className="relative flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <div className="brand-mark-square">EH</div>
-          <span className="text-sm font-semibold">Equipment Hub</span>
+          <div className="brand-mark-square">FS</div>
+          <span className="text-sm font-semibold">FieldSupport</span>
         </div>
         <ThemeToggle />
       </header>

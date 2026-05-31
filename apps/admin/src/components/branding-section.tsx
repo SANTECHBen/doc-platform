@@ -10,7 +10,7 @@
 
 import { useState } from 'react';
 import { Palette, Upload } from 'lucide-react';
-import { Field, PrimaryButton, TextInput } from './form';
+import { ErrorBanner, Field, PrimaryButton, TextInput } from './form';
 import { useToast } from './toast';
 import {
   uploadFile,
@@ -93,22 +93,11 @@ export function BrandingSection({
       </div>
       <p className="mb-5 max-w-xl text-sm text-ink-secondary">
         Applied to the PWA when a technician scans equipment you own. They'll
-        see your logo, wordmark, and accent color instead of Equipment Hub's
+        see your logo, wordmark, and accent color instead of FieldSupport's
         default brand.
       </p>
 
-      {error && (
-        <div
-          className="mb-4 rounded-md border p-3 text-sm"
-          style={{
-            borderColor: 'rgba(var(--signal-fault) / 0.4)',
-            background: 'rgba(var(--signal-fault) / 0.1)',
-            color: 'rgb(var(--signal-fault))',
-          }}
-        >
-          {error}
-        </div>
-      )}
+      <ErrorBanner error={error} />
 
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <div className="flex flex-col gap-4">

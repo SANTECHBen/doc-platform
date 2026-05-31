@@ -1,24 +1,14 @@
 'use client';
 
-export function Skeleton({ className = '' }: { className?: string }) {
-  return (
-    <div
-      className={`animate-pulse rounded bg-gradient-to-r from-surface-inset via-line-subtle to-surface-inset bg-[length:200%_100%] ${className}`}
-      style={{ animation: 'skel 1.2s linear infinite' }}
-    >
-      <style jsx>{`
-        @keyframes skel {
-          0% {
-            background-position: 200% 0;
-          }
-          100% {
-            background-position: -200% 0;
-          }
-        }
-      `}</style>
-    </div>
-  );
-}
+import { Skeleton } from '@platform/ui';
+
+// Skeleton's canonical implementation lives in @platform/ui. Re-export
+// for back-compat with existing `@/components/skeleton` imports.
+export { Skeleton };
+
+// Admin-specific variants. These match the shape of admin tables, tile
+// grids, and detail panes — PWA-side variants (DocListSkeleton,
+// RowListSkeleton) live in apps/pwa/src/components/skeleton.tsx.
 
 export function TableSkeleton({ rows = 6, cols = 4 }: { rows?: number; cols?: number }) {
   return (

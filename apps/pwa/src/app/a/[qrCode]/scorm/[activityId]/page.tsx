@@ -12,9 +12,11 @@ export default function ScormRoute({
   const { qrCode, activityId } = use(params);
   const router = useRouter();
   return (
-    <ScormPlayer
-      activityId={activityId}
-      onExit={() => router.push(`/a/${encodeURIComponent(qrCode)}?tab=training`)}
-    />
+    <main id="main" tabIndex={-1} className="focus:outline-none">
+      <ScormPlayer
+        activityId={activityId}
+        onExit={() => router.push(`/a/${encodeURIComponent(qrCode)}?tab=training`)}
+      />
+    </main>
   );
 }

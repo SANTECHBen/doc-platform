@@ -248,6 +248,71 @@
   a.touch {
     min-height: 44px;
   }
+
+  /* Global motion guard. WebAIM/MDN recommend fast-forwarding animations
+     and transitions to ~0ms rather than `animation: none` — the latter
+     kills `forwards` fills, which means animations meant to leave
+     elements in a "done" state (skeletons settling, drawer slid open,
+     menu shown) would snap back to their initial state. The 0.01ms
+     duration plays them through the end without any motion the user
+     can perceive.
+
+     Components with bespoke reduced-motion behavior (the FieldSupport
+     splash, for example) declare their own @media block AFTER this one
+     so source order lets them win — both rules use !important. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      animation-delay: 0ms !important;
+      transition-duration: 0.01ms !important;
+      transition-delay: 0ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* Skeleton shimmer — consumed by @platform/ui's Skeleton component
+     via inline `animation: skel 1.2s linear infinite`. Declared once
+     here so every Skeleton mount doesn't re-inject the keyframes via
+     styled-jsx. */
+  @keyframes skel {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
+
+  /* Skip-to-content link. First focusable element in the body, off-screen
+     by default, becomes visible when a keyboard user Tabs to it. Activates
+     into the page's #main element, bypassing the topbar / tabbar so the
+     user can land in content with one Tab + Enter. Safe-area-inset on top
+     so it sits below the iOS notch when installed as a PWA. */
+  .skip-to-content {
+    position: absolute;
+    top: -100px;
+    left: max(8px, env(safe-area-inset-left));
+    z-index: 1000;
+    padding: 10px 16px;
+    background: rgb(var(--brand));
+    color: rgb(var(--brand-ink));
+    font-family: var(--font-sans);
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 6px;
+    text-decoration: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    transition: top 180ms ease;
+  }
+  .skip-to-content:focus,
+  .skip-to-content:focus-visible {
+    top: max(8px, env(safe-area-inset-top));
+    outline: 2px solid rgb(var(--brand-strong));
+    outline-offset: 2px;
+  }
 }
 
 /* =========================================================================
@@ -459,6 +524,75 @@
     opacity: 1 !important;
     transform: none !important;
     stroke-dashoffset: 0 !important;
+  }
+}
+
+/* Skip pill — top-right corner of the splash overlay. Always rendered;
+   the data-visible attribute gates the fade-in so it appears 1.5s into
+   the show (long enough for the first-time reveal to land). Tappable
+   target stays at 36×72 for gloved hands. */
+.fs-splash-skip {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top));
+  right: max(16px, env(safe-area-inset-right));
+  z-index: 1;
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  min-width: 72px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid rgb(14 18 23 / 0.12);
+  background: rgb(255 255 255 / 0.85);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: rgb(74 85 96);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  opacity: 0;
+  /* Not interactive until the data-visible state turns on. The splash
+     overlay has pointer-events:none; the pill opts back in only when
+     it's actually visible so a stray tap in the splash's top-right
+     corner during the first 1.5s doesn't accidentally hit a hidden
+     button. */
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition:
+    opacity 260ms ease,
+    transform 260ms ease,
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+.fs-splash-skip[data-visible='true'] {
+  opacity: 0.95;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.fs-splash-skip:hover {
+  background: #fff;
+  color: rgb(14 18 23);
+  border-color: rgb(14 18 23 / 0.24);
+}
+.fs-splash-skip:focus-visible {
+  outline: 2px solid rgb(37 108 211);
+  outline-offset: 2px;
+}
+.fs-splash[data-phase='exit'] .fs-splash-skip {
+  opacity: 0;
+  transition: opacity 200ms ease;
+  pointer-events: none;
+}
+/* Skip pill is purely an escape hatch — under reduced motion the show
+   is already a 360ms handoff, no pill needed. */
+@media (prefers-reduced-motion: reduce) {
+  .fs-splash-skip {
+    display: none;
   }
 }
 

@@ -1,20 +1,14 @@
 'use client';
 
-export function Skeleton({ className = '' }: { className?: string }) {
-  return (
-    <div
-      className={`rounded bg-gradient-to-r from-surface-inset via-line-subtle to-surface-inset bg-[length:200%_100%] ${className}`}
-      style={{ animation: 'skel 1.2s linear infinite' }}
-    >
-      <style jsx>{`
-        @keyframes skel {
-          0% { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
-        }
-      `}</style>
-    </div>
-  );
-}
+import { Skeleton } from '@platform/ui';
+
+// Skeleton's canonical implementation lives in @platform/ui. Re-export
+// for back-compat with existing `@/components/skeleton` imports.
+export { Skeleton };
+
+// PWA-specific variants. These match the shape of the cards techs see
+// while a document list or row list is loading — admin-side variants
+// live in apps/admin/src/components/skeleton.tsx.
 
 export function DocListSkeleton() {
   return (

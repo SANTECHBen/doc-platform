@@ -45,7 +45,7 @@ export const organizations = pgTable('organizations', {
   brandPrimary: text('brand_primary'),          // "#F77531" — hex
   brandOnPrimary: text('brand_on_primary'),     // text color on primary — hex
   logoStorageKey: text('logo_storage_key'),     // uploaded wordmark
-  displayNameOverride: text('display_name_override'), // overrides "Equipment Hub"
+  displayNameOverride: text('display_name_override'), // overrides "FieldSupport"
   settings: jsonb('settings').$type<Record<string, unknown>>().notNull().default({}),
   // Microsoft Entra tenant ID that maps to this org. When a user signs in
   // via Microsoft with a matching `tid` claim, their home org is set to

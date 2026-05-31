@@ -1,29 +1,6 @@
-'use client';
+// EmptyState's canonical implementation lives in @platform/ui. This
+// thin re-export keeps the long-standing `@/components/empty-state`
+// import path working for existing admin consumers without a churn
+// rename.
 
-import type { LucideIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
-
-export function EmptyState({
-  icon: Icon,
-  title,
-  description,
-  action,
-}: {
-  icon: LucideIcon;
-  title: string;
-  description: string;
-  action?: ReactNode;
-}) {
-  return (
-    <div className="flex flex-col items-center justify-center gap-4 rounded-md border border-dashed border-line bg-surface-raised px-6 py-16 text-center">
-      <div className="icon-chip icon-chip-lg">
-        <Icon size={26} strokeWidth={1.75} />
-      </div>
-      <div className="flex max-w-md flex-col gap-1.5">
-        <h3 className="text-lg font-semibold text-ink-primary">{title}</h3>
-        <p className="text-sm text-ink-secondary">{description}</p>
-      </div>
-      {action && <div className="mt-1">{action}</div>}
-    </div>
-  );
-}
+export { EmptyState, type EmptyStateProps, type EmptyStateTone, type IllustrationProps } from '@platform/ui';

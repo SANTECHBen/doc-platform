@@ -1,7 +1,13 @@
 import type { Config } from 'tailwindcss';
 
 export default {
-  content: ['./src/**/*.{ts,tsx}'],
+  content: [
+    './src/**/*.{ts,tsx}',
+    // Pull Tailwind classes used by shared primitives in @platform/ui
+    // (Skeleton, EmptyState, ErrorBanner, SegmentCard) so they're not
+    // tree-shaken from the production bundle.
+    '../../packages/ui/src/**/*.{ts,tsx}',
+  ],
   theme: {
     extend: {
       colors: {

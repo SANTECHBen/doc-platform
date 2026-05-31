@@ -20,13 +20,13 @@ const mono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Equipment Hub',
+  title: 'FieldSupport',
   description: 'Scan equipment to access docs, training, parts, and AI troubleshooting.',
   manifest: '/manifest.webmanifest',
-  applicationName: 'Equipment Hub',
+  applicationName: 'FieldSupport',
   appleWebApp: {
     capable: true,
-    title: 'Equipment Hub',
+    title: 'FieldSupport',
     statusBarStyle: 'default',
   },
   formatDetection: { telephone: false },
@@ -57,6 +57,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: densityBootScript }} />
       </head>
       <body className="min-h-screen bg-surface-base font-sans text-ink-primary antialiased">
+        {/* Skip-to-content link. First focusable element in the body;
+            invisible until focused, then anchors to the page's #main. */}
+        <a href="#main" className="skip-to-content">
+          Skip to main content
+        </a>
         <ToastProvider>{children}</ToastProvider>
       </body>
     </html>

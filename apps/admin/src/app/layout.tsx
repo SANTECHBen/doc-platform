@@ -24,7 +24,7 @@ const mono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Equipment Hub — Admin',
+  title: 'FieldSupport — Admin',
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -43,13 +43,21 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
       </head>
       <body className="min-h-screen bg-surface-base font-sans text-ink-primary antialiased">
+        {/* Skip-to-content link. First focusable element in the body;
+            invisible until focused, then jumps focus into #main so a
+            keyboard user can bypass the sidebar + topbar in one Tab. */}
+        <a href="#main" className="skip-to-content">
+          Skip to main content
+        </a>
         <ToastProvider>
           {session ? (
             <>
               <div className="flex min-h-screen">
                 <Sidebar userMenu={<UserMenu />} />
                 <div className="flex min-h-screen flex-1 flex-col">
-                  <main className="flex-1">{children}</main>
+                  <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
+                    {children}
+                  </main>
                 </div>
               </div>
               <CommandPalette />
