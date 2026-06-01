@@ -417,6 +417,13 @@ export function StepEditorBody({
             onAudioChanged({ ...step, media: nextMedia });
             return item;
           }}
+          onDeleteStepMedia={async (storageKey) => {
+            await deleteProcedureStepMedia(step.id, storageKey);
+            const nextMedia = (step.media ?? []).filter(
+              (m) => m.storageKey !== storageKey,
+            );
+            onAudioChanged({ ...step, media: nextMedia });
+          }}
           legacyBodyMarkdown={step.bodyMarkdown}
           onImportLegacy={onImportLegacy}
         />

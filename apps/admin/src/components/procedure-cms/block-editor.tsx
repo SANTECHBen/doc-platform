@@ -52,6 +52,10 @@ interface Props {
    *  PhotoInline block. Returns the new media item so the picker can
    *  auto-select it. */
   onUploadStepMedia?: (file: File) => Promise<AdminStepMedia>;
+  /** Remove a photo from the step's media[] (used by the PhotoInline block's
+   *  Replace/Remove affordances so swapping an image doesn't leave the old
+   *  one behind). */
+  onDeleteStepMedia?: (storageKey: string) => Promise<void>;
   /** Optional legacy bodyMarkdown — when present and blocks is empty,
    *  we offer a one-click "Import from markdown" affordance. */
   legacyBodyMarkdown?: string | null;
@@ -135,6 +139,7 @@ export function BlockListEditor({
   onChange,
   stepMedia,
   onUploadStepMedia,
+  onDeleteStepMedia,
   legacyBodyMarkdown,
   onImportLegacy,
 }: Props) {
@@ -265,6 +270,7 @@ export function BlockListEditor({
             onDelete={() => deleteBlock(i)}
             stepMedia={stepMedia}
             onUploadStepMedia={onUploadStepMedia}
+            onDeleteStepMedia={onDeleteStepMedia}
             draggable={blocks.length > 1}
             onDragStart={onDragStart(i)}
             onDragOver={onDragOver(i)}
@@ -350,6 +356,7 @@ function BlockShell({
   onDelete,
   stepMedia,
   onUploadStepMedia,
+  onDeleteStepMedia,
   draggable,
   onDragStart,
   onDragOver,
@@ -364,6 +371,7 @@ function BlockShell({
   onDelete: () => void;
   stepMedia: AdminStepMedia[];
   onUploadStepMedia?: (file: File) => Promise<AdminStepMedia>;
+  onDeleteStepMedia?: (storageKey: string) => Promise<void>;
   draggable: boolean;
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
@@ -410,6 +418,7 @@ function BlockShell({
           onChange={onChange}
           stepMedia={stepMedia}
           onUploadStepMedia={onUploadStepMedia}
+          onDeleteStepMedia={onDeleteStepMedia}
         />
       </div>
       <button
@@ -430,11 +439,13 @@ function BlockBody({
   onChange,
   stepMedia,
   onUploadStepMedia,
+  onDeleteStepMedia,
 }: {
   block: StepBlock;
   onChange: (next: StepBlock) => void;
   stepMedia: AdminStepMedia[];
   onUploadStepMedia?: (file: File) => Promise<AdminStepMedia>;
+  onDeleteStepMedia?: (storageKey: string) => Promise<void>;
 }) {
   switch (block.kind) {
     case 'paragraph':
@@ -453,6 +464,7 @@ function BlockBody({
           onChange={onChange}
           stepMedia={stepMedia}
           onUploadStepMedia={onUploadStepMedia}
+          onDeleteStepMedia={onDeleteStepMedia}
         />
       );
   }
@@ -700,13 +712,16 @@ function PhotoInlineEditor({
   onChange,
   stepMedia,
   onUploadStepMedia,
+  onDeleteStepMedia,
 }: {
   block: Extract<StepBlock, { kind: 'photo_inline' }>;
   onChange: (next: StepBlock) => void;
   stepMedia: AdminStepMedia[];
   onUploadStepMedia?: (file: File) => Promise<AdminStepMedia>;
+  onDeleteStepMedia?: (storageKey: string) => Promise<void>;
 }) {
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const replaceRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
@@ -726,6 +741,44 @@ function PhotoInlineEditor({
       // with the new item on next render — selection by storageKey works
       // in both cases.
       onChange({ ...block, storageKey: item.storageKey });
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  // Replace = upload a new image, point this block at it, and remove the old
+  // one from the step so swapping doesn't leave the original behind.
+  async function onPickReplaceFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = '';
+    if (!file || !onUploadStepMedia) return;
+    const oldKey = block.storageKey;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const item = await onUploadStepMedia(file);
+      onChange({ ...block, storageKey: item.storageKey });
+      if (oldKey && oldKey !== item.storageKey && onDeleteStepMedia) {
+        await onDeleteStepMedia(oldKey);
+      }
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  // Remove an image from the step entirely. If it was the one this block
+  // showed, deselect so the block doesn't point at a deleted key.
+  async function removeImage(storageKey: string) {
+    if (!onDeleteStepMedia) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      await onDeleteStepMedia(storageKey);
+      if (block.storageKey === storageKey) onChange({ ...block, storageKey: '' });
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -765,29 +818,38 @@ function PhotoInlineEditor({
             {images.map((m) => {
               const active = m.storageKey === block.storageKey;
               return (
-                <button
-                  key={m.storageKey}
-                  type="button"
-                  onClick={() => onChange({ ...block, storageKey: m.storageKey })}
-                  className={[
-                    'relative aspect-video overflow-hidden rounded-md border transition',
-                    active
-                      ? 'border-accent ring-2 ring-accent/40'
-                      : 'border-line hover:border-accent/40',
-                  ].join(' ')}
-                >
-                  {m.url ? (
-                    <img
-                      src={m.url}
-                      alt=""
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-full items-center justify-center bg-surface text-xs text-ink-tertiary">
-                      No preview
-                    </div>
+                <div key={m.storageKey} className="group/img relative">
+                  <button
+                    type="button"
+                    onClick={() => onChange({ ...block, storageKey: m.storageKey })}
+                    className={[
+                      'relative block aspect-video w-full overflow-hidden rounded-md border transition',
+                      active
+                        ? 'border-accent ring-2 ring-accent/40'
+                        : 'border-line hover:border-accent/40',
+                    ].join(' ')}
+                  >
+                    {m.url ? (
+                      <img src={m.url} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full items-center justify-center bg-surface text-xs text-ink-tertiary">
+                        No preview
+                      </div>
+                    )}
+                  </button>
+                  {onDeleteStepMedia && (
+                    <button
+                      type="button"
+                      onClick={() => void removeImage(m.storageKey)}
+                      disabled={uploading}
+                      aria-label="Remove photo from step"
+                      title="Remove photo from step"
+                      className="absolute right-1 top-1 rounded bg-surface/90 p-0.5 text-ink-tertiary opacity-0 shadow transition group-hover/img:opacity-100 hover:text-signal-fault disabled:opacity-50"
+                    >
+                      <X className="size-3" />
+                    </button>
                   )}
-                </button>
+                </div>
               );
             })}
             {onUploadStepMedia && (
@@ -809,15 +871,28 @@ function PhotoInlineEditor({
             )}
           </div>
           {selected && (
-            <input
-              type="text"
-              value={block.caption ?? ''}
-              onChange={(e) =>
-                onChange({ ...block, caption: e.target.value || undefined })
-              }
-              placeholder="Caption (optional)"
-              className="w-full rounded-sm border border-line-subtle bg-surface px-2 py-1 text-xs text-ink-secondary outline-none focus:border-accent"
-            />
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={block.caption ?? ''}
+                onChange={(e) =>
+                  onChange({ ...block, caption: e.target.value || undefined })
+                }
+                placeholder="Caption (optional)"
+                className="min-w-0 flex-1 rounded-sm border border-line-subtle bg-surface px-2 py-1 text-xs text-ink-secondary outline-none focus:border-accent"
+              />
+              {onUploadStepMedia && (
+                <button
+                  type="button"
+                  onClick={() => replaceRef.current?.click()}
+                  disabled={uploading}
+                  title="Upload a new image and remove this one"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-line px-2 py-1 text-xs font-medium text-ink-secondary transition hover:border-accent/50 hover:text-accent disabled:opacity-50"
+                >
+                  <Upload className="size-3.5" /> Replace
+                </button>
+              )}
+            </div>
           )}
         </>
       )}
@@ -826,6 +901,13 @@ function PhotoInlineEditor({
           {uploadError}
         </p>
       )}
+      <input
+        ref={replaceRef}
+        type="file"
+        accept="image/png,image/jpeg,image/jpg,image/webp,image/heic,image/heif"
+        onChange={onPickReplaceFile}
+        className="hidden"
+      />
       <input
         ref={fileRef}
         type="file"
