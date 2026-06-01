@@ -52,12 +52,25 @@ const EnvSchema = z.object({
 
   // ElevenLabs — preferred live TTS when set. Lower first-byte latency
   // (~75 ms with Flash v2.5 vs ~500 ms+ for OpenAI tts-1-hd) and better
-  // voice quality, at ~10x the per-character cost. STT still uses Whisper;
-  // ELEVENLABS_API_KEY only affects the /ai/voice/speak path. Procedure
-  // voiceover uploads are unaffected (those are pre-rendered files).
+  // voice quality, at ~10x the per-character cost. STT still uses Whisper.
+  //
+  // Two distinct contexts use ElevenLabs now:
+  //   - /ai/voice/speak (live PWA voice) — wants fast first-byte → Flash v2.5
+  //   - /admin/procedure-steps/:id/audio/generate AND the snippet equivalent
+  //     (pre-rendered authored audio) — wants quality, not latency. We bias
+  //     these toward Multilingual v2 by default.
+  // When ELEVENLABS_API_KEY + ELEVENLABS_VOICE_ID are both set, authored
+  // voiceover generation prefers ElevenLabs; otherwise it falls back to
+  // OpenAI tts-1-hd. The author's UI shows one button either way.
   ELEVENLABS_API_KEY: optionalNonEmptyString,
   ELEVENLABS_VOICE_ID: optionalNonEmptyString,
   ELEVENLABS_MODEL_ID: z.string().default('eleven_flash_v2_5'),
+  /** Model used for ONE-SHOT authored voiceover (per-step + per-snippet
+   *  generation). Pre-rendered once and served forever; quality matters
+   *  more than latency. Defaults to Multilingual v2 — the most natural
+   *  ElevenLabs voice in their public lineup. Override per-deploy when
+   *  cost / language coverage shifts the calculus. */
+  ELEVENLABS_TTS_MODEL_ID: z.string().default('eleven_multilingual_v2'),
 
   // Public origins — allowed by CORS, used in presented URLs.
   PUBLIC_PWA_ORIGIN: z.string().url().default('http://localhost:3000'),

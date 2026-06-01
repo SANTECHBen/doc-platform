@@ -622,9 +622,23 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
       toast.info('Every step already has voiceover', 'Or no steps have a title yet.');
       return;
     }
+    // Estimate character count up-front so the author can sanity-check the
+    // ElevenLabs subscription quota cost before firing N synthesis calls.
+    // We mirror the server's buildSpokenScript: title + flattened block
+    // text (or bodyMarkdown for legacy steps).
+    const totalChars = targets.reduce(
+      (sum, s) => sum + estimateSpokenChars(s),
+      0,
+    );
+    const charsLabel = totalChars.toLocaleString('en-US');
     if (
       !confirm(
-        `Generate AI voiceover for ${targets.length} step${targets.length === 1 ? '' : 's'}? This will use OpenAI TTS — about ${Math.ceil(targets.length * 2.5)}¢ total.`,
+        [
+          `Generate voiceover for ${targets.length} step${targets.length === 1 ? '' : 's'}?`,
+          '',
+          `Approximately ${charsLabel} characters via ElevenLabs.`,
+          'Check your ElevenLabs dashboard to confirm the quota remaining on your plan before continuing.',
+        ].join('\n'),
       )
     ) {
       return;
@@ -1251,6 +1265,52 @@ function ViewModeToggle({
       </button>
     </div>
   );
+}
+
+// estimateSpokenChars — mirror of packages/api buildSpokenScript so the
+// bulk-generate confirm dialog can show "this will use ~N characters of
+// your ElevenLabs quota" without a server round-trip. Match the server's
+// flattening rules exactly so the estimate doesn't drift far from what
+// the synthesizer actually sends.
+function estimateSpokenChars(step: AdminProcedureStep): number {
+  const lead = step.title.trim();
+  let body = '';
+  const blocks = step.blocks ?? [];
+  if (blocks.length > 0) {
+    const parts: string[] = [];
+    for (const b of blocks) {
+      switch (b.kind) {
+        case 'paragraph':
+          parts.push(b.text);
+          break;
+        case 'callout':
+          parts.push(
+            `${b.tone === 'safety' || b.tone === 'warning' ? `${b.tone}. ` : ''}${b.title ? b.title + '. ' : ''}${b.text}`,
+          );
+          break;
+        case 'bullet_list':
+        case 'numbered_list':
+          parts.push(b.items.join('. '));
+          break;
+        case 'key_value':
+          parts.push(b.rows.map((row) => `${row[0]}, ${row[1]}.`).join(' '));
+          break;
+        case 'photo_inline':
+          if (b.caption) parts.push(b.caption);
+          break;
+      }
+    }
+    body = parts.filter((s) => s.trim().length > 0).join(' ').replace(/\s+/g, ' ').trim();
+  } else if (step.bodyMarkdown) {
+    body = step.bodyMarkdown
+      .replace(/[#>*_`]/g, '')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
+      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+  const text = body ? `${lead}. ${body}` : lead;
+  return text.length;
 }
 
 // HeroVideoSection — procedure-level intro-video authoring card. Sits

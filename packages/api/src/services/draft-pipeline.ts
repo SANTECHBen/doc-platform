@@ -783,17 +783,32 @@ export async function runDrafterExecution(params: {
   };
 
   const synthesizeTts = async (text: string) => {
-    if (!env.OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY required for draft TTS synthesis');
+    const hasElevenLabs = !!(env.ELEVENLABS_API_KEY && env.ELEVENLABS_VOICE_ID);
+    const hasOpenAi = !!env.OPENAI_API_KEY;
+    if (!hasElevenLabs && !hasOpenAi) {
+      throw new Error(
+        'Draft TTS requires ELEVENLABS_API_KEY + ELEVENLABS_VOICE_ID (preferred) or OPENAI_API_KEY.',
+      );
     }
     return synthesizeStepTts({
       text,
-      voice: env.OPENAI_TTS_VOICE ?? 'alloy',
-      model: env.OPENAI_TTS_MODEL,
-      openaiApiKey: env.OPENAI_API_KEY,
       storage,
       filenameStem: `draft-${runId}-tts`,
       ownerOrganizationId: run.ownerOrganizationId,
+      elevenlabs: hasElevenLabs
+        ? {
+            apiKey: env.ELEVENLABS_API_KEY!,
+            voiceId: env.ELEVENLABS_VOICE_ID!,
+            modelId: env.ELEVENLABS_TTS_MODEL_ID,
+          }
+        : undefined,
+      openai: hasOpenAi
+        ? {
+            apiKey: env.OPENAI_API_KEY!,
+            voice: env.OPENAI_TTS_VOICE ?? 'alloy',
+            model: env.OPENAI_TTS_MODEL,
+          }
+        : undefined,
     });
   };
 

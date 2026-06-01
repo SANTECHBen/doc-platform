@@ -14,11 +14,13 @@ import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema, type Database } from '@platform/db';
+import type { StepBlock } from '@platform/db';
 import { UuidSchema } from '@platform/shared';
 import { requireAuth } from '../middleware/auth.js';
 import { getScope, requireOrgInScope } from '../middleware/scope.js';
 import { sniffMime } from '../lib/mime-sniff.js';
 import { recordAudit } from '../lib/audit.js';
+import { synthesizeStepTts } from '../services/step-tts.js';
 
 const ACCEPT_MIMES = new Set([
   'audio/mpeg',
@@ -77,20 +79,61 @@ function estimateDurationMsFromBytes(_buf: Buffer, _mime: string): number | null
 }
 
 // Strip markdown noise so the synthesized voiceover doesn't read symbols
-// aloud. Mirrors the cleanup VirtualJobAid does for live TTS.
-function buildSpokenScript(input: { title: string; bodyMarkdown: string | null }): string {
+// aloud, and flatten typed blocks into spoken prose. Mirrors what
+// VirtualJobAid does for live TTS so the authored audio sounds the same
+// as the live voice would. Without the blocks branch, modern blocks-based
+// steps synthesized only their title (bodyMarkdown is unused once an
+// author moves to the block editor).
+function buildSpokenScript(input: {
+  title: string;
+  bodyMarkdown: string | null;
+  blocks: StepBlock[] | null;
+}): string {
   const lead = input.title.trim();
-  const body = (input.bodyMarkdown ?? '')
-    .replace(/[#>*_`]/g, '')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  let body = '';
+  const blocks = input.blocks ?? [];
+  if (blocks.length > 0) {
+    const parts: string[] = [];
+    for (const b of blocks) {
+      switch (b.kind) {
+        case 'paragraph':
+          parts.push(b.text);
+          break;
+        case 'callout':
+          parts.push(
+            `${b.tone === 'safety' || b.tone === 'warning' ? `${b.tone}. ` : ''}${b.title ? b.title + '. ' : ''}${b.text}`,
+          );
+          break;
+        case 'bullet_list':
+        case 'numbered_list':
+          parts.push(b.items.join('. '));
+          break;
+        case 'key_value':
+          parts.push(
+            b.rows.map((row) => `${row[0]}, ${row[1]}.`).join(' '),
+          );
+          break;
+        case 'photo_inline':
+          if (b.caption) parts.push(b.caption);
+          break;
+      }
+    }
+    body = parts.filter((s) => s.trim().length > 0).join(' ').replace(/\s+/g, ' ').trim();
+  } else if (input.bodyMarkdown) {
+    body = input.bodyMarkdown
+      .replace(/[#>*_`]/g, '')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
+      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
   return body ? `${lead}. ${body}` : lead;
 }
 
 const GenerateBody = z.object({
-  // Optional explicit voice override; defaults to env.OPENAI_TTS_VOICE.
+  // Optional explicit voice override — only applies to the OpenAI path.
+  // ElevenLabs voice is configured at the deploy level (one voice = one
+  // brand sound) and not selectable per-request in this version.
   voice: z
     .enum(['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'onyx', 'nova', 'sage', 'shimmer'])
     .optional(),
@@ -98,6 +141,10 @@ const GenerateBody = z.object({
   // body. Lets the author reword the audio without changing the on-screen
   // text (e.g. "Tighten to 25 newton-meters" vs. on-screen "25 N·m").
   script: z.string().min(2).max(4000).optional(),
+  // Optional provider override. Default: ElevenLabs when configured,
+  // otherwise OpenAI. UI doesn't expose this — only used by ops / tests
+  // to pin a specific provider.
+  provider: z.enum(['openai', 'elevenlabs']).optional(),
 });
 
 export async function registerAdminProcedureAudioRoutes(app: FastifyInstance) {
@@ -212,9 +259,12 @@ export async function registerAdminProcedureAudioRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { db, storage, env } = app.ctx;
-      if (!env.OPENAI_API_KEY) {
+      const hasElevenLabs = !!(env.ELEVENLABS_API_KEY && env.ELEVENLABS_VOICE_ID);
+      const hasOpenAi = !!env.OPENAI_API_KEY;
+      if (!hasElevenLabs && !hasOpenAi) {
         return reply.code(503).send({
-          error: 'Audio generation requires OPENAI_API_KEY.',
+          error:
+            'Audio generation requires ELEVENLABS_API_KEY + ELEVENLABS_VOICE_ID (preferred) or OPENAI_API_KEY.',
         });
       }
       const auth = requireAuth(request);
@@ -225,50 +275,47 @@ export async function registerAdminProcedureAudioRoutes(app: FastifyInstance) {
       const script = request.body.script ?? buildSpokenScript({
         title: ctx.step.title,
         bodyMarkdown: ctx.step.bodyMarkdown,
+        blocks: ctx.step.blocks ?? [],
       });
-      const voice =
+      const openaiVoice =
         request.body.voice ?? env.OPENAI_TTS_VOICE ?? AUDIO_GEN_VOICE_FALLBACK;
 
-      // Synthesize. We capture the whole MP3 stream into a buffer so we
-      // can store it; the response is small enough (≤ 1MB typically) that
-      // buffering doesn't matter.
-      const ttsResp = await fetch('https://api.openai.com/v1/audio/speech', {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${env.OPENAI_API_KEY}`,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: env.OPENAI_TTS_MODEL,
-          voice,
-          input: script,
-          format: 'mp3',
-        }),
-      });
-      if (!ttsResp.ok) {
-        const text = await ttsResp.text().catch(() => '');
-        request.log.error({ status: ttsResp.status, text }, 'TTS generate failed');
-        return reply.internalServerError('Audio synthesis failed.');
+      let synth;
+      try {
+        synth = await synthesizeStepTts({
+          text: script,
+          storage,
+          filenameStem: `step-${ctx.step.id}-tts`,
+          ownerOrganizationId: ctx.ownerOrganizationId,
+          provider: request.body.provider,
+          elevenlabs: hasElevenLabs
+            ? {
+                apiKey: env.ELEVENLABS_API_KEY!,
+                voiceId: env.ELEVENLABS_VOICE_ID!,
+                modelId: env.ELEVENLABS_TTS_MODEL_ID,
+              }
+            : undefined,
+          openai: hasOpenAi
+            ? {
+                apiKey: env.OPENAI_API_KEY!,
+                voice: openaiVoice,
+                model: env.OPENAI_TTS_MODEL,
+              }
+            : undefined,
+        });
+      } catch (e) {
+        request.log.error({ err: e }, 'TTS generate failed');
+        return reply.internalServerError(
+          e instanceof Error ? e.message : 'Audio synthesis failed.',
+        );
       }
-      const arrayBuf = await ttsResp.arrayBuffer();
-      const buf = Buffer.from(arrayBuf);
-      if (buf.byteLength === 0) {
-        return reply.internalServerError('TTS returned empty audio.');
-      }
-
-      const stored = await storage.putBuffer({
-        buffer: buf,
-        filename: `step-${ctx.step.id}-tts.mp3`,
-        contentType: 'audio/mpeg',
-        ownerOrganizationId: ctx.ownerOrganizationId,
-      });
 
       const [updated] = await db
         .update(schema.procedureSteps)
         .set({
-          audioStorageKey: stored.storageKey,
+          audioStorageKey: synth.storageKey,
           audioContentType: 'audio/mpeg',
-          audioSizeBytes: stored.size,
+          audioSizeBytes: synth.sizeBytes,
           audioDurationMs: null, // client-side probe will fill this in
           audioSource: 'generated',
           updatedAt: new Date(),
@@ -281,15 +328,23 @@ export async function registerAdminProcedureAudioRoutes(app: FastifyInstance) {
         eventType: 'procedure_step.audio_generated',
         targetType: 'procedure_step',
         targetId: ctx.step.id,
-        payload: { voice, scriptChars: script.length, sizeBytes: stored.size },
+        payload: {
+          provider: synth.provider,
+          model: synth.model,
+          voice: synth.voice,
+          scriptChars: synth.charCount,
+          sizeBytes: synth.sizeBytes,
+        },
       });
 
       return reply.send({
-        audioUrl: storage.publicUrl(stored.storageKey),
+        audioUrl: storage.publicUrl(synth.storageKey),
         audioContentType: 'audio/mpeg',
-        audioSizeBytes: stored.size,
+        audioSizeBytes: synth.sizeBytes,
         audioSource: 'generated' as const,
-        voice,
+        voice: synth.voice,
+        provider: synth.provider,
+        model: synth.model,
         updatedAt: updated?.updatedAt.toISOString(),
       });
     },

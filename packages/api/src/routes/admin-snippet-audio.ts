@@ -104,10 +104,13 @@ function buildSnippetScript(snippet: typeof schema.procedureSnippets.$inferSelec
 }
 
 const GenerateBody = z.object({
+  // OpenAI-path voice override. ElevenLabs voice is configured at the
+  // deploy level via ELEVENLABS_VOICE_ID and not selectable per-request.
   voice: z
     .enum(['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'onyx', 'nova', 'sage', 'shimmer'])
     .optional(),
   script: z.string().min(2).max(4000).optional(),
+  provider: z.enum(['openai', 'elevenlabs']).optional(),
 });
 
 const DurationBody = z.object({
@@ -207,9 +210,12 @@ export async function registerAdminSnippetAudioRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { db, storage, env } = app.ctx;
-      if (!env.OPENAI_API_KEY) {
+      const hasElevenLabs = !!(env.ELEVENLABS_API_KEY && env.ELEVENLABS_VOICE_ID);
+      const hasOpenAi = !!env.OPENAI_API_KEY;
+      if (!hasElevenLabs && !hasOpenAi) {
         return reply.code(503).send({
-          error: 'Audio generation requires OPENAI_API_KEY.',
+          error:
+            'Audio generation requires ELEVENLABS_API_KEY + ELEVENLABS_VOICE_ID (preferred) or OPENAI_API_KEY.',
         });
       }
       const auth = requireAuth(request);
@@ -218,16 +224,38 @@ export async function registerAdminSnippetAudioRoutes(app: FastifyInstance) {
       if (!ctx) return reply.notFound();
 
       const script = request.body.script ?? buildSnippetScript(ctx.snippet);
-      const voice = request.body.voice ?? env.OPENAI_TTS_VOICE ?? AUDIO_GEN_VOICE_FALLBACK;
-      const synth = await synthesizeStepTts({
-        text: script,
-        voice,
-        model: env.OPENAI_TTS_MODEL,
-        openaiApiKey: env.OPENAI_API_KEY,
-        storage,
-        filenameStem: `snippet-${ctx.snippet.id}-tts`,
-        ownerOrganizationId: ctx.auditOrgId,
-      });
+      const openaiVoice =
+        request.body.voice ?? env.OPENAI_TTS_VOICE ?? AUDIO_GEN_VOICE_FALLBACK;
+
+      let synth;
+      try {
+        synth = await synthesizeStepTts({
+          text: script,
+          storage,
+          filenameStem: `snippet-${ctx.snippet.id}-tts`,
+          ownerOrganizationId: ctx.auditOrgId,
+          provider: request.body.provider,
+          elevenlabs: hasElevenLabs
+            ? {
+                apiKey: env.ELEVENLABS_API_KEY!,
+                voiceId: env.ELEVENLABS_VOICE_ID!,
+                modelId: env.ELEVENLABS_TTS_MODEL_ID,
+              }
+            : undefined,
+          openai: hasOpenAi
+            ? {
+                apiKey: env.OPENAI_API_KEY!,
+                voice: openaiVoice,
+                model: env.OPENAI_TTS_MODEL,
+              }
+            : undefined,
+        });
+      } catch (e) {
+        request.log.error({ err: e }, 'Snippet TTS generate failed');
+        return reply.internalServerError(
+          e instanceof Error ? e.message : 'Audio synthesis failed.',
+        );
+      }
 
       const [updated] = await db
         .update(schema.procedureSnippets)
@@ -248,8 +276,10 @@ export async function registerAdminSnippetAudioRoutes(app: FastifyInstance) {
         targetType: 'procedure_snippet',
         targetId: ctx.snippet.id,
         payload: {
-          voice,
-          scriptChars: script.length,
+          provider: synth.provider,
+          model: synth.model,
+          voice: synth.voice,
+          scriptChars: synth.charCount,
           sizeBytes: synth.sizeBytes,
           isPlatform: ctx.snippet.isPlatform,
         },
@@ -260,7 +290,9 @@ export async function registerAdminSnippetAudioRoutes(app: FastifyInstance) {
         audioContentType: synth.contentType,
         audioSizeBytes: synth.sizeBytes,
         audioSource: 'generated' as const,
-        voice,
+        voice: synth.voice,
+        provider: synth.provider,
+        model: synth.model,
         updatedAt: updated?.updatedAt.toISOString(),
       });
     },
