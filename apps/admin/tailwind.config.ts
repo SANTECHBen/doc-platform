@@ -35,6 +35,15 @@ export default {
           soft: 'rgb(var(--brand-soft) / <alpha-value>)',
           ink: 'rgb(var(--brand-ink) / <alpha-value>)',
         },
+        // Alias — the codebase uses `bg-accent` / `text-accent` /
+        // `border-accent` in ~160 places but only `--brand` is themed.
+        // Without this, those classes generated no CSS and rendered
+        // invisible (e.g., the voiceover play button was a transparent
+        // circle with a white icon on a white surface).
+        accent: {
+          DEFAULT: 'rgb(var(--brand) / <alpha-value>)',
+          strong: 'rgb(var(--brand-strong) / <alpha-value>)',
+        },
         signal: {
           ok: 'rgb(var(--signal-ok) / <alpha-value>)',
           warn: 'rgb(var(--signal-warn) / <alpha-value>)',
