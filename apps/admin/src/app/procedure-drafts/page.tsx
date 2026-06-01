@@ -80,7 +80,7 @@ export default function ProcedureDraftsPage() {
     <PageShell crumbs={[{ label: 'Procedure drafts' }]}>
       <PageHeader
         title="AI procedure drafts"
-        description="Upload a recorded walkthrough; the AI proposes a structured procedure with timestamped keyframes and synthesized voiceover. Review, edit, and accept to materialize it as a real procedure."
+        description="Upload a recorded walkthrough or an existing Word/PDF procedure; the AI proposes a structured procedure (steps, callouts, figures, voiceover). Review, edit, and accept to materialize it as a real procedure."
         actions={
           <Link
             href="/procedure-drafts/new"
@@ -97,7 +97,7 @@ export default function ProcedureDraftsPage() {
         <EmptyState
           icon={Clapperboard}
           title="No AI drafts yet"
-          description="Record a walkthrough on site (any phone or camera works) and upload it here. The AI segments the narration into steps with chosen keyframes."
+          description="Record a walkthrough on site (any phone or camera works), or upload an existing Word/PDF procedure. The AI turns it into structured steps with figures and voiceover for your review."
           action={
             <Link
               href="/procedure-drafts/new"

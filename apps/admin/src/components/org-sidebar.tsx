@@ -104,7 +104,7 @@ function buildGroups(orgId: string): NavGroup[] {
       id: 'authoring',
       label: 'Authoring',
       info:
-        'Tools that speed up writing and maintaining procedures. Snippets are reusable step content (LOTO, safety briefings) referenced from any procedure. AI drafts ingests a video walkthrough and proposes a structured procedure for review.',
+        'Tools that speed up writing and maintaining procedures. Snippets are reusable step content (LOTO, safety briefings) referenced from any procedure. AI drafts ingests a video walkthrough OR an existing Word/PDF procedure and proposes a structured procedure for review.',
       items: [
         // Snippets and drafts are platform-wide surfaces, not per-org
         // routes — both filter by org server-side. Linking to the global
@@ -118,7 +118,7 @@ function buildGroups(orgId: string): NavGroup[] {
         },
         {
           href: '/procedure-drafts',
-          label: 'AI video drafts',
+          label: 'AI drafts',
           icon: Clapperboard,
           match: /^\/procedure-drafts/,
         },

@@ -300,7 +300,7 @@ export default function NewProcedureDraftPage() {
         title="Start a new AI procedure draft"
         description={
           <span className="inline-flex items-center gap-2 text-xs">
-            <Clapperboard size={14} /> Upload a walkthrough video; the AI proposes a structured procedure with timestamped keyframes and synthesized voiceover.
+            <Clapperboard size={14} /> Record a walkthrough video or import an existing Word/PDF procedure; the AI proposes a structured procedure (steps, callouts, figures, voiceover) for your review.
           </span>
         }
       />
