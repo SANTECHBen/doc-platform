@@ -831,21 +831,60 @@ function SectionGroup({
   /** Opens the category manager modal — wired through from the editor. */
   onManageCategories: () => void;
 }) {
-  // Local title mirror with debounced PATCH — same pattern as step titles.
+  // Local title mirror with debounced PATCH — same pattern as step titles,
+  // including the lastSentTitleRef guard. Without it, the parent-sync
+  // effect clobbers in-flight keystrokes whenever a save round-trip lands
+  // mid-typing (the "autosave drops letters" bug).
   const [title, setTitle] = useState(section.title);
   const titleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSentTitleRef = useRef(section.title);
+  // Live mirror of `title` + `section.title` for the unmount-flush effect.
+  // Reading state inside an effect with [] deps yields the mount-time
+  // value; refs sidestep that without making the cleanup churn.
+  const titleRef = useRef(title);
+  const sectionTitleRef = useRef(section.title);
   useEffect(() => {
-    setTitle(section.title);
+    titleRef.current = title;
+  }, [title]);
+  useEffect(() => {
+    sectionTitleRef.current = section.title;
+    if (section.title !== lastSentTitleRef.current) {
+      // Third-party change (or a fresh section.id swapping in) — accept.
+      // If the incoming value equals what we last sent, it's our own
+      // echo and we leave the local state alone so any keystrokes that
+      // happened during the round-trip stay put.
+      setTitle(section.title);
+      lastSentTitleRef.current = section.title;
+    }
   }, [section.title]);
   function onTitleInput(next: string) {
     setTitle(next);
     if (titleTimer.current) clearTimeout(titleTimer.current);
     titleTimer.current = setTimeout(() => {
-      if (next.trim() && next.trim() !== section.title) {
-        onRenameSection(next.trim());
+      titleTimer.current = null;
+      const v = next.trim();
+      if (v && v !== section.title) {
+        lastSentTitleRef.current = v;
+        onRenameSection(v);
       }
     }, 600);
   }
+  // Flush on unmount so a quick page-navigation doesn't drop the user's
+  // last keystrokes (the debounced save hasn't fired yet).
+  useEffect(() => {
+    return () => {
+      if (titleTimer.current) {
+        clearTimeout(titleTimer.current);
+        titleTimer.current = null;
+        const v = titleRef.current.trim();
+        if (v && v !== sectionTitleRef.current) {
+          lastSentTitleRef.current = v;
+          onRenameSection(v);
+        }
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface-raised p-3">

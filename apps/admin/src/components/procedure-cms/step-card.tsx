@@ -125,13 +125,24 @@ export function StepCard({
   // server while the user is mid-sentence.
   const titleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const blocksTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Tracks the most recent value we shipped upstream. When step.title
-  // changes back to us via the parent re-fetch, we compare it to this:
-  // if it matches what we sent, the update is our own echo — leave
-  // local state alone (the user may have typed more characters during
-  // the round-trip). Without this, the useEffect below clobbers in-
-  // flight typing on every save, which felt like "deleted characters".
+  // Tracks the most recent value we shipped upstream for each debounced
+  // field. When the parent re-renders with the post-save step (new
+  // updatedAt), we compare the incoming server value to this ref:
+  //   - if it matches → it's our own echo → leave local state alone
+  //   - if it differs AND local has no unsaved edits → accept (3rd-party)
+  //   - if it differs AND local has unsaved edits → ignore; next debounce
+  //     flush will overwrite the server with the latest.
+  // Without these guards, a save round-trip eats every character the
+  // user typed during the round-trip ("autosave drops letters" bug).
   const lastSentTitleRef = useRef(step.title);
+  const lastSentBlocksRef = useRef<StepBlock[]>(step.blocks ?? []);
+  // Live mirror of `blocks` for the parent-sync effect — reading state
+  // directly there would either require `blocks` in the deps (infinite
+  // loop with setBlocks) or risk a stale closure.
+  const localBlocksRef = useRef<StepBlock[]>(step.blocks ?? []);
+  useEffect(() => {
+    localBlocksRef.current = blocks;
+  }, [blocks]);
 
   // If the parent reloads the step (e.g. after audio update), keep the
   // local mirrors aligned UNLESS the user has unsaved edits. The parent
@@ -144,7 +155,19 @@ export function StepCard({
       setTitle(step.title);
       lastSentTitleRef.current = step.title;
     }
-    setBlocks(step.blocks ?? []);
+    // Blocks: same race-protection pattern as title. JSON.stringify is
+    // fine here — typical step has ~10 small blocks, so this is sub-ms.
+    const incomingBlocks = step.blocks ?? [];
+    const incomingStr = JSON.stringify(incomingBlocks);
+    const lastSentStr = JSON.stringify(lastSentBlocksRef.current);
+    const localStr = JSON.stringify(localBlocksRef.current);
+    if (incomingStr !== lastSentStr && localStr === lastSentStr) {
+      // 3rd-party change & we have no in-flight edits → accept.
+      setBlocks(incomingBlocks);
+      lastSentBlocksRef.current = incomingBlocks;
+    }
+    // (else: server echo of our last save, or we have local edits the
+    //  server hasn't seen yet — either way, do nothing.)
     setKind(step.kind);
     setSafetyCritical(step.safetyCritical);
   }, [step.id, step.updatedAt]);
@@ -153,6 +176,7 @@ export function StepCard({
     setTitle(next);
     if (titleTimer.current) clearTimeout(titleTimer.current);
     titleTimer.current = setTimeout(() => {
+      titleTimer.current = null;
       const v = next.trim();
       if (v && v !== step.title) {
         lastSentTitleRef.current = v;
@@ -164,6 +188,11 @@ export function StepCard({
     setBlocks(next);
     if (blocksTimer.current) clearTimeout(blocksTimer.current);
     blocksTimer.current = setTimeout(() => {
+      blocksTimer.current = null;
+      // Mark "last sent" BEFORE the request so a fast server echo
+      // (which races the next user keystroke) is correctly recognized
+      // as ours by the parent-sync effect.
+      lastSentBlocksRef.current = next;
       void onPatch({ blocks: next });
     }, 800);
   }
@@ -175,6 +204,7 @@ export function StepCard({
     if (!md) return;
     const next: StepBlock[] = [{ kind: 'paragraph', text: md }];
     setBlocks(next);
+    lastSentBlocksRef.current = next;
     void onPatch({ blocks: next, bodyMarkdown: null });
   }
   function onKindChange(next: ProcedureStepKind) {
@@ -209,6 +239,7 @@ export function StepCard({
     return () => {
       if (titleTimer.current) {
         clearTimeout(titleTimer.current);
+        titleTimer.current = null;
         const v = title.trim();
         if (v && v !== step.title) {
           lastSentTitleRef.current = v;
@@ -217,7 +248,9 @@ export function StepCard({
       }
       if (blocksTimer.current) {
         clearTimeout(blocksTimer.current);
+        blocksTimer.current = null;
         if (JSON.stringify(blocks) !== JSON.stringify(step.blocks ?? [])) {
+          lastSentBlocksRef.current = blocks;
           void onPatch({ blocks });
         }
       }
