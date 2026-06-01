@@ -67,20 +67,19 @@ export function SplashIntro() {
   }
 
   // Manual play path. Fired by the visible "Tap for sound" button when
-  // autoplay was blocked. Tries to reuse the audio element from the
-  // failed autoplay attempt — it's already mid-download — rather than
-  // creating a new one (which on Android Chrome can race with the
-  // first and leave both half-playing).
+  // declarative autoplay was blocked. Uses the declarative <audio>
+  // element's ref directly — calling play() on the existing element
+  // attributes the user gesture to that node.
   async function manuallyStartAudio() {
     setAudioError('');
     try {
-      let audio = audioRef.current;
+      const audio = audioRef.current;
       if (!audio) {
-        audio = new Audio('/intro-sound.wav');
-        audio.preload = 'auto';
-        audio.volume = 0.85;
-        audioRef.current = audio;
+        setAudioError('audio element missing');
+        return;
       }
+      audio.muted = false;
+      audio.volume = 0.85;
       await audio.play();
       setAudioBlocked(false);
     } catch (e) {
@@ -125,20 +124,29 @@ export function SplashIntro() {
     const t4 = window.setTimeout(() => setShowSkip(true), 1500);
     timersRef.current = [t1, t2, t3, t4];
 
-    // Chrome on Android blocks audio autoplay unless there's a recent
-    // user gesture on the page itself — the QR-scan tap happens in the
-    // camera app, so the redirect into the PWA arrives gesture-less.
-    // When that blocks us, surface a "Tap for sound" prompt; the
-    // button's onClick is a direct user gesture and bypasses the
-    // restriction. Earlier iterations also armed a document-level
-    // pointerdown listener so any tap anywhere worked — but it raced
-    // with the button onClick (capture phase fires first, then click
-    // fires; both called playIntroSound, the second replacing the
-    // first's audio element mid-load on Android). The visible button
-    // alone is reliable.
-    void playIntroSound(audioRef).catch(() => {
-      setAudioBlocked(true);
-    });
+    // Audio playback is now declarative — the <audio autoPlay> element
+    // in the render tree handles its own play attempt. The browser
+    // tries to autoplay at element-creation time. If it succeeds, the
+    // onPlaying handler hides the "Tap for sound" prompt. If it fails
+    // (Chrome on Android typically blocks the first play after a redirect
+    // because there's no user gesture banked), the element stays
+    // paused at currentTime 0; the onSuspend / onPlay-timeout fallback
+    // surfaces the prompt for a manual play. Declarative autoplay
+    // sometimes works where imperative .play() does not, because the
+    // browser attributes the gesture differently for element-driven
+    // playback.
+    //
+    // We still pre-emptively flag the audio as "blocked" after 800ms
+    // if no onPlaying event has fired — the Tap for sound button
+    // appears so the user has a clear path.
+    const audioCheckTimer = window.setTimeout(() => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      if (audio.paused || audio.currentTime === 0) {
+        setAudioBlocked(true);
+      }
+    }, 800);
+    timersRef.current.push(audioCheckTimer);
 
     return () => {
       clearTimers();
@@ -155,6 +163,33 @@ export function SplashIntro() {
 
   return (
     <div className="fs-splash" data-phase={phase} role="presentation" aria-hidden="true">
+      {/* Declarative autoplay element. Browser attempts to play at
+          mount time; on success onPlaying fires and audioBlocked stays
+          false. On failure the element stays paused and the 800ms
+          timer in the effect flips audioBlocked → true, revealing the
+          Tap-for-sound button. Volume is set imperatively after mount
+          via the ref so the element starts at full target volume. */}
+      <audio
+        ref={(el) => {
+          audioRef.current = el;
+          if (el) {
+            el.volume = 0.85;
+          }
+        }}
+        src="/intro-sound.wav"
+        autoPlay
+        preload="auto"
+        playsInline
+        onPlaying={() => {
+          setAudioBlocked(false);
+          setAudioError('');
+        }}
+        onError={() => {
+          const audio = audioRef.current;
+          const code = audio?.error?.code;
+          setAudioError(`MediaError code ${code ?? '?'}`);
+        }}
+      />
       <div className="fs-splash-vignette" aria-hidden="true" />
       <div className="fs-splash-stage">
         <FieldSupportMarkSVG />
