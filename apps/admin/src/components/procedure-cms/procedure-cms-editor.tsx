@@ -765,6 +765,7 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
             }
             onMoveStepToSection={moveStepToSection}
             onAddStep={addStep}
+            onInsertSnippet={(sectionId) => setSnippetPickerSectionId(sectionId)}
             onAddSection={addSection}
             onRenameSection={renameSection}
             onDeleteSection={removeSection}

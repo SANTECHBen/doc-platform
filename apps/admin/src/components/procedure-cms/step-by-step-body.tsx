@@ -63,6 +63,9 @@ interface Props {
   onAudioChanged: (stepId: string, next: AdminProcedureStep) => void;
   onMoveStepToSection: (stepId: string, sectionId: string | null) => void | Promise<void>;
   onAddStep: (sectionId: string | null) => void | Promise<void>;
+  /** Open the snippet picker for the given section (null = orphan
+   *  / ungrouped). Same picker the List view uses. */
+  onInsertSnippet: (sectionId: string | null) => void;
   onAddSection: () => void | Promise<void>;
   onRenameSection: (sectionId: string, nextTitle: string) => void | Promise<void>;
   onDeleteSection: (sectionId: string) => void | Promise<void>;
@@ -94,6 +97,7 @@ export function StepByStepBody({
   onAudioChanged,
   onMoveStepToSection,
   onAddStep,
+  onInsertSnippet,
   onAddSection,
   onRenameSection,
   onDeleteSection,
@@ -206,6 +210,7 @@ export function StepByStepBody({
             currentStepId={null}
             onFocusStep={setCurrentStepId}
             onAddStep={onAddStep}
+            onInsertSnippet={onInsertSnippet}
             onAddSection={onAddSection}
             onRenameSection={onRenameSection}
             onDeleteSection={onDeleteSection}
@@ -252,6 +257,7 @@ export function StepByStepBody({
           currentStepId={currentStepId}
           onFocusStep={setCurrentStepId}
           onAddStep={onAddStep}
+          onInsertSnippet={onInsertSnippet}
           onAddSection={onAddSection}
           onRenameSection={onRenameSection}
           onDeleteSection={onDeleteSection}

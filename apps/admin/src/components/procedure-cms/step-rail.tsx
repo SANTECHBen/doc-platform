@@ -26,6 +26,7 @@ import {
   ListChecks,
   MoreVertical,
   Plus,
+  Puzzle,
   ShieldAlert,
   Trash2,
 } from 'lucide-react';
@@ -43,6 +44,10 @@ interface Props {
   onFocusStep: (stepId: string) => void;
   /** Add a new step in the given section (null = orphan / ungrouped). */
   onAddStep: (sectionId: string | null) => void | Promise<void>;
+  /** Open the snippet picker for the given section (null = orphan
+   *  / ungrouped). Picking a snippet creates a new step in that section
+   *  backed by the snippet — same wiring the List view uses. */
+  onInsertSnippet: (sectionId: string | null) => void;
   /** Add a new section. The editor handles the title prompt UX. */
   onAddSection: () => void | Promise<void>;
   /** Rename a section. */
@@ -68,6 +73,7 @@ export function StepRail({
   currentStepId,
   onFocusStep,
   onAddStep,
+  onInsertSnippet,
   onAddSection,
   onRenameSection,
   onDeleteSection,
@@ -157,6 +163,7 @@ export function StepRail({
           dragId={dragId}
           dropTargetId={dropTargetId}
           onAddStep={() => void onAddStep(null)}
+          onInsertSnippet={() => onInsertSnippet(null)}
           bulkBusy={bulkBusy}
         />
       )}
@@ -169,6 +176,7 @@ export function StepRail({
           currentStepId={currentStepId}
           onFocusStep={onFocusStep}
           onAddStep={() => void onAddStep(g.section.id)}
+          onInsertSnippet={() => onInsertSnippet(g.section.id)}
           onRenameSection={(t) => void onRenameSection(g.section.id, t)}
           onDeleteSection={() => void onDeleteSection(g.section.id)}
           onDragStart={onDragStart}
@@ -208,6 +216,7 @@ function RailSection({
   currentStepId,
   onFocusStep,
   onAddStep,
+  onInsertSnippet,
   onRenameSection,
   onDeleteSection,
   onDragStart,
@@ -223,6 +232,7 @@ function RailSection({
   currentStepId: string | null;
   onFocusStep: (stepId: string) => void;
   onAddStep: () => void;
+  onInsertSnippet: () => void;
   onRenameSection: (nextTitle: string) => void;
   onDeleteSection: () => void;
   onDragStart: (stepId: string) => (e: React.DragEvent) => void;
@@ -308,6 +318,7 @@ function RailSection({
         />
         <RailSectionKebab
           onAddStep={onAddStep}
+          onInsertSnippet={onInsertSnippet}
           onDelete={onDeleteSection}
           disabled={bulkBusy}
         />
@@ -332,15 +343,27 @@ function RailSection({
               />
             ))}
           </ul>
-          <button
-            type="button"
-            onClick={onAddStep}
-            disabled={bulkBusy}
-            className="ml-4 inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium text-ink-tertiary transition hover:bg-surface-elevated hover:text-accent disabled:opacity-50"
-          >
-            <Plus className="size-3" />
-            Add step
-          </button>
+          <div className="ml-4 flex flex-wrap items-center gap-1">
+            <button
+              type="button"
+              onClick={onAddStep}
+              disabled={bulkBusy}
+              className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium text-ink-tertiary transition hover:bg-surface-elevated hover:text-accent disabled:opacity-50"
+            >
+              <Plus className="size-3" />
+              Add step
+            </button>
+            <button
+              type="button"
+              onClick={onInsertSnippet}
+              disabled={bulkBusy}
+              className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium text-ink-tertiary transition hover:bg-surface-elevated hover:text-accent disabled:opacity-50"
+              title="Insert a reusable snippet (LOTO, PPE briefing, etc.) — edits to the snippet propagate everywhere it's used."
+            >
+              <Puzzle className="size-3" />
+              Snippet
+            </button>
+          </div>
         </>
       )}
     </div>
@@ -358,6 +381,7 @@ function RailGroup({
   currentStepId,
   onFocusStep,
   onAddStep,
+  onInsertSnippet,
   onDragStart,
   onDragOver,
   onDrop,
@@ -371,6 +395,7 @@ function RailGroup({
   currentStepId: string | null;
   onFocusStep: (stepId: string) => void;
   onAddStep: () => void;
+  onInsertSnippet: () => void;
   onDragStart: (stepId: string) => (e: React.DragEvent) => void;
   onDragOver: (stepId: string) => (e: React.DragEvent) => void;
   onDrop: (stepId: string) => (e: React.DragEvent) => Promise<void> | void;
@@ -404,15 +429,27 @@ function RailGroup({
           />
         ))}
       </ul>
-      <button
-        type="button"
-        onClick={onAddStep}
-        disabled={bulkBusy}
-        className="ml-4 inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium text-ink-tertiary transition hover:bg-surface-elevated hover:text-accent disabled:opacity-50"
-      >
-        <Plus className="size-3" />
-        Add step
-      </button>
+      <div className="ml-4 flex flex-wrap items-center gap-1">
+        <button
+          type="button"
+          onClick={onAddStep}
+          disabled={bulkBusy}
+          className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium text-ink-tertiary transition hover:bg-surface-elevated hover:text-accent disabled:opacity-50"
+        >
+          <Plus className="size-3" />
+          Add step
+        </button>
+        <button
+          type="button"
+          onClick={onInsertSnippet}
+          disabled={bulkBusy}
+          className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium text-ink-tertiary transition hover:bg-surface-elevated hover:text-accent disabled:opacity-50"
+          title="Insert a reusable snippet (LOTO, PPE briefing, etc.) — edits to the snippet propagate everywhere it's used."
+        >
+          <Puzzle className="size-3" />
+          Snippet
+        </button>
+      </div>
     </div>
   );
 }
@@ -541,10 +578,12 @@ function RailStepRow({
 
 function RailSectionKebab({
   onAddStep,
+  onInsertSnippet,
   onDelete,
   disabled,
 }: {
   onAddStep: () => void;
+  onInsertSnippet: () => void;
   onDelete: () => void;
   disabled: boolean;
 }) {
@@ -596,6 +635,17 @@ function RailSectionKebab({
             className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-ink-primary transition hover:bg-surface-elevated"
           >
             <Plus className="size-3.5" /> Add step in section
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onInsertSnippet();
+            }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-ink-primary transition hover:bg-surface-elevated"
+          >
+            <Puzzle className="size-3.5" /> Insert snippet
           </button>
           <hr className="my-1 border-line-subtle" />
           <button
