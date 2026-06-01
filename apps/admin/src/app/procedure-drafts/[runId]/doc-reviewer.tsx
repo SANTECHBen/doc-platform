@@ -8,10 +8,12 @@ import {
   CheckCircle2,
   FileText,
   Image as ImageIcon,
+  ImagePlus,
   Loader2,
   Rocket,
   ShieldAlert,
   Trash2,
+  X,
   XCircle,
 } from 'lucide-react';
 import { useToast } from '@/components/toast';
@@ -193,21 +195,10 @@ export function DocDraftReviewer({ runId }: { runId: string }) {
   function removeStep(i: number) {
     setSteps((prev) => (prev ? prev.filter((_, idx) => idx !== i) : prev));
   }
-  function toggleFigure(i: number, figureId: string) {
-    setSteps((prev) =>
-      prev
-        ? prev.map((s, idx) => {
-            if (idx !== i) return s;
-            const has = s.figureRefs.includes(figureId);
-            return {
-              ...s,
-              figureRefs: has
-                ? s.figureRefs.filter((f) => f !== figureId)
-                : [...s.figureRefs, figureId],
-            };
-          })
-        : prev,
-    );
+  function setFigureRefs(i: number, figureIds: string[]) {
+    // Dedupe defensively; order preserved.
+    const unique = [...new Set(figureIds)];
+    setSteps((prev) => (prev ? prev.map((s, idx) => (idx === i ? { ...s, figureRefs: unique } : s)) : prev));
   }
 
   const crumbs = [
@@ -360,7 +351,7 @@ export function DocDraftReviewer({ runId }: { runId: string }) {
                 figuresById={figuresById}
                 onChange={(patch) => updateStep(i, patch)}
                 onRemove={() => removeStep(i)}
-                onToggleFigure={(fid) => toggleFigure(i, fid)}
+                onSetFigureRefs={(ids) => setFigureRefs(i, ids)}
               />
             ))}
           </div>
@@ -472,7 +463,7 @@ function DocStepCard({
   figuresById,
   onChange,
   onRemove,
-  onToggleFigure,
+  onSetFigureRefs,
 }: {
   index: number;
   step: AdminDraftDocStepProposal;
@@ -480,8 +471,26 @@ function DocStepCard({
   figuresById: Map<string, AdminDraftFigureThumb>;
   onChange: (patch: Partial<AdminDraftDocStepProposal>) => void;
   onRemove: () => void;
-  onToggleFigure: (figureId: string) => void;
+  onSetFigureRefs: (figureIds: string[]) => void;
 }) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  // The figures actually attached to this step, in ref order, skipping any
+  // that no longer exist in the manifest.
+  const attached = step.figureRefs
+    .map((id) => figuresById.get(id))
+    .filter((f): f is AdminDraftFigureThumb => !!f);
+
+  function removeFigure(figureId: string) {
+    onSetFigureRefs(step.figureRefs.filter((id) => id !== figureId));
+  }
+  function toggleInPicker(figureId: string) {
+    if (step.figureRefs.includes(figureId)) {
+      onSetFigureRefs(step.figureRefs.filter((id) => id !== figureId));
+    } else {
+      onSetFigureRefs([...step.figureRefs, figureId]);
+    }
+  }
+
   return (
     <div className="rounded-md border border-line bg-surface">
       <div className="flex items-center gap-2 border-b border-line-subtle px-3 py-1.5">
@@ -547,37 +556,84 @@ function DocStepCard({
           />
         </label>
 
-        {/* Figures */}
+        {/* Figure(s) on this step — show only the attached one(s); the full
+            gallery is hidden behind the picker so steps don't all look alike. */}
         {figures.length > 0 && (
           <div className="flex flex-col gap-1.5">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-tertiary">
-              Figures on this step
-            </span>
-            <div className="flex flex-wrap gap-2">
-              {figures.map((f) => {
-                const on = step.figureRefs.includes(f.figureId);
-                return (
-                  <button
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-tertiary">
+                Figure
+              </span>
+              <button
+                type="button"
+                onClick={() => setPickerOpen((v) => !v)}
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline"
+              >
+                <ImagePlus size={12} />
+                {pickerOpen ? 'Done' : attached.length > 0 ? 'Replace' : 'Add figure'}
+              </button>
+            </div>
+
+            {/* Attached figures (the selected ones). */}
+            {attached.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {attached.map((f) => (
+                  <figure
                     key={f.figureId}
-                    type="button"
-                    onClick={() => onToggleFigure(f.figureId)}
-                    title={f.caption ?? f.figureId}
-                    className={[
-                      'relative h-12 w-12 overflow-hidden rounded border-2 transition',
-                      on ? 'border-accent' : 'border-line opacity-50 hover:opacity-100',
-                    ].join(' ')}
+                    className="relative w-28 overflow-hidden rounded border border-line bg-surface-raised"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={f.url} alt={f.figureId} className="h-full w-full object-cover" />
-                    {on && (
-                      <span className="absolute inset-x-0 bottom-0 bg-accent/80 text-center text-[8px] text-white">
-                        on
-                      </span>
+                    <img src={f.url} alt={f.caption ?? f.figureId} className="aspect-video w-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removeFigure(f.figureId)}
+                      aria-label="Remove figure"
+                      className="absolute right-1 top-1 rounded bg-surface/90 p-0.5 text-ink-tertiary shadow hover:text-signal-fault"
+                    >
+                      <X size={12} />
+                    </button>
+                    {f.caption && (
+                      <figcaption className="truncate px-1.5 py-1 text-[9px] text-ink-tertiary" title={f.caption}>
+                        {f.caption}
+                      </figcaption>
                     )}
-                  </button>
-                );
-              })}
-            </div>
+                  </figure>
+                ))}
+              </div>
+            ) : (
+              !pickerOpen && (
+                <p className="text-[11px] text-ink-tertiary">No figure on this step.</p>
+              )
+            )}
+
+            {/* Picker — the full gallery, only when Replace/Add is open. */}
+            {pickerOpen && (
+              <div className="mt-1 grid grid-cols-4 gap-2 rounded-md border border-line bg-surface-raised p-2 sm:grid-cols-6">
+                {figures.map((f) => {
+                  const on = step.figureRefs.includes(f.figureId);
+                  return (
+                    <button
+                      key={f.figureId}
+                      type="button"
+                      onClick={() => toggleInPicker(f.figureId)}
+                      title={f.caption ?? f.figureId}
+                      className={[
+                        'relative aspect-square overflow-hidden rounded border-2 transition',
+                        on ? 'border-accent' : 'border-line opacity-60 hover:opacity-100',
+                      ].join(' ')}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={f.url} alt={f.figureId} className="h-full w-full object-cover" />
+                      {on && (
+                        <span className="absolute inset-x-0 bottom-0 bg-accent/80 text-center text-[8px] text-white">
+                          ✓
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
