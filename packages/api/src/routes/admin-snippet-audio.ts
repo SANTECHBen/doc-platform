@@ -100,7 +100,13 @@ function buildSnippetScript(snippet: typeof schema.procedureSnippets.$inferSelec
     }
   }
   const body = bodyParts.join(' ').replace(/\s+/g, ' ').trim();
-  return body ? `${lead}. ${body}` : lead;
+  if (!body) return lead;
+  // Smart join — skip the ". " separator if `lead` already ends with
+  // sentence-terminating punctuation, so we don't produce
+  // "Title.. body" when an author wrote the snippet title as a full
+  // sentence.
+  const endsWithStop = /[.!?]$/.test(lead);
+  return `${lead}${endsWithStop ? ' ' : '. '}${body}`;
 }
 
 const GenerateBody = z.object({

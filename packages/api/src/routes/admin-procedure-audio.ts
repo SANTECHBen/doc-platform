@@ -127,7 +127,21 @@ function buildSpokenScript(input: {
       .replace(/\s+/g, ' ')
       .trim();
   }
-  return body ? `${lead}. ${body}` : lead;
+  return body ? joinSentences(lead, body) : lead;
+}
+
+// Join two narration chunks with a single ". " separator — but only when
+// the first chunk doesn't already end in sentence-terminating punctuation.
+// Without this guard, a title that is itself a full sentence ("Verify the
+// sprockets are aligned.") followed by a block produced double-periods in
+// the spoken script ("Verify the sprockets are aligned.. next sentence").
+function joinSentences(a: string, b: string): string {
+  const left = a.replace(/\s+$/, '');
+  const right = b.replace(/^\s+/, '');
+  if (left.length === 0) return right;
+  if (right.length === 0) return left;
+  const endsWithStop = /[.!?]$/.test(left);
+  return `${left}${endsWithStop ? ' ' : '. '}${right}`;
 }
 
 const GenerateBody = z.object({

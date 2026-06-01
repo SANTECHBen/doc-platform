@@ -50,7 +50,20 @@ export function buildSpokenScript(step: AdminProcedureStep): string {
       .replace(/\s+/g, ' ')
       .trim();
   }
-  return body ? `${lead}. ${body}` : lead;
+  return body ? joinSentences(lead, body) : lead;
+}
+
+/** Join two narration chunks with a single ". " separator — but only
+ *  when the first chunk doesn't already end in sentence-terminating
+ *  punctuation. Avoids the double-period when a title is itself a full
+ *  sentence ("Verify the sprockets... .. Align Sprockets"). */
+function joinSentences(a: string, b: string): string {
+  const left = a.replace(/\s+$/, '');
+  const right = b.replace(/^\s+/, '');
+  if (left.length === 0) return right;
+  if (right.length === 0) return left;
+  const endsWithStop = /[.!?]$/.test(left);
+  return `${left}${endsWithStop ? ' ' : '. '}${right}`;
 }
 
 /** Convenience for callers that only need the character count (bulk
