@@ -130,8 +130,12 @@ const StepCreateBody = z
     kind: StepKindEnum,
     // Allow empty titles on create — the CMS pattern is to add an empty
     // step card the user types into inline. The runner renders "Untitled
-    // step" when blank so the row is still scannable.
-    title: z.string().max(200),
+    // step" when blank so the row is still scannable. Cap at 500: the DB
+    // column is unbounded `text`, and step titles ingested from OEM docs
+    // (or pasted full-sentence instructions) routinely run past a terse
+    // heading. The admin title input enforces the same 500 via maxLength
+    // so the debounced autosave can't silently 400 — keep the two in sync.
+    title: z.string().max(500),
     bodyMarkdown: z.string().max(10000).nullable().optional(),
     safetyCritical: z.boolean().optional(),
     orderingHint: z.number().int().optional(),
@@ -176,7 +180,10 @@ const StepCreateBody = z
 const StepPatchBody = z
   .object({
     kind: StepKindEnum.optional(),
-    title: z.string().max(200).optional(),
+    // 500 to match StepCreateBody + the admin input's maxLength. Was 200,
+    // which silently 400'd the debounced autosave whenever a title grew
+    // past a terse heading (ingested / pasted instruction text).
+    title: z.string().max(500).optional(),
     bodyMarkdown: z.string().max(10000).nullable().optional(),
     safetyCritical: z.boolean().optional(),
     orderingHint: z.number().int().optional(),

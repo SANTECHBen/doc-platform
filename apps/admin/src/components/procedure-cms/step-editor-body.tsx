@@ -354,6 +354,11 @@ export function StepEditorBody({
           type="text"
           value={title}
           onChange={(e) => onTitleChange(e.target.value)}
+          // Hard-stop at the server's StepPatchBody.title cap (500). Without
+          // this, typing/pasting a longer title let the debounced autosave
+          // fire a PATCH that silently 400'd ("title too big") with no UI
+          // feedback — the edit just never persisted.
+          maxLength={500}
           placeholder={
             step.snippetBadge && !step.snippetBadge.detached
               ? `Override snippet title (or leave blank to use "${step.snippetBadge.title}")`
