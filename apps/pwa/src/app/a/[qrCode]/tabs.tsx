@@ -158,18 +158,9 @@ export function AssetHubTabs({ hub, qrCode }: { hub: AssetHubPayload; qrCode: st
     // the hash so we sync to Overview without requiring the user to use
     // the phone's back button.
     window.addEventListener('asset-hub:tab', onPop);
-    // Topbar's tablet+ "Create" button dispatches this. On phones the
-    // bottom-bar FAB calls setCreateSheetOpen directly; tablet/desktop
-    // hide the bottom bar entirely, so the topbar button is the only
-    // entry point at those widths.
-    function onCreateRequested() {
-      setCreateSheetOpen(true);
-    }
-    window.addEventListener('asset-hub:create', onCreateRequested);
     return () => {
       window.removeEventListener('popstate', onPop);
       window.removeEventListener('asset-hub:tab', onPop);
-      window.removeEventListener('asset-hub:create', onCreateRequested);
     };
   }, []);
 
@@ -704,18 +695,15 @@ function TabBar({
   active: TabKey;
   setActive: (k: TabKey) => void;
   position: 'top' | 'bottom';
-  /** Center "+" FAB tap handler. Renders only on the bottom bar — the
-   *  top bar uses the four flat tabs without an authoring entry point
-   *  because the FAB needs to sit on top of content, which only the
-   *  bottom bar guarantees. */
+  /** Center "+" FAB tap handler. Renders into whichever bar is the
+   *  visible one for the viewport — bottom on phones, top on tablet+.
+   *  The other bar is hidden via CSS so the FAB never doubles up. */
   onCreateTap?: () => void;
 }) {
   const className = `app-tabbar ${position === 'top' ? 'app-tabbar-top' : 'app-tabbar-bottom'}`;
   // YouTube layout: two flat tabs, then the raised FAB, then the
-  // remaining flat tabs. Split the tab list at the midpoint and
-  // interleave the FAB in the bottom bar. The top bar keeps a simple
-  // four-flat-tab layout (no FAB) to avoid duplicating the prominent
-  // create affordance.
+  // remaining flat tabs. Same split renders in both top and bottom
+  // bars; CSS shows only the one that matches the current viewport.
   const half = Math.ceil(TABS.length / 2);
   const lead = TABS.slice(0, half);
   const tail = TABS.slice(half);
@@ -766,7 +754,7 @@ function TabBar({
       </button>
     );
   };
-  if (position === 'bottom' && onCreateTap) {
+  if (onCreateTap) {
     return (
       <nav className={className} role="tablist" aria-label="Sections">
         {lead.map((t, i) => renderTab(t, i))}

@@ -843,46 +843,6 @@
   flex-shrink: 0;
 }
 
-/* Topbar "Create" button — tablet+ equivalent of the bottom-bar FAB.
-   Phones hide this and rely on the FAB; tablet/desktop hide the FAB
-   (the bottom bar is gone) and rely on this. Brand-tinted pill so it
-   sits at the same affordance weight as the FAB without competing
-   with the OEM logo on the left side of the bar. */
-.app-topbar-create {
-  display: none;
-  appearance: none;
-  border: 0;
-  align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 12px;
-  border-radius: 8px;
-  background: rgb(var(--brand));
-  color: rgb(var(--brand-on-primary, 255 255 255));
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  cursor: pointer;
-  transition:
-    background 120ms ease,
-    transform 120ms ease;
-}
-.app-topbar-create:hover {
-  background: rgb(var(--brand-strong));
-}
-.app-topbar-create:active {
-  transform: translateY(1px);
-}
-.app-topbar-create:focus-visible {
-  outline: 2px solid rgb(var(--brand) / 0.6);
-  outline-offset: 2px;
-}
-@media (min-width: 768px) {
-  .app-topbar-create {
-    display: inline-flex;
-  }
-}
-
 /* Compact asset chip — shown on every tab EXCEPT Overview so the tech
    never loses identity context. Status LED + asset name only — no
    thumbnail, no serial number. Per UX feedback the chip should read
@@ -1149,6 +1109,15 @@
 .app-tabbar-fab:focus-visible {
   outline: 2px solid rgb(var(--brand));
   outline-offset: 3px;
+}
+/* When the FAB lives in the top tabbar (tablet+), drop the upward lift —
+   the bar sits under the topbar (z:40), so a -6px translate clips the
+   FAB behind it. Keep the strong shadow; sit flush with the tab icons. */
+.app-tabbar-top .app-tabbar-fab {
+  transform: none;
+}
+.app-tabbar-top .app-tabbar-fab:active {
+  transform: translateY(1px);
 }
 
 /* Create-procedure bottom sheet — slides up from the bottom edge when
