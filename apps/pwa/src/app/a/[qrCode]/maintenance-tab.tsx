@@ -1414,11 +1414,17 @@ function HistoryRow({ record }: { record: PmServiceRecordItem }) {
     ? 'SCHEDULE'
     : record.pmPlan
       ? 'PM PLAN'
-      : 'AD-HOC';
+      : record.procedureRun?.category === 'removal_replacement'
+        ? 'R&R'
+        : record.procedureRun?.category === 'troubleshooting'
+          ? 'TROUBLESHOOT'
+          : 'AD-HOC';
   const title = record.pmSchedule?.name
     ?? (record.pmPlan
       ? `${record.pmPlan.name} · ${record.pmPlan.frequencyLabel}`
-      : null);
+      : record.procedureRun
+        ? record.document?.title ?? null
+        : null);
   return (
     <div className="maintenance-history-row">
       <div className="flex items-start justify-between gap-3">
@@ -1431,7 +1437,7 @@ function HistoryRow({ record }: { record: PmServiceRecordItem }) {
               <span className="italic text-ink-tertiary">Ad-hoc service</span>
             )}
           </div>
-          {record.document && (
+          {record.document && !record.procedureRun && (
             <div className="text-xs text-ink-tertiary">
               {record.document.title}
             </div>

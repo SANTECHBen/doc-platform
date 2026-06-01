@@ -668,9 +668,17 @@ export interface PmServiceRecordItem {
   /** Set when this record is a schedule-based mark (PmServiceRecord). */
   pmSchedule: { id: string; name: string } | null;
   /** Set when this record is a plan-bucket mark (PmPlanServiceRecord) —
-   *  one of pmSchedule / pmPlan is non-null per row. The frequencyLabel
-   *  is the friendly bucket name ("Daily" / "Monthly" / ...). */
+   *  one of pmSchedule / pmPlan / procedureRun is non-null per row. The
+   *  frequencyLabel is the friendly bucket name ("Daily" / "Monthly" / ...). */
   pmPlan: { id: string; name: string; frequencyLabel: string } | null;
+  /** Set when this row is a completed Removal & Replacement or
+   *  Troubleshooting procedure run (those have no PM service-record table,
+   *  so History surfaces the run directly). The procedure title is in
+   *  `document.title`. */
+  procedureRun: {
+    id: string;
+    category: 'removal_replacement' | 'troubleshooting';
+  } | null;
   document: { id: string; title: string } | null;
   /** null when the org allows anonymous PWA writes and no tech was
    *  signed in — surfaces as "Field tech" in History. */

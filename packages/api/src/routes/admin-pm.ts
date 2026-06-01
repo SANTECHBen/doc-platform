@@ -409,12 +409,17 @@ export async function computePmStatusForInstance(
     };
   });
 
-  // 3. Recent history — union of schedule-based AND plan-bucket records.
-  //    Both kinds get marked via "Mark performed" on the PWA, so a tech
-  //    expects to see both reflected in History. Prior to this merge,
-  //    plan-bucket marks were saved server-side but never surfaced
-  //    here, making the History count look stuck.
-  const [scheduleHistory, planHistory] = await Promise.all([
+  // 3. Recent history — union of schedule-based PM records, plan-bucket PM
+  //    records, AND completed structured-procedure runs (Removal &
+  //    Replacement + Troubleshooting). PMs are marked via "Mark performed"
+  //    and land in the two pm_*_service_records tables; R&R and
+  //    Troubleshooting have no service-record table, so their completions
+  //    live only in procedure_runs (status='completed'). A tech expects
+  //    History to show every procedure they finished on the asset, not
+  //    just PMs — so we fold those runs in here. PM-category runs are
+  //    deliberately excluded to avoid double-counting against the PM
+  //    service records above.
+  const [scheduleHistory, planHistory, procedureHistory] = await Promise.all([
     db.query.pmServiceRecords.findMany({
       where: eq(schema.pmServiceRecords.assetInstanceId, instance.id),
       orderBy: [desc(schema.pmServiceRecords.performedAt)],
@@ -434,6 +439,20 @@ export async function computePmStatusForInstance(
         performedBy: { columns: { id: true, displayName: true } },
       },
     }),
+    db.query.procedureRuns.findMany({
+      where: and(
+        eq(schema.procedureRuns.assetInstanceId, instance.id),
+        eq(schema.procedureRuns.status, 'completed'),
+      ),
+      orderBy: [desc(schema.procedureRuns.completedAt)],
+      limit: 20,
+      with: {
+        document: {
+          columns: { id: true, title: true, procedureMetadata: true },
+        },
+        user: { columns: { id: true, displayName: true } },
+      },
+    }),
   ]);
 
   // Merge + sort + cap at 20. Plan records carry a pmPlan field with
@@ -445,6 +464,13 @@ export async function computePmStatusForInstance(
     id: string;
     pmSchedule: { id: string; name: string } | null;
     pmPlan: { id: string; name: string; frequencyLabel: string } | null;
+    // Set when this row is a completed R&R / Troubleshooting procedure run
+    // (no service-record table exists for those). Mutually exclusive with
+    // pmSchedule / pmPlan. `category` lets the PWA label the row.
+    procedureRun: {
+      id: string;
+      category: 'removal_replacement' | 'troubleshooting';
+    } | null;
     document: { id: string; title: string } | null;
     performedBy: { id: string; displayName: string } | null;
     performedAt: string;
@@ -458,6 +484,7 @@ export async function computePmStatusForInstance(
           ? { id: h.schedule.id, name: h.schedule.name }
           : null,
         pmPlan: null,
+        procedureRun: null,
         document: h.document
           ? { id: h.document.id, title: h.document.title }
           : null,
@@ -479,6 +506,7 @@ export async function computePmStatusForInstance(
               frequencyLabel: PM_PLAN_FREQUENCY_LABEL[h.frequency],
             }
           : null,
+        procedureRun: null,
         document: null,
         performedBy: h.performedBy
           ? { id: h.performedBy.id, displayName: h.performedBy.displayName }
@@ -487,6 +515,33 @@ export async function computePmStatusForInstance(
         notes: h.notes,
       }),
     ),
+    // Completed R&R + Troubleshooting runs. Filter by the document's
+    // authored category; PM-category runs are skipped (covered above by
+    // service records) and runs whose document was deleted (documentId
+    // set null → no category) are dropped since they can't be classified.
+    // completedAt is non-null for status='completed' rows.
+    ...procedureHistory
+      .map((run): HistoryItem | null => {
+        const category = run.document?.procedureMetadata?.category ?? null;
+        if (category !== 'removal_replacement' && category !== 'troubleshooting') {
+          return null;
+        }
+        return {
+          id: run.id,
+          pmSchedule: null,
+          pmPlan: null,
+          procedureRun: { id: run.id, category },
+          document: run.document
+            ? { id: run.document.id, title: run.document.title }
+            : null,
+          performedBy: run.user
+            ? { id: run.user.id, displayName: run.user.displayName }
+            : null,
+          performedAt: (run.completedAt ?? run.startedAt).toISOString(),
+          notes: null,
+        };
+      })
+      .filter((x): x is HistoryItem => x !== null),
   ]
     .sort((a, b) => b.performedAt.localeCompare(a.performedAt))
     .slice(0, 20);
