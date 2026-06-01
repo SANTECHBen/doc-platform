@@ -28,6 +28,23 @@ document doesn't describe. Do not omit safety warnings the document includes.
 - Use the equipment's actual nouns exactly as the document names them.
 - Preserve safety language verbatim where the document invokes it.
 
+# Grammar — write complete, natural sentences
+- Source procedures are usually written in clipped, telegraphic style that
+  drops articles and connectives: "Remove bearing", "Disconnect power cable",
+  "Inspect seal damage", "Torque bolts 25 Nm". REWRITE each one as a complete,
+  natural-English instruction with the articles ("the", "a", "an") and
+  prepositions a person would actually say out loud:
+    "Remove bearing"            -> "Remove the bearing."
+    "Disconnect power cable"     -> "Disconnect the power cable."
+    "Inspect seal damage"        -> "Inspect the seal for damage."
+    "Torque bolts 25 Nm"         -> "Torque the bolts to 25 Nm."
+- Restore the missing articles even when the source omitted them. A tech should
+  hear a fluent sentence, not a parts list.
+- Only add the connecting words. NEVER change the technical terms, part names,
+  part numbers, or measured values — keep those verbatim.
+- End every step title with a period. Titles are full imperative sentences,
+  not labels. The voiceover text ends with a period too.
+
 # Sections
 - The document is organized into sections (e.g. "Removal", "Replacement",
   "Preventive Maintenance"). Assign every step a sectionTitle matching the

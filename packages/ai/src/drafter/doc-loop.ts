@@ -55,6 +55,30 @@ export interface DocDrafterLoopResult {
 
 const DEFAULT_MODEL = 'anthropic/claude-opus-4.7';
 
+/**
+ * Ensure an imperative instruction ends with terminal punctuation. The prompt
+ * asks the model to end every title/voiceover with a period, but enforce it
+ * deterministically so a forgotten full stop never reaches a published step.
+ * Leaves existing sentence punctuation (. ! ?) and a trailing colon alone.
+ *
+ * `maxLen` keeps the result within the schema's length bound: if adding the
+ * period would overflow, trim a char first so the appended period fits
+ * (the final proposal is re-validated against title<=200 / voiceover<=2000,
+ * so an off-by-one overflow would otherwise fail the whole draft).
+ * Exported for unit testing.
+ */
+export function ensureTerminalPeriod(text: string, maxLen?: number): string {
+  let trimmed = text.trimEnd();
+  if (trimmed.length === 0) return trimmed;
+  if (/[.!?:]$/.test(trimmed)) {
+    return maxLen != null ? trimmed.slice(0, maxLen) : trimmed;
+  }
+  if (maxLen != null && trimmed.length + 1 > maxLen) {
+    trimmed = trimmed.slice(0, maxLen - 1).trimEnd();
+  }
+  return `${trimmed}.`;
+}
+
 export async function runDocDrafterLoop(
   options: DocDrafterLoopOptions,
 ): Promise<DocDrafterLoopResult> {
@@ -99,6 +123,11 @@ export async function runDocDrafterLoop(
             validFigureIds.has(id),
           );
         }
+        // Enforce terminal punctuation on the visible title and the spoken
+        // voiceover (the prompt asks for it; this guarantees it). Bounded to
+        // the schema's max lengths so the final re-validation can't overflow.
+        input.title = ensureTerminalPeriod(input.title, 200);
+        input.voiceoverText = ensureTerminalPeriod(input.voiceoverText, 2000);
         proposedSteps.push(input);
         options.onStepEmitted?.(input);
         return { accepted: true, index: proposedSteps.length - 1 };
