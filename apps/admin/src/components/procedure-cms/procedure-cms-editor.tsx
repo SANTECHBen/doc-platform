@@ -71,6 +71,8 @@ import { parseVideoEmbed } from '@platform/shared';
 import { useToast } from '@/components/toast';
 import { ErrorBanner } from '@/components/form';
 import { StepCard } from './step-card';
+import { StepByStepBody } from './step-by-step-body';
+import { LayoutList, Rows3 } from 'lucide-react';
 
 interface Props {
   doc: AdminDocumentDetail;
@@ -149,6 +151,65 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
   }, [doc.ownerOrganizationId]);
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
 
+  // View mode — List (default, every step as a card in a vertical list)
+  // or Step (single-step focus with a sidebar rail). Same data, same
+  // handlers, different layout. Preference persists across procedures
+  // (per-browser) so an author who likes Step view doesn't re-pick on
+  // every doc.
+  const [viewMode, setViewMode] = useState<'list' | 'step'>(() => {
+    if (typeof window === 'undefined') return 'list';
+    // URL wins when present (share-link / refresh). Otherwise fall back
+    // to the localStorage preference.
+    try {
+      const url = new URL(window.location.href);
+      const v = url.searchParams.get('view');
+      if (v === 'step' || v === 'list') return v;
+      const stored = window.localStorage.getItem('eh:proc-view-mode');
+      if (stored === 'step' || stored === 'list') return stored;
+    } catch {
+      // ignore parse / storage errors
+    }
+    return 'list';
+  });
+  // Currently-focused step in Step view. Stored in URL for refresh /
+  // share-link continuity. On mount we read it; later changes are pushed
+  // via history.replaceState so the back button doesn't trap inside step
+  // view.
+  const [currentStepId, setCurrentStepIdState] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const url = new URL(window.location.href);
+      return url.searchParams.get('stepId');
+    } catch {
+      return null;
+    }
+  });
+  function setCurrentStepId(next: string | null) {
+    setCurrentStepIdState(next);
+    if (typeof window === 'undefined') return;
+    try {
+      const url = new URL(window.location.href);
+      if (next) url.searchParams.set('stepId', next);
+      else url.searchParams.delete('stepId');
+      window.history.replaceState({}, '', url.toString());
+    } catch {
+      // ignore — URL update is best-effort
+    }
+  }
+  function changeViewMode(next: 'list' | 'step') {
+    setViewMode(next);
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem('eh:proc-view-mode', next);
+      const url = new URL(window.location.href);
+      if (next === 'step') url.searchParams.set('view', 'step');
+      else url.searchParams.delete('view');
+      window.history.replaceState({}, '', url.toString());
+    } catch {
+      // ignore
+    }
+  }
+
   const toast = useToast();
 
   // Sync local mirrors when props change (e.g. after onChanged() refresh).
@@ -158,6 +219,34 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
   useEffect(() => {
     setLocalSections(sections);
   }, [sections]);
+
+  // Keep currentStepId valid: if it points at a step that's been deleted
+  // (or never existed), default to the first step in display order. Run
+  // whenever the step list changes or when we enter step view.
+  useEffect(() => {
+    if (viewMode !== 'step') return;
+    if (localSteps.length === 0) {
+      if (currentStepId !== null) setCurrentStepId(null);
+      return;
+    }
+    if (currentStepId && localSteps.some((s) => s.id === currentStepId)) return;
+    // Pick the first step in canonical display order.
+    const sortedSections = [...localSections].sort(
+      (a, b) => a.orderingHint - b.orderingHint,
+    );
+    const orphans = localSteps
+      .filter((s) => s.sectionId == null)
+      .sort((a, b) => a.orderingHint - b.orderingHint);
+    const inSections = sortedSections.flatMap((sec) =>
+      localSteps
+        .filter((s) => s.sectionId === sec.id)
+        .sort((a, b) => a.orderingHint - b.orderingHint),
+    );
+    const ordered = [...orphans, ...inSections];
+    const first = ordered[0] ?? localSteps[0];
+    if (first) setCurrentStepId(first.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, localSteps, localSections]);
 
   // Group steps by sectionId for display. Orphans (sectionId === null) get
   // the synthetic group at the top. Each explicit section gets its own group
@@ -260,8 +349,12 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
       // only consults the initial state, so a single render with this ID
       // matching is enough — no need to clear it back out.
       setFreshStepId(created.id);
+      // Step view: focus the freshly-added step so the author can type
+      // immediately. Harmless in list view (currentStepId is unused
+      // there; just remembered for the next mode toggle).
+      setCurrentStepId(created.id);
       endSave(true);
-      // Smooth-scroll to the new card so the focus is obvious.
+      // Smooth-scroll to the new card so the focus is obvious (list view).
       setTimeout(() => {
         document.getElementById(`cms-step-${created.id}`)?.scrollIntoView({
           behavior: 'smooth',
@@ -323,6 +416,9 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
       // Don't default-expand a snippet-backed step — its content is
       // read-only until detached, and the collapsed row already shows the
       // resolved title.
+      // Step view: still focus the inserted snippet so the author lands
+      // on it. They can detach + edit from there.
+      setCurrentStepId(created.id);
       endSave(true);
       setTimeout(() => {
         document.getElementById(`cms-step-${created.id}`)?.scrollIntoView({
@@ -590,6 +686,9 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
           {' · '}
           {hasAudioCount} with voiceover
         </span>
+        {/* View mode toggle — List (the existing card-list view) vs.
+            Step (one-step focus with a left rail). Persists per browser. */}
+        <ViewModeToggle value={viewMode} onChange={changeViewMode} />
         <div className="ml-auto flex items-center gap-2">
           <button
             type="button"
@@ -628,15 +727,48 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
 
       {/* Intro video — procedure-level. Renders on the PWA's Step 0
           landing page in Job Aid view and at the top of the scroll
-          view. Optional; only matters for training-style procedures. */}
-      {doc.kind === 'structured_procedure' && (
+          view. Optional; only matters for training-style procedures.
+          Shown in List view only; Step view focuses on per-step
+          authoring — procedure-level metadata stays accessible by
+          toggling back to List. */}
+      {doc.kind === 'structured_procedure' && viewMode === 'list' && (
         <>
           <HeroVideoSection doc={doc} onChanged={onChanged} />
           <OverviewSection doc={doc} onChanged={onChanged} />
         </>
       )}
 
-      {empty && localSections.length === 0 ? (
+      {viewMode === 'step' ? (
+        <StepByStepBody
+          steps={localSteps}
+          sections={localSections}
+          currentStepId={currentStepId}
+          setCurrentStepId={setCurrentStepId}
+          onPatch={patchStep}
+          onDeleteStep={deleteStep}
+          onAudioChanged={(stepId, next) =>
+            setLocalSteps((prev) =>
+              prev.map((p) => (p.id === stepId ? next : p)),
+            )
+          }
+          onMoveStepToSection={moveStepToSection}
+          onAddStep={addStep}
+          onAddSection={addSection}
+          onRenameSection={renameSection}
+          onDeleteSection={removeSection}
+          onDragStart={onDragStart}
+          onDragOver={onDragOver}
+          onDrop={onDrop}
+          onDragEnd={onDragEnd}
+          dragId={dragId}
+          dropTargetId={dropTargetId}
+          siblingProcedures={siblingProcedures}
+          categories={categories}
+          onManageCategories={() => setCategoryManagerOpen(true)}
+          bulkBusy={bulkBusy}
+          freshStepId={freshStepId}
+        />
+      ) : empty && localSections.length === 0 ? (
         <EmptyState onAdd={() => addStep(null)} />
       ) : (
         <div className="flex flex-col gap-6">
@@ -719,34 +851,39 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
         </div>
       )}
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
-        <button
-          type="button"
-          onClick={() => addStep(null)}
-          className="group flex flex-1 items-center justify-center gap-2 rounded-md border border-dashed border-line bg-surface px-4 py-4 text-sm font-medium text-ink-secondary transition hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
-        >
-          <Plus className="size-4 transition group-hover:rotate-90" />
-          Add step
-        </button>
-        <button
-          type="button"
-          onClick={() => setSnippetPickerSectionId(null)}
-          className="group flex flex-1 items-center justify-center gap-2 rounded-md border border-dashed border-line bg-surface px-4 py-4 text-sm font-medium text-ink-secondary transition hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
-          title="Insert a reusable step (Lockout-Tagout, Safety Briefing, etc.). Edits to the snippet propagate to every step that uses it."
-        >
-          <Puzzle className="size-4" />
-          Insert snippet
-        </button>
-        <button
-          type="button"
-          onClick={addSection}
-          className="group flex flex-1 items-center justify-center gap-2 rounded-md border border-dashed border-line bg-surface px-4 py-4 text-sm font-medium text-ink-secondary transition hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
-          title='Add a named section (e.g. "Removal", "Replacement"). Step numbers restart inside each section.'
-        >
-          <Plus className="size-4 transition group-hover:rotate-90" />
-          Add section
-        </button>
-      </div>
+      {/* List-view-only trailing add affordances. Step view's rail has
+          equivalent "+ Add step" / "+ Add section" buttons inline, so
+          rendering these again would be duplicate UI. */}
+      {viewMode === 'list' && (
+        <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
+          <button
+            type="button"
+            onClick={() => addStep(null)}
+            className="group flex flex-1 items-center justify-center gap-2 rounded-md border border-dashed border-line bg-surface px-4 py-4 text-sm font-medium text-ink-secondary transition hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
+          >
+            <Plus className="size-4 transition group-hover:rotate-90" />
+            Add step
+          </button>
+          <button
+            type="button"
+            onClick={() => setSnippetPickerSectionId(null)}
+            className="group flex flex-1 items-center justify-center gap-2 rounded-md border border-dashed border-line bg-surface px-4 py-4 text-sm font-medium text-ink-secondary transition hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
+            title="Insert a reusable step (Lockout-Tagout, Safety Briefing, etc.). Edits to the snippet propagate to every step that uses it."
+          >
+            <Puzzle className="size-4" />
+            Insert snippet
+          </button>
+          <button
+            type="button"
+            onClick={addSection}
+            className="group flex flex-1 items-center justify-center gap-2 rounded-md border border-dashed border-line bg-surface px-4 py-4 text-sm font-medium text-ink-secondary transition hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
+            title='Add a named section (e.g. "Removal", "Replacement"). Step numbers restart inside each section.'
+          >
+            <Plus className="size-4 transition group-hover:rotate-90" />
+            Add section
+          </button>
+        </div>
+      )}
 
       <SnippetPickerModal
         open={snippetPickerSectionId !== undefined}
@@ -1043,6 +1180,60 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
       >
         <Plus className="size-4" />
         Add first step
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ViewModeToggle — pill that switches between List view (default card
+// list) and Step view (one-step focus with rail). Persists per-browser.
+// Lives in the sticky top bar next to the save-status pill.
+// ---------------------------------------------------------------------------
+function ViewModeToggle({
+  value,
+  onChange,
+}: {
+  value: 'list' | 'step';
+  onChange: (next: 'list' | 'step') => void;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Procedure editor view mode"
+      className="inline-flex rounded-md border border-line-subtle bg-surface p-0.5"
+    >
+      <button
+        type="button"
+        role="tab"
+        aria-selected={value === 'list'}
+        onClick={() => onChange('list')}
+        className={[
+          'inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition',
+          value === 'list'
+            ? 'bg-accent text-white shadow-sm'
+            : 'text-ink-secondary hover:text-ink-primary',
+        ].join(' ')}
+        title="List view — all steps as cards"
+      >
+        <Rows3 className="size-3.5" />
+        List
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={value === 'step'}
+        onClick={() => onChange('step')}
+        className={[
+          'inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition',
+          value === 'step'
+            ? 'bg-accent text-white shadow-sm'
+            : 'text-ink-secondary hover:text-ink-primary',
+        ].join(' ')}
+        title="Step view — one step at a time with a sidebar rail"
+      >
+        <LayoutList className="size-3.5" />
+        Step
       </button>
     </div>
   );
