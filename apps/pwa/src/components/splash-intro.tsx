@@ -114,12 +114,14 @@ export function SplashIntro() {
     }
 
     const plays = getSplashPlays();
+    console.info('[SplashIntro] mount', { plays, threshold: SPLASH_VIEW_THRESHOLD });
 
     // After N complete plays this device has earned the right to skip
     // the show. Hand off to the hub on the same frame — no animation,
     // no sound. The threshold-gate increment in this branch is so the
     // count keeps incrementing (useful for telemetry / future tuning).
     if (plays >= SPLASH_VIEW_THRESHOLD) {
+      console.info('[SplashIntro] threshold reached, skipping');
       setPhase('done');
       incrementSplashPlays();
       return;
@@ -134,6 +136,7 @@ export function SplashIntro() {
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
     if (reducedMotion) {
+      console.info('[SplashIntro] reduced-motion active, skipping animation');
       const t = window.setTimeout(() => {
         setPhase('done');
         incrementSplashPlays();
@@ -143,6 +146,7 @@ export function SplashIntro() {
       return () => clearTimers();
     }
 
+    console.info('[SplashIntro] animating');
     animatedRef.current = true;
 
     // Phase timing (~5.3s total).
