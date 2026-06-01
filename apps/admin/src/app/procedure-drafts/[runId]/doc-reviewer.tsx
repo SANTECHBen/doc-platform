@@ -7,7 +7,6 @@ import {
   AlertTriangle,
   ArrowLeft,
   FileText,
-  Image as ImageIcon,
   Loader2,
   Rocket,
   XCircle,
@@ -21,7 +20,6 @@ import {
   getProcedureDraft,
   pickProcedureDraftSections,
   type AdminDraftDetail,
-  type AdminDraftFigureThumb,
 } from '@/lib/api';
 
 // Reviewer for document-import drafts (sourceKind 'docx'|'pdf').
@@ -107,8 +105,6 @@ export function DocDraftReviewer({ runId }: { runId: string }) {
     router.push(`/procedures/${docId}/edit`);
   }, [status, detail?.run.targetDocumentId, router]);
 
-  const figures = detail?.figures ?? [];
-
   async function generate() {
     if (!selected || selected.size === 0) {
       toast.error('Pick at least one section', 'Select which procedures to generate.');
@@ -163,8 +159,10 @@ export function DocDraftReviewer({ runId }: { runId: string }) {
         description={
           <span className="inline-flex items-center gap-2 text-xs">
             <FileText size={14} />
-            {detail?.run.sourceKind === 'pdf' ? 'PDF' : 'Word'} import ·{' '}
-            {detail?.run.figureCount ?? 0} figure(s) extracted
+            {detail?.run.sourceKind === 'pdf' ? 'PDF' : 'Word'} import
+            {detail?.documentOutline
+              ? ` · ${detail.documentOutline.length} section(s) found`
+              : ''}
           </span>
         }
       />
@@ -179,15 +177,15 @@ export function DocDraftReviewer({ runId }: { runId: string }) {
 
       {/* ---- Section picker ---- */}
       {status === 'awaiting_section_pick' && (
-        <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+        <div className="flex max-w-2xl flex-col gap-3">
           <div className="flex flex-col gap-3">
             <h2 className="text-sm font-semibold text-ink-primary">
               Which procedures should we generate?
             </h2>
             <p className="text-xs text-ink-secondary">
               We found these sections in the document. Pick the ones to turn into a structured
-              procedure. The AI keeps your steps, callouts, and figures — you&rsquo;ll review and
-              refine everything in the Step Editor.
+              procedure. Figures are extracted only from the sections you select. The AI keeps your
+              steps and callouts — you&rsquo;ll review and refine everything in the Step Editor.
             </p>
             <div className="flex gap-2 text-xs">
               <button
@@ -252,7 +250,6 @@ export function DocDraftReviewer({ runId }: { runId: string }) {
               </PrimaryButton>
             </div>
           </div>
-          <FigureGallery figures={figures} />
         </div>
       )}
 
@@ -333,29 +330,3 @@ function StatusCard({ icon, children }: { icon: React.ReactNode; children: React
   );
 }
 
-function FigureGallery({ figures }: { figures: AdminDraftFigureThumb[] }) {
-  return (
-    <aside className="flex flex-col gap-2">
-      <p className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary">
-        <ImageIcon size={12} /> Extracted figures ({figures.length})
-      </p>
-      {figures.length === 0 ? (
-        <p className="text-[11px] text-ink-tertiary">
-          No figures were extracted. You can attach images per step later in the editor.
-        </p>
-      ) : (
-        <div className="grid grid-cols-2 gap-2">
-          {figures.map((f) => (
-            <figure key={f.figureId} className="overflow-hidden rounded-md border border-line bg-surface">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={f.url} alt={f.caption ?? f.figureId} className="aspect-square w-full object-cover" />
-              <figcaption className="truncate px-1.5 py-1 text-[9px] text-ink-tertiary" title={f.caption ?? f.figureId}>
-                {f.figureId}
-              </figcaption>
-            </figure>
-          ))}
-        </div>
-      )}
-    </aside>
-  );
-}

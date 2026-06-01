@@ -16,11 +16,19 @@
 import { extractPdf } from './pdf.js';
 import { extractDocx } from './docx.js';
 import { extractPptx } from './pptx.js';
-import { extractDocxWithFigures } from './docx-figures.js';
-import { extractPdfWithFigures } from './pdf-figures.js';
+import {
+  extractDocxWithFigures,
+  extractDocxText,
+  extractDocxFigureBytes,
+} from './docx-figures.js';
+import {
+  extractPdfWithFigures,
+  extractPdfText,
+  extractPdfFiguresForSlice,
+} from './pdf-figures.js';
 import type { ExtractionResult } from './types.js';
 import { ExtractionError } from './types.js';
-import type { FigureAwareExtraction } from './figures.js';
+import { attachCaptions, type ExtractedFigure, type FigureAwareExtraction } from './figures.js';
 
 export type { ExtractionResult, ExtractedPage } from './types.js';
 export { ExtractionError } from './types.js';
@@ -92,6 +100,57 @@ export async function extractWithFigures(
     default:
       throw new ExtractionError(
         `No figure-aware extractor for format "${format}" (kind=${input.kind}, contentType=${input.contentType})`,
+      );
+  }
+}
+
+/**
+ * Phase 1 of section-scoped import: extract just the markdown (with figure
+ * tokens for docx; page markers for pdf) so the admin can pick sections.
+ * Decodes NO figure image bytes — that's deferred to extractFiguresForSections
+ * so figures are only pulled from the sections actually selected.
+ */
+export async function extractDocumentText(
+  input: ExtractInput,
+): Promise<{ markdown: string; meta: ExtractionResult['meta'] }> {
+  const format = resolveFormat(input);
+  switch (format) {
+    case 'docx':
+      return extractDocxText(input.filePath);
+    case 'pdf':
+      return extractPdfText({ filePath: input.filePath, sourceUrl: input.sourceUrl });
+    default:
+      throw new ExtractionError(
+        `No text extractor for format "${format}" (kind=${input.kind}, contentType=${input.contentType})`,
+      );
+  }
+}
+
+/**
+ * Phase 2 of section-scoped import: decode + return figure image bytes ONLY
+ * for the figures inside `slicedMarkdown` (the selected sections). Returns the
+ * slice with figure tokens guaranteed present (pdf injects them here). The
+ * caller uploads the bytes and feeds the returned markdown to the LLM.
+ */
+export async function extractFiguresForSections(
+  input: ExtractInput,
+  slicedMarkdown: string,
+): Promise<{ figures: ExtractedFigure[]; markdown: string }> {
+  const format = resolveFormat(input);
+  switch (format) {
+    case 'docx': {
+      const wanted = new Set(
+        [...slicedMarkdown.matchAll(/\[\[FIGURE:(fig-\d+)\]\]/g)].map((m) => m[1]!),
+      );
+      const figures = await extractDocxFigureBytes(input.filePath, wanted);
+      attachCaptions(slicedMarkdown, figures);
+      return { figures, markdown: slicedMarkdown };
+    }
+    case 'pdf':
+      return extractPdfFiguresForSlice(input.filePath, slicedMarkdown);
+    default:
+      throw new ExtractionError(
+        `No figure extractor for format "${format}" (kind=${input.kind}, contentType=${input.contentType})`,
       );
   }
 }

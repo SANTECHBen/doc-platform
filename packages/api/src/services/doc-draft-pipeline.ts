@@ -20,13 +20,15 @@ import { pipeline } from 'node:stream/promises';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import {
-  extractWithFigures,
+  extractDocumentText,
+  extractFiguresForSections,
   runDocDrafterLoop,
   executeDocDrafter,
   type DraftDocFigure,
   type DraftDocProposalTree,
 } from '@platform/ai';
 import { schema, type DraftFigure } from '@platform/db';
+import type { Storage } from '../storage.js';
 import { agentBus, runChannel } from '../lib/agent-bus.js';
 
 const MIME_BY_KIND: Record<'docx' | 'pdf', string> = {
@@ -60,31 +62,106 @@ export async function startDocExtraction(
   }
   agentBus.publish(runChannel(runId, 'propose'), 'extracting', {});
 
-  // Download the source to a temp file — the docx/pdf extractors need a path.
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'docdraft-'));
-  const tmpPath = path.join(tmpDir, `source.${run.sourceKind}`);
+  // Phase 1: extract ONLY the markdown + outline (with figure tokens for docx,
+  // page markers for pdf). No figure image bytes are decoded or uploaded here —
+  // that's deferred to startDocDrafterLoop and scoped to the sections the admin
+  // selects, so we never process figures from sections they don't want.
+  const dl = await downloadSourceToTemp(storage, run.sourceStorageKey, run.sourceKind);
   try {
-    const streamed = await storage.stream(run.sourceStorageKey);
-    if (!streamed) throw new Error(`source not found in storage: ${run.sourceStorageKey}`);
-    await pipeline(streamed.stream, createWriteStream(tmpPath));
-
-    // sourceUrl lets LlamaParse pull the PDF directly in prod (S3 public
-    // base). In dev (FS storage) leave it null so the extractor uploads the
-    // temp file instead — a /files URL isn't reachable by LlamaParse.
     const sourceUrl = env.S3_PUBLIC_URL
       ? storage.publicUrl(run.sourceStorageKey)
       : null;
 
-    const extraction = await extractWithFigures({
-      filePath: tmpPath,
+    const { markdown } = await extractDocumentText({
+      filePath: dl.tmpPath,
       sourceUrl,
       contentType: MIME_BY_KIND[run.sourceKind],
       kind: run.sourceKind,
     });
 
-    // Upload each figure's bytes; build the persisted manifest (storage keys).
+    await db
+      .update(schema.procedureDraftRuns)
+      .set({
+        sourceMarkdown: markdown,
+        figuresManifest: null,
+        status: 'awaiting_section_pick',
+        error: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.procedureDraftRuns.id, runId));
+    agentBus.publish(runChannel(runId, 'propose'), 'awaiting_section_pick', {
+      sectionCount: deriveOutline(markdown).length,
+    });
+  } catch (err) {
+    await failRun(app, runId, err instanceof Error ? err.message : String(err));
+  } finally {
+    await dl.cleanup();
+  }
+}
+
+/** Stream a stored source document to a temp file the extractors can read. */
+async function downloadSourceToTemp(
+  storage: Storage,
+  storageKey: string,
+  kind: 'docx' | 'pdf',
+): Promise<{ tmpPath: string; cleanup: () => Promise<void> }> {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'docdraft-'));
+  const tmpPath = path.join(tmpDir, `source.${kind}`);
+  const streamed = await storage.stream(storageKey);
+  if (!streamed) throw new Error(`source not found in storage: ${storageKey}`);
+  await pipeline(streamed.stream, createWriteStream(tmpPath));
+  return {
+    tmpPath,
+    cleanup: () => fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 2. LLM loop — propose steps for the chosen sections.
+// ---------------------------------------------------------------------------
+
+export async function startDocDrafterLoop(
+  app: FastifyInstance,
+  runId: string,
+): Promise<void> {
+  const { db, storage, env } = app.ctx;
+  const run = await db.query.procedureDraftRuns.findFirst({
+    where: eq(schema.procedureDraftRuns.id, runId),
+  });
+  if (!run) return;
+  if (!run.sourceMarkdown || !run.sourceStorageKey) {
+    await failRun(app, runId, 'no extracted markdown to draft from');
+    return;
+  }
+
+  const sourceKind = run.sourceKind === 'pdf' ? 'pdf' : 'docx';
+  const selectedSections = run.selectedSectionTitles ?? [];
+  const slice = sliceMarkdownToSections(run.sourceMarkdown, selectedSections);
+
+  await db
+    .update(schema.procedureDraftRuns)
+    .set({ status: 'proposing', updatedAt: new Date() })
+    .where(eq(schema.procedureDraftRuns.id, runId));
+  agentBus.publish(runChannel(runId, 'propose'), 'proposing', {});
+
+  const dl = await downloadSourceToTemp(storage, run.sourceStorageKey, sourceKind);
+  try {
+    const sourceUrl = env.S3_PUBLIC_URL ? storage.publicUrl(run.sourceStorageKey) : null;
+
+    // Phase 2: decode + upload figure images ONLY for the selected sections.
+    // The returned markdown is the slice with figure tokens guaranteed present.
+    const { figures: extracted, markdown: tokenMarkdown } = await extractFiguresForSections(
+      {
+        filePath: dl.tmpPath,
+        sourceUrl,
+        contentType: MIME_BY_KIND[sourceKind],
+        kind: sourceKind,
+      },
+      slice,
+    );
+
     const manifest: DraftFigure[] = [];
-    for (const fig of extraction.figures) {
+    for (const fig of extracted) {
       const stored = await storage.putBuffer({
         buffer: fig.bytes,
         filename: `draft-${runId}-${fig.figureId}.${fig.mime === 'image/png' ? 'png' : 'jpg'}`,
@@ -101,57 +178,12 @@ export async function startDocExtraction(
         ...(fig.caption ? { caption: fig.caption } : {}),
       });
     }
-
     await db
       .update(schema.procedureDraftRuns)
-      .set({
-        sourceMarkdown: extraction.markdown,
-        figuresManifest: manifest,
-        status: 'awaiting_section_pick',
-        error: null,
-        updatedAt: new Date(),
-      })
+      .set({ figuresManifest: manifest, updatedAt: new Date() })
       .where(eq(schema.procedureDraftRuns.id, runId));
-    agentBus.publish(runChannel(runId, 'propose'), 'awaiting_section_pick', {
-      figureCount: manifest.length,
-      sectionCount: deriveOutline(extraction.markdown).length,
-    });
-  } catch (err) {
-    await failRun(app, runId, err instanceof Error ? err.message : String(err));
-  } finally {
-    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-  }
-}
 
-// ---------------------------------------------------------------------------
-// 2. LLM loop — propose steps for the chosen sections.
-// ---------------------------------------------------------------------------
-
-export async function startDocDrafterLoop(
-  app: FastifyInstance,
-  runId: string,
-): Promise<void> {
-  const { db } = app.ctx;
-  const run = await db.query.procedureDraftRuns.findFirst({
-    where: eq(schema.procedureDraftRuns.id, runId),
-  });
-  if (!run) return;
-  if (!run.sourceMarkdown) {
-    await failRun(app, runId, 'no extracted markdown to draft from');
-    return;
-  }
-
-  const selectedSections = run.selectedSectionTitles ?? [];
-  const markdown = sliceMarkdownToSections(run.sourceMarkdown, selectedSections);
-
-  // Only offer the LLM figures that actually appear in the sliced markdown.
-  const presentIds = new Set(
-    [...markdown.matchAll(/\[\[FIGURE:(fig-\d+)\]\]/g)].map((m) => m[1]!),
-  );
-  const manifest = run.figuresManifest ?? [];
-  const figures: DraftDocFigure[] = manifest
-    .filter((f) => presentIds.size === 0 || presentIds.has(f.figureId))
-    .map((f) => ({
+    const figures: DraftDocFigure[] = manifest.map((f) => ({
       figureId: f.figureId,
       storageKey: f.storageKey,
       mime: f.mime,
@@ -160,15 +192,8 @@ export async function startDocDrafterLoop(
       ...(f.caption ? { caption: f.caption } : {}),
     }));
 
-  await db
-    .update(schema.procedureDraftRuns)
-    .set({ status: 'proposing', updatedAt: new Date() })
-    .where(eq(schema.procedureDraftRuns.id, runId));
-  agentBus.publish(runChannel(runId, 'propose'), 'proposing', {});
-
-  try {
     const result = await runDocDrafterLoop({
-      markdown,
+      markdown: tokenMarkdown,
       selectedSections,
       figures,
       proposedTitle: run.proposedTitle,
@@ -219,6 +244,8 @@ export async function startDocDrafterLoop(
     });
   } catch (err) {
     await failRun(app, runId, err instanceof Error ? err.message : String(err));
+  } finally {
+    await dl.cleanup();
   }
 }
 

@@ -1,21 +1,22 @@
-// Figure-aware DOCX extraction.
+// Figure-aware DOCX extraction, split into two phases so figure images are
+// only decoded/extracted for the sections the admin actually selected:
 //
-// extractDocx() (docx.ts) drops images because RAG can't read pixels. The
-// procedure importer needs them: each embedded figure becomes an
-// ExtractedFigure with real bytes, and a `[[FIGURE:fig-N]]` token is left
-// exactly where the image sat so the LLM can place it on the right step.
+//   1. extractDocxText  — markdown with [[FIGURE:fig-N]] tokens for every
+//      embedded image, in document order, WITHOUT decoding any image bytes.
+//      Cheap; runs at upload time to drive the section picker.
+//   2. extractDocxFigureBytes(wantedIds) — re-walks the document and decodes
+//      + normalizes ONLY the figures whose ids were requested (the ones whose
+//      tokens fall inside the selected sections). Runs after section pick.
 //
-// How position is preserved: mammoth converts the document to HTML in reading
-// order. We hand it a `convertImage` callback that (a) reads the image bytes,
-// (b) normalizes them via sharp, (c) assigns the next sequential figure id,
-// and (d) returns an <img alt="[[FIGURE:fig-N]]"> marker. htmlToMarkdown then
-// turns that marker into the inline literal token. Because the callback fires
-// as mammoth walks the document, ids land in reading order.
+// Figure ids are positional (fig-1 = the first image in reading order, etc.),
+// assigned to EVERY image in both passes, so the two passes agree on which id
+// maps to which image regardless of whether a given image is decodable.
 
 import { promises as fs } from 'node:fs';
 import mammoth from 'mammoth';
 import { htmlToMarkdown } from './docx.js';
 import { ExtractionError } from './types.js';
+import type { ExtractionResult } from './types.js';
 import {
   attachCaptions,
   figureIdForIndex,
@@ -24,91 +25,123 @@ import {
   type FigureAwareExtraction,
 } from './figures.js';
 
-export async function extractDocxWithFigures(
-  filePath: string,
-): Promise<FigureAwareExtraction> {
-  let buffer: Buffer;
-  try {
-    buffer = await fs.readFile(filePath);
-  } catch (err) {
-    throw new ExtractionError(
-      `Could not read DOCX file at ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
-      err,
-    );
-  }
+const DOCX_STYLE_MAP = [
+  "p[style-name='Title'] => h1:fresh",
+  "p[style-name='Subtitle'] => h2:fresh",
+  "p[style-name='Quote'] => blockquote:fresh",
+  "p[style-name='Code'] => pre:fresh",
+];
 
+/**
+ * Phase 1 — markdown + positional figure tokens, no image bytes decoded.
+ */
+export async function extractDocxText(
+  filePath: string,
+): Promise<{ markdown: string; meta: ExtractionResult['meta'] }> {
+  const buffer = await readDocx(filePath);
   const notes: string[] = [];
-  const figures: ExtractedFigure[] = [];
-  let skipped = 0;
-  // mammoth invokes convertImage in document order; this counter assigns
-  // ids in that same order. Incremented only for figures we actually keep
-  // so the ids stay dense (fig-1, fig-2, …).
-  let nextIndex = 0;
+  let imageCount = 0;
 
   try {
     const htmlResult = await mammoth.convertToHtml(
       { buffer },
       {
+        // Emit a positional token for every image without reading its bytes —
+        // the byte decode happens later, only for selected figures.
+        convertImage: mammoth.images.imgElement(() => {
+          const figureId = figureIdForIndex(imageCount);
+          imageCount += 1;
+          return Promise.resolve({ src: '', alt: `[[FIGURE:${figureId}]]` });
+        }),
+        styleMap: DOCX_STYLE_MAP,
+      },
+    );
+    if (htmlResult.messages.length > 0) {
+      notes.push(...htmlResult.messages.slice(0, 3).map((m) => m.message));
+    }
+    notes.push(`images detected: ${imageCount}`);
+    const markdown = htmlToMarkdown(htmlResult.value);
+    return { markdown, meta: { source: 'docx', quality: 0.95, notes } };
+  } catch (err) {
+    throw new ExtractionError('mammoth failed to parse DOCX (text phase)', err);
+  }
+}
+
+/**
+ * Phase 2 — decode + normalize bytes only for the requested figure ids.
+ * Undecodable images (e.g. EMF/WMF vector) in the wanted set are skipped.
+ */
+export async function extractDocxFigureBytes(
+  filePath: string,
+  wantedIds: Set<string>,
+): Promise<ExtractedFigure[]> {
+  if (wantedIds.size === 0) return [];
+  const buffer = await readDocx(filePath);
+  const figures: ExtractedFigure[] = [];
+  let imageCount = 0;
+
+  try {
+    await mammoth.convertToHtml(
+      { buffer },
+      {
         convertImage: mammoth.images.imgElement(async (image) => {
+          const order = imageCount;
+          const figureId = figureIdForIndex(order);
+          imageCount += 1;
+          if (!wantedIds.has(figureId)) return { src: '' };
           try {
             const raw = await image.read();
             const rawBuf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
             const normalized = await normalizeFigureImage(rawBuf);
-            if (!normalized) {
-              // Undecodable (e.g. EMF/WMF vector). Drop it silently from the
-              // figure pool and emit no token, leaving an empty src so the
-              // tag is harmless.
-              skipped += 1;
-              return { src: '' };
+            if (normalized) {
+              figures.push({
+                figureId,
+                order,
+                bytes: normalized.bytes,
+                mime: normalized.mime,
+                width: normalized.width,
+                height: normalized.height,
+              });
             }
-            const figureId = figureIdForIndex(nextIndex);
-            figures.push({
-              figureId,
-              order: nextIndex,
-              bytes: normalized.bytes,
-              mime: normalized.mime,
-              width: normalized.width,
-              height: normalized.height,
-            });
-            nextIndex += 1;
-            // src stays empty (we don't inline base64); the alt marker is what
-            // htmlToMarkdown converts into the positional token.
-            return { src: '', alt: `[[FIGURE:${figureId}]]` };
           } catch {
-            skipped += 1;
-            return { src: '' };
+            // undecodable — skip
           }
+          return { src: '' };
         }),
-        styleMap: [
-          "p[style-name='Title'] => h1:fresh",
-          "p[style-name='Subtitle'] => h2:fresh",
-          "p[style-name='Quote'] => blockquote:fresh",
-          "p[style-name='Code'] => pre:fresh",
-        ],
+        styleMap: DOCX_STYLE_MAP,
       },
     );
-
-    if (htmlResult.messages.length > 0) {
-      notes.push(...htmlResult.messages.slice(0, 3).map((m) => m.message));
-      if (htmlResult.messages.length > 3) {
-        notes.push(`… and ${htmlResult.messages.length - 3} more warnings`);
-      }
-    }
-    if (skipped > 0) {
-      notes.push(`${skipped} image(s) could not be decoded and were skipped`);
-    }
-    notes.push(`figures extracted: ${figures.length}`);
-
-    const markdown = htmlToMarkdown(htmlResult.value);
-    attachCaptions(markdown, figures);
-
-    return {
-      markdown,
-      figures,
-      pages: [],
-      meta: { source: 'docx', quality: 0.95, notes },
-    };
   } catch (err) {
-    throw new ExtractionError('mammoth failed to parse DOCX (figure-aware)', err);
+    throw new ExtractionError('mammoth failed to parse DOCX (figure phase)', err);
+  }
+  figures.sort((a, b) => a.order - b.order);
+  return figures;
+}
+
+/**
+ * Full extraction (markdown + all figure bytes). Kept for tests and any
+ * caller that wants the whole document at once; the section-scoped pipeline
+ * uses the two phases above instead.
+ */
+export async function extractDocxWithFigures(
+  filePath: string,
+): Promise<FigureAwareExtraction> {
+  const text = await extractDocxText(filePath);
+  const ids = new Set(
+    [...text.markdown.matchAll(/\[\[FIGURE:(fig-\d+)\]\]/g)].map((m) => m[1]!),
+  );
+  const figures = await extractDocxFigureBytes(filePath, ids);
+  attachCaptions(text.markdown, figures);
+  return { markdown: text.markdown, figures, pages: [], meta: text.meta };
+}
+
+async function readDocx(filePath: string): Promise<Buffer> {
+  try {
+    return await fs.readFile(filePath);
+  } catch (err) {
+    throw new ExtractionError(
+      `Could not read DOCX file at ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+      err,
+    );
   }
 }

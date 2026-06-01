@@ -30,6 +30,41 @@ export interface PdfFigureExtractInput {
   sourceUrl?: string | null;
 }
 
+/**
+ * Phase 1 — markdown only (LlamaParse). No figure images decoded. The markdown
+ * carries `<!-- page:N -->` markers and "Figure N" text refs; figure tokens are
+ * injected later, only for the selected sections' pages.
+ */
+export async function extractPdfText(
+  input: PdfFigureExtractInput,
+): Promise<{ markdown: string; meta: FigureAwareExtraction['meta'] }> {
+  const base = await extractPdf({ filePath: input.filePath, sourceUrl: input.sourceUrl });
+  return { markdown: base.markdown, meta: base.meta };
+}
+
+/**
+ * Phase 2 — decode figure images only for the pages present in the selected
+ * markdown slice, then inject their tokens into that slice. Best-effort: on any
+ * pdfjs failure, returns the slice unchanged with zero figures.
+ */
+export async function extractPdfFiguresForSlice(
+  filePath: string,
+  slicedMarkdown: string,
+): Promise<{ figures: ExtractedFigure[]; markdown: string }> {
+  const pages = new Set(
+    [...slicedMarkdown.matchAll(/<!--\s*page:(\d+)\s*-->/g)].map((m) => Number(m[1])),
+  );
+  if (pages.size === 0) return { figures: [], markdown: slicedMarkdown };
+  try {
+    const { figures, pageOf } = await extractPdfImages(filePath, pages);
+    const markdown =
+      figures.length > 0 ? injectFigureTokens(slicedMarkdown, figures, pageOf) : slicedMarkdown;
+    return { figures, markdown };
+  } catch {
+    return { figures: [], markdown: slicedMarkdown };
+  }
+}
+
 export async function extractPdfWithFigures(
   input: PdfFigureExtractInput,
 ): Promise<FigureAwareExtraction> {
@@ -100,7 +135,10 @@ function injectFigureTokens(
  * legacy build (no DOM needed for operator lists). Defensive throughout: a
  * page that throws is skipped, not fatal.
  */
-async function extractPdfImages(filePath: string): Promise<{
+async function extractPdfImages(
+  filePath: string,
+  wantedPages?: Set<number>,
+): Promise<{
   figures: ExtractedFigure[];
   pageOf: Map<string, number>;
 }> {
@@ -122,6 +160,9 @@ async function extractPdfImages(filePath: string): Promise<{
 
   const numPages = doc.numPages;
   for (let pageNum = 1; pageNum <= numPages; pageNum += 1) {
+    // Skip pages outside the selected sections — figure extraction is scoped
+    // so we never decode/upload images from sections the admin didn't pick.
+    if (wantedPages && !wantedPages.has(pageNum)) continue;
     let page: Awaited<ReturnType<typeof doc.getPage>>;
     try {
       page = await doc.getPage(pageNum);
