@@ -78,12 +78,24 @@ function estimateDurationMsFromBytes(_buf: Buffer, _mime: string): number | null
   return null;
 }
 
-// Strip markdown noise so the synthesized voiceover doesn't read symbols
-// aloud, and flatten typed blocks into spoken prose. Mirrors what
-// VirtualJobAid does for live TTS so the authored audio sounds the same
-// as the live voice would. Without the blocks branch, modern blocks-based
-// steps synthesized only their title (bodyMarkdown is unused once an
-// author moves to the block editor).
+// Flatten a step's text content into the spoken-script string the
+// TTS provider narrates.
+//
+// Authoring contract: the step's TITLE is the canonical instruction
+// ("Verify the sprockets are aligned with the wear strips."). PARAGRAPH
+// blocks add elaborating sub-text. Every other block kind (callout,
+// lists, key_value, photo_inline) is visual-only and stays out of the
+// narration:
+//   - photo_inline.caption labels an image for the eye, not the ear
+//     ("Align Sprockets" attached to a photo of aligned sprockets would
+//     just confuse a tech listening hands-free).
+//   - callouts are visual flags; if the author wants them spoken, they
+//     restate them in the title or a paragraph.
+//   - lists and key_value tables are reference structures.
+//
+// Mirrors the client's apps/admin/src/lib/spoken-script.ts — keep both
+// branches in sync so the dialog's pre-fill matches what the server
+// would generate when no override is sent.
 function buildSpokenScript(input: {
   title: string;
   bodyMarkdown: string | null;
@@ -95,28 +107,10 @@ function buildSpokenScript(input: {
   if (blocks.length > 0) {
     const parts: string[] = [];
     for (const b of blocks) {
-      switch (b.kind) {
-        case 'paragraph':
-          parts.push(b.text);
-          break;
-        case 'callout':
-          parts.push(
-            `${b.tone === 'safety' || b.tone === 'warning' ? `${b.tone}. ` : ''}${b.title ? b.title + '. ' : ''}${b.text}`,
-          );
-          break;
-        case 'bullet_list':
-        case 'numbered_list':
-          parts.push(b.items.join('. '));
-          break;
-        case 'key_value':
-          parts.push(
-            b.rows.map((row) => `${row[0]}, ${row[1]}.`).join(' '),
-          );
-          break;
-        case 'photo_inline':
-          if (b.caption) parts.push(b.caption);
-          break;
+      if (b.kind === 'paragraph') {
+        parts.push(b.text);
       }
+      // Other block kinds intentionally silent — see function doc above.
     }
     body = parts.filter((s) => s.trim().length > 0).join(' ').replace(/\s+/g, ' ').trim();
   } else if (input.bodyMarkdown) {

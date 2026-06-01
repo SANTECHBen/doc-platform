@@ -77,26 +77,13 @@ async function loadSnippetForWrite(
 function buildSnippetScript(snippet: typeof schema.procedureSnippets.$inferSelect): string {
   const lead = (snippet.title ?? '').trim();
   const bodyParts: string[] = [];
+  // Same scoping rule as procedure steps: title carries the canonical
+  // instruction, paragraph blocks elaborate, every other block kind is
+  // visual-only and stays out of the narration. See the long-form note
+  // in admin-procedure-audio.ts#buildSpokenScript for the reasoning.
   for (const b of (snippet.blocks ?? []) as StepBlock[]) {
-    switch (b.kind) {
-      case 'paragraph':
-        bodyParts.push(b.text);
-        break;
-      case 'callout':
-        bodyParts.push(`${b.title ? b.title + '. ' : ''}${b.text}`);
-        break;
-      case 'bullet_list':
-      case 'numbered_list':
-        bodyParts.push(b.items.join('. '));
-        break;
-      case 'key_value':
-        bodyParts.push(
-          b.rows.map((row: [string, string]) => `${row[0]}: ${row[1]}`).join('. '),
-        );
-        break;
-      case 'photo_inline':
-        if (b.caption) bodyParts.push(b.caption);
-        break;
+    if (b.kind === 'paragraph') {
+      bodyParts.push(b.text);
     }
   }
   const body = bodyParts.join(' ').replace(/\s+/g, ' ').trim();
