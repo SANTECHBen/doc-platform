@@ -23,9 +23,12 @@ import {
 
 export interface DocDrafterExecutorContext {
   db: Database;
-  /** Synthesize TTS audio from text. Same injected shape as the video
-   *  executor so the API binds one implementation for both. */
-  synthesizeTts: (text: string) => Promise<{
+  /** Optional TTS synthesis. When omitted, steps are materialized WITHOUT
+   *  audio and the author generates voiceover per step in the Step Editor
+   *  (the default for the doc importer — matches authoring from scratch and
+   *  avoids paying TTS on steps the author may rewrite). When provided, each
+   *  step is voiced at execute time. */
+  synthesizeTts?: (text: string) => Promise<{
     storageKey: string;
     sizeBytes: number;
     contentType: string;
@@ -138,9 +141,17 @@ export async function executeDocDrafter(
       try {
         ctx.onProgress?.({ clientId: step.clientId, phase: 'starting' });
 
-        // TTS.
-        ctx.onProgress?.({ clientId: step.clientId, phase: 'tts' });
-        const audio = await ctx.synthesizeTts(step.voiceoverText);
+        // Voiceover: only synthesize when a TTS impl is injected. The doc
+        // importer leaves this off so the author generates audio in the
+        // editor (the AI's spoken text survives in the title + paragraph
+        // blocks, which the editor's voiceover panel reads).
+        let audio:
+          | { storageKey: string; sizeBytes: number; contentType: string; durationMs: number }
+          | null = null;
+        if (ctx.synthesizeTts) {
+          ctx.onProgress?.({ clientId: step.clientId, phase: 'tts' });
+          audio = await ctx.synthesizeTts(step.voiceoverText);
+        }
 
         // Resolve figure refs → media images + photo_inline blocks.
         const { media, photoBlocks } = resolveFigures(step.figureRefs, figById);
@@ -180,11 +191,11 @@ export async function executeDocDrafter(
               requiresPhoto,
               minPhotoCount,
               measurementSpec,
-              audioStorageKey: audio.storageKey,
-              audioContentType: audio.contentType,
-              audioSizeBytes: audio.sizeBytes,
-              audioDurationMs: audio.durationMs,
-              audioSource: 'generated' as const,
+              audioStorageKey: audio?.storageKey ?? null,
+              audioContentType: audio?.contentType ?? null,
+              audioSizeBytes: audio?.sizeBytes ?? null,
+              audioDurationMs: audio?.durationMs ?? null,
+              audioSource: audio ? ('generated' as const) : null,
               proposedByDraftRunId: params.runId,
               createdByUserId: actorUserId,
               searchIndexStaleAt: new Date(),

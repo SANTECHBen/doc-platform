@@ -28,7 +28,6 @@ import {
 } from '@platform/ai';
 import { schema, type DraftFigure } from '@platform/db';
 import { agentBus, runChannel } from '../lib/agent-bus.js';
-import { synthesizeStepTts } from './step-tts.js';
 
 const MIME_BY_KIND: Record<'docx' | 'pdf', string> = {
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -239,43 +238,16 @@ export async function runDocDrafterExecution(params: {
 }): Promise<void> {
   const { app, runId, proposalId, executionId, actorUserId, targetDocumentId, proposal, signal } =
     params;
-  const { db, storage, env } = app.ctx;
+  const { db } = app.ctx;
 
   const run = await db.query.procedureDraftRuns.findFirst({
     where: eq(schema.procedureDraftRuns.id, runId),
   });
   if (!run) throw new Error('draft run not found');
 
-  const synthesizeTts = async (text: string) => {
-    const hasElevenLabs = !!(env.ELEVENLABS_API_KEY && env.ELEVENLABS_VOICE_ID);
-    const hasOpenAi = !!env.OPENAI_API_KEY;
-    if (!hasElevenLabs && !hasOpenAi) {
-      throw new Error(
-        'Draft TTS requires ELEVENLABS_API_KEY + ELEVENLABS_VOICE_ID (preferred) or OPENAI_API_KEY.',
-      );
-    }
-    return synthesizeStepTts({
-      text,
-      storage,
-      filenameStem: `docdraft-${runId}-tts`,
-      ownerOrganizationId: run.ownerOrganizationId,
-      elevenlabs: hasElevenLabs
-        ? {
-            apiKey: env.ELEVENLABS_API_KEY!,
-            voiceId: env.ELEVENLABS_VOICE_ID!,
-            modelId: env.ELEVENLABS_TTS_MODEL_ID,
-          }
-        : undefined,
-      openai: hasOpenAi
-        ? {
-            apiKey: env.OPENAI_API_KEY!,
-            voice: env.OPENAI_TTS_VOICE ?? 'alloy',
-            model: env.OPENAI_TTS_MODEL,
-          }
-        : undefined,
-    });
-  };
-
+  // No TTS binding: doc-import steps are materialized without audio so the
+  // author generates voiceover per step in the Step Editor (matches authoring
+  // from scratch; no TTS spend on steps that get rewritten).
   await db
     .update(schema.procedureDraftRuns)
     .set({ status: 'executing', updatedAt: new Date() })
@@ -285,7 +257,6 @@ export async function runDocDrafterExecution(params: {
   const result = await executeDocDrafter({
     ctx: {
       db,
-      synthesizeTts,
       onProgress: (event) => {
         agentBus.publish(runChannel(runId, 'execute'), event.phase, {
           clientId: event.clientId,
