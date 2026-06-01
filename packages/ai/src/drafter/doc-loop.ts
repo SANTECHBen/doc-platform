@@ -128,6 +128,16 @@ export async function runDocDrafterLoop(
         // the schema's max lengths so the final re-validation can't overflow.
         input.title = ensureTerminalPeriod(input.title, 200);
         input.voiceoverText = ensureTerminalPeriod(input.voiceoverText, 2000);
+        // Sub-steps and explanatory prose are instructions too — give them
+        // periods. Leave unordered lists (tools/parts noun phrases) and
+        // callouts (faithful admonition wording) alone.
+        for (const b of input.blocks) {
+          if (b.kind === 'paragraph') {
+            b.text = ensureTerminalPeriod(b.text, 8000);
+          } else if (b.kind === 'numbered_list') {
+            b.items = b.items.map((it) => ensureTerminalPeriod(it, 800));
+          }
+        }
         proposedSteps.push(input);
         options.onStepEmitted?.(input);
         return { accepted: true, index: proposedSteps.length - 1 };

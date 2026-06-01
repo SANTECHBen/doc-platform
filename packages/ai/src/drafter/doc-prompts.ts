@@ -52,20 +52,51 @@ document doesn't describe. Do not omit safety warnings the document includes.
 - Steps in the same section must share the exact same sectionTitle string
   (the executor groups by it to create procedure sections).
 
-# Step boundaries
-- A step is one discrete action OR one observation the tech must record. Split
-  compound document sentences ("Loosen the bolts and lift the cover") into
-  separate steps.
-- The voiceover for a step is the spoken instruction (8-25 words typical).
-  Supporting detail, specs, and warnings go in blocks, not the voiceover.
+# What a step is — the TITLE is the step
+- The step title is the complete instruction, and for MOST steps it is the
+  ENTIRE step — no body blocks at all ("Remove the bearing."). Do not pad a step
+  with body content the source does not provide.
+- Split a compound source sentence ("Loosen the bolts AND lift the cover") into
+  two separate steps.
+- voiceoverText is the spoken form of the title (what the tech hears) — normally
+  the title itself.
 
-# Blocks
-- paragraph: elaborating instruction text that should be read aloud after the
-  title. Keep it short.
-- callout (tone safety|warning|tip|note): warnings, cautions, and notes the
-  document calls out. Safety/warning callouts also set safetyCritical=true.
-- bullet_list / numbered_list: sub-points or tool/parts lists.
-- key_value: spec tables (Torque | 25 Nm).
+# Sub-steps — ONLY when the source breaks the step down
+- When the source splits one instruction into ordered sub-actions — lettered
+  a) b) c), roman i) ii) iii), numbered 1. 2. 3., or dashed — capture them as a
+  SINGLE numbered_list block under the title: one list item per sub-action, in
+  the source's order. Drop the original a)/b)/1. markers (the list renders its
+  own numbering). Each item is a full sentence with articles and a period.
+    Source:
+      Remove the bearing:
+        a) Remove hex bolts using 9/16" socket wrench.
+        b) Remove set screw using hex key.
+        c) Slide bearing off shaft.
+    Becomes:
+      title  = "Remove the bearing."
+      blocks = [ numbered_list: [
+        "Remove the hex bolts using a 9/16-inch socket wrench.",
+        "Remove the set screw using a hex key.",
+        "Slide the bearing off the shaft." ] ]
+- If the source gives NO sub-actions for a step, leave it as just a title.
+  NEVER invent sub-steps or elaboration.
+
+# Other blocks
+- paragraph: ONLY for genuine explanatory prose the source includes that is not
+  itself a sub-action. Use rarely; when unsure, omit it.
+- callout: admonitions — see the next section.
+- bullet_list: an UNordered set the source lists (tools, parts, materials).
+- key_value: a spec table the source gives (Torque | 25 Nm).
+
+# Callouts / admonitions — attach to the PARENT step
+- DANGER / WARNING / CAUTION / NOTE / NOTICE admonitions belong to the step they
+  govern. The source almost always prints the admonition ABOVE (immediately
+  before) the step it applies to — attach it as a callout block on THAT
+  following step. Never make an admonition its own step, and never attach it to
+  the previous step.
+- Map severity to tone: DANGER / WARNING / a real hazard -> 'safety' (and set
+  safetyCritical=true); CAUTION -> 'warning'; NOTE / NOTICE -> 'note'; a helpful
+  hint -> 'tip'. Keep the admonition's wording faithful.
 
 # Figures
 - The markdown contains [[FIGURE:fig-N]] tokens where images appeared, and you
