@@ -739,35 +739,48 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
       )}
 
       {viewMode === 'step' ? (
-        <StepByStepBody
-          steps={localSteps}
-          sections={localSections}
-          currentStepId={currentStepId}
-          setCurrentStepId={setCurrentStepId}
-          onPatch={patchStep}
-          onDeleteStep={deleteStep}
-          onAudioChanged={(stepId, next) =>
-            setLocalSteps((prev) =>
-              prev.map((p) => (p.id === stepId ? next : p)),
-            )
-          }
-          onMoveStepToSection={moveStepToSection}
-          onAddStep={addStep}
-          onAddSection={addSection}
-          onRenameSection={renameSection}
-          onDeleteSection={removeSection}
-          onDragStart={onDragStart}
-          onDragOver={onDragOver}
-          onDrop={onDrop}
-          onDragEnd={onDragEnd}
-          dragId={dragId}
-          dropTargetId={dropTargetId}
-          siblingProcedures={siblingProcedures}
-          categories={categories}
-          onManageCategories={() => setCategoryManagerOpen(true)}
-          bulkBusy={bulkBusy}
-          freshStepId={freshStepId}
-        />
+        // Sticky, viewport-anchored wrapper so the step view always fills
+        // the visible area below the editor's chrome. Without this, the
+        // step view was a fixed-height block that scrolled with the page —
+        // and once the page hit its bottom, users couldn't reach later
+        // steps in the rail because the rail's own overflow wasn't getting
+        // a chance to engage (it can only scroll when its parent has a
+        // bounded height). dvh handles mobile address-bar shrink/grow.
+        //
+        // Offsets: the page header is sticky at top:0 (~4rem tall in this
+        // app); we leave 1rem of breathing room and another ~0.5rem of
+        // padding below the bottom edge.
+        <div className="sticky top-[4.5rem] z-10 h-[calc(100dvh-6rem)] min-h-0">
+          <StepByStepBody
+            steps={localSteps}
+            sections={localSections}
+            currentStepId={currentStepId}
+            setCurrentStepId={setCurrentStepId}
+            onPatch={patchStep}
+            onDeleteStep={deleteStep}
+            onAudioChanged={(stepId, next) =>
+              setLocalSteps((prev) =>
+                prev.map((p) => (p.id === stepId ? next : p)),
+              )
+            }
+            onMoveStepToSection={moveStepToSection}
+            onAddStep={addStep}
+            onAddSection={addSection}
+            onRenameSection={renameSection}
+            onDeleteSection={removeSection}
+            onDragStart={onDragStart}
+            onDragOver={onDragOver}
+            onDrop={onDrop}
+            onDragEnd={onDragEnd}
+            dragId={dragId}
+            dropTargetId={dropTargetId}
+            siblingProcedures={siblingProcedures}
+            categories={categories}
+            onManageCategories={() => setCategoryManagerOpen(true)}
+            bulkBusy={bulkBusy}
+            freshStepId={freshStepId}
+          />
+        </div>
       ) : empty && localSections.length === 0 ? (
         <EmptyState onAdd={() => addStep(null)} />
       ) : (

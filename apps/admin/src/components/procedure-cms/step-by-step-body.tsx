@@ -181,28 +181,44 @@ export function StepByStepBody({
     return () => document.removeEventListener('keydown', onKey);
   }, [goPrev, goNext, prevStep, nextStep]);
 
+  // Layout note: we use h-full inside a sticky-positioned wrapper that
+  // ProcedureCmsEditor supplies — that wrapper carries the actual
+  // viewport-height calc + sticky offset. That means StepByStepBody only
+  // needs h-full to inherit. Doing it this way lets the outer page also
+  // scroll naturally above/below us without the step view "running out
+  // of space" mid-procedure (the bug that prompted this rewrite).
+  //
+  // The min-h-0 sprinkled on the flex children below is non-cosmetic:
+  // without it, the flex algorithm grows the parent to fit content
+  // height (defeating our explicit h-full), and overflow-y-auto on the
+  // inner scrolling area silently does nothing. Symptom: when a procedure
+  // has many steps, the rail or center pane gets pushed below the fold
+  // and the user can't scroll to the rest.
+
   // Empty-procedure state — fresh doc with no steps yet.
   if (orderedSteps.length === 0) {
     return (
-      <div className="grid h-[calc(100vh-14rem)] grid-cols-[280px_1fr] gap-0 overflow-hidden rounded-lg border border-line-subtle bg-surface-raised">
-        <StepRail
-          sections={sections}
-          steps={steps}
-          currentStepId={null}
-          onFocusStep={setCurrentStepId}
-          onAddStep={onAddStep}
-          onAddSection={onAddSection}
-          onRenameSection={onRenameSection}
-          onDeleteSection={onDeleteSection}
-          onDragStart={onDragStart}
-          onDragOver={onDragOver}
-          onDrop={onDrop}
-          onDragEnd={onDragEnd}
-          dragId={dragId}
-          dropTargetId={dropTargetId}
-          bulkBusy={bulkBusy}
-        />
-        <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-12 text-center">
+      <div className="grid h-full min-h-0 grid-cols-[280px_1fr] gap-0 overflow-hidden rounded-lg border border-line-subtle bg-surface-raised">
+        <div className="min-h-0 overflow-hidden">
+          <StepRail
+            sections={sections}
+            steps={steps}
+            currentStepId={null}
+            onFocusStep={setCurrentStepId}
+            onAddStep={onAddStep}
+            onAddSection={onAddSection}
+            onRenameSection={onRenameSection}
+            onDeleteSection={onDeleteSection}
+            onDragStart={onDragStart}
+            onDragOver={onDragOver}
+            onDrop={onDrop}
+            onDragEnd={onDragEnd}
+            dragId={dragId}
+            dropTargetId={dropTargetId}
+            bulkBusy={bulkBusy}
+          />
+        </div>
+        <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 px-6 py-12 text-center">
           <ListChecks className="size-10 text-ink-tertiary/50" />
           <p className="text-base font-semibold text-ink-primary">
             No steps yet
@@ -226,26 +242,32 @@ export function StepByStepBody({
   }
 
   return (
-    <div className="grid h-[calc(100vh-14rem)] grid-cols-[280px_1fr] gap-0 overflow-hidden rounded-lg border border-line-subtle bg-surface-raised">
-      <StepRail
-        sections={sections}
-        steps={steps}
-        currentStepId={currentStepId}
-        onFocusStep={setCurrentStepId}
-        onAddStep={onAddStep}
-        onAddSection={onAddSection}
-        onRenameSection={onRenameSection}
-        onDeleteSection={onDeleteSection}
-        onDragStart={onDragStart}
-        onDragOver={onDragOver}
-        onDrop={onDrop}
-        onDragEnd={onDragEnd}
-        dragId={dragId}
-        dropTargetId={dropTargetId}
-        bulkBusy={bulkBusy}
-      />
-      <div className="flex h-full flex-col">
-        <div className="flex-1 overflow-y-auto">
+    <div className="grid h-full min-h-0 grid-cols-[280px_1fr] gap-0 overflow-hidden rounded-lg border border-line-subtle bg-surface-raised">
+      {/* min-h-0 on the rail cell so its inner overflow-y-auto actually
+          engages instead of growing the grid cell to fit content. */}
+      <div className="min-h-0 overflow-hidden">
+        <StepRail
+          sections={sections}
+          steps={steps}
+          currentStepId={currentStepId}
+          onFocusStep={setCurrentStepId}
+          onAddStep={onAddStep}
+          onAddSection={onAddSection}
+          onRenameSection={onRenameSection}
+          onDeleteSection={onDeleteSection}
+          onDragStart={onDragStart}
+          onDragOver={onDragOver}
+          onDrop={onDrop}
+          onDragEnd={onDragEnd}
+          dragId={dragId}
+          dropTargetId={dropTargetId}
+          bulkBusy={bulkBusy}
+        />
+      </div>
+      <div className="flex h-full min-h-0 flex-col">
+        {/* flex-1 + min-h-0 is the canonical recipe for a scrollable
+            middle section that doesn't push the footer off-screen. */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
           {currentStep ? (
             <div className="mx-auto max-w-3xl px-4 py-4">
               {/* The wrapper card matches the visual treatment of a List-
