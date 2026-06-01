@@ -23,9 +23,20 @@ import { useEffect, useRef, useState } from 'react';
 export function SplashIntro() {
   const [phase, setPhase] = useState<'enter' | 'hold' | 'exit' | 'done'>('enter');
   const [showSkip, setShowSkip] = useState(false);
+  // True when audio autoplay was blocked. Renders a visible "Tap for
+  // sound" affordance during the splash; tapping it (or anywhere)
+  // starts the audio mid-animation.
+  const [audioBlocked, setAudioBlocked] = useState(false);
   const startedRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timersRef = useRef<number[]>([]);
+  // Set when the user explicitly skips. Distinguishes a skip-driven
+  // cleanup (stop audio immediately) from a natural splash unmount
+  // (let the 9s WAV ring out past the 5.3s visual).
+  const skippedRef = useRef(false);
+  // The fallback pointerdown listener — we capture it in a ref so the
+  // unmount cleanup can detach it whether or not it ever fired.
+  const fallbackListenerRef = useRef<((e: Event) => void) | null>(null);
 
   function clearTimers() {
     timersRef.current.forEach((id) => window.clearTimeout(id));
@@ -45,24 +56,34 @@ export function SplashIntro() {
     audioRef.current = null;
   }
 
+  function detachFallback() {
+    const listener = fallbackListenerRef.current;
+    if (!listener) return;
+    document.removeEventListener('pointerdown', listener, true);
+    document.removeEventListener('touchstart', listener, true);
+    fallbackListenerRef.current = null;
+  }
+
   function skipSplash() {
-    // User-initiated skip. Cancel running timers, stop audio
-    // immediately, and play a brief 280ms exit fade rather than
-    // disappearing instantly — abrupt cuts feel like a glitch.
+    skippedRef.current = true;
     clearTimers();
     stopAudio();
+    detachFallback();
     setPhase('exit');
     const t = window.setTimeout(() => setPhase('done'), 280);
     timersRef.current = [t];
+  }
+
+  function manuallyStartAudio() {
+    setAudioBlocked(false);
+    detachFallback();
+    void playIntroSound(audioRef).catch(() => {});
   }
 
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
 
-    // Strip ?intro=1 from the URL immediately so a refresh mid-animation
-    // doesn't trigger the splash again, and so a shared link that happens
-    // to carry the flag doesn't replay it for someone who didn't scan.
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
       if (url.searchParams.has('intro')) {
@@ -75,7 +96,6 @@ export function SplashIntro() {
       }
     }
 
-    // Respect prefers-reduced-motion — skip the show, just hand off.
     const reducedMotion =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -93,38 +113,38 @@ export function SplashIntro() {
     const t1 = window.setTimeout(() => setPhase('hold'), 80);
     const t2 = window.setTimeout(() => setPhase('exit'), 4660);
     const t3 = window.setTimeout(() => setPhase('done'), 5300);
-    // Skip pill fades in after the first 1.5s of the show so a
-    // first-time viewer gets the unmistakable initial reveal before
-    // being offered an escape hatch.
     const t4 = window.setTimeout(() => setShowSkip(true), 1500);
     timersRef.current = [t1, t2, t3, t4];
 
-    // Chrome on Android blocks autoplay unless there's a recent user
-    // gesture on the page itself — the QR-scan gesture happens in the
-    // camera app, so the redirect into the PWA arrives without a
-    // gesture banked. To keep the sound from silently dropping, we
-    // register a one-shot pointerdown fallback on the document: if
-    // autoplay was blocked, the audio fires on the first tap (Skip
-    // pill tap, splash dismiss, or any tap as the splash fades out).
-    let fallbackArmed = false;
+    // Chrome on Android blocks audio autoplay unless there's a recent
+    // user gesture on the page itself — the QR-scan tap happens in the
+    // camera app, so the redirect into the PWA arrives gesture-less.
+    // When that blocks us, surface a "Tap for sound" prompt AND arm a
+    // document-level fallback so any tap anywhere starts the audio.
     function armFallback() {
-      if (fallbackArmed) return;
-      fallbackArmed = true;
       const onFirstTap = () => {
-        document.removeEventListener('pointerdown', onFirstTap, true);
-        document.removeEventListener('touchstart', onFirstTap, true);
+        detachFallback();
+        setAudioBlocked(false);
         void playIntroSound(audioRef).catch(() => {});
       };
+      fallbackListenerRef.current = onFirstTap;
       document.addEventListener('pointerdown', onFirstTap, { capture: true, once: true });
       document.addEventListener('touchstart', onFirstTap, { capture: true, once: true });
     }
     void playIntroSound(audioRef).catch(() => {
+      setAudioBlocked(true);
       armFallback();
     });
 
     return () => {
       clearTimers();
-      stopAudio();
+      detachFallback();
+      // Only tear down audio on an explicit skip. Natural unmount —
+      // when the 5.3s visual ends — lets the 9s WAV ring out past the
+      // splash so the audio doesn't get truncated mid-tone.
+      if (skippedRef.current) {
+        stopAudio();
+      }
     };
   }, []);
 
@@ -136,11 +156,17 @@ export function SplashIntro() {
       <div className="fs-splash-stage">
         <FieldSupportMarkSVG />
       </div>
-      {/* Skip pill — visible only after the initial reveal so a
-          first-time viewer still gets the show. Always rendered (not
-          conditionally mounted) so the CSS fade-in animation runs
-          smoothly via the data-visible attribute instead of a mount
-          transition. */}
+      {audioBlocked && (
+        <button
+          type="button"
+          className="fs-splash-sound"
+          onClick={manuallyStartAudio}
+          aria-label="Tap to enable intro sound"
+        >
+          <span aria-hidden>🔊</span>
+          <span>Tap for sound</span>
+        </button>
+      )}
       <button
         type="button"
         className="fs-splash-skip"
