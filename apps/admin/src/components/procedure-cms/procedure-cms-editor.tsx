@@ -70,6 +70,7 @@ import {
 import { parseVideoEmbed } from '@platform/shared';
 import { useToast } from '@/components/toast';
 import { ErrorBanner } from '@/components/form';
+import { estimateSpokenChars } from '@/lib/spoken-script';
 import { StepCard } from './step-card';
 import { StepByStepBody } from './step-by-step-body';
 import { LayoutList, Rows3 } from 'lucide-react';
@@ -1265,52 +1266,6 @@ function ViewModeToggle({
       </button>
     </div>
   );
-}
-
-// estimateSpokenChars — mirror of packages/api buildSpokenScript so the
-// bulk-generate confirm dialog can show "this will use ~N characters of
-// your ElevenLabs quota" without a server round-trip. Match the server's
-// flattening rules exactly so the estimate doesn't drift far from what
-// the synthesizer actually sends.
-function estimateSpokenChars(step: AdminProcedureStep): number {
-  const lead = step.title.trim();
-  let body = '';
-  const blocks = step.blocks ?? [];
-  if (blocks.length > 0) {
-    const parts: string[] = [];
-    for (const b of blocks) {
-      switch (b.kind) {
-        case 'paragraph':
-          parts.push(b.text);
-          break;
-        case 'callout':
-          parts.push(
-            `${b.tone === 'safety' || b.tone === 'warning' ? `${b.tone}. ` : ''}${b.title ? b.title + '. ' : ''}${b.text}`,
-          );
-          break;
-        case 'bullet_list':
-        case 'numbered_list':
-          parts.push(b.items.join('. '));
-          break;
-        case 'key_value':
-          parts.push(b.rows.map((row) => `${row[0]}, ${row[1]}.`).join(' '));
-          break;
-        case 'photo_inline':
-          if (b.caption) parts.push(b.caption);
-          break;
-      }
-    }
-    body = parts.filter((s) => s.trim().length > 0).join(' ').replace(/\s+/g, ' ').trim();
-  } else if (step.bodyMarkdown) {
-    body = step.bodyMarkdown
-      .replace(/[#>*_`]/g, '')
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
-      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-  const text = body ? `${lead}. ${body}` : lead;
-  return text.length;
 }
 
 // HeroVideoSection — procedure-level intro-video authoring card. Sits

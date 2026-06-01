@@ -33,6 +33,7 @@ import {
   uploadProcedureStepAudio,
   type AdminProcedureStep,
 } from '@/lib/api';
+import { GenerateAudioDialog } from './generate-audio-dialog';
 
 interface Props {
   step: AdminProcedureStep;
@@ -46,6 +47,11 @@ export function VoiceoverPanel({ step, onChanged }: Props) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
+  // Dialog-scoped error so a server failure surfaces inside the modal
+  // without dismissing it — author can fix the script and retry without
+  // re-deriving from scratch.
+  const [dialogError, setDialogError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -68,11 +74,23 @@ export function VoiceoverPanel({ step, onChanged }: Props) {
   }
 
   // ---- AI generate -------------------------------------------------------
-  async function onGenerate() {
+  // Two-stage flow: clicking "Generate with AI" first opens the
+  // GenerateAudioDialog so the author can tweak pronunciation /
+  // wording before we burn ElevenLabs characters. The actual API call
+  // happens in runGenerate() once the author hits Generate in the
+  // dialog. Without this gate, the only way to refine voiceover text
+  // was to edit the on-screen step content too.
+  function openGenerateDialog() {
+    setError(null);
+    setDialogError(null);
+    setGenerateDialogOpen(true);
+  }
+  async function runGenerate(script: string) {
+    setDialogError(null);
     setError(null);
     setPhase('generating');
     try {
-      const r = await generateProcedureStepAudio(step.id);
+      const r = await generateProcedureStepAudio(step.id, { script });
       const next: AdminProcedureStep = {
         ...step,
         audioStorageKey: 'set', // server normalizes; refresh below.
@@ -84,10 +102,13 @@ export function VoiceoverPanel({ step, onChanged }: Props) {
       };
       onChanged(next);
       setPhase('idle');
+      setGenerateDialogOpen(false);
       // Probe duration once the file loads in the audio element.
       void probeDurationLater(r.audioUrl, step.id, next, onChanged);
     } catch (e) {
-      fail('Could not generate audio', e);
+      const msg = e instanceof Error ? e.message : String(e);
+      setDialogError(msg);
+      setPhase('error');
     }
   }
 
@@ -265,7 +286,7 @@ export function VoiceoverPanel({ step, onChanged }: Props) {
           </div>
           <VoiceoverActionMenu
             disabled={busy}
-            onGenerate={onGenerate}
+            onGenerate={openGenerateDialog}
             onUpload={onPickFile}
             onRecord={startRecording}
             onDelete={onDelete}
@@ -293,6 +314,14 @@ export function VoiceoverPanel({ step, onChanged }: Props) {
             {error}
           </p>
         )}
+        <GenerateAudioDialog
+          open={generateDialogOpen}
+          step={step}
+          onGenerate={runGenerate}
+          onClose={() => setGenerateDialogOpen(false)}
+          busy={phase === 'generating'}
+          error={dialogError}
+        />
       </>
     );
   }
@@ -332,7 +361,7 @@ export function VoiceoverPanel({ step, onChanged }: Props) {
       </div>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <ActionTile
-          onClick={onGenerate}
+          onClick={openGenerateDialog}
           disabled={busy}
           icon={
             phase === 'generating' ? (
@@ -342,7 +371,7 @@ export function VoiceoverPanel({ step, onChanged }: Props) {
             )
           }
           label="Generate with AI"
-          sub="Uses your TTS voice"
+          sub="Edit script first"
         />
         <ActionTile
           onClick={onPickFile}
@@ -379,6 +408,14 @@ export function VoiceoverPanel({ step, onChanged }: Props) {
           {error}
         </p>
       )}
+      <GenerateAudioDialog
+        open={generateDialogOpen}
+        step={step}
+        onGenerate={runGenerate}
+        onClose={() => setGenerateDialogOpen(false)}
+        busy={phase === 'generating'}
+        error={dialogError}
+      />
     </div>
   );
 }
