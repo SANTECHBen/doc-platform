@@ -1028,12 +1028,12 @@
 }
 .app-tabbar-item[data-active='true'] {
   color: rgb(var(--brand));
-  /* Brand-tinted background + 600-weight label carry the entire
-     active-tab signal now. Earlier iterations added a 3–4px brand
-     bar on top/bottom of the active tab; the tint + weight contrast
-     is enough on its own, and the extra line read as visual noise
-     once it was prominent enough to actually be seen. */
-  background: rgb(var(--brand) / 0.14);
+  /* Brand color on icon + label and the 600-weight label carry the
+     active-tab signal. The earlier brand-tinted background box read
+     as visual noise next to the FAB and made the bar feel busy;
+     dropping it leaves the color/weight delta as the sole cue.
+     (History: this used to also add a 3–4px brand bar on top/bottom
+     before the tint; both are now gone.) */
   font-weight: 600;
 }
 .app-tabbar-item:active {
