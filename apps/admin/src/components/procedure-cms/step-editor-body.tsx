@@ -134,6 +134,16 @@ export function StepEditorBody({
   useEffect(() => {
     localBlocksRef.current = blocks;
   }, [blocks]);
+  // Auto-grow the (wrapping) title textarea to fit its content so authors
+  // can read/edit long step text without a scrollbar. Runs whenever the
+  // title changes — typing, paste, or a parent-sync swap on step change.
+  const titleRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [title]);
 
   // If the parent reloads the step (e.g. after audio update), keep the
   // local mirrors aligned UNLESS the user has unsaved edits. The parent
@@ -350,8 +360,8 @@ export function StepEditorBody({
             }}
           />
         )}
-        <input
-          type="text"
+        <textarea
+          ref={titleRef}
           value={title}
           onChange={(e) => onTitleChange(e.target.value)}
           // Hard-stop at the server's StepPatchBody.title cap (500). Without
@@ -359,18 +369,23 @@ export function StepEditorBody({
           // fire a PATCH that silently 400'd ("title too big") with no UI
           // feedback — the edit just never persisted.
           maxLength={500}
+          // Authors use this field as the step's instruction text, which
+          // often runs several lines — a textarea soft-wraps and the
+          // auto-grow effect above sizes it to fit (no scrollbar / manual
+          // resize handle).
+          rows={1}
           placeholder={
             step.snippetBadge && !step.snippetBadge.detached
               ? `Override snippet title (or leave blank to use "${step.snippetBadge.title}")`
               : 'Short imperative — e.g., Apply LOTO and verify zero energy'
           }
           className={[
-            'w-full bg-transparent outline-none placeholder:text-ink-tertiary/60 focus:placeholder:text-ink-tertiary/40 text-ink-primary',
-            // Step view gets a noticeably larger title so it feels like
-            // editing the heading rather than another row of properties.
+            'w-full resize-none overflow-hidden bg-transparent outline-none placeholder:text-ink-tertiary/60 focus:placeholder:text-ink-tertiary/40 text-ink-primary',
+            // Smaller than a true heading: this field carries multi-line
+            // step text, so readable body-ish sizing beats a big bold title.
             chrome === 'step'
-              ? 'text-2xl font-bold tracking-tight py-1'
-              : 'text-lg font-semibold',
+              ? 'text-lg font-semibold leading-snug py-1'
+              : 'text-base font-medium leading-snug',
           ].join(' ')}
           autoFocus={autoFocusTitle}
         />
