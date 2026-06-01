@@ -3278,6 +3278,9 @@ export type ProcedureDraftRunStatus =
   | 'uploading'
   | 'transcribing'
   | 'storyboarding'
+  // Document-import lifecycle (sourceKind 'docx'|'pdf').
+  | 'extracting'
+  | 'awaiting_section_pick'
   | 'pending_admin_decision'
   | 'proposing'
   | 'awaiting_review'
@@ -3285,6 +3288,8 @@ export type ProcedureDraftRunStatus =
   | 'completed'
   | 'failed'
   | 'cancelled';
+
+export type ProcedureDraftSourceKind = 'video' | 'docx' | 'pdf';
 
 export type ProcedureDraftTranscriptSource =
   | 'mux_captions'
@@ -3322,6 +3327,14 @@ export interface AdminDraftRun {
   transcriptSource: ProcedureDraftTranscriptSource | null;
   hasTranscript: boolean;
   hasStoryboard: boolean;
+  /** 'video' (Mux) or 'docx'/'pdf' (document import). Drives the reviewer UI. */
+  sourceKind: ProcedureDraftSourceKind;
+  /** Doc import: true once the document has been parsed to markdown. */
+  hasSourceMarkdown: boolean;
+  /** Doc import: section titles the admin chose to generate. */
+  selectedSectionTitles: string[] | null;
+  /** Doc import: number of figures extracted from the document. */
+  figureCount: number;
   error: string | null;
   pwaSubmitted: boolean;
   submittedByUserId: string | null;
@@ -3372,7 +3385,9 @@ export interface AdminDraftProposal {
   id: string;
   runId: string;
   version: number;
-  content: AdminDraftProposalTree;
+  // Video runs carry AdminDraftProposalTree; doc-import runs carry
+  // AdminDraftDocProposalTree (discriminated by `source: 'document'`).
+  content: AdminDraftProposalTree | AdminDraftDocProposalTree;
   summary: string | null;
   modelUsed: string | null;
   tokenUsage: { inputTokens: number; outputTokens: number; costUsd?: number } | null;
@@ -3389,12 +3404,70 @@ export interface AdminDraftExecution {
   finishedAt: string | null;
 }
 
+/** One step proposed by the document-import drafter. Mirrors the video
+ *  step but drops the clip/keyframe fields and adds sectionTitle + figureRefs. */
+export interface AdminDraftDocStepProposal {
+  clientId: string;
+  confidence: number;
+  title: string;
+  kind: ProcedureStepKind;
+  /** Section this step belongs to (e.g. "Removal"). Distinct titles become
+   *  procedure sections at execute time. */
+  sectionTitle?: string;
+  voiceoverText: string;
+  blocks: StepBlock[];
+  /** figureIds (e.g. "fig-3") this step references; wired into media[] +
+   *  a photo_inline block on execute. */
+  figureRefs: string[];
+  safetyCritical: boolean;
+  requiresPhoto: boolean;
+  minPhotoCount: number;
+  measurementSpec: MeasurementSpec | null;
+  rationale?: string;
+}
+
+export interface AdminDraftDocFigure {
+  figureId: string;
+  storageKey: string;
+  mime: string;
+  width?: number | null;
+  height?: number | null;
+  caption?: string;
+}
+
+export interface AdminDraftDocProposalTree {
+  schemaVersion: 1;
+  source: 'document';
+  summary?: string;
+  warnings: string[];
+  figures: AdminDraftDocFigure[];
+  steps: AdminDraftDocStepProposal[];
+}
+
+export interface DocOutlineEntry {
+  title: string;
+  level: number;
+}
+
+/** A figure thumbnail surfaced on the reviewer for a doc-import run. */
+export interface AdminDraftFigureThumb {
+  figureId: string;
+  caption: string | null;
+  width: number | null;
+  height: number | null;
+  url: string;
+}
+
 export interface AdminDraftDetail {
   run: AdminDraftRun;
   proposal: AdminDraftProposal | null;
   executions: AdminDraftExecution[];
   playbackId: string | null;
   transcript: string | null;
+  /** Doc import: heading outline for the section picker. Null for video. */
+  documentOutline: DocOutlineEntry[] | null;
+  /** Doc import: extracted figure thumbnails (signed URLs). Null for video. */
+  figures: AdminDraftFigureThumb[] | null;
 }
 
 export async function createProcedureDraft(input: {
@@ -3409,6 +3482,59 @@ export async function createProcedureDraft(input: {
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   return (await res.json()) as { runId: string; uploadId: string; uploadUrl: string };
+}
+
+/** Create a document-import draft: upload a .docx/.pdf and kick extraction.
+ *  The reviewer page then drives section-pick → propose → review → execute. */
+export async function createProcedureDraftDocument(input: {
+  proposedTitle: string;
+  targetContentPackVersionId: string;
+  ownerOrganizationId: string;
+  procedureCategory?: ProcedureDraftCategory | null;
+  file: File;
+  onProgress?: (frac: number) => void;
+}): Promise<{ runId: string; sourceKind: ProcedureDraftSourceKind; streamToken: string | null }> {
+  const form = new FormData();
+  form.append('proposedTitle', input.proposedTitle);
+  form.append('targetContentPackVersionId', input.targetContentPackVersionId);
+  form.append('ownerOrganizationId', input.ownerOrganizationId);
+  if (input.procedureCategory) form.append('procedureCategory', input.procedureCategory);
+  form.append('file', input.file, input.file.name);
+
+  // XHR for upload progress; FormData sets its own multipart content-type.
+  const headers = await authHeaders();
+  return await new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && input.onProgress) input.onProgress(e.loaded / e.total);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(JSON.parse(xhr.responseText));
+      } else {
+        reject(new Error(`API ${xhr.status}: ${xhr.responseText}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Upload network error'));
+    xhr.open('POST', `${API_BASE}/admin/procedure-drafts/document`);
+    for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v as string);
+    xhr.send(form);
+  });
+}
+
+/** Pick which procedures (document sections) to generate, then kick the LLM.
+ *  Doc-import runs only; valid in the awaiting_section_pick state. */
+export async function pickProcedureDraftSections(
+  id: string,
+  selectedSectionTitles: string[],
+): Promise<{ ok: true; streamToken: string | null }> {
+  const res = await fetch(`${API_BASE}/admin/procedure-drafts/${id}/sections`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+    body: JSON.stringify({ selectedSectionTitles }),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { ok: true; streamToken: string | null };
 }
 
 export async function listProcedureDrafts(
@@ -3434,7 +3560,12 @@ export async function getProcedureDraft(id: string): Promise<AdminDraftDetail> {
 
 export async function patchProcedureDraftProposal(
   id: string,
-  body: { version: number; content: AdminDraftProposalTree },
+  body: {
+    version: number;
+    // Video runs send AdminDraftProposalTree; doc-import runs send
+    // AdminDraftDocProposalTree. The server accepts either.
+    content: AdminDraftProposalTree | AdminDraftDocProposalTree;
+  },
 ): Promise<AdminDraftProposal> {
   const res = await fetch(`${API_BASE}/admin/procedure-drafts/${id}/proposal`, {
     method: 'PATCH',

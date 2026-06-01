@@ -16,11 +16,15 @@
 import { extractPdf } from './pdf.js';
 import { extractDocx } from './docx.js';
 import { extractPptx } from './pptx.js';
+import { extractDocxWithFigures } from './docx-figures.js';
+import { extractPdfWithFigures } from './pdf-figures.js';
 import type { ExtractionResult } from './types.js';
 import { ExtractionError } from './types.js';
+import type { FigureAwareExtraction } from './figures.js';
 
 export type { ExtractionResult, ExtractedPage } from './types.js';
 export { ExtractionError } from './types.js';
+export type { FigureAwareExtraction, ExtractedFigure } from './figures.js';
 
 // MIME types we recognize. Anything else → ExtractionError (caller marks the
 // doc as failed with a clear message for the admin UI).
@@ -63,6 +67,31 @@ export async function extract(input: ExtractInput): Promise<ExtractionResult> {
     default:
       throw new ExtractionError(
         `No extractor for format "${format}" (kind=${input.kind}, contentType=${input.contentType})`,
+      );
+  }
+}
+
+/**
+ * Figure-aware extraction for the procedure importer. Unlike extract(), which
+ * drops images for RAG, this keeps each embedded figure as bytes and leaves a
+ * `[[FIGURE:fig-N]]` token where it sat. Only docx + pdf are supported (the
+ * importer's two source kinds); pptx falls through to an error.
+ */
+export async function extractWithFigures(
+  input: ExtractInput,
+): Promise<FigureAwareExtraction> {
+  const format = resolveFormat(input);
+  switch (format) {
+    case 'docx':
+      return extractDocxWithFigures(input.filePath);
+    case 'pdf':
+      return extractPdfWithFigures({
+        filePath: input.filePath,
+        sourceUrl: input.sourceUrl,
+      });
+    default:
+      throw new ExtractionError(
+        `No figure-aware extractor for format "${format}" (kind=${input.kind}, contentType=${input.contentType})`,
       );
   }
 }

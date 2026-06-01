@@ -80,9 +80,22 @@ export async function extractDocx(filePath: string): Promise<ExtractionResult> {
  * Minimal HTML → Markdown converter tuned for mammoth's output. Handles
  * headings, lists, tables, bold/italic, links, blockquotes, code.
  * Not a general-purpose HTML→MD — mammoth's output is deliberately narrow.
+ *
+ * Exported so the figure-aware DOCX extractor (docx-figures.ts) can reuse the
+ * exact same conversion — it only differs in how images are handled upstream.
  */
-function htmlToMarkdown(html: string): string {
+export function htmlToMarkdown(html: string): string {
   let out = html;
+
+  // Figure tokens. The figure-aware extractor replaces each <img> with an
+  // <img alt="[[FIGURE:fig-N]]"> marker so the figure's reading-order position
+  // survives into the markdown. Convert it to the inline literal token BEFORE
+  // the paragraph rule strips tags. The normal extractDocx() path emits no
+  // <img> tags (images dropped with src=''), so this rule is a no-op there.
+  out = out.replace(
+    /<img[^>]*\balt=["']\[\[FIGURE:(fig-\d+)\]\]["'][^>]*>/gi,
+    (_m, id) => ` [[FIGURE:${id}]] `,
+  );
 
   // Headings
   out = out.replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, (_, inner) => `\n\n# ${stripTags(inner)}\n\n`);

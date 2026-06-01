@@ -40,7 +40,11 @@ export type AgentEventType =
   | 'inserting'
   | 'completed'
   | 'failed'
-  | 'cancelled';
+  | 'cancelled'
+  // Document-import drafter events (sourceKind 'docx'|'pdf').
+  | 'extracting'
+  | 'awaiting_section_pick'
+  | 'sections';
 
 export interface AgentBusEvent {
   id: number;

@@ -15,7 +15,9 @@ import { schema, type Database } from '@platform/db';
 import { z } from 'zod';
 import {
   DraftProposalTreeSchema,
+  DraftDocProposalTreeSchema,
   type DraftProposalTree,
+  type DraftDocProposalTree,
 } from '@platform/ai';
 import { UuidSchema } from '@platform/shared';
 import { recordAudit } from '../lib/audit.js';
@@ -34,6 +36,20 @@ import {
   runDrafterExecution,
   startDrafterLoop,
 } from '../services/draft-pipeline.js';
+import {
+  deriveOutline,
+  startDocExtraction,
+  startDocDrafterLoop,
+  runDocDrafterExecution,
+} from '../services/doc-draft-pipeline.js';
+
+// Source document upload limits for the doc-import path.
+const MAX_DOC_BYTES = 50 * 1024 * 1024; // 50 MB — LlamaParse/mammoth ceiling
+const DOC_MIME_TO_KIND: Record<string, 'docx' | 'pdf'> = {
+  'application/pdf': 'pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+    'docx',
+};
 
 const CreateBody = z.object({
   proposedTitle: z.string().min(1).max(200),
@@ -59,7 +75,16 @@ const ListQuery = z.object({
 
 const ProposalPatchBody = z.object({
   version: z.number().int().positive(),
-  content: DraftProposalTreeSchema,
+  // A run is either a video draft (DraftProposalTree) or a document-import
+  // draft (DraftDocProposalTree). Try the doc schema first — it pins
+  // source:'document', so a video tree can't match it, and a doc tree (no
+  // clip fields) can't match the video schema. The handler doesn't need to
+  // know which won; the content is stored as-is.
+  content: z.union([DraftDocProposalTreeSchema, DraftProposalTreeSchema]),
+});
+
+const SectionsPickBody = z.object({
+  selectedSectionTitles: z.array(z.string().min(1).max(200)).min(1).max(50),
 });
 
 // In-process registry of AbortControllers so /cancel can interrupt a
@@ -104,6 +129,13 @@ function runToDTO(r: typeof schema.procedureDraftRuns.$inferSelect) {
     transcriptSource: r.transcriptSource,
     hasTranscript: !!r.sourceTranscript,
     hasStoryboard: !!r.storyboardVttUrl,
+    // Document-import source fields. sourceKind discriminates the UI: 'video'
+    // shows the Mux reviewer, 'docx'/'pdf' shows the section picker + figure
+    // thumbnails and hides the clip slider.
+    sourceKind: r.sourceKind,
+    hasSourceMarkdown: !!r.sourceMarkdown,
+    selectedSectionTitles: r.selectedSectionTitles ?? null,
+    figureCount: r.figuresManifest?.length ?? 0,
     error: r.error,
     // PWA-submission provenance — surfaces a "Submitted by tech" badge
     // and the asset context strip on the admin reviewer.
@@ -129,7 +161,9 @@ function proposalToDTO(p: typeof schema.procedureDraftProposals.$inferSelect) {
     id: p.id,
     runId: p.runId,
     version: p.version,
-    content: p.content as DraftProposalTree,
+    // Either a video or document proposal tree — the client branches on the
+    // run's sourceKind (and the tree's `source` discriminator) to render.
+    content: p.content as DraftProposalTree | DraftDocProposalTree,
     summary: p.summary,
     modelUsed: p.modelUsed,
     tokenUsage: p.tokenUsage,
@@ -212,6 +246,174 @@ export async function registerAdminProcedureDrafts(app: FastifyInstance) {
   );
 
   // -------------------------------------------------------------------------
+  // POST /admin/procedure-drafts/document — create a doc-import draft.
+  //
+  // Multipart: a .docx/.pdf file plus form fields (proposedTitle,
+  // targetContentPackVersionId, ownerOrganizationId, procedureCategory?).
+  // Stores the file, creates the run with sourceKind, and kicks extraction
+  // (parse → figures → await section pick). No Mux.
+  // -------------------------------------------------------------------------
+  app.post('/admin/procedure-drafts/document', async (request, reply) => {
+    const { db, storage } = app.ctx;
+    const auth = requireAuth(request);
+    const scope = await getScope(request, db);
+
+    if (!request.isMultipart()) {
+      return reply.badRequest('Expected multipart/form-data with a document file.');
+    }
+    const file = await request.file();
+    if (!file) return reply.badRequest('Missing document file.');
+
+    const mime = (file.mimetype || '').toLowerCase();
+    const sourceKind = DOC_MIME_TO_KIND[mime];
+    if (!sourceKind) {
+      return reply.unsupportedMediaType(
+        `Unsupported document type: ${mime}. Upload a Word (.docx) or PDF file.`,
+      );
+    }
+
+    // Form fields ride alongside the file part.
+    const fields = file.fields as Record<string, { value?: string } | undefined>;
+    const proposedTitle = (fields.proposedTitle?.value ?? '').trim();
+    const targetContentPackVersionId = fields.targetContentPackVersionId?.value ?? '';
+    const ownerOrganizationId = fields.ownerOrganizationId?.value ?? '';
+    const procedureCategoryRaw = fields.procedureCategory?.value;
+
+    if (!proposedTitle) return reply.badRequest('proposedTitle is required.');
+    const ids = z
+      .object({
+        targetContentPackVersionId: UuidSchema,
+        ownerOrganizationId: UuidSchema,
+      })
+      .safeParse({ targetContentPackVersionId, ownerOrganizationId });
+    if (!ids.success) {
+      return reply.badRequest('targetContentPackVersionId and ownerOrganizationId must be UUIDs.');
+    }
+    const procedureCategory = ProcedureCategorySchema.safeParse(procedureCategoryRaw);
+    requireOrgInScope(scope, ids.data.ownerOrganizationId);
+
+    // Verify the content pack version belongs to the org.
+    const version = await db.query.contentPackVersions.findFirst({
+      where: eq(schema.contentPackVersions.id, ids.data.targetContentPackVersionId),
+      with: { pack: true },
+    });
+    if (!version) return reply.notFound('content_pack_version not found');
+    if (version.pack.ownerOrganizationId !== ids.data.ownerOrganizationId) {
+      return reply.badRequest(
+        'ownerOrganizationId does not match the content pack version owner',
+      );
+    }
+
+    // Read + size-check the file.
+    const chunks: Buffer[] = [];
+    let total = 0;
+    for await (const c of file.file as unknown as AsyncIterable<Buffer>) {
+      total += c.byteLength;
+      if (total > MAX_DOC_BYTES) {
+        return reply.payloadTooLarge('Document exceeds 50 MB limit.');
+      }
+      chunks.push(c);
+    }
+    const buf = Buffer.concat(chunks);
+    if (buf.byteLength === 0) return reply.badRequest('Empty document.');
+
+    const stored = await storage.putBuffer({
+      buffer: buf,
+      filename: file.filename || `procedure.${sourceKind}`,
+      contentType: mime,
+      ownerOrganizationId: ids.data.ownerOrganizationId,
+    });
+
+    const [run] = await db
+      .insert(schema.procedureDraftRuns)
+      .values({
+        ownerOrganizationId: ids.data.ownerOrganizationId,
+        targetContentPackVersionId: ids.data.targetContentPackVersionId,
+        proposedTitle,
+        status: 'extracting',
+        sourceKind,
+        sourceStorageKey: stored.storageKey,
+        procedureCategory: procedureCategory.success ? procedureCategory.data : null,
+        createdByUserId: auth.userId,
+      })
+      .returning();
+    if (!run) return reply.internalServerError('Failed to create draft run');
+
+    await recordAudit(db, request, {
+      organizationId: ids.data.ownerOrganizationId,
+      eventType: 'procedure_draft.created',
+      targetType: 'procedure_draft_run',
+      targetId: run.id,
+      payload: { proposedTitle, sourceKind, sizeBytes: stored.size },
+    });
+
+    // Fire-and-forget extraction; the reviewer page subscribes to SSE.
+    setImmediate(() => {
+      startDocExtraction(app, run.id).catch((err) => {
+        app.log.error({ err, runId: run.id }, 'doc draft extraction failed');
+      });
+    });
+
+    const streamToken = app.ctx.streamTokens
+      ? app.ctx.streamTokens.mint({ runId: run.id, userId: auth.userId, purpose: 'propose' })
+      : null;
+
+    return reply.code(201).send({ runId: run.id, sourceKind, streamToken });
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /admin/procedure-drafts/:id/sections — pick which procedures
+  // (document sections) to generate, then kick the LLM drafter. Doc-import
+  // runs only.
+  // -------------------------------------------------------------------------
+  app.post<{ Params: { id: string }; Body: z.infer<typeof SectionsPickBody> }>(
+    '/admin/procedure-drafts/:id/sections',
+    { schema: { params: z.object({ id: UuidSchema }), body: SectionsPickBody } },
+    async (request, reply) => {
+      const { db } = app.ctx;
+      const auth = requireAuth(request);
+      const scope = await getScope(request, db);
+      const run = await loadRun(db, request.params.id);
+      if (!run) return reply.notFound();
+      requireDraftAccess(run, scope);
+      if (run.sourceKind === 'video') {
+        return reply.badRequest('section pick applies only to document-import drafts');
+      }
+      if (run.status !== 'awaiting_section_pick') {
+        return reply.conflict(
+          `cannot pick sections in status '${run.status}' — expected awaiting_section_pick`,
+        );
+      }
+      await db
+        .update(schema.procedureDraftRuns)
+        .set({
+          selectedSectionTitles: request.body.selectedSectionTitles,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.procedureDraftRuns.id, run.id));
+
+      setImmediate(() => {
+        startDocDrafterLoop(app, run.id).catch((err) => {
+          app.log.error({ err, runId: run.id }, 'doc draft loop failed');
+        });
+      });
+
+      await recordAudit(db, request, {
+        organizationId: run.ownerOrganizationId,
+        eventType: 'procedure_draft.sections_picked',
+        targetType: 'procedure_draft_run',
+        targetId: run.id,
+        payload: { sections: request.body.selectedSectionTitles },
+      });
+
+      const streamToken = app.ctx.streamTokens
+        ? app.ctx.streamTokens.mint({ runId: run.id, userId: auth.userId, purpose: 'propose' })
+        : null;
+      return reply.code(202).send({ ok: true, streamToken });
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // GET /admin/procedure-drafts — list, filterable by org
   // -------------------------------------------------------------------------
   app.get<{ Querystring: z.infer<typeof ListQuery> }>(
@@ -273,6 +475,26 @@ export async function registerAdminProcedureDrafts(app: FastifyInstance) {
         limit: 10,
       });
 
+      // Doc-import runs surface the heading outline (for the section picker)
+      // and signed figure thumbnail URLs (for the reviewer). Video runs leave
+      // both null and use playbackId/transcript instead.
+      const isDoc = run.sourceKind === 'docx' || run.sourceKind === 'pdf';
+      const documentOutline =
+        isDoc && run.sourceMarkdown ? deriveOutline(run.sourceMarkdown) : null;
+      const figures = isDoc
+        ? await Promise.all(
+            (run.figuresManifest ?? []).map(async (f) => ({
+              figureId: f.figureId,
+              caption: f.caption ?? null,
+              width: f.width ?? null,
+              height: f.height ?? null,
+              url: await app.ctx.storage.signedUrl(f.storageKey, {
+                ttlSeconds: 3600,
+              }),
+            })),
+          )
+        : null;
+
       return {
         run: runToDTO(run),
         proposal: proposal ? proposalToDTO(proposal) : null,
@@ -286,6 +508,8 @@ export async function registerAdminProcedureDrafts(app: FastifyInstance) {
         })),
         playbackId: run.muxPlaybackId,
         transcript: run.sourceTranscript,
+        documentOutline,
+        figures,
       };
     },
   );
@@ -412,23 +636,38 @@ export async function registerAdminProcedureDrafts(app: FastifyInstance) {
         return reply.internalServerError('failed to create execution row');
       }
 
-      const tree = (proposal.content as DraftProposalTree);
+      const isDoc = run.sourceKind === 'docx' || run.sourceKind === 'pdf';
+      const tree = proposal.content as DraftProposalTree | DraftDocProposalTree;
       const ac = new AbortController();
       executionAborts.set(execution.id, ac);
 
-      // Fire-and-forget. SSE listeners see progress.
+      // Fire-and-forget. SSE listeners see progress. Doc-import runs use the
+      // document executor (sections + figures, no Mux); video runs use the
+      // original keyframe/clip executor.
       setImmediate(() => {
-        runDrafterExecution({
-          app,
-          runId: run.id,
-          proposalId: proposal.id,
-          proposalVersion: proposal.version,
-          executionId: execution.id,
-          actorUserId: auth.userId,
-          targetDocumentId: doc.id,
-          proposal: tree,
-          signal: ac.signal,
-        })
+        const work = isDoc
+          ? runDocDrafterExecution({
+              app,
+              runId: run.id,
+              proposalId: proposal.id,
+              executionId: execution.id,
+              actorUserId: auth.userId,
+              targetDocumentId: doc.id,
+              proposal: tree as DraftDocProposalTree,
+              signal: ac.signal,
+            })
+          : runDrafterExecution({
+              app,
+              runId: run.id,
+              proposalId: proposal.id,
+              proposalVersion: proposal.version,
+              executionId: execution.id,
+              actorUserId: auth.userId,
+              targetDocumentId: doc.id,
+              proposal: tree as DraftProposalTree,
+              signal: ac.signal,
+            });
+        work
           .catch((err) => {
             app.log.error({ err, runId: run.id }, 'draft execute failed');
           })

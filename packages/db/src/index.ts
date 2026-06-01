@@ -29,6 +29,8 @@ export type {
   ProcedureDraftExecutionStep,
   NewProcedureDraftExecutionStep,
   ProcedureDraftRunStatus,
+  ProcedureDraftSourceKind,
+  DraftFigure,
   ProcedureDraftExecutionStatus,
   ProcedureDraftExecutionStepStatus,
   ProcedureDraftTokenUsage,

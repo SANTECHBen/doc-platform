@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Clapperboard,
+  FileText,
   FileUp,
   Loader2,
   Play,
@@ -25,6 +26,7 @@ import {
 } from '@/components/form';
 import {
   createProcedureDraft,
+  createProcedureDraftDocument,
   getContentPack,
   listContentPacks,
   listOrganizations,
@@ -54,6 +56,15 @@ const MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB hard cap
 const ACCEPTED_TYPES = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-matroska'];
 const ACCEPTED_EXTENSIONS = ['.mp4', '.mov', '.webm', '.m4v', '.mkv'];
 
+// Document-import path: a Word/PDF procedure the AI restructures into steps.
+type SourceMode = 'video' | 'document';
+const MAX_DOC_BYTES = 50 * 1024 * 1024; // 50 MB
+const DOC_ACCEPTED_TYPES = [
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+];
+const DOC_ACCEPTED_EXTENSIONS = ['.pdf', '.docx'];
+
 type UploadPhase =
   | { kind: 'idle' }
   | { kind: 'creating' }
@@ -69,6 +80,7 @@ export default function NewProcedureDraftPage() {
   const [packs, setPacks] = useState<AdminContentPack[] | null>(null);
   const [packDetail, setPackDetail] = useState<AdminContentPackDetail | null>(null);
 
+  const [sourceMode, setSourceMode] = useState<SourceMode>('video');
   const [title, setTitle] = useState('');
   const [ownerId, setOwnerId] = useState<string>('');
   const [packId, setPackId] = useState<string>('');
@@ -160,6 +172,21 @@ export default function NewProcedureDraftPage() {
       return;
     }
     const ext = picked.name.toLowerCase().match(/\.[a-z0-9]+$/)?.[0] ?? '';
+    if (sourceMode === 'document') {
+      const okDoc =
+        DOC_ACCEPTED_TYPES.includes(picked.type) ||
+        DOC_ACCEPTED_EXTENSIONS.includes(ext);
+      if (!okDoc) {
+        toast.error('Unsupported file', `Expected a Word (.docx) or PDF file. Got "${picked.type || ext}".`);
+        return;
+      }
+      if (picked.size > MAX_DOC_BYTES) {
+        toast.error('Too large', 'Maximum 50 MB for documents.');
+        return;
+      }
+      setFile(picked);
+      return;
+    }
     const okMime =
       ACCEPTED_TYPES.includes(picked.type) || ACCEPTED_EXTENSIONS.includes(ext);
     if (!okMime) {
@@ -171,6 +198,13 @@ export default function NewProcedureDraftPage() {
       return;
     }
     setFile(picked);
+  }
+
+  // Switching source mode clears a now-invalid file pick.
+  function switchMode(mode: SourceMode) {
+    if (mode === sourceMode) return;
+    setSourceMode(mode);
+    setFile(null);
   }
 
   // ---------- Submit ----------
@@ -190,10 +224,28 @@ export default function NewProcedureDraftPage() {
       return;
     }
     if (!file) {
-      setPageError('Choose a video file to upload.');
+      setPageError(
+        sourceMode === 'document'
+          ? 'Choose a Word or PDF document to upload.'
+          : 'Choose a video file to upload.',
+      );
       return;
     }
     try {
+      if (sourceMode === 'document') {
+        setPhase({ kind: 'uploading', progress: 0 });
+        const { runId } = await createProcedureDraftDocument({
+          proposedTitle: title.trim(),
+          targetContentPackVersionId: versionId,
+          ownerOrganizationId: ownerId,
+          file,
+          onProgress: (frac) => setPhase({ kind: 'uploading', progress: frac }),
+        });
+        setPhase({ kind: 'finishing' });
+        toast.success('Uploaded', 'Parsing the document and extracting figures…');
+        router.push(`/procedure-drafts/${runId}`);
+        return;
+      }
       setPhase({ kind: 'creating' });
       const { runId, uploadUrl } = await createProcedureDraft({
         proposedTitle: title.trim(),
@@ -256,6 +308,29 @@ export default function NewProcedureDraftPage() {
 
       <form onSubmit={(e) => void onSubmit(e)} className="grid gap-6 lg:grid-cols-[1fr_360px]">
         <main className="flex flex-col gap-4">
+          <Field
+            label="Source"
+            hint="Record a walkthrough video, or import an existing Word/PDF procedure and let the AI restructure it into steps with figures."
+          >
+            <div className="grid grid-cols-2 gap-2">
+              <ModeButton
+                active={sourceMode === 'video'}
+                disabled={uploading}
+                onClick={() => switchMode('video')}
+                icon={<Clapperboard size={16} />}
+                label="Walkthrough video"
+                sub="MP4 / MOV / WEBM"
+              />
+              <ModeButton
+                active={sourceMode === 'document'}
+                disabled={uploading}
+                onClick={() => switchMode('document')}
+                icon={<FileText size={16} />}
+                label="Word / PDF document"
+                sub="Existing written procedure"
+              />
+            </div>
+          </Field>
           <Field label="Title" hint="Used as the procedure's title once accepted. Keep it imperative (e.g., 'Replace the take-up belt').">
             <TextInput
               autoFocus
@@ -323,7 +398,14 @@ export default function NewProcedureDraftPage() {
             </Select>
           </Field>
 
-          <Field label="Walkthrough video" hint="MP4, MOV, or WEBM up to 2 GB. Aim for under 30 minutes of useful narration — long videos with idle stretches confuse the segmenter.">
+          <Field
+            label={sourceMode === 'document' ? 'Procedure document' : 'Walkthrough video'}
+            hint={
+              sourceMode === 'document'
+                ? 'Word (.docx) or PDF up to 50 MB. The AI keeps your sections, steps, callouts, and figures — you pick which procedures to generate next.'
+                : 'MP4, MOV, or WEBM up to 2 GB. Aim for under 30 minutes of useful narration — long videos with idle stretches confuse the segmenter.'
+            }
+          >
             <Dropzone
               file={file}
               onPick={pickFile}
@@ -332,11 +414,16 @@ export default function NewProcedureDraftPage() {
               dragOver={dragOver}
               setDragOver={setDragOver}
               openPicker={() => inputRef.current?.click()}
+              mode={sourceMode}
             />
             <input
               ref={inputRef}
               type="file"
-              accept={[...ACCEPTED_TYPES, ...ACCEPTED_EXTENSIONS].join(',')}
+              accept={
+                sourceMode === 'document'
+                  ? [...DOC_ACCEPTED_TYPES, ...DOC_ACCEPTED_EXTENSIONS].join(',')
+                  : [...ACCEPTED_TYPES, ...ACCEPTED_EXTENSIONS].join(',')
+              }
               onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
               className="hidden"
             />
@@ -453,6 +540,43 @@ function Card({
   );
 }
 
+function ModeButton({
+  active,
+  disabled,
+  onClick,
+  icon,
+  label,
+  sub,
+}: {
+  active: boolean;
+  disabled: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  sub: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={active}
+      className={[
+        'flex flex-col items-start gap-1 rounded-md border px-3 py-2.5 text-left transition',
+        active
+          ? 'border-accent bg-accent/5 text-ink-primary'
+          : 'border-line bg-surface text-ink-secondary hover:border-line-strong',
+        disabled ? 'pointer-events-none opacity-50' : '',
+      ].join(' ')}
+    >
+      <span className={`inline-flex items-center gap-1.5 text-sm font-medium ${active ? 'text-accent' : ''}`}>
+        {icon} {label}
+      </span>
+      <span className="text-[10px] text-ink-tertiary">{sub}</span>
+    </button>
+  );
+}
+
 function Dropzone({
   file,
   onPick,
@@ -461,6 +585,7 @@ function Dropzone({
   dragOver,
   setDragOver,
   openPicker,
+  mode,
 }: {
   file: File | null;
   onPick: (f: File) => void;
@@ -469,11 +594,16 @@ function Dropzone({
   dragOver: boolean;
   setDragOver: (b: boolean) => void;
   openPicker: () => void;
+  mode: SourceMode;
 }) {
   if (file) {
     return (
       <div className="flex items-start gap-3 rounded-md border border-line bg-surface-raised px-3 py-3">
-        <Play size={16} className="mt-0.5 shrink-0 text-accent" />
+        {mode === 'document' ? (
+          <FileText size={16} className="mt-0.5 shrink-0 text-accent" />
+        ) : (
+          <Play size={16} className="mt-0.5 shrink-0 text-accent" />
+        )}
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-ink-primary">
             {file.name}
@@ -524,8 +654,14 @@ function Dropzone({
       ].join(' ')}
     >
       <FileUp size={28} strokeWidth={1.5} />
-      <span>Drop a video here, or click to browse</span>
-      <span className="text-[10px] text-ink-tertiary">MP4 / MOV / WEBM up to 2 GB</span>
+      <span>
+        {mode === 'document'
+          ? 'Drop a Word or PDF here, or click to browse'
+          : 'Drop a video here, or click to browse'}
+      </span>
+      <span className="text-[10px] text-ink-tertiary">
+        {mode === 'document' ? '.docx / .pdf up to 50 MB' : 'MP4 / MOV / WEBM up to 2 GB'}
+      </span>
     </button>
   );
 }

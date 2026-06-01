@@ -40,10 +40,57 @@ import {
   type AdminDraftProposalTree,
   type AdminDraftStepProposal,
   type ProcedureDraftCategory,
+  type ProcedureDraftSourceKind,
 } from '@/lib/api';
 import { MuxClipAudioPreview } from '@/components/mux-clip-audio-preview';
 import { ClipTrimSlider } from '@/components/clip-trim-slider';
 import { formatMmSs, formatClipDuration } from '@/lib/clip-time';
+import { DocDraftReviewer } from './doc-reviewer';
+
+// Thin router: document-import runs (sourceKind 'docx'|'pdf') use a dedicated
+// reviewer; video runs use the Mux-based reviewer below. One cheap fetch
+// determines which, so the heavy video reviewer never mounts for doc runs
+// (and vice versa).
+export default function DraftReviewerPage() {
+  const params = useParams<{ runId: string }>();
+  const runId = params.runId;
+  const [sourceKind, setSourceKind] = useState<ProcedureDraftSourceKind | null>(null);
+  const [routeError, setRouteError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getProcedureDraft(runId)
+      .then((d) => {
+        if (!cancelled) setSourceKind(d.run.sourceKind ?? 'video');
+      })
+      .catch((e) => {
+        // Fall back to the video reviewer on error — it surfaces the same
+        // error and offers recovery affordances.
+        if (!cancelled) {
+          setRouteError(e instanceof Error ? e.message : String(e));
+          setSourceKind('video');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runId]);
+
+  if (sourceKind === null) {
+    return (
+      <PageShell crumbs={[{ label: 'AI drafts', href: '/procedure-drafts' }, { label: 'Loading…' }]}>
+        <div className="flex items-center gap-2 py-12 text-sm text-ink-secondary">
+          <Loader2 className="size-4 animate-spin" /> Loading draft…
+        </div>
+        <ErrorBanner error={routeError} />
+      </PageShell>
+    );
+  }
+  if (sourceKind === 'docx' || sourceKind === 'pdf') {
+    return <DocDraftReviewer runId={runId} />;
+  }
+  return <VideoDraftReviewer runId={runId} />;
+}
 
 type Phase =
   | 'loading'
@@ -56,10 +103,8 @@ type Phase =
   | 'done'
   | 'failed';
 
-export default function DraftReviewerPage() {
-  const params = useParams<{ runId: string }>();
+function VideoDraftReviewer({ runId }: { runId: string }) {
   const toast = useToast();
-  const runId = params.runId;
 
   const [detail, setDetail] = useState<AdminDraftDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +126,9 @@ export default function DraftReviewerPage() {
         if (!cancelled) {
           setDetail(d);
           if (d.proposal && draftSteps.length === 0) {
-            setDraftSteps(d.proposal.content.steps);
+            // This component only renders for video runs, so the proposal is
+            // always a video tree (the union is resolved by the page router).
+            setDraftSteps(d.proposal.content.steps as AdminDraftStepProposal[]);
           }
           setError(null);
         }
@@ -122,7 +169,7 @@ export default function DraftReviewerPage() {
     setBusy(true);
     try {
       const next: AdminDraftProposalTree = {
-        ...detail.proposal.content,
+        ...(detail.proposal.content as AdminDraftProposalTree),
         steps: draftSteps,
       };
       const updated = await patchProcedureDraftProposal(runId, {
@@ -130,7 +177,7 @@ export default function DraftReviewerPage() {
         content: next,
       });
       setDetail({ ...detail, proposal: updated });
-      setDraftSteps(updated.content.steps);
+      setDraftSteps(updated.content.steps as AdminDraftStepProposal[]);
       toast.success('Saved', `Proposal v${updated.version}`);
     } catch (e) {
       toast.error('Save failed', e instanceof Error ? e.message : String(e));

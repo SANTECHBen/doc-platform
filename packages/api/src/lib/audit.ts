@@ -109,6 +109,7 @@ export const AUDIT_EVENT_TYPES = [
   'procedure_draft.ai_started',
   'procedure_draft.proposal_edited',
   'procedure_draft.category_set',
+  'procedure_draft.sections_picked',
   'procedure_draft.executed',
   'procedure_draft.cancelled',
   'procedure_draft.pwa_submitted',

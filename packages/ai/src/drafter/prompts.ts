@@ -21,7 +21,7 @@ export type DrafterCategory =
  *  (or up-front when creating an admin-initiated draft) so the model can
  *  bias step structure to the right pattern instead of guessing from the
  *  transcript. */
-const CATEGORY_GUIDANCE: Record<DrafterCategory, string> = {
+export const CATEGORY_GUIDANCE: Record<DrafterCategory, string> = {
   preventive_maintenance: `# Category: Preventive Maintenance (PM)
 - Begin with a pre-check step: PPE on, equipment de-energized/locked out,
   required tools at the workstation. If the speaker doesn't say it, still

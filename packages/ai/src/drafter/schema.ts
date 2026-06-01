@@ -192,3 +192,76 @@ export function buildDraftClientToken(
 ): string {
   return `draft:${proposalId}:step:${clientId}`;
 }
+
+// ---------------------------------------------------------------------------
+// Document-import drafter (sourceKind 'docx' | 'pdf')
+//
+// Sibling of the video proposal above. The source is extracted document
+// markdown (with [[FIGURE:id]] tokens) instead of a video transcript, so the
+// per-step shape drops the three video-clip fields (keyframeTimestampMs,
+// clipStartMs, clipEndMs) and adds:
+//   - sectionTitle: which procedure section the step belongs to. The document
+//     already has explicit sections (e.g. "Removal", "Replacement"); the LLM
+//     assigns each step to one and the executor materializes procedure_sections
+//     from the distinct titles in first-appearance order.
+//   - figureRefs: the figureIds (from the [[FIGURE:id]] tokens / figure list)
+//     this step references. The executor wires each into the step's media[]
+//     as an image plus a photo_inline block.
+//
+// The block / measurement / kind vocabularies are shared with the video path
+// so the runner and reviewer render both identically.
+// ---------------------------------------------------------------------------
+
+export const DraftDocStepProposalSchema = z.object({
+  /** Stable per-step id; same role as the video proposal's clientId. */
+  clientId: z.string().min(1).max(80).regex(/^[A-Za-z0-9._-]+$/),
+  confidence: z.number().min(0).max(1),
+  title: z.string().min(1).max(200),
+  kind: DraftStepKindSchema.default('instruction'),
+  /** Section this step belongs to. Distinct values become procedure_sections
+   *  in first-appearance order. Optional — steps with no section sort above
+   *  the first section, mirroring the runtime's orphan-step support. */
+  sectionTitle: z.string().min(1).max(200).optional(),
+  voiceoverText: z.string().min(1).max(2000),
+  blocks: z.array(DraftStepBlockSchema).max(20).default([]),
+  /** figureIds this step references, e.g. ["fig-3"]. Validated against the
+   *  tree's figures manifest at execute time; unknown ids are dropped. */
+  figureRefs: z.array(z.string().min(1).max(80)).max(6).default([]),
+  safetyCritical: z.boolean().default(false),
+  requiresPhoto: z.boolean().default(false),
+  minPhotoCount: z.number().int().min(0).max(10).default(0),
+  measurementSpec: DraftMeasurementSpecSchema.nullable().optional(),
+  rationale: z.string().max(500).optional(),
+});
+
+export type DraftDocStepProposal = z.infer<typeof DraftDocStepProposalSchema>;
+
+/** One figure available to the doc drafter, as persisted in the run's
+ *  figures manifest (bytes already uploaded to object storage). Mirrors
+ *  @platform/db's DraftFigure but lives here so the ai package has no
+ *  circular dependency on the schema row type. */
+export const DraftDocFigureSchema = z.object({
+  figureId: z.string().min(1).max(80),
+  storageKey: z.string().min(1),
+  mime: z.string().min(1).max(80),
+  width: z.number().int().nullable().optional(),
+  height: z.number().int().nullable().optional(),
+  caption: z.string().max(500).optional(),
+});
+
+export type DraftDocFigure = z.infer<typeof DraftDocFigureSchema>;
+
+export const DraftDocProposalTreeSchema = z.object({
+  schemaVersion: z.literal(1),
+  /** Discriminates a doc proposal from a video proposal when both are stored
+   *  in procedure_draft_proposals.content. Consumers also know the source
+   *  from the run row, but this makes the JSON self-describing. */
+  source: z.literal('document'),
+  summary: z.string().max(2000).optional(),
+  warnings: z.array(z.string().max(500)).max(10).default([]),
+  /** The figure pool the steps' figureRefs point into. */
+  figures: z.array(DraftDocFigureSchema).max(200).default([]),
+  steps: z.array(DraftDocStepProposalSchema).min(1).max(80),
+});
+
+export type DraftDocProposalTree = z.infer<typeof DraftDocProposalTreeSchema>;

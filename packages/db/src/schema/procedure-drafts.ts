@@ -40,6 +40,13 @@ export const procedureDraftRunStatusEnum = pgEnum(
     'uploading',
     'transcribing',
     'storyboarding',
+    // Doc-import source (sourceKind 'docx'|'pdf') only: parsing the uploaded
+    // document into markdown + extracting embedded figures. Video drafts skip
+    // both of these and go straight from uploading → transcribing.
+    'extracting',
+    // Doc-import only: extraction finished, waiting for the admin to pick
+    // which procedures (document sections) to generate before the LLM runs.
+    'awaiting_section_pick',
     // PWA-submitted drafts pause here so an admin can decide whether to
     // run the LLM. (Admin-initiated drafts skip this state.)
     'pending_admin_decision',
@@ -76,6 +83,30 @@ export type ProcedureDraftCategory =
 
 export type ProcedureDraftRunStatus =
   (typeof procedureDraftRunStatusEnum.enumValues)[number];
+
+// Source type for a draft run. 'video' is the original (Mux walkthrough)
+// path; 'docx'/'pdf' are the document-import path that extracts markdown +
+// figures from an uploaded procedure document.
+export type ProcedureDraftSourceKind = 'video' | 'docx' | 'pdf';
+
+// One embedded figure extracted from an uploaded document. Stored in
+// procedure_draft_runs.figures_manifest at extract time (image bytes already
+// uploaded to object storage), then referenced by the LLM via figureId and
+// wired into a step's media[] + a photo_inline block at execute time.
+export interface DraftFigure {
+  /** Stable id the LLM matches against, e.g. "fig-3". */
+  figureId: string;
+  /** 0-based position in document reading order. */
+  order: number;
+  /** Object-storage key of the (sharp-normalized) image bytes. */
+  storageKey: string;
+  /** image/jpeg | image/png | image/webp. */
+  mime: string;
+  width: number | null;
+  height: number | null;
+  /** Caption text captured adjacent to the figure, if any. */
+  caption?: string;
+}
 
 export const procedureDraftRuns = pgTable(
   'procedure_draft_runs',
@@ -119,6 +150,24 @@ export const procedureDraftRuns = pgTable(
     // Filled in by the admin before tapping "Run AI" on PWA-submitted
     // drafts, or up-front on admin-initiated drafts.
     procedureCategory: procedureDraftCategoryEnum('procedure_category'),
+    // -- Document-import source ('docx'|'pdf') -----------------------------
+    // Discriminates the pipeline. Defaults to 'video' so every existing row
+    // and the unchanged Mux path keep working without a backfill.
+    sourceKind: text('source_kind')
+      .$type<ProcedureDraftSourceKind>()
+      .notNull()
+      .default('video'),
+    // Object-storage key of the uploaded .docx/.pdf. Null for video drafts.
+    sourceStorageKey: text('source_storage_key'),
+    // Extracted markdown of the whole document (figures as [[FIGURE:id]]
+    // tokens). The loop is fed only the selected sections sliced from this.
+    sourceMarkdown: text('source_markdown'),
+    // Section titles the admin chose to generate, from the outline picker.
+    selectedSectionTitles: jsonb('selected_section_titles').$type<
+      string[] | null
+    >(),
+    // Figures extracted at parse time (bytes already in object storage).
+    figuresManifest: jsonb('figures_manifest').$type<DraftFigure[] | null>(),
     // Transcript text + raw VTT. We persist both: VTT carries cue timing
     // for the storyboard prompt; plain text drives downstream summaries.
     sourceTranscript: text('source_transcript'),
