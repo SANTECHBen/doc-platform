@@ -27,6 +27,10 @@ export function SplashIntro() {
   // sound" affordance during the splash; tapping it (or anywhere)
   // starts the audio mid-animation.
   const [audioBlocked, setAudioBlocked] = useState(false);
+  // Surfaces play() failures inline. Temporary while diagnosing why
+  // the manual tap path doesn't play on Android despite /sound-test
+  // succeeding with the same Audio('/intro-sound.wav') API.
+  const [audioError, setAudioError] = useState<string>('');
   const startedRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timersRef = useRef<number[]>([]);
@@ -34,9 +38,6 @@ export function SplashIntro() {
   // cleanup (stop audio immediately) from a natural splash unmount
   // (let the 9s WAV ring out past the 5.3s visual).
   const skippedRef = useRef(false);
-  // The fallback pointerdown listener — we capture it in a ref so the
-  // unmount cleanup can detach it whether or not it ever fired.
-  const fallbackListenerRef = useRef<((e: Event) => void) | null>(null);
 
   function clearTimers() {
     timersRef.current.forEach((id) => window.clearTimeout(id));
@@ -56,28 +57,36 @@ export function SplashIntro() {
     audioRef.current = null;
   }
 
-  function detachFallback() {
-    const listener = fallbackListenerRef.current;
-    if (!listener) return;
-    document.removeEventListener('pointerdown', listener, true);
-    document.removeEventListener('touchstart', listener, true);
-    fallbackListenerRef.current = null;
-  }
-
   function skipSplash() {
     skippedRef.current = true;
     clearTimers();
     stopAudio();
-    detachFallback();
     setPhase('exit');
     const t = window.setTimeout(() => setPhase('done'), 280);
     timersRef.current = [t];
   }
 
-  function manuallyStartAudio() {
-    setAudioBlocked(false);
-    detachFallback();
-    void playIntroSound(audioRef).catch(() => {});
+  // Manual play path. Fired by the visible "Tap for sound" button when
+  // autoplay was blocked. Tries to reuse the audio element from the
+  // failed autoplay attempt — it's already mid-download — rather than
+  // creating a new one (which on Android Chrome can race with the
+  // first and leave both half-playing).
+  async function manuallyStartAudio() {
+    setAudioError('');
+    try {
+      let audio = audioRef.current;
+      if (!audio) {
+        audio = new Audio('/intro-sound.wav');
+        audio.preload = 'auto';
+        audio.volume = 0.85;
+        audioRef.current = audio;
+      }
+      await audio.play();
+      setAudioBlocked(false);
+    } catch (e) {
+      const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+      setAudioError(msg);
+    }
   }
 
   useEffect(() => {
@@ -119,26 +128,20 @@ export function SplashIntro() {
     // Chrome on Android blocks audio autoplay unless there's a recent
     // user gesture on the page itself — the QR-scan tap happens in the
     // camera app, so the redirect into the PWA arrives gesture-less.
-    // When that blocks us, surface a "Tap for sound" prompt AND arm a
-    // document-level fallback so any tap anywhere starts the audio.
-    function armFallback() {
-      const onFirstTap = () => {
-        detachFallback();
-        setAudioBlocked(false);
-        void playIntroSound(audioRef).catch(() => {});
-      };
-      fallbackListenerRef.current = onFirstTap;
-      document.addEventListener('pointerdown', onFirstTap, { capture: true, once: true });
-      document.addEventListener('touchstart', onFirstTap, { capture: true, once: true });
-    }
+    // When that blocks us, surface a "Tap for sound" prompt; the
+    // button's onClick is a direct user gesture and bypasses the
+    // restriction. Earlier iterations also armed a document-level
+    // pointerdown listener so any tap anywhere worked — but it raced
+    // with the button onClick (capture phase fires first, then click
+    // fires; both called playIntroSound, the second replacing the
+    // first's audio element mid-load on Android). The visible button
+    // alone is reliable.
     void playIntroSound(audioRef).catch(() => {
       setAudioBlocked(true);
-      armFallback();
     });
 
     return () => {
       clearTimers();
-      detachFallback();
       // Only tear down audio on an explicit skip. Natural unmount —
       // when the 5.3s visual ends — lets the 9s WAV ring out past the
       // splash so the audio doesn't get truncated mid-tone.
@@ -166,6 +169,11 @@ export function SplashIntro() {
           <span aria-hidden>🔊</span>
           <span>Tap for sound</span>
         </button>
+      )}
+      {audioError && (
+        <div className="fs-splash-audio-error" role="alert">
+          Audio play failed: {audioError}
+        </div>
       )}
       <button
         type="button"

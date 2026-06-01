@@ -703,6 +703,28 @@
   .fs-splash-sound { animation: none; }
 }
 
+/* Audio error display — visible failure message for diagnosing why
+   the manual play attempt didn't produce sound on certain devices.
+   Sits below the "Tap for sound" pill. Temporary diagnostic. */
+.fs-splash-audio-error {
+  position: absolute;
+  top: 84%;
+  left: 50%;
+  transform: translate(-50%, 0);
+  z-index: 2;
+  max-width: calc(100vw - 32px);
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: rgb(176 43 61 / 0.95);
+  color: white;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  word-break: break-word;
+  pointer-events: auto;
+}
+
 /* Skip pill — top-right corner of the splash overlay. Always rendered;
    the data-visible attribute gates the fade-in so it appears 1.5s into
    the show (long enough for the first-time reveal to land). Tappable
