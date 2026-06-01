@@ -67,7 +67,11 @@ const KeyValueBlock = z.object({
 });
 const PhotoInlineBlock = z.object({
   kind: z.literal('photo_inline'),
-  storageKey: z.string().min(1).max(400),
+  // Permissive on write (no min length) — see the matching comment in
+  // admin-procedure-steps.ts. A freshly-inserted Photo block has an empty
+  // storageKey; min(1) made the debounced auto-save 400 on the whole blocks
+  // array before the author picked an image. Empty renders as nothing.
+  storageKey: z.string().max(400),
   caption: z.string().max(400).optional(),
 });
 const StepBlockSchema = z.discriminatedUnion('kind', [

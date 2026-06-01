@@ -105,7 +105,14 @@ const KeyValueBlock = z.object({
 });
 const PhotoInlineBlock = z.object({
   kind: z.literal('photo_inline'),
-  storageKey: z.string().min(1).max(400),
+  // Permissive on write (no min length) for the same reason CalloutBlock
+  // allows empty text: the slash-menu inserts a Photo block with an empty
+  // storageKey and the debounced auto-save fires before the author picks an
+  // image. A min(1) here rejected the WHOLE blocks array, so every save
+  // 400'd until a photo was chosen or the block deleted. An empty storageKey
+  // matches no media at read time, so the runner renders nothing (see the
+  // photo_inline case in virtual-job-aid.tsx) — same as an empty callout.
+  storageKey: z.string().max(400),
   caption: z.string().max(400).optional(),
 });
 const StepBlockSchema = z.discriminatedUnion('kind', [
