@@ -28,6 +28,17 @@
 //     LINKED procedure, not in the source procedure being duplicated).
 //   - Authored audio storage keys copy by reference (R2 objects are
 //     content-addressed; multiple docs can point at the same audio blob).
+//   - snippet_id / snippet_detached copy verbatim. Snippets resolve at
+//     read time via the snippet-expansion service, which looks up by
+//     snippet UUID without org-scope filtering — so the duplicate (even
+//     cross-pack) still renders the snippet's current title + blocks.
+//     Dropping snippet_id here was the cause of "Untitled step" rows in
+//     duplicates of snippet-backed procedures.
+//   - category_id copies verbatim. Built-in categories are global; org
+//     custom categories will simply fail to resolve in a different org
+//     and render with no badge (no breakage, just a missing chip).
+//   - proposedByAgentRunId / proposedByDraftRunId are intentionally NOT
+//     copied — those are origin-tracking provenance, not content.
 //   - part_procedure_steps and document_sections are NOT copied — those
 //     are part-link / page-anchor metadata that the author re-curates per
 //     duplicate.
@@ -256,6 +267,18 @@ export async function registerAdminProcedureDuplicate(app: FastifyInstance) {
             audioSizeBytes: step.audioSizeBytes,
             audioDurationMs: step.audioDurationMs,
             audioSource: step.audioSource,
+            // Snippet reference — preserve so the duplicate inherits the
+            // snippet's resolved title + blocks via snippet-expansion at
+            // read time. Without this, snippet-backed steps in the
+            // duplicate render as "Untitled step" (the step row has no
+            // own-title, and there's no snippet to resolve from).
+            snippetId: step.snippetId,
+            snippetDetached: step.snippetDetached,
+            // Per-step category override (independent of section category).
+            // Built-in categories are global so this always resolves;
+            // org-custom categories in a different target org render
+            // without a badge (no breakage, just missing chip).
+            categoryId: step.categoryId,
             createdByUserId: auth.userId,
           })
           .returning({ id: schema.procedureSteps.id });
