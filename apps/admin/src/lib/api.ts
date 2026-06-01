@@ -2734,8 +2734,10 @@ export async function deleteProcedureStepMedia(
   stepId: string,
   storageKey: string,
 ): Promise<void> {
+  // storageKey goes in the querystring (it contains slashes; a path param
+  // would 404 — Fastify decodes %2F to path separators).
   const res = await fetch(
-    `${API_BASE}/admin/procedure-steps/${encodeURIComponent(stepId)}/media/${encodeURIComponent(storageKey)}`,
+    `${API_BASE}/admin/procedure-steps/${encodeURIComponent(stepId)}/media?storageKey=${encodeURIComponent(storageKey)}`,
     { method: 'DELETE', headers: await authHeaders() },
   );
   if (!res.ok) throw new Error(`Media delete ${res.status}: ${await res.text()}`);

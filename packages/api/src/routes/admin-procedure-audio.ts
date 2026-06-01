@@ -481,18 +481,21 @@ export async function registerAdminProcedureAudioRoutes(app: FastifyInstance) {
   );
 
   // -------------------------------------------------------------------------
-  // DELETE /admin/procedure-steps/:id/media/:storageKey  (URL-encoded)
+  // DELETE /admin/procedure-steps/:id/media?storageKey=...
   // Removes the entry from media[]; doesn't delete the underlying blob
   // (storage GC handles orphans).
+  //
+  // storageKey rides in the querystring, NOT a path param: storage keys
+  // contain slashes (org/<id>/db/<sha>/file.jpg) and Fastify's router decodes
+  // %2F to path separators, so a `:storageKey` path param can never match a
+  // slash-bearing key (it 404s). A query param has no such ambiguity.
   // -------------------------------------------------------------------------
-  app.delete<{ Params: { id: string; storageKey: string } }>(
-    '/admin/procedure-steps/:id/media/:storageKey',
+  app.delete<{ Params: { id: string }; Querystring: { storageKey: string } }>(
+    '/admin/procedure-steps/:id/media',
     {
       schema: {
-        params: z.object({
-          id: UuidSchema,
-          storageKey: z.string().min(1).max(800),
-        }),
+        params: z.object({ id: UuidSchema }),
+        querystring: z.object({ storageKey: z.string().min(1).max(800) }),
       },
     },
     async (request, reply) => {
@@ -501,7 +504,7 @@ export async function registerAdminProcedureAudioRoutes(app: FastifyInstance) {
       const scope = await getScope(request, db);
       const ctx = await loadStepForWrite(db, request.params.id, scope);
       if (!ctx) return reply.notFound();
-      const removeKey = request.params.storageKey;
+      const removeKey = request.query.storageKey;
       const next = (ctx.step.media ?? []).filter((m) => m.storageKey !== removeKey);
       await db
         .update(schema.procedureSteps)
