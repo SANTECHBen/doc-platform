@@ -23,14 +23,6 @@ import { useEffect, useRef, useState } from 'react';
 export function SplashIntro() {
   const [phase, setPhase] = useState<'enter' | 'hold' | 'exit' | 'done'>('enter');
   const [showSkip, setShowSkip] = useState(false);
-  // True when audio autoplay was blocked. Renders a visible "Tap for
-  // sound" affordance during the splash; tapping it (or anywhere)
-  // starts the audio mid-animation.
-  const [audioBlocked, setAudioBlocked] = useState(false);
-  // Surfaces play() failures inline. Temporary while diagnosing why
-  // the manual tap path doesn't play on Android despite /sound-test
-  // succeeding with the same Audio('/intro-sound.wav') API.
-  const [audioError, setAudioError] = useState<string>('');
   const startedRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timersRef = useRef<number[]>([]);
@@ -64,28 +56,6 @@ export function SplashIntro() {
     setPhase('exit');
     const t = window.setTimeout(() => setPhase('done'), 280);
     timersRef.current = [t];
-  }
-
-  // Manual play path. Fired by the visible "Tap for sound" button when
-  // declarative autoplay was blocked. Uses the declarative <audio>
-  // element's ref directly — calling play() on the existing element
-  // attributes the user gesture to that node.
-  async function manuallyStartAudio() {
-    setAudioError('');
-    try {
-      const audio = audioRef.current;
-      if (!audio) {
-        setAudioError('audio element missing');
-        return;
-      }
-      audio.muted = false;
-      audio.volume = 0.85;
-      await audio.play();
-      setAudioBlocked(false);
-    } catch (e) {
-      const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-      setAudioError(msg);
-    }
   }
 
   useEffect(() => {
@@ -124,29 +94,13 @@ export function SplashIntro() {
     const t4 = window.setTimeout(() => setShowSkip(true), 1500);
     timersRef.current = [t1, t2, t3, t4];
 
-    // Audio playback is now declarative — the <audio autoPlay> element
-    // in the render tree handles its own play attempt. The browser
-    // tries to autoplay at element-creation time. If it succeeds, the
-    // onPlaying handler hides the "Tap for sound" prompt. If it fails
-    // (Chrome on Android typically blocks the first play after a redirect
-    // because there's no user gesture banked), the element stays
-    // paused at currentTime 0; the onSuspend / onPlay-timeout fallback
-    // surfaces the prompt for a manual play. Declarative autoplay
-    // sometimes works where imperative .play() does not, because the
-    // browser attributes the gesture differently for element-driven
-    // playback.
-    //
-    // We still pre-emptively flag the audio as "blocked" after 800ms
-    // if no onPlaying event has fired — the Tap for sound button
-    // appears so the user has a clear path.
-    const audioCheckTimer = window.setTimeout(() => {
-      const audio = audioRef.current;
-      if (!audio) return;
-      if (audio.paused || audio.currentTime === 0) {
-        setAudioBlocked(true);
-      }
-    }, 800);
-    timersRef.current.push(audioCheckTimer);
+    // Try to play the intro WAV. If autoplay is blocked (Chrome on
+    // Android typically blocks the first play after a redirect from
+    // an external app), the catch swallows the rejection silently and
+    // the visual still runs. Chrome's per-origin Media Engagement
+    // Index rebuilds over time, so autoplay becomes reliable on
+    // returning visits — by design, not a code workaround.
+    void playIntroSound(audioRef).catch(() => {});
 
     return () => {
       clearTimers();
@@ -163,53 +117,10 @@ export function SplashIntro() {
 
   return (
     <div className="fs-splash" data-phase={phase} role="presentation" aria-hidden="true">
-      {/* Declarative autoplay element. Browser attempts to play at
-          mount time; on success onPlaying fires and audioBlocked stays
-          false. On failure the element stays paused and the 800ms
-          timer in the effect flips audioBlocked → true, revealing the
-          Tap-for-sound button. Volume is set imperatively after mount
-          via the ref so the element starts at full target volume. */}
-      <audio
-        ref={(el) => {
-          audioRef.current = el;
-          if (el) {
-            el.volume = 0.85;
-          }
-        }}
-        src="/intro-sound.wav"
-        autoPlay
-        preload="auto"
-        playsInline
-        onPlaying={() => {
-          setAudioBlocked(false);
-          setAudioError('');
-        }}
-        onError={() => {
-          const audio = audioRef.current;
-          const code = audio?.error?.code;
-          setAudioError(`MediaError code ${code ?? '?'}`);
-        }}
-      />
       <div className="fs-splash-vignette" aria-hidden="true" />
       <div className="fs-splash-stage">
         <FieldSupportMarkSVG />
       </div>
-      {audioBlocked && (
-        <button
-          type="button"
-          className="fs-splash-sound"
-          onClick={manuallyStartAudio}
-          aria-label="Tap to enable intro sound"
-        >
-          <span aria-hidden>🔊</span>
-          <span>Tap for sound</span>
-        </button>
-      )}
-      {audioError && (
-        <div className="fs-splash-audio-error" role="alert">
-          Audio play failed: {audioError}
-        </div>
-      )}
       <button
         type="button"
         className="fs-splash-skip"
@@ -221,6 +132,19 @@ export function SplashIntro() {
       </button>
     </div>
   );
+}
+
+// Play the production intro sound. Returns once playback is started (or
+// rejects if autoplay was blocked, in which case the visual still runs).
+// The element is stashed on a ref so the cleanup function in the host
+// effect can pause + release it if the splash unmounts early.
+async function playIntroSound(ref: React.MutableRefObject<HTMLAudioElement | null>): Promise<void> {
+  if (typeof window === 'undefined') return;
+  const audio = new Audio('/intro-sound.wav');
+  audio.preload = 'auto';
+  audio.volume = 0.85;
+  ref.current = audio;
+  await audio.play();
 }
 
 // Inline SVG so each part can be animated individually via CSS classes.
@@ -410,17 +334,4 @@ function FieldSupportMarkSVG() {
       </g>
     </svg>
   );
-}
-
-// Play the production intro sound. Returns once playback is started (or
-// rejects if autoplay was blocked, in which case the visual still runs).
-// The element is stashed on a ref so the cleanup function in the host
-// effect can pause + release it if the splash unmounts early.
-async function playIntroSound(ref: React.MutableRefObject<HTMLAudioElement | null>): Promise<void> {
-  if (typeof window === 'undefined') return;
-  const audio = new Audio('/intro-sound.wav');
-  audio.preload = 'auto';
-  audio.volume = 0.85;
-  ref.current = audio;
-  await audio.play();
 }
