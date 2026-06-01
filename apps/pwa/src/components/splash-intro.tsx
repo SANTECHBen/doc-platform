@@ -6,62 +6,24 @@ import { useEffect, useRef, useState } from 'react';
 // the /q/<code> route handler sets that flag on QR scans, so the splash
 // plays on first arrival without replaying on refresh or back navigation.
 //
-// View gating (per-device, via localStorage):
-//   • After SPLASH_VIEW_THRESHOLD complete plays the animation skips
-//     entirely — the splash becomes friction on the 20th scan, even if
-//     it's delightful on the 1st. The threshold is a small integer; we
-//     don't grow it unboundedly.
-//   • The intro WAV plays on EVERY splash within that threshold, not
-//     just the first scan. Audio is part of the brand reveal — if the
-//     animation plays, the sound plays with it. Once the threshold cap
-//     skips the visual entirely, no audio either.
+// The splash plays every time it mounts — no per-device view counter.
+// (Earlier iterations capped plays at a small integer to avoid splash
+// fatigue, but the cap kept silently swallowing the animation during
+// demos and dev sessions; removed for clarity. If splash fatigue
+// becomes a problem in production, re-add a counter here.)
 //
 // Skip affordance: a small "Skip" pill fades in 1.5s after the
-// animation starts. Available to everyone (not just repeat viewers),
-// so an impatient first-timer can advance without waiting through the
-// whole 5.3s sequence.
-//
-// Reset for development: `localStorage.removeItem('fs:splash:plays')`.
+// animation starts so an impatient viewer can advance without waiting
+// through the full sequence.
 //
 // The overlay covers the hub from the very first painted frame (no
 // opacity fade-in) so the user never sees the underlying page flash
-// before the splash takes over. Each part of the mark then eases in
-// on its own schedule on top of the opaque surface.
-
-const SPLASH_PLAYS_KEY = 'fs:splash:plays';
-const SPLASH_VIEW_THRESHOLD = 3;
-
-function getSplashPlays(): number {
-  if (typeof window === 'undefined') return 0;
-  try {
-    const raw = window.localStorage.getItem(SPLASH_PLAYS_KEY);
-    const n = raw ? parseInt(raw, 10) : 0;
-    return Number.isFinite(n) && n >= 0 ? n : 0;
-  } catch {
-    // Safari in private mode and locked-down enterprise browsers throw on
-    // localStorage access. Falling through to 0 means the splash plays
-    // every time for these users — acceptable, since the show is short
-    // and they're a small minority.
-    return 0;
-  }
-}
-
-function incrementSplashPlays(): void {
-  if (typeof window === 'undefined') return;
-  try {
-    const cur = getSplashPlays();
-    window.localStorage.setItem(SPLASH_PLAYS_KEY, String(cur + 1));
-  } catch {
-    /* localStorage unavailable — ignore */
-  }
-}
+// before the splash takes over.
 
 export function SplashIntro() {
   const [phase, setPhase] = useState<'enter' | 'hold' | 'exit' | 'done'>('enter');
   const [showSkip, setShowSkip] = useState(false);
   const startedRef = useRef(false);
-  const animatedRef = useRef(false);
-  const incrementedRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timersRef = useRef<number[]>([]);
 
@@ -113,41 +75,16 @@ export function SplashIntro() {
       }
     }
 
-    const plays = getSplashPlays();
-    console.info('[SplashIntro] mount', { plays, threshold: SPLASH_VIEW_THRESHOLD });
-
-    // After N complete plays this device has earned the right to skip
-    // the show. Hand off to the hub on the same frame — no animation,
-    // no sound. The threshold-gate increment in this branch is so the
-    // count keeps incrementing (useful for telemetry / future tuning).
-    if (plays >= SPLASH_VIEW_THRESHOLD) {
-      console.info('[SplashIntro] threshold reached, skipping');
-      setPhase('done');
-      incrementSplashPlays();
-      return;
-    }
-
     // Respect prefers-reduced-motion — skip the show, just hand off.
-    // We still count this as a "play" so a user who later turns motion
-    // back on doesn't suddenly start seeing the full sequence after
-    // having already used the app extensively.
     const reducedMotion =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
     if (reducedMotion) {
-      console.info('[SplashIntro] reduced-motion active, skipping animation');
-      const t = window.setTimeout(() => {
-        setPhase('done');
-        incrementSplashPlays();
-        incrementedRef.current = true;
-      }, 360);
+      const t = window.setTimeout(() => setPhase('done'), 360);
       timersRef.current = [t];
       return () => clearTimers();
     }
-
-    console.info('[SplashIntro] animating');
-    animatedRef.current = true;
 
     // Phase timing (~5.3s total).
     //   enter (0–80ms)     paint the opaque overlay before any animation kicks.
@@ -162,14 +99,13 @@ export function SplashIntro() {
     const t4 = window.setTimeout(() => setShowSkip(true), 1500);
     timersRef.current = [t1, t2, t3, t4];
 
-    // Audio runs alongside the visual on every play within the threshold.
     // Chrome on Android blocks autoplay unless there's a recent user
     // gesture on the page itself — the QR-scan gesture happens in the
     // camera app, so the redirect into the PWA arrives without a
     // gesture banked. To keep the sound from silently dropping, we
     // register a one-shot pointerdown fallback on the document: if
-    // autoplay was blocked, the audio fires on the first tap (Skip pill
-    // tap, splash dismiss, or any tap as the splash fades out).
+    // autoplay was blocked, the audio fires on the first tap (Skip
+    // pill tap, splash dismiss, or any tap as the splash fades out).
     let fallbackArmed = false;
     function armFallback() {
       if (fallbackArmed) return;
@@ -177,39 +113,20 @@ export function SplashIntro() {
       const onFirstTap = () => {
         document.removeEventListener('pointerdown', onFirstTap, true);
         document.removeEventListener('touchstart', onFirstTap, true);
-        void playIntroSound(audioRef).catch((err) => {
-          console.warn('[SplashIntro] fallback audio play failed', err);
-        });
+        void playIntroSound(audioRef).catch(() => {});
       };
       document.addEventListener('pointerdown', onFirstTap, { capture: true, once: true });
       document.addEventListener('touchstart', onFirstTap, { capture: true, once: true });
     }
-    void playIntroSound(audioRef).then(
-      () => {
-        console.info('[SplashIntro] audio playing');
-      },
-      (err) => {
-        console.warn('[SplashIntro] autoplay blocked, will play on first tap', err);
-        armFallback();
-      },
-    );
+    void playIntroSound(audioRef).catch(() => {
+      armFallback();
+    });
 
     return () => {
       clearTimers();
       stopAudio();
     };
   }, []);
-
-  // Increment the play count exactly once, the first time we reach the
-  // 'done' phase after actually animating. Guarded so threshold-skipped
-  // and reduced-motion mounts don't double-count.
-  useEffect(() => {
-    if (phase !== 'done') return;
-    if (!animatedRef.current) return;
-    if (incrementedRef.current) return;
-    incrementedRef.current = true;
-    incrementSplashPlays();
-  }, [phase]);
 
   if (phase === 'done') return null;
 
