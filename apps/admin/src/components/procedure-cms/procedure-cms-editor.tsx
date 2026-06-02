@@ -25,6 +25,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   ExternalLink,
+  Eye,
   Loader2,
   Plus,
   Puzzle,
@@ -73,6 +74,7 @@ import { ErrorBanner } from '@/components/form';
 import { estimateSpokenChars } from '@/lib/spoken-script';
 import { StepCard } from './step-card';
 import { StepByStepBody } from './step-by-step-body';
+import { DevicePreviewModal } from './device-preview';
 import { LayoutList, Rows3 } from 'lucide-react';
 
 interface Props {
@@ -102,6 +104,7 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
   const [pageError, setPageError] = useState<string | null>(null);
   const [status, setStatus] = useState<SaveStatus>({ kind: 'idle' });
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   // Drag state — which step is being dragged, and which one would receive
   // the drop right now. Drag is scoped to a single section: cross-section
@@ -721,6 +724,16 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
           </button>
           {doc.kind === 'structured_procedure' && (
             <>
+              <button
+                type="button"
+                onClick={() => setPreviewOpen(true)}
+                disabled={empty}
+                className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-primary transition hover:border-accent/40 hover:bg-accent/5 disabled:opacity-50"
+                title="Preview the procedure as it appears on a phone or tablet"
+              >
+                <Eye className="size-3.5" />
+                Preview
+              </button>
               <a
                 href={`/procedures/${encodeURIComponent(doc.id)}/edit`}
                 className="inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-accent/5 px-3 py-1.5 text-xs font-medium text-accent transition hover:border-accent hover:bg-accent/10"
@@ -739,6 +752,15 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
           )}
         </div>
       </div>
+
+      {previewOpen && (
+        <DevicePreviewModal
+          title={doc.title ?? 'Procedure'}
+          steps={localSteps}
+          sections={localSections}
+          onClose={() => setPreviewOpen(false)}
+        />
+      )}
 
       {/* Intro video — procedure-level. Renders on the PWA's Step 0
           landing page in Job Aid view and at the top of the scroll
