@@ -74,7 +74,7 @@ import { ErrorBanner } from '@/components/form';
 import { estimateSpokenChars } from '@/lib/spoken-script';
 import { StepCard } from './step-card';
 import { StepByStepBody } from './step-by-step-body';
-import { DevicePreviewModal } from './device-preview';
+import { DevicePreviewModal, LiveDevicePreview } from './device-preview';
 import { LayoutList, Rows3 } from 'lucide-react';
 
 interface Props {
@@ -88,6 +88,10 @@ interface Props {
    *  (delete, reorder, add). Field edits don't refetch — we trust the
    *  PATCH response. */
   onChanged: () => Promise<void> | void;
+  /** Show a sticky live device-preview pane on the right that auto-updates as
+   *  you edit and stays synced to the step you're working on. Enabled on the
+   *  full-page editor (which has room for it). */
+  livePreview?: boolean;
 }
 
 type SaveStatus =
@@ -96,7 +100,7 @@ type SaveStatus =
   | { kind: 'saved'; at: number }
   | { kind: 'error'; message: string };
 
-export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
+export function ProcedureCmsEditor({ doc, steps, sections, onChanged, livePreview }: Props) {
   // Local mirror of the steps so drag-reorder is instant. Server reconcile
   // happens on drop completion; we re-fetch via onChanged() afterwards.
   const [localSteps, setLocalSteps] = useState<AdminProcedureStep[]>(steps);
@@ -762,6 +766,29 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
         />
       )}
 
+      {/* Editor body — split with a live device-preview on the right when
+          enabled. onFocusCapture syncs the preview to the step you click into
+          (Step view tracks currentStepId directly; List view relies on this). */}
+      <div
+        className={
+          livePreview
+            ? 'grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(400px,440px)]'
+            : undefined
+        }
+      >
+        <div
+          className="min-w-0 space-y-4"
+          onFocusCapture={
+            livePreview
+              ? (e) => {
+                  const el = (e.target as HTMLElement).closest('[id^="cms-step-"]');
+                  const id = el?.id?.replace('cms-step-', '');
+                  if (id && id !== currentStepId) setCurrentStepId(id);
+                }
+              : undefined
+          }
+        >
+
       {/* Intro video — procedure-level. Renders on the PWA's Step 0
           landing page in Job Aid view and at the top of the scroll
           view. Optional; only matters for training-style procedures.
@@ -935,6 +962,17 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged }: Props) {
           </button>
         </div>
       )}
+        </div>
+        {livePreview && (
+          <LiveDevicePreview
+            title={doc.title ?? 'Procedure'}
+            steps={localSteps}
+            sections={localSections}
+            currentStepId={currentStepId}
+            onCurrentStepIdChange={setCurrentStepId}
+          />
+        )}
+      </div>
 
       <SnippetPickerModal
         open={snippetPickerSectionId !== undefined}

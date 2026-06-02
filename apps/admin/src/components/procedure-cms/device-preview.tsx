@@ -1,14 +1,11 @@
 'use client';
 
-// Device preview — renders the procedure using the published runner's EXACT
-// markup + CSS (copied verbatim into ./vja-preview.css from the PWA's
-// virtual-job-aid), wrapped in a phone/tablet device frame. This is a literal
-// preview: same class structure, same styles, same fonts (both apps load IBM
-// Plex), so it matches the published output. The admin's in-memory step data is
-// mapped to the same resolved shape the runner consumes.
-//
-// NOTE: this duplicates the runner's render. Stage 2 replaces both this and the
-// PWA's copy with a single shared package so they can never drift.
+// Device preview — renders the procedure with the published runner's exact
+// markup + the shared @platform/ui job-aid renderer/CSS, in a phone/tablet
+// device frame. Two surfaces share one frame component (JobAidDeviceFrame):
+//   - DevicePreviewModal: full-screen modal (the toolbar "Preview" button).
+//   - LiveDevicePreview: a sticky side pane in the Step Editor that auto-updates
+//     as you edit and stays synced to the step you're working on.
 
 import '@platform/ui/job-aid.css';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -24,10 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { JobAidBlockRenderer, JobAidFallbackImage } from '@platform/ui';
-import type {
-  AdminProcedureSection,
-  AdminProcedureStep,
-} from '@/lib/api';
+import type { AdminProcedureSection, AdminProcedureStep } from '@/lib/api';
 
 type DeviceKind = 'phone' | 'tablet';
 const FRAMES: Record<DeviceKind, { w: number; h: number; label: string }> = {
@@ -36,9 +30,7 @@ const FRAMES: Record<DeviceKind, { w: number; h: number; label: string }> = {
 };
 const DEFAULT_PHASE_COLOR = '#2563EB';
 
-// Full light palette, applied to the screen subtree so the runner's CSS vars
-// resolve light (the admin runs dark). data-theme='light' is set too as a
-// backstop; the inline vars guarantee it regardless of CSS cascade.
+// Light palette, forced on the screen subtree (the admin runs dark).
 const LIGHT_VARS = {
   '--surface-base': '245 246 248',
   '--surface-raised': '255 255 255',
@@ -77,14 +69,13 @@ interface Phase {
   end: number;
 }
 
-function resolveSteps(
+export function resolveSteps(
   steps: AdminProcedureStep[],
   sections: AdminProcedureSection[],
 ): ResolvedStep[] {
   const byHint = (a: { orderingHint: number }, b: { orderingHint: number }) =>
     a.orderingHint - b.orderingHint;
   const ordered: { step: AdminProcedureStep; secId: string | null; label: string | null; color: string | null }[] = [];
-
   const orphans = steps.filter((s) => !s.sectionId).sort(byHint);
   for (const s of orphans) ordered.push({ step: s, secId: null, label: null, color: null });
   for (const sec of [...sections].sort(byHint)) {
@@ -93,13 +84,12 @@ function resolveSteps(
       ordered.push({ step: s, secId: sec.id, label: sec.title, color: sec.category?.color ?? null });
     }
   }
-
   const totals = new Map<string | null, number>();
   for (const o of ordered) totals.set(o.secId, (totals.get(o.secId) ?? 0) + 1);
-  const idx = new Map<string | null, number>();
+  const idxMap = new Map<string | null, number>();
   return ordered.map((o) => {
-    const next = (idx.get(o.secId) ?? 0) + 1;
-    idx.set(o.secId, next);
+    const next = (idxMap.get(o.secId) ?? 0) + 1;
+    idxMap.set(o.secId, next);
     return {
       step: o.step,
       sectionLabel: o.label,
@@ -125,6 +115,209 @@ function buildPhases(resolved: ResolvedStep[]): Phase[] {
   return phases;
 }
 
+// ---------------------------------------------------------------------------
+// JobAidDeviceFrame — the device bezel + screen + footer. Controlled index.
+// Scales down to fit `maxWidth` (for the side pane); manages its own audio.
+// ---------------------------------------------------------------------------
+
+function JobAidDeviceFrame({
+  title,
+  steps,
+  sections,
+  device,
+  index,
+  onIndexChange,
+  fill,
+}: {
+  title: string;
+  steps: AdminProcedureStep[];
+  sections: AdminProcedureSection[];
+  device: DeviceKind;
+  index: number;
+  onIndexChange: (next: number) => void;
+  /** Fill the parent's height (live side pane) instead of a fixed device
+   *  height (modal). The screen scrolls internally either way. */
+  fill?: boolean;
+}) {
+  const [muted, setMuted] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const resolved = useMemo(() => resolveSteps(steps, sections), [steps, sections]);
+  const phases = useMemo(() => buildPhases(resolved), [resolved]);
+  const total = resolved.length;
+  const idx = Math.min(Math.max(index, 0), Math.max(0, total - 1));
+  const current = resolved[idx];
+  const isLast = idx >= total - 1;
+
+  useEffect(() => {
+    const a = audioRef.current;
+    if (a) {
+      a.pause();
+      a.currentTime = 0;
+    }
+  }, [idx]);
+
+  function replay() {
+    const a = audioRef.current;
+    if (!a || muted || !current?.step.audioUrl) return;
+    a.currentTime = 0;
+    void a.play().catch(() => {});
+  }
+
+  const frame = FRAMES[device];
+  const activePhase = phases.find((p) => idx >= p.start && idx < p.end) ?? null;
+
+  if (total === 0 || !current) {
+    return <p className="text-sm text-ink-tertiary">This procedure has no steps yet.</p>;
+  }
+
+  return (
+    <div
+      className={fill ? 'flex min-h-0 flex-col' : ''}
+      style={fill ? { width: frame.w } : undefined}
+    >
+      <div
+        className="relative overflow-hidden rounded-[2.25rem] border-[10px] border-neutral-800 bg-neutral-800 shadow-2xl"
+        style={
+          fill
+            ? { width: frame.w, flex: '1 1 0%', minHeight: 0 }
+            : { width: frame.w, height: frame.h, maxHeight: 'calc(100dvh - 7rem)' }
+        }
+      >
+        <div data-theme="light" style={LIGHT_VARS} className="vja-preview-screen relative h-full w-full overflow-hidden">
+          <div className="vja-root" role="dialog" aria-label="Procedure preview">
+            <header className="vja-topbar">
+              <div className="vja-topbar-meta">
+                <h2 className="vja-doc-title">{title}</h2>
+              </div>
+              <button
+                type="button"
+                className="vja-mute"
+                onClick={() => setMuted((m) => !m)}
+                aria-label={muted ? 'Unmute' : 'Mute'}
+              >
+                {muted ? <VolumeX size={18} strokeWidth={2} /> : <Volume2 size={18} strokeWidth={2} />}
+              </button>
+            </header>
+
+            {phases.length > 0 ? (
+              <nav className="vja-phases" aria-label="Procedure phases">
+                {phases.map((p) => {
+                  const span = p.end - p.start;
+                  const done = Math.max(0, Math.min(span, idx - p.start));
+                  const isActive = idx >= p.start && idx < p.end;
+                  const pct = span > 0 ? Math.round((done / span) * 100) : 0;
+                  return (
+                    <button
+                      type="button"
+                      key={p.key ?? '__orphans__'}
+                      onClick={() => onIndexChange(p.start)}
+                      className="vja-phase"
+                      data-active={isActive ? 'true' : 'false'}
+                    >
+                      <span className="vja-phase-label" style={isActive ? { color: p.color } : undefined}>
+                        {p.label}
+                      </span>
+                      <span className="vja-phase-bar" aria-hidden>
+                        <span
+                          className="vja-phase-fill"
+                          style={{ width: `${pct}%`, backgroundColor: p.color, opacity: isActive ? 1 : 0.6 }}
+                        />
+                      </span>
+                    </button>
+                  );
+                })}
+              </nav>
+            ) : (
+              <div className="vja-progress" aria-hidden>
+                {resolved.map((_, i) => (
+                  <span
+                    key={i}
+                    className="vja-progress-seg"
+                    data-state={i < idx ? 'done' : i === idx ? 'active' : 'pending'}
+                  />
+                ))}
+              </div>
+            )}
+
+            <div className="vja-main">
+              <StepArticle resolved={current} phaseColor={activePhase?.color ?? null} />
+            </div>
+
+            <footer className="vja-controls">
+              <button
+                type="button"
+                className="vja-btn vja-btn-ghost"
+                onClick={() => onIndexChange(Math.max(idx - 1, 0))}
+                disabled={idx === 0}
+                aria-label="Previous step"
+              >
+                <ChevronLeft size={18} strokeWidth={2.25} />
+                <span>Back</span>
+              </button>
+              <button
+                type="button"
+                className="vja-btn vja-btn-secondary"
+                onClick={replay}
+                disabled={muted || !current.step.audioUrl}
+                aria-label="Replay step"
+                title="Replay this step"
+              >
+                <RefreshCw size={18} strokeWidth={2.25} />
+                <span>Replay</span>
+              </button>
+              <button
+                type="button"
+                className="vja-btn vja-btn-primary"
+                onClick={() => onIndexChange(Math.min(idx + 1, total - 1))}
+                aria-label={isLast ? 'Finish' : 'Next step'}
+              >
+                <span>{isLast ? 'Finish' : 'Next'}</span>
+                <ChevronRight size={18} strokeWidth={2.25} />
+              </button>
+            </footer>
+          </div>
+        </div>
+      </div>
+      <audio ref={audioRef} src={current.step.audioUrl ?? undefined} className="hidden" />
+    </div>
+  );
+}
+
+function DeviceToggle({ device, onChange, dark }: { device: DeviceKind; onChange: (d: DeviceKind) => void; dark?: boolean }) {
+  return (
+    <div className={`flex overflow-hidden rounded-md border ${dark ? 'border-white/20' : 'border-line'}`}>
+      {(['phone', 'tablet'] as DeviceKind[]).map((d) => {
+        const active = device === d;
+        return (
+          <button
+            key={d}
+            type="button"
+            onClick={() => onChange(d)}
+            className={[
+              'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium transition',
+              active
+                ? dark
+                  ? 'bg-white text-neutral-900'
+                  : 'bg-accent text-white'
+                : dark
+                  ? 'text-white/80 hover:bg-white/10'
+                  : 'text-ink-secondary hover:bg-surface-elevated',
+            ].join(' ')}
+          >
+            {d === 'phone' ? <Smartphone size={13} /> : <Tablet size={13} />}
+            {FRAMES[d].label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Modal — the full-screen "Preview" button surface.
+// ---------------------------------------------------------------------------
+
 export function DevicePreviewModal({
   title,
   steps,
@@ -137,68 +330,23 @@ export function DevicePreviewModal({
   onClose: () => void;
 }) {
   const [device, setDevice] = useState<DeviceKind>('phone');
-  const [stepIdx, setStepIdx] = useState(0);
-  const [muted, setMuted] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  const resolved = useMemo(() => resolveSteps(steps, sections), [steps, sections]);
-  const phases = useMemo(() => buildPhases(resolved), [resolved]);
-  const total = resolved.length;
-  const idx = Math.min(stepIdx, Math.max(0, total - 1));
-  const current = resolved[idx];
-  const isLast = idx >= total - 1;
-
-  useEffect(() => {
-    const a = audioRef.current;
-    if (a) {
-      a.pause();
-      a.currentTime = 0;
-    }
-  }, [idx]);
+  const [index, setIndex] = useState(0);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose();
-      else if (e.key === 'ArrowRight') setStepIdx((i) => Math.min(i + 1, total - 1));
-      else if (e.key === 'ArrowLeft') setStepIdx((i) => Math.max(i - 1, 0));
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [total, onClose]);
-
-  function replay() {
-    const a = audioRef.current;
-    if (!a || muted || !current?.step.audioUrl) return;
-    a.currentTime = 0;
-    void a.play().catch(() => {});
-  }
-
-  const frame = FRAMES[device];
-  const activePhase = phases.find((p) => idx >= p.start && idx < p.end) ?? null;
+  }, [onClose]);
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black/70 backdrop-blur-sm">
-      {/* Admin chrome toolbar (outside the device). */}
       <div className="flex items-center gap-3 border-b border-white/10 px-4 py-2.5 text-white">
         <span className="text-sm font-semibold">Device preview</span>
         <span className="truncate text-xs text-white/60">{title}</span>
         <div className="ml-auto flex items-center gap-2">
-          <div className="flex overflow-hidden rounded-md border border-white/20">
-            {(['phone', 'tablet'] as DeviceKind[]).map((d) => (
-              <button
-                key={d}
-                type="button"
-                onClick={() => setDevice(d)}
-                className={[
-                  'inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition',
-                  device === d ? 'bg-white text-neutral-900' : 'text-white/80 hover:bg-white/10',
-                ].join(' ')}
-              >
-                {d === 'phone' ? <Smartphone size={14} /> : <Tablet size={14} />}
-                {FRAMES[d].label}
-              </button>
-            ))}
-          </div>
+          <DeviceToggle device={device} onChange={setDevice} dark />
           <button
             type="button"
             onClick={onClose}
@@ -209,124 +357,61 @@ export function DevicePreviewModal({
           </button>
         </div>
       </div>
-
-      {/* Stage */}
       <div className="flex flex-1 items-center justify-center overflow-auto p-6">
-        {total === 0 || !current ? (
-          <p className="text-sm text-white/70">This procedure has no steps yet.</p>
-        ) : (
-          <div
-            className="relative shrink-0 overflow-hidden rounded-[2.25rem] border-[10px] border-neutral-800 bg-neutral-800 shadow-2xl"
-            style={{ width: frame.w, height: frame.h, maxHeight: 'calc(100vh - 8rem)' }}
-          >
-            {/* Screen — the runner's exact markup, forced light. */}
-            <div
-              data-theme="light"
-              style={LIGHT_VARS}
-              className="vja-preview-screen relative h-full w-full overflow-hidden"
-            >
-              <div className="vja-root" role="dialog" aria-label="Procedure preview">
-                <header className="vja-topbar">
-                  <div className="vja-topbar-meta">
-                    <h2 className="vja-doc-title">{title}</h2>
-                  </div>
-                  <button
-                    type="button"
-                    className="vja-mute"
-                    onClick={() => setMuted((m) => !m)}
-                    aria-label={muted ? 'Unmute' : 'Mute'}
-                  >
-                    {muted ? <VolumeX size={18} strokeWidth={2} /> : <Volume2 size={18} strokeWidth={2} />}
-                  </button>
-                  <button type="button" className="vja-close" onClick={onClose} aria-label="Close">
-                    <X size={18} strokeWidth={2} />
-                  </button>
-                </header>
-
-                {phases.length > 0 ? (
-                  <nav className="vja-phases" aria-label="Procedure phases">
-                    {phases.map((p) => {
-                      const span = p.end - p.start;
-                      const done = Math.max(0, Math.min(span, idx - p.start));
-                      const isActive = idx >= p.start && idx < p.end;
-                      const pct = span > 0 ? Math.round((done / span) * 100) : 0;
-                      return (
-                        <button
-                          type="button"
-                          key={p.key ?? '__orphans__'}
-                          onClick={() => setStepIdx(p.start)}
-                          className="vja-phase"
-                          data-active={isActive ? 'true' : 'false'}
-                        >
-                          <span className="vja-phase-label" style={isActive ? { color: p.color } : undefined}>
-                            {p.label}
-                          </span>
-                          <span className="vja-phase-bar" aria-hidden>
-                            <span
-                              className="vja-phase-fill"
-                              style={{ width: `${pct}%`, backgroundColor: p.color, opacity: isActive ? 1 : 0.6 }}
-                            />
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </nav>
-                ) : (
-                  <div className="vja-progress" aria-hidden>
-                    {resolved.map((_, i) => (
-                      <span
-                        key={i}
-                        className="vja-progress-seg"
-                        data-state={i < idx ? 'done' : i === idx ? 'active' : 'pending'}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                <div className="vja-main">
-                  <StepArticle resolved={current} phaseColor={activePhase?.color ?? null} />
-                </div>
-
-                <footer className="vja-controls">
-                  <button
-                    type="button"
-                    className="vja-btn vja-btn-ghost"
-                    onClick={() => setStepIdx((i) => Math.max(i - 1, 0))}
-                    disabled={idx === 0}
-                    aria-label="Previous step"
-                  >
-                    <ChevronLeft size={18} strokeWidth={2.25} />
-                    <span>Back</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="vja-btn vja-btn-secondary"
-                    onClick={replay}
-                    disabled={muted || !current.step.audioUrl}
-                    aria-label="Replay step"
-                    title="Replay this step"
-                  >
-                    <RefreshCw size={18} strokeWidth={2.25} />
-                    <span>Replay</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="vja-btn vja-btn-primary"
-                    onClick={() => setStepIdx((i) => Math.min(i + 1, total - 1))}
-                    aria-label={isLast ? 'Finish' : 'Next step'}
-                  >
-                    <span>{isLast ? 'Finish' : 'Next'}</span>
-                    <ChevronRight size={18} strokeWidth={2.25} />
-                  </button>
-                </footer>
-              </div>
-            </div>
-          </div>
-        )}
+        <JobAidDeviceFrame
+          title={title}
+          steps={steps}
+          sections={sections}
+          device={device}
+          index={index}
+          onIndexChange={setIndex}
+        />
       </div>
-
-      <audio ref={audioRef} src={current?.step.audioUrl ?? undefined} className="hidden" />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Live side pane — sticky in the Step Editor; auto-updates from edits and
+// stays synced to the step being edited via currentStepId.
+// ---------------------------------------------------------------------------
+
+export function LiveDevicePreview({
+  title,
+  steps,
+  sections,
+  currentStepId,
+  onCurrentStepIdChange,
+}: {
+  title: string;
+  steps: AdminProcedureStep[];
+  sections: AdminProcedureSection[];
+  currentStepId: string | null;
+  onCurrentStepIdChange: (id: string | null) => void;
+}) {
+  const ordered = useMemo(() => resolveSteps(steps, sections), [steps, sections]);
+  const index = Math.max(0, ordered.findIndex((o) => o.step.id === currentStepId));
+
+  return (
+    <aside className="sticky top-[4.5rem] hidden h-[calc(100dvh-6rem)] flex-col gap-2 xl:flex">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary">
+          Live preview · phone
+        </span>
+        <span className="text-[10px] text-ink-tertiary">follows the step you edit</span>
+      </div>
+      <div className="flex min-h-0 flex-1 justify-center">
+        <JobAidDeviceFrame
+          title={title}
+          steps={steps}
+          sections={sections}
+          device="phone"
+          index={index}
+          onIndexChange={(next) => onCurrentStepIdChange(ordered[next]?.step.id ?? null)}
+          fill
+        />
+      </div>
+    </aside>
   );
 }
 

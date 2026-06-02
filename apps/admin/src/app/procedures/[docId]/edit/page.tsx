@@ -196,7 +196,7 @@ export default function ProcedureFullPageEditor({
           the right. The back arrow returns to the document detail page
           rather than this app's home, so authors don't lose their place. */}
       <header className="sticky top-0 z-30 border-b border-line bg-surface-raised/85 backdrop-blur-md">
-        <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3">
+        <div className="mx-auto flex max-w-[1760px] items-center gap-3 px-4 py-3">
           <Link
             href={`/documents/${encodeURIComponent(doc.id)}`}
             className="inline-flex size-9 items-center justify-center rounded-md text-ink-tertiary transition hover:bg-surface hover:text-ink-primary"
@@ -290,13 +290,14 @@ export default function ProcedureFullPageEditor({
         </div>
       )}
 
-      <div className="mx-auto max-w-5xl px-4 py-6">
+      <div className="mx-auto max-w-[1760px] px-4 py-6">
         {steps !== null && (
           <ProcedureCmsEditor
             doc={doc}
             steps={steps}
             sections={sections}
             onChanged={refresh}
+            livePreview
           />
         )}
       </div>
