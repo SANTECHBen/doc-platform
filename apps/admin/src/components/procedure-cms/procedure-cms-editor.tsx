@@ -772,7 +772,7 @@ export function ProcedureCmsEditor({ doc, steps, sections, onChanged, livePrevie
       <div
         className={
           livePreview
-            ? 'grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(400px,440px)]'
+            ? 'grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(460px,520px)]'
             : undefined
         }
       >

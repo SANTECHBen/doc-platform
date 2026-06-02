@@ -14,8 +14,6 @@ import {
   ChevronRight,
   RefreshCw,
   ShieldAlert,
-  Smartphone,
-  Tablet,
   Volume2,
   VolumeX,
   X,
@@ -23,12 +21,37 @@ import {
 import { JobAidBlockRenderer, JobAidFallbackImage } from '@platform/ui';
 import type { AdminProcedureSection, AdminProcedureStep } from '@/lib/api';
 
-type DeviceKind = 'phone' | 'tablet';
-const FRAMES: Record<DeviceKind, { w: number; h: number; label: string }> = {
-  phone: { w: 390, h: 800, label: 'Phone' },
-  tablet: { w: 760, h: 1000, label: 'Tablet' },
-};
+interface DeviceSpec {
+  id: string;
+  name: string;
+  category: 'phone' | 'tablet';
+  w: number; // logical CSS viewport width (like browser device emulation)
+  h: number;
+}
+
+// Logical (CSS) viewport sizes — the dimensions browser devtools emulate.
+const DEVICES: DeviceSpec[] = [
+  { id: 'iphone-se', name: 'iPhone SE', category: 'phone', w: 375, h: 667 },
+  { id: 'iphone-13-mini', name: 'iPhone 13 mini', category: 'phone', w: 375, h: 812 },
+  { id: 'iphone-15', name: 'iPhone 14 / 15', category: 'phone', w: 393, h: 852 },
+  { id: 'iphone-15-plus', name: 'iPhone 15 Plus', category: 'phone', w: 428, h: 926 },
+  { id: 'iphone-15-pro-max', name: 'iPhone 15 Pro Max', category: 'phone', w: 430, h: 932 },
+  { id: 'pixel-8', name: 'Pixel 8', category: 'phone', w: 412, h: 915 },
+  { id: 'galaxy-s23', name: 'Galaxy S23', category: 'phone', w: 360, h: 780 },
+  { id: 'galaxy-s23-ultra', name: 'Galaxy S23 Ultra', category: 'phone', w: 384, h: 824 },
+  { id: 'ipad-mini', name: 'iPad mini', category: 'tablet', w: 768, h: 1024 },
+  { id: 'ipad-air', name: 'iPad Air', category: 'tablet', w: 820, h: 1180 },
+  { id: 'ipad-pro-11', name: 'iPad Pro 11"', category: 'tablet', w: 834, h: 1194 },
+  { id: 'ipad-pro-13', name: 'iPad Pro 12.9"', category: 'tablet', w: 1024, h: 1366 },
+];
+const PHONES = DEVICES.filter((d) => d.category === 'phone');
+const DEFAULT_DEVICE = DEVICES.find((d) => d.id === 'iphone-15')!;
+const BEZEL = 10; // device-frame border px per side
 const DEFAULT_PHASE_COLOR = '#2563EB';
+
+function deviceById(id: string): DeviceSpec {
+  return DEVICES.find((d) => d.id === id) ?? DEFAULT_DEVICE;
+}
 
 // Light palette, forced on the screen subtree (the admin runs dark).
 const LIGHT_VARS = {
@@ -124,7 +147,7 @@ function JobAidDeviceFrame({
   title,
   steps,
   sections,
-  device,
+  spec,
   index,
   onIndexChange,
   fill,
@@ -132,7 +155,7 @@ function JobAidDeviceFrame({
   title: string;
   steps: AdminProcedureStep[];
   sections: AdminProcedureSection[];
-  device: DeviceKind;
+  spec: DeviceSpec;
   index: number;
   onIndexChange: (next: number) => void;
   /** Fill the parent's height (live side pane) instead of a fixed device
@@ -164,24 +187,28 @@ function JobAidDeviceFrame({
     void a.play().catch(() => {});
   }
 
-  const frame = FRAMES[device];
   const activePhase = phases.find((p) => idx >= p.start && idx < p.end) ?? null;
 
   if (total === 0 || !current) {
     return <p className="text-sm text-ink-tertiary">This procedure has no steps yet.</p>;
   }
 
+  // Bezel border eats into the box; add it so the screen (viewport) is exactly
+  // spec.w × spec.h — what browser device emulation reports.
+  const bw = spec.w + BEZEL * 2;
+  const bh = spec.h + BEZEL * 2;
+
   return (
     <div
       className={fill ? 'flex min-h-0 flex-col' : ''}
-      style={fill ? { width: frame.w } : undefined}
+      style={fill ? { width: bw } : undefined}
     >
       <div
         className="relative overflow-hidden rounded-[2.25rem] border-[10px] border-neutral-800 bg-neutral-800 shadow-2xl"
         style={
           fill
-            ? { width: frame.w, flex: '1 1 0%', minHeight: 0 }
-            : { width: frame.w, height: frame.h, maxHeight: 'calc(100dvh - 7rem)' }
+            ? { width: bw, flex: '1 1 0%', minHeight: 0 }
+            : { width: bw, height: bh, maxHeight: 'calc(100dvh - 7rem)' }
         }
       >
         <div data-theme="light" style={LIGHT_VARS} className="vja-preview-screen relative h-full w-full overflow-hidden">
@@ -284,33 +311,47 @@ function JobAidDeviceFrame({
   );
 }
 
-function DeviceToggle({ device, onChange, dark }: { device: DeviceKind; onChange: (d: DeviceKind) => void; dark?: boolean }) {
+function DeviceSelect({
+  devices,
+  value,
+  onChange,
+  dark,
+}: {
+  devices: DeviceSpec[];
+  value: string;
+  onChange: (id: string) => void;
+  dark?: boolean;
+}) {
+  const cats: Array<{ key: 'phone' | 'tablet'; label: string }> = [
+    { key: 'phone', label: 'Phones' },
+    { key: 'tablet', label: 'Tablets' },
+  ];
   return (
-    <div className={`flex overflow-hidden rounded-md border ${dark ? 'border-white/20' : 'border-line'}`}>
-      {(['phone', 'tablet'] as DeviceKind[]).map((d) => {
-        const active = device === d;
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label="Preview device"
+      className={[
+        'cursor-pointer rounded-md border px-2 py-1 text-xs font-medium outline-none transition',
+        dark
+          ? 'border-white/20 bg-white/10 text-white hover:bg-white/15 [&>optgroup]:text-neutral-900 [&>option]:text-neutral-900'
+          : 'border-line bg-surface text-ink-primary hover:border-accent/40',
+      ].join(' ')}
+    >
+      {cats.map((c) => {
+        const items = devices.filter((d) => d.category === c.key);
+        if (items.length === 0) return null;
         return (
-          <button
-            key={d}
-            type="button"
-            onClick={() => onChange(d)}
-            className={[
-              'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium transition',
-              active
-                ? dark
-                  ? 'bg-white text-neutral-900'
-                  : 'bg-accent text-white'
-                : dark
-                  ? 'text-white/80 hover:bg-white/10'
-                  : 'text-ink-secondary hover:bg-surface-elevated',
-            ].join(' ')}
-          >
-            {d === 'phone' ? <Smartphone size={13} /> : <Tablet size={13} />}
-            {FRAMES[d].label}
-          </button>
+          <optgroup key={c.key} label={c.label}>
+            {items.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name} · {d.w}×{d.h}
+              </option>
+            ))}
+          </optgroup>
         );
       })}
-    </div>
+    </select>
   );
 }
 
@@ -329,7 +370,7 @@ export function DevicePreviewModal({
   sections: AdminProcedureSection[];
   onClose: () => void;
 }) {
-  const [device, setDevice] = useState<DeviceKind>('phone');
+  const [deviceId, setDeviceId] = useState(DEFAULT_DEVICE.id);
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
@@ -346,7 +387,7 @@ export function DevicePreviewModal({
         <span className="text-sm font-semibold">Device preview</span>
         <span className="truncate text-xs text-white/60">{title}</span>
         <div className="ml-auto flex items-center gap-2">
-          <DeviceToggle device={device} onChange={setDevice} dark />
+          <DeviceSelect devices={DEVICES} value={deviceId} onChange={setDeviceId} dark />
           <button
             type="button"
             onClick={onClose}
@@ -362,7 +403,7 @@ export function DevicePreviewModal({
           title={title}
           steps={steps}
           sections={sections}
-          device={device}
+          spec={deviceById(deviceId)}
           index={index}
           onIndexChange={setIndex}
         />
@@ -389,23 +430,24 @@ export function LiveDevicePreview({
   currentStepId: string | null;
   onCurrentStepIdChange: (id: string | null) => void;
 }) {
+  const [deviceId, setDeviceId] = useState(DEFAULT_DEVICE.id);
   const ordered = useMemo(() => resolveSteps(steps, sections), [steps, sections]);
   const index = Math.max(0, ordered.findIndex((o) => o.step.id === currentStepId));
 
   return (
     <aside className="sticky top-[4.5rem] hidden h-[calc(100dvh-6rem)] flex-col gap-2 xl:flex">
-      <div className="flex items-center justify-between">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary">
-          Live preview · phone
+      <div className="flex items-center justify-between gap-2">
+        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary">
+          Live preview
         </span>
-        <span className="text-[10px] text-ink-tertiary">follows the step you edit</span>
+        <DeviceSelect devices={PHONES} value={deviceId} onChange={setDeviceId} />
       </div>
       <div className="flex min-h-0 flex-1 justify-center">
         <JobAidDeviceFrame
           title={title}
           steps={steps}
           sections={sections}
-          device="phone"
+          spec={deviceById(deviceId)}
           index={index}
           onIndexChange={(next) => onCurrentStepIdChange(ordered[next]?.step.id ?? null)}
           fill
