@@ -1,11 +1,12 @@
 'use client';
 
-// Device preview — renders the procedure as it lays out on a field device,
-// in a phone or tablet frame, before publishing. It reuses the live edited
-// step/section/block/media data the editor already holds, so it reflects
-// unsaved-to-published authoring exactly. It is a faithful content re-render
-// (titles, blocks, callouts, inline photos, section flow, voiceover playback),
-// not the literal PWA component — that one is coupled to the PWA app.
+// Device preview — renders the procedure as it lays out on a field device, in
+// a phone or tablet frame, before publishing. Styled to match the PWA's
+// published "virtual job aid" runner (apps/pwa .vja-* styles): a LIGHT theme —
+// a raised step card on a light surface, brand-colored section pill + step
+// number, dark title (red when safety-critical), and tone-styled callouts.
+// Reuses the editor's live edited step/section/block/media data so it reflects
+// unpublished authoring exactly.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -56,7 +57,6 @@ function orderSteps(
   for (const s of orphans) {
     out.push({ step: s, sectionLabel: null, sectionIndex: 0, sectionTotal: 0 });
   }
-
   for (const sec of [...sections].sort(byHint)) {
     const inSec = steps.filter((s) => s.sectionId === sec.id).sort(byHint);
     inSec.forEach((s, i) => {
@@ -91,7 +91,6 @@ export function DevicePreviewModal({
   const total = ordered.length;
   const current = ordered[Math.min(index, Math.max(0, total - 1))];
 
-  // Stop audio whenever the step changes.
   useEffect(() => {
     const a = audioRef.current;
     if (a) {
@@ -101,7 +100,6 @@ export function DevicePreviewModal({
     setPlaying(false);
   }, [index]);
 
-  // Keyboard nav: ← → to move, Esc to close.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose();
@@ -127,7 +125,7 @@ export function DevicePreviewModal({
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black/70 backdrop-blur-sm">
-      {/* Toolbar */}
+      {/* Admin chrome toolbar (outside the device). */}
       <div className="flex items-center gap-3 border-b border-white/10 px-4 py-2.5 text-white">
         <span className="text-sm font-semibold">Device preview</span>
         <span className="truncate text-xs text-white/60">{title}</span>
@@ -165,49 +163,48 @@ export function DevicePreviewModal({
           <p className="text-sm text-white/70">This procedure has no steps yet.</p>
         ) : (
           <div
-            className="relative shrink-0 overflow-hidden rounded-[2.25rem] border-[10px] border-neutral-800 bg-white shadow-2xl"
-            style={{
-              width: frame.w,
-              height: frame.h,
-              maxHeight: 'calc(100vh - 8rem)',
-            }}
+            className="relative shrink-0 overflow-hidden rounded-[2.25rem] border-[10px] border-neutral-800 bg-neutral-800 shadow-2xl"
+            style={{ width: frame.w, height: frame.h, maxHeight: 'calc(100vh - 8rem)' }}
           >
-            {/* Screen */}
-            <div className="flex h-full flex-col bg-[#0f1115] text-white">
-              {/* Status / progress header */}
-              <div className="shrink-0 px-5 pt-5">
-                <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-white/50">
-                  <span className="truncate">{current?.sectionLabel ?? title}</span>
-                  <span className="shrink-0 font-mono">
-                    {index + 1} / {total}
-                  </span>
-                </div>
-                <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-white/10">
-                  <div
-                    className="h-full rounded-full bg-accent transition-[width] duration-300"
-                    style={{ width: `${((index + 1) / total) * 100}%` }}
-                  />
+            {/* Screen — forced LIGHT (the admin runs dark by default; the
+                published runner is light). data-theme='light' re-applies the
+                light palette to this subtree so every token resolves correctly. */}
+            <div data-theme="light" className="flex h-full flex-col bg-surface text-ink-primary">
+              {/* Topbar: doc title + segmented progress (.vja-topbar / .vja-progress). */}
+              <div className="shrink-0 border-b border-line/60 px-4 pb-3 pt-4">
+                <p className="truncate text-[15px] font-semibold leading-tight text-ink-primary">
+                  {title}
+                </p>
+                <div className="mt-2.5 flex gap-1">
+                  {ordered.map((_, i) => (
+                    <span
+                      key={i}
+                      className={[
+                        'h-1 flex-1 rounded-full transition-colors',
+                        i < index ? 'bg-accent/50' : i === index ? 'bg-accent' : 'bg-line',
+                      ].join(' ')}
+                    />
+                  ))}
                 </div>
               </div>
 
-              {/* Step body (scrollable) */}
-              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-                {current && <StepView step={current.step} />}
+              {/* Main — light surface, raised step card (.vja-main / .vja-step). */}
+              <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+                {current && <StepCardView ordered={current} />}
               </div>
 
-              {/* Footer nav */}
-              <div className="shrink-0 border-t border-white/10 px-4 py-3">
+              {/* Footer nav. */}
+              <div className="shrink-0 border-t border-line bg-surface px-4 py-3">
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setIndex((i) => Math.max(i - 1, 0))}
                     disabled={index === 0}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 disabled:opacity-30"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-surface-elevated text-ink-primary transition hover:bg-line disabled:opacity-30"
                     aria-label="Previous step"
                   >
                     <ChevronLeft size={20} />
                   </button>
-
                   {current?.step.audioUrl ? (
                     <button
                       type="button"
@@ -218,16 +215,15 @@ export function DevicePreviewModal({
                       {playing ? 'Pause' : 'Play voiceover'}
                     </button>
                   ) : (
-                    <div className="flex-1 text-center text-[11px] text-white/40">
+                    <div className="flex-1 text-center text-[11px] text-ink-tertiary">
                       No voiceover on this step
                     </div>
                   )}
-
                   <button
                     type="button"
                     onClick={() => setIndex((i) => Math.min(i + 1, total - 1))}
                     disabled={index >= total - 1}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 disabled:opacity-30"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-surface-elevated text-ink-primary transition hover:bg-line disabled:opacity-30"
                     aria-label="Next step"
                   >
                     <ChevronRight size={20} />
@@ -239,7 +235,6 @@ export function DevicePreviewModal({
         )}
       </div>
 
-      {/* Shared audio element for the current step. */}
       <audio
         ref={audioRef}
         src={current?.step.audioUrl ?? undefined}
@@ -250,32 +245,92 @@ export function DevicePreviewModal({
   );
 }
 
-function StepView({ step }: { step: AdminProcedureStep }) {
+function StepCardView({ ordered }: { ordered: OrderedStep }) {
+  const { step, sectionLabel, sectionIndex, sectionTotal } = ordered;
   const images = (step.media ?? []).filter((m) => m.kind === 'image');
+  const inlineKeys = new Set(
+    (step.blocks ?? [])
+      .filter((b): b is Extract<StepBlock, { kind: 'photo_inline' }> => b.kind === 'photo_inline')
+      .map((b) => b.storageKey),
+  );
+  const galleryImages = images.filter((m) => !inlineKeys.has(m.storageKey));
+
   return (
-    <div className="flex flex-col gap-4">
-      {step.safetyCritical && (
-        <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-red-500/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-red-300">
-          <ShieldAlert size={12} /> Safety critical
-        </span>
+    <article
+      className={[
+        'mx-auto flex max-w-[720px] flex-col gap-4 rounded-[14px] border bg-surface-raised p-[22px] shadow-sm',
+        step.safetyCritical ? 'border-signal-fault/30' : 'border-line',
+      ].join(' ')}
+    >
+      {/* Header: section pill · step number · safety pill */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        {sectionLabel && (
+          <span className="inline-flex max-w-full items-center truncate rounded-full border border-accent/35 bg-accent/10 px-2.5 py-[3px] text-[11px] font-bold uppercase tracking-[0.08em] text-accent">
+            {sectionLabel}
+          </span>
+        )}
+        {sectionTotal > 0 && (
+          <span className="font-mono text-2xl font-bold leading-none tracking-tight text-accent">
+            {String(sectionIndex).padStart(2, '0')}
+            <span className="text-base font-medium text-ink-tertiary">
+              {' / '}
+              {String(sectionTotal).padStart(2, '0')}
+            </span>
+          </span>
+        )}
+        {step.safetyCritical && (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-signal-fault/40 bg-signal-fault/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-signal-fault">
+            <ShieldAlert size={12} strokeWidth={2} /> Safety-critical
+          </span>
+        )}
+      </div>
+
+      {/* Title */}
+      <h1
+        className={[
+          'text-[27px] font-bold leading-[1.15] tracking-tight',
+          step.safetyCritical ? 'text-signal-fault' : 'text-ink-primary',
+        ].join(' ')}
+      >
+        {step.title}
+      </h1>
+
+      {/* Blocks */}
+      {(step.blocks ?? []).length > 0 && (
+        <div className="flex flex-col gap-3.5">
+          {step.blocks.map((b, i) => (
+            <BlockView key={i} block={b} images={images} />
+          ))}
+        </div>
       )}
-      <h2 className="text-xl font-semibold leading-snug">{step.title}</h2>
-      {(step.blocks ?? []).map((b, i) => (
-        <BlockView key={i} block={b} images={images} />
-      ))}
-    </div>
+
+      {/* Trailing media gallery — images not already shown inline. */}
+      {galleryImages.length > 0 && (
+        <div className="grid grid-cols-1 gap-3">
+          {galleryImages.map((m) => (
+            <figure key={m.storageKey} className="overflow-hidden rounded-[10px] bg-surface-inset">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={m.url ?? ''} alt={m.caption ?? step.title} className="w-full object-contain" />
+              {m.caption && (
+                <figcaption className="px-3 py-1.5 text-xs text-ink-tertiary">{m.caption}</figcaption>
+              )}
+            </figure>
+          ))}
+        </div>
+      )}
+    </article>
   );
 }
 
 function BlockView({ block, images }: { block: StepBlock; images: AdminStepMedia[] }) {
   switch (block.kind) {
     case 'paragraph':
-      return <p className="text-[15px] leading-relaxed text-white/85">{block.text}</p>;
+      return <p className="text-[17px] leading-[1.55] text-ink-secondary">{block.text}</p>;
     case 'callout':
       return <CalloutView block={block} />;
     case 'bullet_list':
       return (
-        <ul className="ml-5 list-disc space-y-1 text-[15px] text-white/85">
+        <ul className="flex list-disc flex-col gap-1 pl-[22px] text-[16px] leading-[1.6] text-ink-primary">
           {block.items.map((it, i) => (
             <li key={i}>{it}</li>
           ))}
@@ -283,7 +338,7 @@ function BlockView({ block, images }: { block: StepBlock; images: AdminStepMedia
       );
     case 'numbered_list':
       return (
-        <ol className="ml-5 list-decimal space-y-1 text-[15px] text-white/85">
+        <ol className="flex list-decimal flex-col gap-1 pl-[22px] text-[16px] leading-[1.6] text-ink-primary">
           {block.items.map((it, i) => (
             <li key={i}>{it}</li>
           ))}
@@ -291,13 +346,15 @@ function BlockView({ block, images }: { block: StepBlock; images: AdminStepMedia
       );
     case 'key_value':
       return (
-        <div className="overflow-hidden rounded-lg border border-white/10">
-          <table className="w-full text-sm">
+        <div className="overflow-hidden rounded-[10px] border border-line text-[15px]">
+          <table className="w-full border-separate border-spacing-0">
             <tbody>
               {block.rows.map((row, i) => (
-                <tr key={i} className="border-b border-white/5 last:border-0">
-                  <td className="bg-white/5 px-3 py-1.5 font-medium text-white/70">{row[0]}</td>
-                  <td className="px-3 py-1.5 text-white/90">{row[1]}</td>
+                <tr key={i}>
+                  <td className="border-b border-line bg-surface-elevated px-3 py-1.5 font-medium text-ink-secondary">
+                    {row[0]}
+                  </td>
+                  <td className="border-b border-line px-3 py-1.5 text-ink-primary">{row[1]}</td>
                 </tr>
               ))}
             </tbody>
@@ -309,11 +366,13 @@ function BlockView({ block, images }: { block: StepBlock; images: AdminStepMedia
       if (!media?.url) return null;
       const caption = block.caption ?? media.caption ?? null;
       return (
-        <figure className="overflow-hidden rounded-lg border border-white/10">
+        <figure className="overflow-hidden rounded-[10px] border border-line">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={media.url} alt={caption ?? ''} className="w-full object-contain" />
           {caption && (
-            <figcaption className="bg-white/5 px-3 py-1.5 text-xs text-white/60">{caption}</figcaption>
+            <figcaption className="bg-surface-elevated px-3 py-1.5 text-xs text-ink-tertiary">
+              {caption}
+            </figcaption>
           )}
         </figure>
       );
@@ -325,31 +384,42 @@ function BlockView({ block, images }: { block: StepBlock; images: AdminStepMedia
 
 function CalloutView({ block }: { block: Extract<StepBlock, { kind: 'callout' }> }) {
   const tone = block.tone;
-  const styles: Record<typeof tone, { box: string; icon: React.ReactNode }> = {
+  const styles: Record<
+    typeof tone,
+    { box: string; icon: React.ReactNode; title: string }
+  > = {
     safety: {
-      box: 'border-red-500/40 bg-red-500/10 text-red-200',
-      icon: <ShieldAlert size={16} className="text-red-300" />,
+      box: 'border-signal-fault/50 bg-signal-fault/[0.06]',
+      icon: <ShieldAlert size={18} className="text-signal-fault" />,
+      title: 'text-signal-fault',
     },
     warning: {
-      box: 'border-amber-500/40 bg-amber-500/10 text-amber-100',
-      icon: <AlertTriangle size={16} className="text-amber-300" />,
+      box: 'border-signal-warn/50 bg-signal-warn/[0.07]',
+      icon: <AlertTriangle size={18} className="text-signal-warn" />,
+      title: 'text-signal-warn',
     },
     tip: {
-      box: 'border-sky-500/40 bg-sky-500/10 text-sky-100',
-      icon: <Lightbulb size={16} className="text-sky-300" />,
+      box: 'border-signal-info/50 bg-signal-info/[0.06]',
+      icon: <Lightbulb size={18} className="text-signal-info" />,
+      title: 'text-signal-info',
     },
     note: {
-      box: 'border-white/15 bg-white/5 text-white/80',
-      icon: <Info size={16} className="text-white/60" />,
+      box: 'border-line-strong bg-surface-elevated',
+      icon: <Info size={18} className="text-ink-secondary" />,
+      title: 'text-ink-secondary',
     },
   };
   const s = styles[tone];
   return (
-    <aside className={`flex gap-2.5 rounded-lg border px-3 py-2.5 ${s.box}`}>
-      <span className="mt-0.5 shrink-0">{s.icon}</span>
-      <div className="text-sm leading-relaxed">
-        {block.title && <p className="font-semibold">{block.title}</p>}
-        <p>{block.text}</p>
+    <aside className={`flex gap-3 rounded-[10px] border px-3.5 py-3 ${s.box}`}>
+      <span className="shrink-0 pt-0.5">{s.icon}</span>
+      <div className="min-w-0 flex-1">
+        {block.title && (
+          <p className={`mb-1 text-[13px] font-bold uppercase tracking-[0.06em] ${s.title}`}>
+            {block.title}
+          </p>
+        )}
+        <p className="text-[16px] leading-[1.5] text-ink-primary">{block.text}</p>
       </div>
     </aside>
   );
