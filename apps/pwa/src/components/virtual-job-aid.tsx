@@ -30,6 +30,7 @@ import {
   type ProcedureStepCategoryDto,
   type StepBlock,
 } from '@/lib/api';
+import { JobAidBlockRenderer } from '@platform/ui';
 import { CategoryIcon } from './procedure-runner/category-icon';
 import { VirtualJobAidReels, type ReelsViewportHandle } from './virtual-job-aid-reels';
 import { StepVideoPlayer } from './step-video-player';
@@ -1378,7 +1379,7 @@ export function VirtualJobAid({
             {step.blocks.length > 0 ? (
               <div className="vja-blocks">
                 {step.blocks.map((b, i) => (
-                  <BlockRenderer key={i} block={b} media={step.media} />
+                  <JobAidBlockRenderer key={i} block={b} media={step.media} />
                 ))}
               </div>
             ) : step.bodyMarkdown ? (
@@ -1655,101 +1656,6 @@ export function VirtualJobAid({
 // identical across the library regardless of who authored it.
 // ---------------------------------------------------------------------------
 
-function BlockRenderer({
-  block,
-  media,
-}: {
-  block: StepBlock;
-  // Accepts the full step media union (image / video / video_clip) — the
-  // photo_inline block looks up referenced items by storageKey and only
-  // renders the image variant; other kinds are ignored.
-  media: ResolvedJobAid['steps'][number]['media'];
-}): React.ReactElement | null {
-  switch (block.kind) {
-    case 'paragraph':
-      // Auto-detect bare URLs and turn them into links. We intentionally
-      // don't support inline formatting (bold, italic) — that's the
-      // template's job, not the author's.
-      return <p className="vja-block-paragraph">{linkifyText(block.text)}</p>;
-
-    case 'callout': {
-      const tone = block.tone;
-      const Icon =
-        tone === 'safety'
-          ? ShieldAlert
-          : tone === 'warning'
-            ? AlertTriangle
-            : tone === 'tip'
-              ? Lightbulb
-              : Info;
-      return (
-        <aside className={`vja-block-callout vja-callout-${tone}`}>
-          <span className="vja-callout-icon" aria-hidden>
-            <Icon size={18} strokeWidth={2} />
-          </span>
-          <div className="vja-callout-body">
-            {block.title && <p className="vja-callout-title">{block.title}</p>}
-            <p className="vja-callout-text">{linkifyText(block.text)}</p>
-          </div>
-        </aside>
-      );
-    }
-
-    case 'bullet_list':
-      return (
-        <ul className="vja-block-list">
-          {block.items.map((it, i) => (
-            <li key={i}>{linkifyText(it)}</li>
-          ))}
-        </ul>
-      );
-
-    case 'numbered_list':
-      return (
-        <ol className="vja-block-list vja-block-list-numbered">
-          {block.items.map((it, i) => (
-            <li key={i}>{linkifyText(it)}</li>
-          ))}
-        </ol>
-      );
-
-    case 'key_value':
-      return (
-        <table className="vja-block-kv">
-          <thead>
-            <tr>
-              <th>{block.columns[0]}</th>
-              <th>{block.columns[1]}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {block.rows.map((row, i) => (
-              <tr key={i}>
-                <td>{row[0]}</td>
-                <td>{row[1]}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      );
-
-    case 'photo_inline': {
-      const m = media.find((mm) => mm.storageKey === block.storageKey);
-      if (!m || m.kind !== 'image' || !m.url) return null;
-      const caption = block.caption ?? m.caption ?? null;
-      return (
-        <figure className="vja-block-photo">
-          <FallbackImage
-            src={m.url}
-            alt={caption ?? 'Step photo'}
-            label={caption ?? 'Photo unavailable'}
-          />
-          {caption && <figcaption>{caption}</figcaption>}
-        </figure>
-      );
-    }
-  }
-}
 
 // Image with a graceful fallback when load fails (404, CDN hiccup,
 // permissions, etc.). Replaces the broken image icon with a labeled
@@ -1790,26 +1696,6 @@ function FallbackVideo({ src, label }: { src: string; label: string }): React.Re
   return <video src={src} controls preload="metadata" onError={() => setFailed(true)} />;
 }
 
-// Lightweight linkify — detects http(s):// URLs in text and wraps them
-// in <a>. Avoids pulling in a markdown parser for plain prose; the
-// authoring surface only allows bare URLs anyway (no markdown link syntax).
-function linkifyText(text: string): React.ReactNode {
-  const parts: React.ReactNode[] = [];
-  const re = /(https?:\/\/[^\s)]+)/g;
-  let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    if (m.index > last) parts.push(text.slice(last, m.index));
-    parts.push(
-      <a key={m.index} href={m[1]} target="_blank" rel="noopener noreferrer">
-        {m[1]}
-      </a>,
-    );
-    last = m.index + m[1]!.length;
-  }
-  if (last < text.length) parts.push(text.slice(last));
-  return parts.length > 0 ? parts : text;
-}
 
 // Small labeled chip list used three times in the intro's Required
 // Tools subsection (Common / Special / Consumables). Returns null when

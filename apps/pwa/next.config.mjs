@@ -19,7 +19,7 @@ const nextConfig = {
   // webpack resolves `./components/pdf-page.js` literally and fails — the
   // actual file is `.tsx`. Discovered after every PWA deploy for 11 hours
   // failed with this exact error and reverted to a pre-sections build.
-  transpilePackages: ['@platform/viewer'],
+  transpilePackages: ['@platform/viewer', '@platform/ui'],
   // The viewer package writes ESM-style `.js` import suffixes in its source
   // (Node ESM convention), but the actual files are `.tsx`/`.ts`. Webpack
   // doesn't natively rewrite the suffix — extensionAlias makes it try .tsx

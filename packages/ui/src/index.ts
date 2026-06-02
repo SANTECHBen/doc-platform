@@ -11,3 +11,13 @@ export { ErrorBanner, type ErrorBannerProps } from './error-banner';
 export { Skeleton, type SkeletonProps } from './skeleton';
 export { SegmentCard, type SegmentCardProps, type SegmentCardTone } from './segment-card';
 export { SantechWordmark, type SantechWordmarkProps } from './santech-wordmark';
+
+// Shared Job Aid renderer — the single source for rendering procedure step
+// content, used by the PWA runner and the admin device-preview. Import the
+// styles via '@platform/ui/job-aid.css'.
+export {
+  JobAidBlockRenderer,
+  JobAidFallbackImage,
+  linkifyText,
+} from './job-aid/block-renderer';
+export type { JobAidBlock, JobAidMedia } from './job-aid/types';

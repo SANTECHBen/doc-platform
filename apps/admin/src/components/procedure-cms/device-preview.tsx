@@ -10,14 +10,11 @@
 // NOTE: this duplicates the runner's render. Stage 2 replaces both this and the
 // PWA's copy with a single shared package so they can never drift.
 
-import './vja-preview.css';
+import '@platform/ui/job-aid.css';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle,
   ChevronLeft,
   ChevronRight,
-  Info,
-  Lightbulb,
   RefreshCw,
   ShieldAlert,
   Smartphone,
@@ -26,11 +23,10 @@ import {
   VolumeX,
   X,
 } from 'lucide-react';
+import { JobAidBlockRenderer, JobAidFallbackImage } from '@platform/ui';
 import type {
   AdminProcedureSection,
   AdminProcedureStep,
-  AdminStepMedia,
-  StepBlock,
 } from '@/lib/api';
 
 type DeviceKind = 'phone' | 'tablet';
@@ -338,9 +334,7 @@ function StepArticle({ resolved, phaseColor }: { resolved: ResolvedStep; phaseCo
   const { step, sectionLabel, sectionStepIndex, sectionStepTotal } = resolved;
   const media = step.media ?? [];
   const inlineKeys = new Set(
-    (step.blocks ?? [])
-      .filter((b): b is Extract<StepBlock, { kind: 'photo_inline' }> => b.kind === 'photo_inline')
-      .map((b) => b.storageKey),
+    (step.blocks ?? []).flatMap((b) => (b.kind === 'photo_inline' ? [b.storageKey] : [])),
   );
   const gallery = media.filter((m) => !inlineKeys.has(m.storageKey));
 
@@ -374,7 +368,7 @@ function StepArticle({ resolved, phaseColor }: { resolved: ResolvedStep; phaseCo
       {(step.blocks ?? []).length > 0 && (
         <div className="vja-blocks">
           {step.blocks.map((b, i) => (
-            <BlockRenderer key={i} block={b} media={media} />
+            <JobAidBlockRenderer key={i} block={b} media={media} />
           ))}
         </div>
       )}
@@ -383,7 +377,7 @@ function StepArticle({ resolved, phaseColor }: { resolved: ResolvedStep; phaseCo
           {gallery.map((m, i) => (
             <li key={`${m.storageKey}-${i}`}>
               {m.kind === 'image' ? (
-                <FallbackImage src={m.url ?? ''} alt={m.caption ?? step.title} label={m.caption ?? 'Image unavailable'} />
+                <JobAidFallbackImage src={m.url ?? ''} alt={m.caption ?? step.title} label={m.caption ?? 'Image unavailable'} />
               ) : null}
               {m.kind === 'image' && m.caption && <p className="vja-step-caption">{m.caption}</p>}
             </li>
@@ -391,104 +385,5 @@ function StepArticle({ resolved, phaseColor }: { resolved: ResolvedStep; phaseCo
         </ul>
       )}
     </article>
-  );
-}
-
-function BlockRenderer({ block, media }: { block: StepBlock; media: AdminStepMedia[] }): React.ReactElement | null {
-  switch (block.kind) {
-    case 'paragraph':
-      return <p className="vja-block-paragraph">{linkifyText(block.text)}</p>;
-    case 'callout': {
-      const tone = block.tone;
-      const Icon = tone === 'safety' ? ShieldAlert : tone === 'warning' ? AlertTriangle : tone === 'tip' ? Lightbulb : Info;
-      return (
-        <aside className={`vja-block-callout vja-callout-${tone}`}>
-          <span className="vja-callout-icon" aria-hidden>
-            <Icon size={18} strokeWidth={2} />
-          </span>
-          <div className="vja-callout-body">
-            {block.title && <p className="vja-callout-title">{block.title}</p>}
-            <p className="vja-callout-text">{linkifyText(block.text)}</p>
-          </div>
-        </aside>
-      );
-    }
-    case 'bullet_list':
-      return (
-        <ul className="vja-block-list">
-          {block.items.map((it, i) => (
-            <li key={i}>{linkifyText(it)}</li>
-          ))}
-        </ul>
-      );
-    case 'numbered_list':
-      return (
-        <ol className="vja-block-list vja-block-list-numbered">
-          {block.items.map((it, i) => (
-            <li key={i}>{linkifyText(it)}</li>
-          ))}
-        </ol>
-      );
-    case 'key_value':
-      return (
-        <table className="vja-block-kv">
-          <thead>
-            <tr>
-              <th>{block.columns[0]}</th>
-              <th>{block.columns[1]}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {block.rows.map((row, i) => (
-              <tr key={i}>
-                <td>{row[0]}</td>
-                <td>{row[1]}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      );
-    case 'photo_inline': {
-      const m = media.find((mm) => mm.storageKey === block.storageKey);
-      if (!m || m.kind !== 'image' || !m.url) return null;
-      const caption = block.caption ?? m.caption ?? null;
-      return (
-        <figure className="vja-block-photo">
-          <FallbackImage src={m.url} alt={caption ?? 'Step photo'} label={caption ?? 'Photo unavailable'} />
-          {caption && <figcaption>{caption}</figcaption>}
-        </figure>
-      );
-    }
-    default:
-      return null;
-  }
-}
-
-function FallbackImage({ src, alt, label }: { src: string; alt: string; label: string }): React.ReactElement {
-  const [failed, setFailed] = useState(false);
-  if (failed || !src) {
-    return (
-      <div className="vja-media-fallback" role="img" aria-label={alt}>
-        <span aria-hidden>📷</span>
-        <span>{label}</span>
-      </div>
-    );
-  }
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img src={src} alt={alt} loading="lazy" onError={() => setFailed(true)} />;
-}
-
-// Bare-URL → link, matching the runner (no inline bold/italic — the template
-// owns styling).
-function linkifyText(text: string): React.ReactNode {
-  const parts = text.split(/(https?:\/\/[^\s]+)/g);
-  return parts.map((p, i) =>
-    /^https?:\/\//.test(p) ? (
-      <a key={i} href={p} target="_blank" rel="noreferrer">
-        {p}
-      </a>
-    ) : (
-      p
-    ),
   );
 }

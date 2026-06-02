@@ -1,9 +1,5 @@
-/* Virtual Job Aid styles — COPIED VERBATIM from apps/pwa/src/app/globals.css
-   so the admin device-preview renders byte-identical to the published runner.
-   Do not hand-edit; re-copy from the PWA when the runner's styles change.
-   (Stage 2 will replace this copy with a shared package both apps import.)
-   The PWA wraps these in @layer components; here they're plain rules — they
-   only use .vja-* classes (no Tailwind conflicts), scoped to the preview. */
+/* Virtual Job Aid styles — the SINGLE SOURCE shared by the PWA runner and
+   the admin device-preview. Plain rules (apps' Tailwind owns @layer). */
   @keyframes voiceModeIn {
     from {
       opacity: 0;
@@ -2184,6 +2180,7 @@
     color: rgb(var(--ink-secondary));
   }
 
-/* Preview-only overrides: the runner is position:fixed full-screen; inside the
-   device frame it must fill the frame instead, with no entry animation. */
+/* Admin preview override: the runner is position:fixed full-screen; inside a
+   device frame it fills the frame instead (no entry animation). Harmless in
+   the PWA (no .vja-preview-screen there). */
 .vja-preview-screen .vja-root { position: absolute; animation: none; z-index: 0; }

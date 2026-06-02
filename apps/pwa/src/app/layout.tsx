@@ -4,6 +4,8 @@ import { ToastProvider } from '@/components/toast';
 import { themeBootScript } from '@/components/theme-toggle';
 import { densityBootScript } from '@/components/density-toggle';
 import './globals.css';
+// Virtual Job Aid styles — single source shared with the admin device-preview.
+import '@platform/ui/job-aid.css';
 
 const sans = IBM_Plex_Sans({
   subsets: ['latin'],

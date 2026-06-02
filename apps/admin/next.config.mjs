@@ -55,7 +55,7 @@ export default {
   // because they ship as .ts/.tsx source. Without this, webpack tries to
   // resolve `./pdf-kernel.js` literally and fails — the actual file is
   // `.ts`. Same fix as the PWA's next.config.mjs.
-  transpilePackages: ['@platform/viewer'],
+  transpilePackages: ['@platform/viewer', '@platform/ui'],
   webpack: (config) => {
     config.resolve.extensionAlias = {
       ...(config.resolve.extensionAlias ?? {}),
