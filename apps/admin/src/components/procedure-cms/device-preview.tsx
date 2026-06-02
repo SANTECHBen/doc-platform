@@ -1,22 +1,22 @@
 'use client';
 
 // Device preview — renders the procedure as it lays out on a field device, in
-// a phone or tablet frame, before publishing. Styled to match the PWA's
-// published "virtual job aid" runner (apps/pwa .vja-* styles): a LIGHT theme —
-// a raised step card on a light surface, brand-colored section pill + step
-// number, dark title (red when safety-critical), and tone-styled callouts.
-// Reuses the editor's live edited step/section/block/media data so it reflects
-// unpublished authoring exactly.
+// a phone or tablet frame, before publishing. Matches the PWA's published
+// "virtual job aid" runner (apps/pwa .vja-* styles): a LIGHT theme — a raised
+// step card on a light surface, a section/phase strip up top, brand-colored
+// section pill + step number, dark title (red when safety-critical),
+// tone-styled callouts, and a Back / Replay / Next footer.
+//
+// The admin runs dark by default, so the light palette is forced via inline
+// CSS variables on the screen subtree (bulletproof — no reliance on theme
+// attributes resolving through the deployed CSS).
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
-  ChevronLeft,
-  ChevronRight,
   Info,
   Lightbulb,
-  Pause,
-  Play,
+  RotateCcw,
   ShieldAlert,
   Smartphone,
   Tablet,
@@ -36,6 +36,27 @@ const FRAMES: Record<DeviceKind, { w: number; h: number; label: string }> = {
   tablet: { w: 760, h: 1000, label: 'Tablet' },
 };
 
+// The published runner's light palette, applied inline so it renders light
+// regardless of the admin's (dark) theme. Values mirror the light :root in
+// apps/admin globals.css.
+const LIGHT_VARS = {
+  '--surface-base': '245 246 248',
+  '--surface-raised': '255 255 255',
+  '--surface-elevated': '249 250 251',
+  '--surface-inset': '240 242 246',
+  '--line-subtle': '234 237 242',
+  '--line': '221 226 233',
+  '--line-strong': '189 197 209',
+  '--ink-primary': '14 18 23',
+  '--ink-secondary': '74 85 96',
+  '--ink-tertiary': '128 138 150',
+  '--brand': '37 108 211',
+  '--signal-ok': '31 133 83',
+  '--signal-warn': '191 111 26',
+  '--signal-fault': '176 43 61',
+  '--signal-info': '37 108 211',
+} as React.CSSProperties;
+
 interface OrderedStep {
   step: AdminProcedureStep;
   sectionLabel: string | null;
@@ -43,8 +64,6 @@ interface OrderedStep {
   sectionTotal: number;
 }
 
-/** Flatten steps into runner order: orphan steps (no section) first, then each
- *  section in ordering order with its steps. Mirrors the runtime ordering. */
 function orderSteps(
   steps: AdminProcedureStep[],
   sections: AdminProcedureSection[],
@@ -52,7 +71,6 @@ function orderSteps(
   const byHint = (a: { orderingHint: number }, b: { orderingHint: number }) =>
     a.orderingHint - b.orderingHint;
   const out: OrderedStep[] = [];
-
   const orphans = steps.filter((s) => !s.sectionId).sort(byHint);
   for (const s of orphans) {
     out.push({ step: s, sectionLabel: null, sectionIndex: 0, sectionTotal: 0 });
@@ -71,6 +89,12 @@ function orderSteps(
   return out;
 }
 
+interface Phase {
+  label: string;
+  start: number;
+  end: number; // exclusive
+}
+
 export function DevicePreviewModal({
   title,
   steps,
@@ -85,11 +109,24 @@ export function DevicePreviewModal({
   const [device, setDevice] = useState<DeviceKind>('phone');
   const [index, setIndex] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [playing, setPlaying] = useState(false);
 
   const ordered = useMemo(() => orderSteps(steps, sections), [steps, sections]);
   const total = ordered.length;
   const current = ordered[Math.min(index, Math.max(0, total - 1))];
+
+  // Sections become a phase strip (REMOVAL | REPLACEMENT …).
+  const phases = useMemo<Phase[]>(() => {
+    const ps: Phase[] = [];
+    let i = 0;
+    while (i < ordered.length) {
+      const label = ordered[i]!.sectionLabel;
+      let j = i;
+      while (j < ordered.length && ordered[j]!.sectionLabel === label) j += 1;
+      ps.push({ label: label ?? 'Steps', start: i, end: j });
+      i = j;
+    }
+    return ps;
+  }, [ordered]);
 
   useEffect(() => {
     const a = audioRef.current;
@@ -97,7 +134,6 @@ export function DevicePreviewModal({
       a.pause();
       a.currentTime = 0;
     }
-    setPlaying(false);
   }, [index]);
 
   useEffect(() => {
@@ -110,15 +146,11 @@ export function DevicePreviewModal({
     return () => window.removeEventListener('keydown', onKey);
   }, [total, onClose]);
 
-  function toggleAudio() {
+  function replayAudio() {
     const a = audioRef.current;
     if (!a || !current?.step.audioUrl) return;
-    if (playing) {
-      a.pause();
-      setPlaying(false);
-    } else {
-      void a.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
-    }
+    a.currentTime = 0;
+    void a.play().catch(() => {});
   }
 
   const frame = FRAMES[device];
@@ -166,81 +198,88 @@ export function DevicePreviewModal({
             className="relative shrink-0 overflow-hidden rounded-[2.25rem] border-[10px] border-neutral-800 bg-neutral-800 shadow-2xl"
             style={{ width: frame.w, height: frame.h, maxHeight: 'calc(100vh - 8rem)' }}
           >
-            {/* Screen — forced LIGHT (the admin runs dark by default; the
-                published runner is light). data-theme='light' re-applies the
-                light palette to this subtree so every token resolves correctly. */}
-            <div data-theme="light" className="flex h-full flex-col bg-surface text-ink-primary">
-              {/* Topbar: doc title + segmented progress (.vja-topbar / .vja-progress). */}
-              <div className="shrink-0 border-b border-line/60 px-4 pb-3 pt-4">
+            {/* Screen — forced LIGHT via inline CSS vars. */}
+            <div
+              style={LIGHT_VARS}
+              className="flex h-full flex-col bg-surface text-ink-primary"
+            >
+              {/* Topbar: doc title + section/phase strip. */}
+              <div className="shrink-0 border-b border-line bg-surface px-4 pb-2 pt-4">
                 <p className="truncate text-[15px] font-semibold leading-tight text-ink-primary">
                   {title}
                 </p>
-                <div className="mt-2.5 flex gap-1">
-                  {ordered.map((_, i) => (
-                    <span
-                      key={i}
-                      className={[
-                        'h-1 flex-1 rounded-full transition-colors',
-                        i < index ? 'bg-accent/50' : i === index ? 'bg-accent' : 'bg-line',
-                      ].join(' ')}
-                    />
-                  ))}
-                </div>
+                {phases.length > 0 && (
+                  <div className="mt-2 flex gap-3 overflow-x-auto">
+                    {phases.map((p, pi) => {
+                      const active = index >= p.start && index < p.end;
+                      const done = index >= p.end;
+                      const fill = done
+                        ? 1
+                        : active
+                          ? (index - p.start + 1) / (p.end - p.start)
+                          : 0;
+                      return (
+                        <div key={pi} className="flex min-w-0 flex-1 flex-col gap-1">
+                          <span
+                            className={[
+                              'truncate text-[11px] font-bold uppercase tracking-[0.06em]',
+                              active ? 'text-brand' : 'text-ink-tertiary',
+                            ].join(' ')}
+                          >
+                            {p.label}
+                          </span>
+                          <div className="h-1 w-full overflow-hidden rounded-full bg-line">
+                            <div
+                              className="h-full rounded-full bg-brand transition-[width] duration-300"
+                              style={{ width: `${Math.round(fill * 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
-              {/* Main — light surface, raised step card (.vja-main / .vja-step). */}
-              <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+              {/* Main — light surface, raised step card. */}
+              <div className="min-h-0 flex-1 overflow-y-auto bg-surface px-3 py-3">
                 {current && <StepCardView ordered={current} />}
               </div>
 
-              {/* Footer nav. */}
-              <div className="shrink-0 border-t border-line bg-surface px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIndex((i) => Math.max(i - 1, 0))}
-                    disabled={index === 0}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-surface-elevated text-ink-primary transition hover:bg-line disabled:opacity-30"
-                    aria-label="Previous step"
-                  >
-                    <ChevronLeft size={20} />
-                  </button>
-                  {current?.step.audioUrl ? (
-                    <button
-                      type="button"
-                      onClick={toggleAudio}
-                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-accent px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-accent/90"
-                    >
-                      {playing ? <Pause size={16} /> : <Play size={16} />}
-                      {playing ? 'Pause' : 'Play voiceover'}
-                    </button>
-                  ) : (
-                    <div className="flex-1 text-center text-[11px] text-ink-tertiary">
-                      No voiceover on this step
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setIndex((i) => Math.min(i + 1, total - 1))}
-                    disabled={index >= total - 1}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-surface-elevated text-ink-primary transition hover:bg-line disabled:opacity-30"
-                    aria-label="Next step"
-                  >
-                    <ChevronRight size={20} />
-                  </button>
-                </div>
+              {/* Footer: Back / Replay / Next (matches the runner). */}
+              <div className="flex shrink-0 items-center gap-2 border-t border-line bg-surface px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() => setIndex((i) => Math.max(i - 1, 0))}
+                  disabled={index === 0}
+                  className="rounded-md px-3 py-2 text-sm font-medium text-ink-secondary transition hover:bg-surface-elevated disabled:opacity-30"
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  onClick={replayAudio}
+                  disabled={!current?.step.audioUrl}
+                  className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium text-ink-secondary transition hover:bg-surface-elevated disabled:opacity-30"
+                  title={current?.step.audioUrl ? 'Replay voiceover' : 'No voiceover on this step'}
+                >
+                  <RotateCcw size={15} /> Replay
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIndex((i) => Math.min(i + 1, total - 1))}
+                  disabled={index >= total - 1}
+                  className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-brand px-5 py-2 text-sm font-semibold text-white transition hover:bg-brand-strong disabled:opacity-40"
+                >
+                  Next
+                </button>
               </div>
             </div>
           </div>
         )}
       </div>
 
-      <audio
-        ref={audioRef}
-        src={current?.step.audioUrl ?? undefined}
-        onEnded={() => setPlaying(false)}
-        className="hidden"
-      />
+      <audio ref={audioRef} src={current?.step.audioUrl ?? undefined} className="hidden" />
     </div>
   );
 }
@@ -262,15 +301,14 @@ function StepCardView({ ordered }: { ordered: OrderedStep }) {
         step.safetyCritical ? 'border-signal-fault/30' : 'border-line',
       ].join(' ')}
     >
-      {/* Header: section pill · step number · safety pill */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         {sectionLabel && (
-          <span className="inline-flex max-w-full items-center truncate rounded-full border border-accent/35 bg-accent/10 px-2.5 py-[3px] text-[11px] font-bold uppercase tracking-[0.08em] text-accent">
+          <span className="inline-flex max-w-full items-center truncate rounded-full border border-brand/35 bg-brand/10 px-2.5 py-[3px] text-[11px] font-bold uppercase tracking-[0.08em] text-brand">
             {sectionLabel}
           </span>
         )}
         {sectionTotal > 0 && (
-          <span className="font-mono text-2xl font-bold leading-none tracking-tight text-accent">
+          <span className="font-mono text-2xl font-bold leading-none tracking-tight text-brand">
             {String(sectionIndex).padStart(2, '0')}
             <span className="text-base font-medium text-ink-tertiary">
               {' / '}
@@ -285,7 +323,6 @@ function StepCardView({ ordered }: { ordered: OrderedStep }) {
         )}
       </div>
 
-      {/* Title */}
       <h1
         className={[
           'text-[27px] font-bold leading-[1.15] tracking-tight',
@@ -295,7 +332,6 @@ function StepCardView({ ordered }: { ordered: OrderedStep }) {
         {step.title}
       </h1>
 
-      {/* Blocks */}
       {(step.blocks ?? []).length > 0 && (
         <div className="flex flex-col gap-3.5">
           {step.blocks.map((b, i) => (
@@ -304,7 +340,6 @@ function StepCardView({ ordered }: { ordered: OrderedStep }) {
         </div>
       )}
 
-      {/* Trailing media gallery — images not already shown inline. */}
       {galleryImages.length > 0 && (
         <div className="grid grid-cols-1 gap-3">
           {galleryImages.map((m) => (
@@ -312,7 +347,9 @@ function StepCardView({ ordered }: { ordered: OrderedStep }) {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={m.url ?? ''} alt={m.caption ?? step.title} className="w-full object-contain" />
               {m.caption && (
-                <figcaption className="px-3 py-1.5 text-xs text-ink-tertiary">{m.caption}</figcaption>
+                <figcaption className="px-3 py-1.5 text-center text-xs text-ink-tertiary">
+                  {m.caption}
+                </figcaption>
               )}
             </figure>
           ))}
@@ -370,7 +407,7 @@ function BlockView({ block, images }: { block: StepBlock; images: AdminStepMedia
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={media.url} alt={caption ?? ''} className="w-full object-contain" />
           {caption && (
-            <figcaption className="bg-surface-elevated px-3 py-1.5 text-xs text-ink-tertiary">
+            <figcaption className="bg-surface-elevated px-3 py-1.5 text-center text-xs text-ink-tertiary">
               {caption}
             </figcaption>
           )}
@@ -384,10 +421,7 @@ function BlockView({ block, images }: { block: StepBlock; images: AdminStepMedia
 
 function CalloutView({ block }: { block: Extract<StepBlock, { kind: 'callout' }> }) {
   const tone = block.tone;
-  const styles: Record<
-    typeof tone,
-    { box: string; icon: React.ReactNode; title: string }
-  > = {
+  const styles: Record<typeof tone, { box: string; icon: React.ReactNode; title: string }> = {
     safety: {
       box: 'border-signal-fault/50 bg-signal-fault/[0.06]',
       icon: <ShieldAlert size={18} className="text-signal-fault" />,
