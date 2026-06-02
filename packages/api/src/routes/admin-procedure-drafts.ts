@@ -623,6 +623,16 @@ export async function registerAdminProcedureDrafts(app: FastifyInstance) {
         .returning();
       if (!doc) return reply.internalServerError('failed to create target document');
 
+      // Link the document to the run up-front. The executor also sets this at
+      // completion, but setting it now guarantees the reviewer can always
+      // navigate to the procedure — even if the executor errors partway —
+      // instead of a completed run being left with a null targetDocumentId
+      // (which leaves the reviewer spinning forever on "Opening the editor").
+      await db
+        .update(schema.procedureDraftRuns)
+        .set({ targetDocumentId: doc.id, updatedAt: new Date() })
+        .where(eq(schema.procedureDraftRuns.id, run.id));
+
       const [execution] = await db
         .insert(schema.procedureDraftExecutions)
         .values({

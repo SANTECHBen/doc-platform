@@ -42,6 +42,10 @@ export function DocDraftReviewer({ runId }: { runId: string }) {
 
   // Section-pick state (awaiting_section_pick).
   const [selected, setSelected] = useState<Set<string> | null>(null);
+  // The materialized procedure's document id. Captured from the execute
+  // response (the doc is minted up-front) as a fallback for the redirect, in
+  // case the run row's targetDocumentId isn't populated yet.
+  const [builtDocId, setBuiltDocId] = useState<string | null>(null);
 
   // Fire-once guards: auto-execute when the proposal is ready, and redirect
   // once the procedure is built.
@@ -90,20 +94,24 @@ export function DocDraftReviewer({ runId }: { runId: string }) {
   useEffect(() => {
     if (status !== 'awaiting_review' || executedRef.current) return;
     executedRef.current = true;
-    void executeProcedureDraft(runId).catch((e) => {
-      executedRef.current = false; // allow a retry on next poll
-      setError(e instanceof Error ? e.message : String(e));
-    });
+    executeProcedureDraft(runId)
+      .then((res) => setBuiltDocId(res.targetDocumentId))
+      .catch((e) => {
+        executedRef.current = false; // allow a retry on next poll
+        setError(e instanceof Error ? e.message : String(e));
+      });
   }, [status, runId]);
+
+  // The document to open: prefer the run row, fall back to the execute
+  // response's id (the doc is minted before execution finishes).
+  const completedDocId = detail?.run.targetDocumentId ?? builtDocId;
 
   // Redirect into the editor once the procedure is materialized.
   useEffect(() => {
-    if (status !== 'completed' || redirectedRef.current) return;
-    const docId = detail?.run.targetDocumentId;
-    if (!docId) return;
+    if (status !== 'completed' || redirectedRef.current || !completedDocId) return;
     redirectedRef.current = true;
-    router.push(`/procedures/${docId}/edit`);
-  }, [status, detail?.run.targetDocumentId, router]);
+    router.push(`/procedures/${completedDocId}/edit`);
+  }, [status, completedDocId, router]);
 
   async function generate() {
     if (!selected || selected.size === 0) {
@@ -265,19 +273,38 @@ export function DocDraftReviewer({ runId }: { runId: string }) {
         </StatusCard>
       )}
 
-      {/* ---- Completed → redirecting ---- */}
-      {status === 'completed' && (
+      {/* ---- Completed ---- */}
+      {status === 'completed' && completedDocId && (
         <StatusCard icon={<Loader2 className="size-5 animate-spin" />}>
           <div className="flex flex-col items-start gap-2">
             <span>Procedure ready. Opening the Step Editor…</span>
-            {detail?.run.targetDocumentId && (
-              <Link
-                href={`/procedures/${detail.run.targetDocumentId}/edit`}
-                className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-accent hover:border-accent/40"
-              >
-                Open the Step Editor
-              </Link>
-            )}
+            <Link
+              href={`/procedures/${completedDocId}/edit`}
+              className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-accent hover:border-accent/40"
+            >
+              Open the Step Editor
+            </Link>
+          </div>
+        </StatusCard>
+      )}
+
+      {/* Completed but the run never got linked to its document (older runs
+          created before the fix). Don't spin forever — explain and offer a
+          fresh import. */}
+      {status === 'completed' && !completedDocId && (
+        <StatusCard icon={<AlertTriangle className="size-5 text-signal-warn" />}>
+          <div className="flex flex-col items-start gap-2">
+            <span>
+              The procedure was built, but this draft isn&rsquo;t linked to its document
+              (an older import created before a fix). Re-import the document to open it in
+              the Step Editor.
+            </span>
+            <Link
+              href="/procedure-drafts/new"
+              className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-accent hover:border-accent/40"
+            >
+              Start a new import
+            </Link>
           </div>
         </StatusCard>
       )}
