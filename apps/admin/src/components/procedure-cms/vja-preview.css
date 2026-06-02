@@ -1,0 +1,2189 @@
+/* Virtual Job Aid styles — COPIED VERBATIM from apps/pwa/src/app/globals.css
+   so the admin device-preview renders byte-identical to the published runner.
+   Do not hand-edit; re-copy from the PWA when the runner's styles change.
+   (Stage 2 will replace this copy with a shared package both apps import.)
+   The PWA wraps these in @layer components; here they're plain rules — they
+   only use .vja-* classes (no Tailwind conflicts), scoped to the preview. */
+  @keyframes voiceModeIn {
+    from {
+      opacity: 0;
+      transform: scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  .vja-root {
+    position: fixed;
+    inset: 0;
+    z-index: 110;
+    display: flex;
+    flex-direction: column;
+    background: rgb(var(--surface-base));
+    animation: voiceModeIn 280ms cubic-bezier(0.2, 0.6, 0.2, 1);
+  }
+
+  .vja-topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: max(14px, env(safe-area-inset-top)) 18px 12px 18px;
+    border-bottom: 1px solid rgb(var(--line) / 0.6);
+  }
+  .vja-topbar-meta {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .vja-doc-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: rgb(var(--ink-primary));
+    line-height: 1.25;
+    margin: 0;
+  }
+  .vja-mute,
+  .vja-close {
+    width: 40px;
+    height: 40px;
+    border-radius: 999px;
+    border: 1px solid rgb(var(--line) / 0.6);
+    background: transparent;
+    color: rgb(var(--ink-secondary));
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+      color 120ms ease,
+      background 120ms ease;
+  }
+  .vja-mute:hover,
+  .vja-close:hover {
+    color: rgb(var(--ink-primary));
+    border-color: rgb(var(--line-strong));
+  }
+
+  .vja-progress {
+    display: flex;
+    gap: 3px;
+    padding: 8px 18px 4px 18px;
+  }
+  .vja-progress-seg {
+    flex: 1;
+    height: 3px;
+    border-radius: 999px;
+    background: rgb(var(--line) / 0.5);
+    transition:
+      background 220ms ease,
+      transform 220ms ease;
+  }
+  .vja-progress-seg[data-state='done'] {
+    background: rgb(var(--signal-ok));
+  }
+  .vja-progress-seg[data-state='active'] {
+    background: rgb(var(--brand));
+    box-shadow: 0 0 8px rgb(var(--brand) / 0.5);
+    animation: vjaProgressPulse 1.4s ease-in-out infinite;
+  }
+  @keyframes vjaProgressPulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.6;
+    }
+  }
+
+  /* Phase-progress strip — one labeled segment per authored section,
+     color-keyed by the section's category. Rendered above the per-step
+     content when the procedure has sections; falls back to .vja-progress
+     dot strip otherwise. Matches the progress.png reference. */
+  .vja-phases {
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
+    padding: 10px 18px 8px 18px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .vja-phases::-webkit-scrollbar {
+    display: none;
+  }
+  .vja-phase {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    flex: 1 1 0;
+    min-width: 5.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .vja-phase-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-tertiary));
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: color 200ms ease;
+  }
+  .vja-phase[data-active='true'] .vja-phase-label {
+    color: rgb(var(--ink-primary));
+  }
+  .vja-phase-bar {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 5px;
+    border-radius: 999px;
+    background: rgb(var(--line) / 0.4);
+    overflow: hidden;
+  }
+  .vja-phase-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    transition:
+      width 320ms ease,
+      opacity 200ms ease;
+  }
+
+  /* ============================================================ */
+  /* Reels mode — vertical snap-scroll, video-first step reader.   */
+  /* ============================================================ */
+
+  .vja-reels {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    scroll-snap-type: y mandatory;
+    /* Defeat iOS PWA pull-to-refresh and over-scroll bounce; otherwise a
+       swipe past the last reel triggers a refresh and yanks the user
+       out of the Job Aid. */
+    overscroll-behavior-y: contain;
+    /* Make scrollbar invisible — the snap-scroll behavior makes them
+       fight for vertical space on desktop. The phase strip + reel
+       indicators already communicate position. */
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    /* Deep brand-aware neutral instead of pure black so the surround
+       reads as a deliberate surface, not a void. Per-reel phase tints
+       layer on top of this. */
+    background: #0b0d14;
+    position: relative;
+  }
+  .vja-reels::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Hide the classic main + footer when reels owns the viewport. */
+  .vja-main[data-hidden='true'],
+  .vja-controls[data-hidden='true'] {
+    display: none;
+  }
+
+  .vja-reel {
+    /* Each reel snaps to the viewport top. Using 100% of the parent
+       scroll container's height rather than 100dvh — the parent is
+       already sized to the visible Job Aid area (excludes the topbar
+       and any sub-procedure banner above it). */
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    height: 100%;
+    min-height: 100%;
+    width: 100%;
+    position: relative;
+    overflow: hidden;
+    /* Deep neutral base + phase-color vignette at top and bottom.
+       --reel-tint is set on the section when a phase/category color
+       exists; when absent it falls back to transparent and only the
+       base color shows. Letterboxed landscape video reveals the tint
+       as gently colored bars rather than dead black ones. */
+    background:
+      radial-gradient(
+        ellipse 110% 50% at 50% 100%,
+        color-mix(in oklab, var(--reel-tint, transparent) 16%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 80% 35% at 50% 0%,
+        color-mix(in oklab, var(--reel-tint, transparent) 9%, transparent),
+        transparent 70%
+      ),
+      #0a0c12;
+    display: flex;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .vja-reel-media {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* Override the classic step-card frame chrome inside Reels. The base
+     .step-video-frame rule sits LATER in the file at the same
+     specificity (0,1,0), so :where() — which contributes 0 specificity
+     — let the base rule's brand border, brand shadow, and rounded
+     corners win on source order. Dropping :where() raises this rule
+     to (0,2,0) so the overrides actually take effect regardless of
+     stylesheet order. */
+  .vja-reel-media .step-video-frame {
+    width: 100%;
+    height: 100%;
+    /* Reels is edge-to-edge — undo the classic step-card's portrait
+       width cap (340px max + auto margins) so the frame fills the
+       reel instead of leaving the phase-tinted reel background
+       visible at the corners as thin colored bars. */
+    max-width: none;
+    margin-inline: 0;
+    border-radius: 0;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+  }
+  .vja-reel-media .step-video-frame video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    /* Force opaque black behind the video content so the reel's phase
+       tint (which sits behind a transparent frame in Reels) never
+       bleeds through letterbox bars as a thin colored line. */
+    background: #000;
+  }
+  /* Hide the looping-clip progress bar inside Reels — it competes
+     with the title text and adds visual noise the Shorts-style view
+     doesn't need. */
+  .vja-reel-media .step-video-progress {
+    display: none;
+  }
+  /* Same goes for the fullscreen button some StepVideoPlayer paths
+     render — Reels owns the viewport already. */
+  .vja-reel-media .step-video-fs-btn {
+    display: none;
+  }
+  .vja-reel-media--still {
+    /* Image-only reels — match the reel surround so the still photo
+       sits on the same deep neutral instead of a separate gradient. */
+    background: transparent;
+  }
+  .vja-reel-still {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+  }
+  .vja-reel-still-empty {
+    width: 100%;
+    height: 100%;
+    background:
+      radial-gradient(ellipse at 50% 30%, rgb(var(--brand) / 0.18), transparent 60%),
+      linear-gradient(180deg, #0b0d12 0%, #050608 100%);
+  }
+
+  /* Text-only reel — when a step has no video AND no image, the reel
+     becomes a saturated colored "chapter card" rather than an empty
+     dark gradient. The phase/category color owns the screen, white
+     text sits on top, and a subtle top-left highlight + bottom shadow
+     give the surface depth. Falls back to the brand color when no
+     phase/category is set. */
+  .vja-reel-textonly-bg {
+    position: absolute;
+    inset: 0;
+    background:
+      /* Soft ambient highlight, top-left */
+      radial-gradient(
+        ellipse 90% 65% at 28% 18%,
+        rgba(255, 255, 255, 0.14),
+        transparent 60%
+      ),
+      /* Subtle bottom shadow for grounding */
+      radial-gradient(
+        ellipse 100% 70% at 50% 110%,
+        rgba(0, 0, 0, 0.32),
+        transparent 65%
+      ),
+      /* The saturated surface itself */
+      var(--reel-tint, rgb(var(--brand)));
+  }
+  .vja-reel-textonly-card {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: white;
+    position: absolute;
+    /* Top padding clears the pill row; bottom padding clears the swipe
+       hint AND the iOS home indicator on PWA install. Sides reserve
+       room for landscape safe-area insets. */
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding:
+      max(88px, calc(env(safe-area-inset-top) + 76px))
+      max(28px, calc(env(safe-area-inset-right) + 20px))
+      max(108px, calc(env(safe-area-inset-bottom) + 88px))
+      max(28px, calc(env(safe-area-inset-left) + 20px));
+    gap: 14px;
+    cursor: pointer;
+    z-index: 3;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .vja-reel-textonly-card:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.6);
+    outline-offset: -8px;
+    border-radius: 14px;
+  }
+  /* Category icon medallion — sits above the title and gives the card
+     a single focal point. The translucent ring lifts it off the
+     colored bg without restating the section color. */
+  .vja-reel-textonly-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    color: white;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      0 6px 18px rgba(0, 0, 0, 0.18);
+    margin-bottom: 2px;
+  }
+  .vja-reel-textonly-title {
+    margin: 0;
+    font-size: clamp(28px, 7.6vw, 36px);
+    line-height: 1.16;
+    font-weight: 700;
+    letter-spacing: -0.018em;
+    color: white;
+    text-shadow: 0 2px 14px rgba(0, 0, 0, 0.32);
+    max-width: 22ch;
+  }
+  .vja-reel-textonly-preview {
+    margin: 0;
+    font-size: clamp(15px, 4vw, 17px);
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.92);
+    max-width: 34ch;
+    /* Clamp prevents long bodies from pushing the CTA off-screen on
+       short viewports. The full text lives in the bottom sheet. */
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.22);
+  }
+  .vja-reel-textonly-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 6px;
+    padding: 7px 14px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.34);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: white;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .vja-reel-textonly-cta--quiet {
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 12px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.72);
+    background: transparent;
+    border-color: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    padding: 4px 0;
+  }
+  /* Pills on text-only reels override the colored-on-colored default
+     that would erase the label. Translucent dark chip reads cleanly
+     against any phase/category color, including light ones. */
+  .vja-reel--textonly .vja-reel-section {
+    background: rgba(0, 0, 0, 0.32);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  /* Top-of-reel pill row: section label + category badge + safety.
+     Right inset reserves room for the 44×44 replay button (44 + 8 gap
+     = 52). Left/right pick up landscape safe-area insets. */
+  .vja-reel-top {
+    position: absolute;
+    top: max(12px, calc(env(safe-area-inset-top) + 4px));
+    left: max(12px, calc(env(safe-area-inset-left) + 4px));
+    right: max(64px, calc(env(safe-area-inset-right) + 56px));
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    z-index: 3;
+    pointer-events: none;
+  }
+  .vja-reel-section {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    background: rgba(0, 0, 0, 0.55);
+    color: white;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    white-space: nowrap;
+    max-width: 60vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .vja-reel-section-num {
+    font-weight: 500;
+    opacity: 0.85;
+  }
+  .vja-reel-safety-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    background: rgb(var(--signal-warn) / 0.95);
+    color: black;
+  }
+
+  /* Title pinned bottom — also the primary "tap for details" affordance.
+     The gradient is a smooth multi-stop ramp from transparent (so the
+     video stays unobscured up top) down to ~94% of the reel's neutral
+     base at the bottom. Multi-stop is intentional: a 2-stop linear
+     ramp banded visibly on dark video content. The bottom padding
+     respects iOS PWA safe-area so the title clears the home indicator
+     instead of being squashed against it. */
+  /* Decorative gradient ramp behind the title text. Drawn as a tall,
+     non-interactive layer so bare-area taps in the upper region fall
+     through to the reel section (which forwards them to the shared
+     stage for pause/resume). The button below this layer only owns
+     the visible title + hint area as its tap target. */
+  .vja-reel-title-gradient {
+    position: absolute;
+    inset: auto 0 0 0;
+    height: clamp(200px, 30vh, 250px);
+    background: linear-gradient(
+      180deg,
+      rgba(10, 12, 18, 0) 0%,
+      rgba(10, 12, 18, 0) 22%,
+      rgba(10, 12, 18, 0.18) 42%,
+      rgba(10, 12, 18, 0.5) 62%,
+      rgba(10, 12, 18, 0.78) 82%,
+      rgba(10, 12, 18, 0.94) 100%
+    );
+    pointer-events: none;
+    z-index: 2;
+  }
+  .vja-reel-title-block {
+    appearance: none;
+    border: 0;
+    /* Gradient lives on the sibling layer above (vja-reel-title-gradient)
+       so this button no longer needs the tall padded ramp that was
+       inflating its tap target. */
+    background: transparent;
+    color: white;
+    position: absolute;
+    inset: auto 0 0 0;
+    /* Padding is now just visual breathing room around the title text.
+       Horizontal padding still picks up landscape safe-area insets
+       so the title clears notches when the device rotates. Bottom
+       padding floors at 40px and grows for the home indicator. */
+    padding:
+      14px
+      max(22px, calc(env(safe-area-inset-right) + 18px))
+      max(40px, calc(env(safe-area-inset-bottom) + 28px))
+      max(22px, calc(env(safe-area-inset-left) + 18px));
+    text-align: left;
+    cursor: pointer;
+    z-index: 3;
+    /* Suppress iOS tap highlight + double-tap zoom on the title button;
+       we own the interaction. */
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+    transition: background 160ms ease;
+  }
+  .vja-reel-title-block:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.55);
+    outline-offset: -10px;
+    border-radius: 14px;
+  }
+  .vja-reel-title-block:active .vja-reel-title-hint {
+    color: rgba(255, 255, 255, 0.9);
+  }
+  .vja-reel-title {
+    margin: 0;
+    /* Responsive scale: 22 on small phones, up to 26 on large phones /
+       tablets. Tighter line-height than classic mode because multi-line
+       titles read tighter when surrounded by a gradient surface. */
+    font-size: clamp(22px, 5.4vw, 26px);
+    line-height: 1.22;
+    font-weight: 700;
+    letter-spacing: -0.012em;
+    color: white;
+    /* Softer, larger-blur shadow reads cleaner than the previous tight
+       shadow on light video frames without darkening too aggressively. */
+    text-shadow: 0 1px 14px rgba(0, 0, 0, 0.55);
+    max-width: 30ch;
+  }
+  .vja-reel-title-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 10px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.65);
+    transition: color 160ms ease;
+  }
+
+  /* Replay-voiceover button — bumped to 44×44 (iOS HIG min touch target)
+     and given a subtle shadow + ring so it reads as a control on bright
+     video frames. Sits above the title block via z-index. */
+  .vja-reel-replay {
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    position: absolute;
+    top: max(12px, calc(env(safe-area-inset-top) + 4px));
+    right: max(12px, calc(env(safe-area-inset-right) + 4px));
+    z-index: 4;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    color: white;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      0 4px 14px rgba(0, 0, 0, 0.32);
+    cursor: pointer;
+    transition:
+      transform 140ms cubic-bezier(0.22, 1, 0.36, 1),
+      background 140ms ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .vja-reel-replay:hover {
+    transform: scale(1.06);
+    background: rgba(0, 0, 0, 0.65);
+  }
+  .vja-reel-replay:active {
+    transform: scale(0.96);
+  }
+  .vja-reel-replay:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.7);
+    outline-offset: 2px;
+  }
+  .vja-reel-replay-spin {
+    animation: vjaReelReplaySpin 1.5s linear infinite;
+  }
+  @keyframes vjaReelReplaySpin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .vja-reel-replay-spin {
+      animation: none;
+    }
+  }
+
+  /* Image-only-muted hint. Position floors above the title block + home
+     indicator on iOS so it doesn't end up tucked behind the title. */
+  .vja-reel-empty {
+    position: absolute;
+    inset: auto 22px calc(160px + env(safe-area-inset-bottom)) 22px;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.82);
+    font-size: 13px;
+    line-height: 1.45;
+    z-index: 3;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+  }
+
+  /* Completion reel — light surface that mirrors the rest of the PWA
+     rather than the deep-brand reel background. Overrides the parent
+     .vja-reel surround entirely so the panel reads as "done, exit"
+     instead of yet another reel. Uses surface/ink tokens so dark mode
+     remains coherent. */
+  .vja-reel--completion {
+    align-items: center;
+    justify-content: center;
+    background: rgb(var(--surface-base));
+    color: rgb(var(--ink-primary));
+  }
+  .vja-reel-completion-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    text-align: center;
+    max-width: 360px;
+    padding: 0 24px env(safe-area-inset-bottom);
+  }
+  .vja-reel-completion-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    border-radius: 999px;
+    background: rgb(var(--signal-ok) / 0.12);
+    color: rgb(var(--signal-ok));
+    margin-bottom: 6px;
+  }
+  .vja-reel-completion-title {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+    color: rgb(var(--ink-primary));
+    letter-spacing: -0.01em;
+  }
+  .vja-reel-completion-sub {
+    margin: 0;
+    color: rgb(var(--ink-secondary));
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  .vja-reel-completion-hint {
+    margin: 2px 0 0;
+    color: rgb(var(--ink-tertiary));
+    font-size: 12.5px;
+    line-height: 1.45;
+  }
+  .vja-reel-completion-cta {
+    margin-top: 18px;
+  }
+
+  /* First-time "swipe up" hint — fades in then out via a CSS animation
+     keyed off mount. No JS persistence; if it appears every time, that
+     reinforces the gesture rather than gating it. Positioned above the
+     title block (which now grows for safe-area) so the two never
+     stack visually. */
+  .vja-reels-swipe-hint {
+    position: absolute;
+    left: 50%;
+    bottom: calc(180px + env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 9px 16px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: white;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    pointer-events: none;
+    z-index: 4;
+    opacity: 0;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+    animation: vjaReelsHint 4.5s ease forwards;
+  }
+  @keyframes vjaReelsHint {
+    0% {
+      opacity: 0;
+      transform: translateX(-50%) translateY(8px);
+    }
+    8%,
+    68% {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+    100% {
+      opacity: 0;
+      transform: translateX(-50%) translateY(-4px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .vja-reels-swipe-hint {
+      animation-duration: 3s;
+      animation-timing-function: linear;
+    }
+  }
+
+  /* Bottom sheet — slides up from the reel's bottom edge when the title
+     is tapped. Closed state translateY(100%); open state translateY(0). */
+  .vja-reel-sheet-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 220ms ease;
+    z-index: 5;
+  }
+  .vja-reel-sheet-backdrop[data-open='true'] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .vja-reel-sheet {
+    position: absolute;
+    inset: auto 0 0 0;
+    max-height: 78%;
+    transform: translateY(100%);
+    transition:
+      transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+    background: rgb(var(--surface-raised));
+    border-top-left-radius: 16px;
+    border-top-right-radius: 16px;
+    display: flex;
+    flex-direction: column;
+    z-index: 6;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.45);
+    overscroll-behavior: contain;
+  }
+  .vja-reel-sheet[data-open='true'] {
+    transform: translateY(0);
+  }
+  .vja-reel-sheet-handle {
+    width: 36px;
+    height: 4px;
+    border-radius: 999px;
+    background: rgb(var(--line));
+    margin: 8px auto 4px auto;
+  }
+  .vja-reel-sheet-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px 10px 18px;
+    border-bottom: 1px solid rgb(var(--line) / 0.6);
+  }
+  .vja-reel-sheet-title {
+    margin: 0;
+    flex: 1;
+    font-size: 16px;
+    font-weight: 600;
+    color: rgb(var(--ink-primary));
+  }
+  .vja-reel-sheet-close {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: rgb(var(--ink-tertiary));
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  .vja-reel-sheet-close:hover {
+    background: rgb(var(--surface-elevated));
+    color: rgb(var(--ink-primary));
+  }
+  .vja-reel-sheet-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 18px 24px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    color: rgb(var(--ink-primary));
+    font-size: 15px;
+    line-height: 1.55;
+  }
+  .vja-reel-sheet-empty {
+    color: rgb(var(--ink-tertiary));
+    font-size: 14px;
+    margin: 0;
+  }
+  .vja-reel-sheet-list {
+    margin: 0;
+    padding-left: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .vja-reel-sheet-callout {
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 14px;
+  }
+  .vja-reel-sheet-callout--safety {
+    background: rgb(var(--signal-warn) / 0.12);
+    border: 1px solid rgb(var(--signal-warn) / 0.4);
+  }
+  .vja-reel-sheet-callout--warning {
+    background: rgb(var(--signal-warn) / 0.08);
+    border: 1px solid rgb(var(--signal-warn) / 0.3);
+  }
+  .vja-reel-sheet-callout--tip {
+    background: rgb(var(--brand) / 0.08);
+    border: 1px solid rgb(var(--brand) / 0.3);
+  }
+  .vja-reel-sheet-callout--note {
+    background: rgb(var(--surface-elevated));
+    border: 1px solid rgb(var(--line));
+  }
+  .vja-reel-sheet-kv {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  .vja-reel-sheet-kv th {
+    text-align: left;
+    font-weight: 600;
+    color: rgb(var(--ink-secondary));
+    padding: 6px 8px;
+    border-bottom: 1px solid rgb(var(--line));
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+  }
+  .vja-reel-sheet-kv td {
+    padding: 6px 8px;
+    border-bottom: 1px solid rgb(var(--line) / 0.5);
+  }
+
+  /* Safety-critical reel — subtle yellow tint on the top edge so the
+     tech sees the warning even before the safety pill renders. */
+  .vja-reel--safety::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 3px;
+    background: rgb(var(--signal-warn));
+    z-index: 5;
+  }
+
+  .vja-main {
+    flex: 1;
+    overflow-y: auto;
+    /* Reduced outer padding — the .vja-step frame now provides the
+       inner content gutter, so doubling padding was making sparse
+       steps feel like they were drowning in negative space. */
+    padding: 12px 12px 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .vja-step {
+    width: 100%;
+    max-width: 720px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    /* Figure-ground frame for the step content — without this the
+       step text floats on the page surface and sparse text-only
+       steps look like the app froze mid-render. The frame gives the
+       eye a visible "this is the workspace" boundary. */
+    padding: 22px 22px 26px;
+    background: rgb(var(--surface-raised));
+    border: 1px solid rgb(var(--line));
+    border-radius: 14px;
+    box-shadow: var(--shadow-sm);
+    animation: vjaStepIn 320ms cubic-bezier(0.34, 1.42, 0.64, 1);
+  }
+  /* Tighten the step's main padding so the frame sits flush against
+     the topbar/progress, not floating in the middle of generous
+     padding. The .vja-step container above handles internal spacing. */
+  @media (min-width: 768px) {
+    .vja-step {
+      padding: 28px 28px 32px;
+    }
+  }
+  @keyframes vjaStepIn {
+    0% {
+      opacity: 0;
+      transform: translateX(12px);
+    }
+    60% {
+      opacity: 1;
+      transform: translateX(-2px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+  .vja-step-safety .vja-step-title {
+    color: rgb(var(--signal-safety));
+  }
+
+  /* Sub-procedure banner — full-width strip above the topbar that
+     appears only when this VJA instance is nested. Brand-colored so
+     the tech can't miss "you're inside a sub-procedure"; the ← Back
+     button is the primary return affordance (X still closes too). */
+  .vja-subproc-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: rgb(var(--brand));
+    color: rgb(var(--ink-on-brand, 255 255 255));
+    border-bottom: 1px solid rgb(0 0 0 / 0.12);
+  }
+  .vja-subproc-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px 6px 6px;
+    border-radius: 999px;
+    background: rgb(0 0 0 / 0.18);
+    color: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    border: 0;
+    cursor: pointer;
+    transition: background-color 120ms ease;
+  }
+  .vja-subproc-back:hover,
+  .vja-subproc-back:focus-visible {
+    background: rgb(0 0 0 / 0.28);
+    outline: none;
+  }
+  .vja-subproc-banner-text {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+  }
+  .vja-subproc-banner-kicker {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    opacity: 0.85;
+  }
+  .vja-subproc-banner-parent {
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0.92;
+  }
+  .vja-subproc-banner-parent strong {
+    font-weight: 600;
+  }
+
+  /* Linked sub-procedure CTA — renders below the step body when the
+     authored step carries an "if necessary" branch. The wrapper itself
+     is invisible chrome; the clickable card is the entire visual. */
+  .vja-subprocedure-cta {
+    margin-top: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  /* The card link itself — borderless surface, hairline border, soft
+     hover lift. No filled-brand button anymore; the chevron on the right
+     carries the "tap to open" signal. Full-card click target. */
+  .vja-subproc-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    padding: 14px 14px 14px 16px;
+    border: 1px solid rgb(var(--line));
+    border-radius: 14px;
+    background: rgb(var(--surface-raised));
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition:
+      border-color 140ms ease,
+      box-shadow 140ms ease,
+      transform 120ms ease,
+      background-color 140ms ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .vja-subproc-card:hover,
+  .vja-subproc-card:focus-visible {
+    border-color: rgb(var(--brand) / 0.45);
+    box-shadow: 0 6px 18px -10px rgb(var(--brand) / 0.35);
+    outline: none;
+  }
+  .vja-subproc-card:active {
+    transform: scale(0.995);
+    background: rgb(var(--surface-raised) / 0.85);
+  }
+  .vja-subproc-card:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
+  }
+  .vja-subproc-card-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .vja-subproc-card-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-tertiary));
+  }
+  .vja-subproc-card-tag {
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: rgb(var(--brand) / 0.12);
+    color: rgb(var(--brand));
+    letter-spacing: 0.06em;
+  }
+  .vja-subproc-card-dot {
+    opacity: 0.55;
+  }
+  .vja-subproc-card-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: rgb(var(--ink-primary));
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+  .vja-subproc-card-meta {
+    font-size: 12px;
+    color: rgb(var(--ink-tertiary));
+  }
+  .vja-subproc-card-chevron {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 999px;
+    background: rgb(var(--brand) / 0.1);
+    color: rgb(var(--brand));
+    transition:
+      background-color 140ms ease,
+      transform 140ms ease;
+  }
+  .vja-subproc-card:hover .vja-subproc-card-chevron,
+  .vja-subproc-card:focus-visible .vja-subproc-card-chevron {
+    background: rgb(var(--brand));
+    color: rgb(var(--ink-on-brand, 255 255 255));
+    transform: translateX(2px);
+  }
+  .vja-subprocedure-hint {
+    font-size: 11px;
+    color: rgb(var(--ink-tertiary));
+    padding-left: 2px;
+  }
+  /* Inline chip showing how many steps got pinned ("· 3 steps"). */
+  .vja-subset-chip {
+    font-size: 11px;
+    font-weight: 500;
+    color: rgb(var(--ink-on-brand, 255 255 255) / 0.75);
+  }
+  /* Pill on the doc title when this VJA instance is rendering a subset
+     of a parent procedure's steps. Tells the tech "you're not seeing the
+     whole procedure" so they don't get confused when steps look truncated. */
+  .vja-subset-pill {
+    display: inline-flex;
+    margin-left: 10px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgb(var(--brand) / 0.18);
+    border: 1px solid rgb(var(--brand) / 0.35);
+    color: rgb(var(--brand));
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    vertical-align: middle;
+  }
+
+  .vja-step-header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+  /* Section context pill — pinned to every step in a sectioned procedure
+     so the tech always sees "REMOVAL" vs "REPLACEMENT" at a glance.
+     Visually distinct from the safety pill (which uses signal colors)
+     by sitting in the brand family so the two never compete. */
+  .vja-section-label {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: rgb(var(--brand) / 0.12);
+    border: 1px solid rgb(var(--brand) / 0.35);
+    color: rgb(var(--brand));
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .vja-step-num {
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+    font-size: 24px;
+    font-weight: 700;
+    color: rgb(var(--brand));
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .vja-step-of {
+    font-size: 16px;
+    color: rgb(var(--ink-tertiary));
+    font-weight: 500;
+  }
+  .vja-step-overall {
+    font-size: 12px;
+    color: rgb(var(--ink-tertiary));
+    font-weight: 400;
+    letter-spacing: 0;
+  }
+  .vja-safety-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgb(var(--signal-safety) / 0.12);
+    border: 1px solid rgb(var(--signal-safety) / 0.4);
+    color: rgb(var(--signal-safety));
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .vja-step-title {
+    font-size: 27px;
+    font-weight: 700;
+    color: rgb(var(--ink-primary));
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+  @media (min-width: 768px) {
+    .vja-step-title {
+      font-size: 34px;
+    }
+  }
+  .vja-step-body {
+    font-size: 16px;
+    line-height: 1.55;
+    color: rgb(var(--ink-secondary));
+  }
+  .vja-step-body p {
+    margin-top: 10px;
+  }
+
+  .vja-step-media {
+    list-style: none;
+    padding: 0;
+    margin: 4px 0 0 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+  }
+  .vja-step-media li {
+    border-radius: 10px;
+    overflow: hidden;
+    background: rgb(var(--surface-inset));
+    border: 1px solid rgb(var(--line) / 0.6);
+  }
+  .vja-step-media img,
+  .vja-step-media video {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  /* Shown in place of an image/video that failed to load. Keeps the
+     step layout from collapsing when the CDN hiccups or a media file
+     is missing. */
+  .vja-media-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 100px;
+    padding: 16px;
+    background: rgb(var(--surface-elevated));
+    color: rgb(var(--ink-tertiary));
+    font-size: 13px;
+  }
+  /* Branded 16:9 frame for procedure videos (hero intro + per-step).
+     Position:relative so we can absolutely-place the play overlay and
+     fullscreen button on top of the <video>. */
+  .step-video-frame {
+    position: relative;
+    width: 100%;
+    /* aspect-ratio is set inline by MuxClipPlayer based on the source clip
+       orientation. This rule provides the fallback (16:9) for non-Mux
+       callers like the authored step-video-player that don't pass an
+       aspectRatio prop. */
+    aspect-ratio: 16 / 9;
+    border-radius: 12px;
+    overflow: hidden;
+    background: rgb(0 0 0);
+    border: 1px solid rgb(var(--brand) / 0.35);
+    box-shadow: 0 4px 18px rgb(0 0 0 / 0.18);
+  }
+  /* Portrait clips (filmed vertically on phones) get a tall frame capped
+     to keep them visually balanced with neighboring landscape steps and
+     to avoid pushing other UI off the screen on small viewports. The
+     inline aspect-ratio MuxClipPlayer sets handles the actual ratio;
+     this just bounds the max width so a 9:16 doesn't fill the whole
+     step card on desktop. */
+  .step-video-frame--portrait {
+    max-width: 340px;
+    margin-inline: auto;
+  }
+  @media (min-width: 768px) {
+    .step-video-frame--portrait {
+      max-width: 380px;
+    }
+  }
+  /* Full-bleed image-dominant hero block. The procedure intro renders
+     this when a heroVideo is set so the video spans edge to edge under
+     a dark gradient + white title overlay (UI-1 pattern). Strips the
+     inner step-video-frame's brand border / shadow / radius so the
+     video looks like a backdrop rather than an inset player. */
+  .hero-prominent {
+    position: relative;
+    width: 100%;
+    overflow: hidden;
+    background: rgb(0 0 0);
+    border-radius: 0;
+  }
+  .hero-prominent .step-video-frame,
+  .hero-prominent .step-video-frame video {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .hero-prominent .step-video-frame {
+    aspect-ratio: 16 / 9;
+  }
+  @media (min-width: 768px) {
+    .hero-prominent .step-video-frame {
+      aspect-ratio: 21 / 9;
+    }
+  }
+  .step-video-frame video {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: contain;
+    background: #000;
+  }
+  .step-video-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: rgb(var(--ink-tertiary));
+    background: rgb(var(--surface-elevated));
+    font-size: 13px;
+  }
+  .step-video-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(
+      to top,
+      rgb(0 0 0 / 0.55) 0%,
+      rgb(0 0 0 / 0.15) 60%,
+      rgb(0 0 0 / 0.05) 100%
+    );
+    border: 0;
+    cursor: pointer;
+    transition: background 140ms ease;
+  }
+  .step-video-overlay:hover {
+    background: linear-gradient(
+      to top,
+      rgb(0 0 0 / 0.45) 0%,
+      rgb(0 0 0 / 0.1) 60%,
+      rgb(0 0 0 / 0.02) 100%
+    );
+  }
+  .step-video-play-circle {
+    width: 72px;
+    height: 72px;
+    border-radius: 999px;
+    background: rgb(var(--brand));
+    color: rgb(var(--brand-ink));
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 6px 22px rgb(0 0 0 / 0.35);
+    transition: transform 140ms cubic-bezier(0.2, 0.6, 0.2, 1);
+  }
+  .step-video-overlay:hover .step-video-play-circle {
+    transform: scale(1.05);
+  }
+  .step-video-overlay:active .step-video-play-circle {
+    transform: scale(0.98);
+  }
+  .step-video-fs-btn {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    width: 36px;
+    height: 36px;
+    border-radius: 999px;
+    background: rgb(0 0 0 / 0.55);
+    color: rgb(255 255 255);
+    border: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: background 120ms ease;
+  }
+  .step-video-fs-btn:hover {
+    background: rgb(0 0 0 / 0.75);
+  }
+  /* Discrete looping-video progress bar. Sits flush at the bottom of
+     the video frame, above the caption stripe. 2px tall track at low
+     opacity; fill is brand-tinted so it reads against most footage
+     without being a control distraction. transform: scaleX gives a
+     GPU-accelerated update that's smoother than width animation. */
+  .step-video-progress {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    background: rgb(255 255 255 / 0.18);
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .step-video-progress-fill {
+    height: 100%;
+    background: rgb(var(--brand));
+    transform-origin: left center;
+    transform: scaleX(0);
+    /* Subtle smoothing — the timeupdate event itself fires at ~4Hz on
+       most engines, so we lerp visually between updates for a less
+       steppy look. */
+    transition: transform 120ms linear;
+    box-shadow: 0 0 6px rgb(var(--brand) / 0.6);
+  }
+  /* Reels tap-to-pause overlay. Fills the video frame but is visually
+     transparent — it exists only to capture the tap. Sits beneath the
+     reel's pill row, replay button, and bottom title block, all of
+     which use higher z-indexes in the Reels viewport. */
+  .step-video-tap {
+    position: absolute;
+    inset: 0;
+    appearance: none;
+    border: 0;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+    z-index: 2;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* YouTube-Shorts-style flash icon. Pops in, expands, fades out over
+     ~700ms. pointer-events: none so it never blocks the next tap. */
+  .step-video-flash {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 76px;
+    height: 76px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 3;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      0 6px 18px rgba(0, 0, 0, 0.32);
+    transform: translate(-50%, -50%) scale(0.5);
+    opacity: 0;
+    animation: stepVideoFlash 700ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  @keyframes stepVideoFlash {
+    0% {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.5);
+    }
+    18% {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+    55% {
+      opacity: 0.9;
+      transform: translate(-50%, -50%) scale(1.05);
+    }
+    100% {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(1.35);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .step-video-flash {
+      animation-duration: 220ms;
+      animation-timing-function: ease-out;
+    }
+  }
+  .step-video-caption {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    right: 56px; /* clear the FS button */
+    color: rgb(255 255 255);
+    font-size: 12px;
+    line-height: 1.35;
+    text-shadow: 0 1px 2px rgb(0 0 0 / 0.7);
+    pointer-events: none;
+  }
+
+  /* Hero intro panel — replaces the orb step on stepIdx=0 when the
+     procedure has a heroVideo. Stacks vertically: title → video →
+     tools/safety summary → Skip / Start actions. */
+  .vja-hero-intro {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-width: 720px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 10px 0 14px;
+  }
+  .vja-hero-intro-title {
+    font-size: 22px;
+    font-weight: 600;
+    color: rgb(var(--ink-primary));
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+  .vja-completion {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    text-align: center;
+    max-width: 480px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 32px 24px 24px;
+  }
+  .vja-completion-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 72px;
+    height: 72px;
+    border-radius: 999px;
+    background: rgb(var(--signal-ok) / 0.12);
+    color: rgb(var(--signal-ok));
+    border: 1px solid rgb(var(--signal-ok) / 0.4);
+  }
+  .vja-completion-title {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 600;
+    color: rgb(var(--ink-primary));
+    letter-spacing: -0.01em;
+  }
+  .vja-completion-sub {
+    margin: 0;
+    color: rgb(var(--ink-secondary));
+    font-size: 15px;
+    line-height: 1.4;
+  }
+  .vja-completion-hint {
+    margin: 4px 0 0;
+    color: rgb(var(--ink-tertiary));
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  /* Section divider — single-screen "starting [section]" interstitial
+     shown when the tech advances across a phase boundary. Same vertical
+     layout as completion (centered column) but uses the entering
+     section's category color as an accent via the --vja-divider-accent
+     custom property set inline on the section element. */
+  .vja-section-divider {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    text-align: center;
+    max-width: 480px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 40px 24px 24px;
+  }
+  .vja-section-divider-prev {
+    margin: 0 0 4px;
+    color: rgb(var(--ink-tertiary));
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+  .vja-section-divider-prev strong {
+    color: rgb(var(--ink-secondary));
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .vja-section-divider-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 88px;
+    height: 88px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--vja-divider-accent, rgb(var(--accent))) 12%, transparent);
+    color: var(--vja-divider-accent, rgb(var(--accent)));
+    border: 1px solid color-mix(in srgb, var(--vja-divider-accent, rgb(var(--accent))) 40%, transparent);
+    margin-top: 8px;
+  }
+  .vja-section-divider-title {
+    margin: 16px 0 0;
+    font-size: 28px;
+    font-weight: 700;
+    color: rgb(var(--ink-primary));
+    letter-spacing: -0.01em;
+    line-height: 1.15;
+  }
+  .vja-section-divider-meta {
+    margin: 6px 0 0;
+    color: rgb(var(--ink-secondary));
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+  }
+  .vja-section-divider-hint {
+    margin: 16px 0 0;
+    color: rgb(var(--ink-tertiary));
+    font-size: 13px;
+    line-height: 1.45;
+    max-width: 320px;
+  }
+  .vja-section-divider-hint strong {
+    color: rgb(var(--ink-secondary));
+    font-weight: 600;
+  }
+  .vja-hero-intro-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .vja-hero-intro-cap {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-tertiary));
+    margin-bottom: 4px;
+  }
+  .vja-hero-intro-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .vja-hero-intro-tool {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgb(var(--surface-elevated));
+    border: 1px solid rgb(var(--line));
+    color: rgb(var(--ink-secondary));
+    font-size: 13px;
+  }
+  .vja-hero-intro-safety {
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: rgb(var(--signal-warn) / 0.08);
+    border-left: 3px solid rgb(var(--signal-warn));
+    color: rgb(var(--ink-primary));
+    font-size: 13.5px;
+    line-height: 1.55;
+  }
+  /* Inline stat chips (estimated time + skill level) shown above the
+     hero video — keeps the procedure's key attributes scannable. */
+  .vja-hero-intro-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: -6px;
+  }
+  .vja-hero-intro-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgb(var(--brand) / 0.12);
+    color: rgb(var(--ink-primary));
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+  .vja-hero-intro-chip-icon {
+    color: rgb(var(--brand));
+    display: inline-flex;
+  }
+  /* Image-prominent hero block: full-bleed across .vja-root so the
+     image dominates the top of the screen, with title + meta chips
+     overlaid on a dark gradient. Rendered as a sibling of .vja-main so
+     it escapes .vja-main's padding entirely. */
+  .vja-hero-overlay-block {
+    position: relative;
+    width: 100%;
+    overflow: hidden;
+    background: #000;
+    border-radius: 0;
+  }
+  /* Strip the inset-player chrome on step-video-frame when nested in
+     the prominent hero so the video reads as a backdrop, not a card. */
+  .vja-hero-overlay-block .step-video-frame,
+  .vja-hero-overlay-block .step-video-frame video {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .vja-hero-overlay-block .step-video-frame {
+    aspect-ratio: 16 / 9;
+  }
+  @media (min-width: 768px) {
+    .vja-hero-overlay-block .step-video-frame {
+      aspect-ratio: 21 / 9;
+    }
+  }
+  .vja-hero-overlay-gradient {
+    pointer-events: none;
+    position: absolute;
+    inset: 0 0 0 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 16px 18px 16px 18px;
+    background: linear-gradient(
+      to top,
+      rgba(0, 0, 0, 0.78) 0%,
+      rgba(0, 0, 0, 0.45) 35%,
+      rgba(0, 0, 0, 0) 65%
+    );
+  }
+  .vja-hero-overlay-title {
+    margin: 0;
+    color: #fff;
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+  }
+  .vja-hero-overlay-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .vja-hero-overlay-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.18);
+    color: #fff;
+    font-size: 12.5px;
+    font-weight: 500;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+  /* Author-written summary paragraph — wider line-height for legibility
+     on the small Job Aid surface; capped width matches the intro. */
+  .vja-hero-intro-summary {
+    color: rgb(var(--ink-secondary));
+    font-size: 14.5px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    margin: 0;
+  }
+  /* Single "Overview" card holding summary + tools + safety in one
+     bordered container with bold subsection headers. Mirrors the
+     "General Information" card pattern in the reference UI — light
+     border, no heavy shadow, divider lines between blocks. */
+  .vja-hero-intro-card {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    border: 1px solid rgb(var(--line));
+    background: transparent;
+  }
+  /* Required Tools subsection lays out three labeled buckets stacked
+     vertically. Each bucket shows only when its list is non-empty. */
+  .vja-hero-intro-tool-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .vja-hero-intro-tool-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .vja-hero-intro-tool-group-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: rgb(var(--ink-secondary));
+  }
+  .vja-hero-intro-card-header {
+    /* Section header — was uppercase mono-tracked, which read as a
+       SCADA panel banner. Sentence-case sans-serif at a real h2 weight
+       so it reads as a real heading, not a label. */
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    color: rgb(var(--ink-secondary));
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgb(var(--line));
+    margin: 0;
+  }
+  /* Each subsection inside the overview card: bold sentence-case label
+     above its content. Subsections are separated by a faint divider so
+     the rhythm reads like a structured info panel. */
+  .vja-hero-intro-block {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .vja-hero-intro-block + .vja-hero-intro-block {
+    padding-top: 14px;
+    border-top: 1px solid rgb(var(--line) / 0.6);
+  }
+  .vja-hero-intro-subhead {
+    font-size: 13px;
+    font-weight: 600;
+    color: rgb(var(--ink-primary));
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .vja-hero-intro-subhead-icon {
+    color: rgb(var(--brand));
+    display: inline-flex;
+  }
+  .vja-hero-intro-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding-top: 4px;
+  }
+
+  .vja-step-caption {
+    padding: 8px 12px;
+    font-size: 12px;
+    color: rgb(var(--ink-secondary));
+    margin: 0;
+  }
+
+  /* Substeps within a step (5a, 5b, 5c…). Modernized: clean card list
+     with a circular index badge instead of the left rail + mono numerals.
+     Each row is its own surface so substeps read as discrete actions, not
+     bullet points. */
+  .vja-substeps {
+    list-style: none;
+    padding: 0;
+    margin: 10px 0 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    counter-reset: vja-substep;
+  }
+  .vja-substeps > li {
+    counter-increment: vja-substep;
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    column-gap: 12px;
+    align-items: start;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: rgb(var(--surface-raised) / 0.6);
+    border: 1px solid rgb(var(--line) / 0.6);
+  }
+  .vja-substep-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    background: rgb(var(--brand) / 0.14);
+    color: rgb(var(--brand));
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    line-height: 1;
+    margin: 0;
+  }
+  .vja-substep-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: rgb(var(--ink-primary));
+    line-height: 1.35;
+  }
+  .vja-substep-body {
+    margin: 4px 0 0 0;
+    font-size: 14px;
+    color: rgb(var(--ink-secondary));
+    line-height: 1.5;
+    grid-column: 2;
+  }
+
+  .vja-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1.5fr;
+    gap: 10px;
+    padding: 14px 18px max(14px, calc(env(safe-area-inset-bottom) + 10px)) 18px;
+    border-top: 1px solid rgb(var(--line) / 0.6);
+    background: rgb(var(--surface-raised) / 0.5);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  .vja-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 56px;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    transition:
+      transform 100ms ease,
+      background 120ms ease,
+      color 120ms ease;
+  }
+  .vja-btn:active:not(:disabled) {
+    transform: translateY(1px) scale(0.985);
+  }
+  .vja-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .vja-btn-ghost {
+    background: transparent;
+    border: 1px solid rgb(var(--line));
+    color: rgb(var(--ink-secondary));
+  }
+  .vja-btn-ghost:not(:disabled):hover {
+    color: rgb(var(--ink-primary));
+    background: rgb(var(--surface-elevated));
+  }
+  .vja-btn-secondary {
+    background: rgb(var(--surface-elevated));
+    border: 1px solid rgb(var(--line));
+    color: rgb(var(--ink-primary));
+  }
+  .vja-btn-secondary:not(:disabled):hover {
+    background: rgb(var(--surface-raised));
+  }
+  .vja-btn-primary {
+    background: rgb(var(--brand));
+    color: rgb(var(--brand-ink));
+    border: 1px solid rgb(var(--brand));
+    box-shadow: 0 4px 14px rgb(var(--brand-glow) / var(--brand-glow-a));
+  }
+  .vja-btn-primary:not(:disabled):hover {
+    filter: brightness(1.05);
+  }
+  .vja-spin {
+    animation: vjaSpin 1s linear infinite;
+  }
+  @keyframes vjaSpin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .vja-error,
+  .vja-loading {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: rgb(var(--ink-secondary));
+    font-size: 14px;
+    padding: 24px;
+    text-align: center;
+  }
+  .vja-error-detail {
+    color: rgb(var(--signal-fault));
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, monospace;
+  }
+
+  /* =========================================================================
+     STRUCTURED CONTENT BLOCKS — template owns visual style; authors pick
+     semantic block kinds and the renderer paints them identically every time
+     ========================================================================= */
+  .vja-blocks {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .vja-block-paragraph {
+    font-size: 17px;
+    line-height: 1.55;
+    color: rgb(var(--ink-secondary));
+    margin: 0;
+  }
+  .vja-block-paragraph a {
+    color: rgb(var(--ink-brand));
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  /* Callouts — four tones, all share the same shape; only the accent and
+     icon-tint change. Visual hierarchy is consistent across the library. */
+  .vja-block-callout {
+    display: flex;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid;
+    background: rgb(var(--surface-raised));
+  }
+  .vja-callout-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: flex-start;
+    padding-top: 2px;
+  }
+  .vja-callout-body {
+    min-width: 0;
+    flex: 1;
+  }
+  .vja-callout-title {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 0 0 4px 0;
+  }
+  .vja-callout-text {
+    font-size: 16px;
+    line-height: 1.5;
+    margin: 0;
+    color: rgb(var(--ink-primary));
+  }
+  .vja-callout-safety {
+    border-color: rgb(var(--signal-safety) / 0.5);
+    background: rgb(var(--signal-safety) / 0.06);
+  }
+  .vja-callout-safety .vja-callout-icon {
+    color: rgb(var(--signal-safety));
+  }
+  .vja-callout-safety .vja-callout-title {
+    color: rgb(var(--signal-safety));
+  }
+  .vja-callout-warning {
+    border-color: rgb(var(--signal-warn) / 0.5);
+    background: rgb(var(--signal-warn) / 0.07);
+  }
+  .vja-callout-warning .vja-callout-icon {
+    color: rgb(var(--signal-warn));
+  }
+  .vja-callout-warning .vja-callout-title {
+    color: rgb(var(--signal-warn));
+  }
+  .vja-callout-tip {
+    border-color: rgb(var(--signal-info) / 0.5);
+    background: rgb(var(--signal-info) / 0.06);
+  }
+  .vja-callout-tip .vja-callout-icon {
+    color: rgb(var(--signal-info));
+  }
+  .vja-callout-tip .vja-callout-title {
+    color: rgb(var(--signal-info));
+  }
+  .vja-callout-note {
+    border-color: rgb(var(--line-strong));
+    background: rgb(var(--surface-elevated));
+  }
+  .vja-callout-note .vja-callout-icon {
+    color: rgb(var(--ink-secondary));
+  }
+  .vja-callout-note .vja-callout-title {
+    color: rgb(var(--ink-secondary));
+  }
+
+  /* Lists — same chrome for bullet and numbered; numbering style swap only. */
+  .vja-block-list {
+    margin: 0;
+    padding-left: 22px;
+    font-size: 16px;
+    line-height: 1.6;
+    color: rgb(var(--ink-primary));
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .vja-block-list-numbered {
+    list-style: decimal;
+  }
+  .vja-block-list:not(.vja-block-list-numbered) {
+    list-style: disc;
+  }
+  .vja-block-list a {
+    color: rgb(var(--ink-brand));
+    text-decoration: underline;
+  }
+
+  /* Key/value tables — clean two-column layout. Renders identically
+     whether content is torque values, parts list, or limits. */
+  .vja-block-kv {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    border: 1px solid rgb(var(--line));
+    border-radius: 10px;
+    overflow: hidden;
+    font-size: 15px;
+  }
+  .vja-block-kv thead th {
+    background: rgb(var(--surface-elevated));
+    color: rgb(var(--ink-tertiary));
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid rgb(var(--line));
+  }
+  .vja-block-kv tbody td {
+    padding: 10px 12px;
+    border-top: 1px solid rgb(var(--line) / 0.6);
+    color: rgb(var(--ink-primary));
+  }
+  .vja-block-kv tbody tr:first-child td {
+    border-top: 0;
+  }
+  .vja-block-kv td:first-child {
+    color: rgb(var(--ink-secondary));
+    font-weight: 500;
+  }
+  .vja-block-kv td:last-child {
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+    font-size: 14px;
+  }
+
+  /* Inline photo — references a photo already on the step's media[].
+     Same border + caption treatment as the step's own media gallery so
+     they read as a single visual system. */
+  .vja-block-photo {
+    margin: 0;
+    overflow: hidden;
+    border-radius: 10px;
+    background: rgb(var(--surface-inset));
+    border: 1px solid rgb(var(--line) / 0.6);
+  }
+  .vja-block-photo img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .vja-block-photo figcaption {
+    padding: 8px 12px;
+    font-size: 13px;
+    color: rgb(var(--ink-secondary));
+  }
+
+/* Preview-only overrides: the runner is position:fixed full-screen; inside the
+   device frame it must fill the frame instead, with no entry animation. */
+.vja-preview-screen .vja-root { position: absolute; animation: none; z-index: 0; }

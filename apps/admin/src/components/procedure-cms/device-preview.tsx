@@ -1,25 +1,29 @@
 'use client';
 
-// Device preview — renders the procedure as it lays out on a field device, in
-// a phone or tablet frame, before publishing. Matches the PWA's published
-// "virtual job aid" runner (apps/pwa .vja-* styles): a LIGHT theme — a raised
-// step card on a light surface, a section/phase strip up top, brand-colored
-// section pill + step number, dark title (red when safety-critical),
-// tone-styled callouts, and a Back / Replay / Next footer.
+// Device preview — renders the procedure using the published runner's EXACT
+// markup + CSS (copied verbatim into ./vja-preview.css from the PWA's
+// virtual-job-aid), wrapped in a phone/tablet device frame. This is a literal
+// preview: same class structure, same styles, same fonts (both apps load IBM
+// Plex), so it matches the published output. The admin's in-memory step data is
+// mapped to the same resolved shape the runner consumes.
 //
-// The admin runs dark by default, so the light palette is forced via inline
-// CSS variables on the screen subtree (bulletproof — no reliance on theme
-// attributes resolving through the deployed CSS).
+// NOTE: this duplicates the runner's render. Stage 2 replaces both this and the
+// PWA's copy with a single shared package so they can never drift.
 
+import './vja-preview.css';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
   Info,
   Lightbulb,
-  RotateCcw,
+  RefreshCw,
   ShieldAlert,
   Smartphone,
   Tablet,
+  Volume2,
+  VolumeX,
   X,
 } from 'lucide-react';
 import type {
@@ -30,15 +34,15 @@ import type {
 } from '@/lib/api';
 
 type DeviceKind = 'phone' | 'tablet';
-
 const FRAMES: Record<DeviceKind, { w: number; h: number; label: string }> = {
   phone: { w: 390, h: 800, label: 'Phone' },
   tablet: { w: 760, h: 1000, label: 'Tablet' },
 };
+const DEFAULT_PHASE_COLOR = '#2563EB';
 
-// The published runner's light palette, applied inline so it renders light
-// regardless of the admin's (dark) theme. Values mirror the light :root in
-// apps/admin globals.css.
+// Full light palette, applied to the screen subtree so the runner's CSS vars
+// resolve light (the admin runs dark). data-theme='light' is set too as a
+// backstop; the inline vars guarantee it regardless of CSS cascade.
 const LIGHT_VARS = {
   '--surface-base': '245 246 248',
   '--surface-raised': '255 255 255',
@@ -50,49 +54,79 @@ const LIGHT_VARS = {
   '--ink-primary': '14 18 23',
   '--ink-secondary': '74 85 96',
   '--ink-tertiary': '128 138 150',
+  '--ink-brand': '29 96 180',
   '--brand': '37 108 211',
+  '--brand-strong': '29 88 178',
   '--signal-ok': '31 133 83',
   '--signal-warn': '191 111 26',
   '--signal-fault': '176 43 61',
   '--signal-info': '37 108 211',
+  '--signal-safety': '171 126 30',
+  '--shadow-sm': '0 1px 2px rgba(14,18,23,0.05)',
+  '--font-mono': "'IBM Plex Mono', ui-monospace, monospace",
 } as React.CSSProperties;
 
-interface OrderedStep {
+interface ResolvedStep {
   step: AdminProcedureStep;
   sectionLabel: string | null;
-  sectionIndex: number; // 1-based position within its section
-  sectionTotal: number;
+  sectionStepIndex: number;
+  sectionStepTotal: number;
+  categoryColor: string | null;
+}
+interface Phase {
+  key: string | null;
+  label: string;
+  color: string;
+  start: number;
+  end: number;
 }
 
-function orderSteps(
+function resolveSteps(
   steps: AdminProcedureStep[],
   sections: AdminProcedureSection[],
-): OrderedStep[] {
+): ResolvedStep[] {
   const byHint = (a: { orderingHint: number }, b: { orderingHint: number }) =>
     a.orderingHint - b.orderingHint;
-  const out: OrderedStep[] = [];
+  const ordered: { step: AdminProcedureStep; secId: string | null; label: string | null; color: string | null }[] = [];
+
   const orphans = steps.filter((s) => !s.sectionId).sort(byHint);
-  for (const s of orphans) {
-    out.push({ step: s, sectionLabel: null, sectionIndex: 0, sectionTotal: 0 });
-  }
+  for (const s of orphans) ordered.push({ step: s, secId: null, label: null, color: null });
   for (const sec of [...sections].sort(byHint)) {
     const inSec = steps.filter((s) => s.sectionId === sec.id).sort(byHint);
-    inSec.forEach((s, i) => {
-      out.push({
-        step: s,
-        sectionLabel: sec.title,
-        sectionIndex: i + 1,
-        sectionTotal: inSec.length,
-      });
-    });
+    for (const s of inSec) {
+      ordered.push({ step: s, secId: sec.id, label: sec.title, color: sec.category?.color ?? null });
+    }
   }
-  return out;
+
+  const totals = new Map<string | null, number>();
+  for (const o of ordered) totals.set(o.secId, (totals.get(o.secId) ?? 0) + 1);
+  const idx = new Map<string | null, number>();
+  return ordered.map((o) => {
+    const next = (idx.get(o.secId) ?? 0) + 1;
+    idx.set(o.secId, next);
+    return {
+      step: o.step,
+      sectionLabel: o.label,
+      sectionStepIndex: next,
+      sectionStepTotal: totals.get(o.secId) ?? 1,
+      categoryColor: o.color,
+    };
+  });
 }
 
-interface Phase {
-  label: string;
-  start: number;
-  end: number; // exclusive
+function buildPhases(resolved: ResolvedStep[]): Phase[] {
+  if (resolved.every((r) => !r.sectionLabel)) return [];
+  const phases: Phase[] = [];
+  let i = 0;
+  while (i < resolved.length) {
+    const label = resolved[i]!.sectionLabel;
+    const color = resolved[i]!.categoryColor ?? DEFAULT_PHASE_COLOR;
+    let j = i + 1;
+    while (j < resolved.length && resolved[j]!.sectionLabel === label) j += 1;
+    phases.push({ key: label, label: label ?? 'Steps', color, start: i, end: j });
+    i = j;
+  }
+  return phases;
 }
 
 export function DevicePreviewModal({
@@ -107,26 +141,16 @@ export function DevicePreviewModal({
   onClose: () => void;
 }) {
   const [device, setDevice] = useState<DeviceKind>('phone');
-  const [index, setIndex] = useState(0);
+  const [stepIdx, setStepIdx] = useState(0);
+  const [muted, setMuted] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const ordered = useMemo(() => orderSteps(steps, sections), [steps, sections]);
-  const total = ordered.length;
-  const current = ordered[Math.min(index, Math.max(0, total - 1))];
-
-  // Sections become a phase strip (REMOVAL | REPLACEMENT …).
-  const phases = useMemo<Phase[]>(() => {
-    const ps: Phase[] = [];
-    let i = 0;
-    while (i < ordered.length) {
-      const label = ordered[i]!.sectionLabel;
-      let j = i;
-      while (j < ordered.length && ordered[j]!.sectionLabel === label) j += 1;
-      ps.push({ label: label ?? 'Steps', start: i, end: j });
-      i = j;
-    }
-    return ps;
-  }, [ordered]);
+  const resolved = useMemo(() => resolveSteps(steps, sections), [steps, sections]);
+  const phases = useMemo(() => buildPhases(resolved), [resolved]);
+  const total = resolved.length;
+  const idx = Math.min(stepIdx, Math.max(0, total - 1));
+  const current = resolved[idx];
+  const isLast = idx >= total - 1;
 
   useEffect(() => {
     const a = audioRef.current;
@@ -134,26 +158,27 @@ export function DevicePreviewModal({
       a.pause();
       a.currentTime = 0;
     }
-  }, [index]);
+  }, [idx]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose();
-      else if (e.key === 'ArrowRight') setIndex((i) => Math.min(i + 1, total - 1));
-      else if (e.key === 'ArrowLeft') setIndex((i) => Math.max(i - 1, 0));
+      else if (e.key === 'ArrowRight') setStepIdx((i) => Math.min(i + 1, total - 1));
+      else if (e.key === 'ArrowLeft') setStepIdx((i) => Math.max(i - 1, 0));
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [total, onClose]);
 
-  function replayAudio() {
+  function replay() {
     const a = audioRef.current;
-    if (!a || !current?.step.audioUrl) return;
+    if (!a || muted || !current?.step.audioUrl) return;
     a.currentTime = 0;
     void a.play().catch(() => {});
   }
 
   const frame = FRAMES[device];
+  const activePhase = phases.find((p) => idx >= p.start && idx < p.end) ?? null;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black/70 backdrop-blur-sm">
@@ -191,88 +216,113 @@ export function DevicePreviewModal({
 
       {/* Stage */}
       <div className="flex flex-1 items-center justify-center overflow-auto p-6">
-        {total === 0 ? (
+        {total === 0 || !current ? (
           <p className="text-sm text-white/70">This procedure has no steps yet.</p>
         ) : (
           <div
             className="relative shrink-0 overflow-hidden rounded-[2.25rem] border-[10px] border-neutral-800 bg-neutral-800 shadow-2xl"
             style={{ width: frame.w, height: frame.h, maxHeight: 'calc(100vh - 8rem)' }}
           >
-            {/* Screen — forced LIGHT via inline CSS vars. */}
+            {/* Screen — the runner's exact markup, forced light. */}
             <div
+              data-theme="light"
               style={LIGHT_VARS}
-              className="flex h-full flex-col bg-surface text-ink-primary"
+              className="vja-preview-screen relative h-full w-full overflow-hidden"
             >
-              {/* Topbar: doc title + section/phase strip. */}
-              <div className="shrink-0 border-b border-line bg-surface px-4 pb-2 pt-4">
-                <p className="truncate text-[15px] font-semibold leading-tight text-ink-primary">
-                  {title}
-                </p>
-                {phases.length > 0 && (
-                  <div className="mt-2 flex gap-3 overflow-x-auto">
-                    {phases.map((p, pi) => {
-                      const active = index >= p.start && index < p.end;
-                      const done = index >= p.end;
-                      const fill = done
-                        ? 1
-                        : active
-                          ? (index - p.start + 1) / (p.end - p.start)
-                          : 0;
+              <div className="vja-root" role="dialog" aria-label="Procedure preview">
+                <header className="vja-topbar">
+                  <div className="vja-topbar-meta">
+                    <h2 className="vja-doc-title">{title}</h2>
+                  </div>
+                  <button
+                    type="button"
+                    className="vja-mute"
+                    onClick={() => setMuted((m) => !m)}
+                    aria-label={muted ? 'Unmute' : 'Mute'}
+                  >
+                    {muted ? <VolumeX size={18} strokeWidth={2} /> : <Volume2 size={18} strokeWidth={2} />}
+                  </button>
+                  <button type="button" className="vja-close" onClick={onClose} aria-label="Close">
+                    <X size={18} strokeWidth={2} />
+                  </button>
+                </header>
+
+                {phases.length > 0 ? (
+                  <nav className="vja-phases" aria-label="Procedure phases">
+                    {phases.map((p) => {
+                      const span = p.end - p.start;
+                      const done = Math.max(0, Math.min(span, idx - p.start));
+                      const isActive = idx >= p.start && idx < p.end;
+                      const pct = span > 0 ? Math.round((done / span) * 100) : 0;
                       return (
-                        <div key={pi} className="flex min-w-0 flex-1 flex-col gap-1">
-                          <span
-                            className={[
-                              'truncate text-[11px] font-bold uppercase tracking-[0.06em]',
-                              active ? 'text-brand' : 'text-ink-tertiary',
-                            ].join(' ')}
-                          >
+                        <button
+                          type="button"
+                          key={p.key ?? '__orphans__'}
+                          onClick={() => setStepIdx(p.start)}
+                          className="vja-phase"
+                          data-active={isActive ? 'true' : 'false'}
+                        >
+                          <span className="vja-phase-label" style={isActive ? { color: p.color } : undefined}>
                             {p.label}
                           </span>
-                          <div className="h-1 w-full overflow-hidden rounded-full bg-line">
-                            <div
-                              className="h-full rounded-full bg-brand transition-[width] duration-300"
-                              style={{ width: `${Math.round(fill * 100)}%` }}
+                          <span className="vja-phase-bar" aria-hidden>
+                            <span
+                              className="vja-phase-fill"
+                              style={{ width: `${pct}%`, backgroundColor: p.color, opacity: isActive ? 1 : 0.6 }}
                             />
-                          </div>
-                        </div>
+                          </span>
+                        </button>
                       );
                     })}
+                  </nav>
+                ) : (
+                  <div className="vja-progress" aria-hidden>
+                    {resolved.map((_, i) => (
+                      <span
+                        key={i}
+                        className="vja-progress-seg"
+                        data-state={i < idx ? 'done' : i === idx ? 'active' : 'pending'}
+                      />
+                    ))}
                   </div>
                 )}
-              </div>
 
-              {/* Main — light surface, raised step card. */}
-              <div className="min-h-0 flex-1 overflow-y-auto bg-surface px-3 py-3">
-                {current && <StepCardView ordered={current} />}
-              </div>
+                <div className="vja-main">
+                  <StepArticle resolved={current} phaseColor={activePhase?.color ?? null} />
+                </div>
 
-              {/* Footer: Back / Replay / Next (matches the runner). */}
-              <div className="flex shrink-0 items-center gap-2 border-t border-line bg-surface px-4 py-3">
-                <button
-                  type="button"
-                  onClick={() => setIndex((i) => Math.max(i - 1, 0))}
-                  disabled={index === 0}
-                  className="rounded-md px-3 py-2 text-sm font-medium text-ink-secondary transition hover:bg-surface-elevated disabled:opacity-30"
-                >
-                  Back
-                </button>
-                <button
-                  type="button"
-                  onClick={replayAudio}
-                  disabled={!current?.step.audioUrl}
-                  className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium text-ink-secondary transition hover:bg-surface-elevated disabled:opacity-30"
-                  title={current?.step.audioUrl ? 'Replay voiceover' : 'No voiceover on this step'}
-                >
-                  <RotateCcw size={15} /> Replay
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIndex((i) => Math.min(i + 1, total - 1))}
-                  disabled={index >= total - 1}
-                  className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-brand px-5 py-2 text-sm font-semibold text-white transition hover:bg-brand-strong disabled:opacity-40"
-                >
-                  Next
-                </button>
+                <footer className="vja-controls">
+                  <button
+                    type="button"
+                    className="vja-btn vja-btn-ghost"
+                    onClick={() => setStepIdx((i) => Math.max(i - 1, 0))}
+                    disabled={idx === 0}
+                    aria-label="Previous step"
+                  >
+                    <ChevronLeft size={18} strokeWidth={2.25} />
+                    <span>Back</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="vja-btn vja-btn-secondary"
+                    onClick={replay}
+                    disabled={muted || !current.step.audioUrl}
+                    aria-label="Replay step"
+                    title="Replay this step"
+                  >
+                    <RefreshCw size={18} strokeWidth={2.25} />
+                    <span>Replay</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="vja-btn vja-btn-primary"
+                    onClick={() => setStepIdx((i) => Math.min(i + 1, total - 1))}
+                    aria-label={isLast ? 'Finish' : 'Next step'}
+                  >
+                    <span>{isLast ? 'Finish' : 'Next'}</span>
+                    <ChevronRight size={18} strokeWidth={2.25} />
+                  </button>
+                </footer>
               </div>
             </div>
           </div>
@@ -284,133 +334,128 @@ export function DevicePreviewModal({
   );
 }
 
-function StepCardView({ ordered }: { ordered: OrderedStep }) {
-  const { step, sectionLabel, sectionIndex, sectionTotal } = ordered;
-  const images = (step.media ?? []).filter((m) => m.kind === 'image');
+function StepArticle({ resolved, phaseColor }: { resolved: ResolvedStep; phaseColor: string | null }) {
+  const { step, sectionLabel, sectionStepIndex, sectionStepTotal } = resolved;
+  const media = step.media ?? [];
   const inlineKeys = new Set(
     (step.blocks ?? [])
       .filter((b): b is Extract<StepBlock, { kind: 'photo_inline' }> => b.kind === 'photo_inline')
       .map((b) => b.storageKey),
   );
-  const galleryImages = images.filter((m) => !inlineKeys.has(m.storageKey));
+  const gallery = media.filter((m) => !inlineKeys.has(m.storageKey));
 
   return (
-    <article
-      className={[
-        'mx-auto flex max-w-[720px] flex-col gap-4 rounded-[14px] border bg-surface-raised p-[22px] shadow-sm',
-        step.safetyCritical ? 'border-signal-fault/30' : 'border-line',
-      ].join(' ')}
-    >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+    <article className={`vja-step ${step.safetyCritical ? 'vja-step-safety' : ''}`} aria-live="polite">
+      <div className="vja-step-header">
         {sectionLabel && (
-          <span className="inline-flex max-w-full items-center truncate rounded-full border border-brand/35 bg-brand/10 px-2.5 py-[3px] text-[11px] font-bold uppercase tracking-[0.08em] text-brand">
+          <span
+            className="vja-section-label"
+            style={
+              phaseColor
+                ? { color: phaseColor, borderColor: phaseColor, backgroundColor: `${phaseColor}1A` }
+                : undefined
+            }
+          >
             {sectionLabel}
           </span>
         )}
-        {sectionTotal > 0 && (
-          <span className="font-mono text-2xl font-bold leading-none tracking-tight text-brand">
-            {String(sectionIndex).padStart(2, '0')}
-            <span className="text-base font-medium text-ink-tertiary">
-              {' / '}
-              {String(sectionTotal).padStart(2, '0')}
-            </span>
-          </span>
-        )}
+        <span className="vja-step-num">
+          {String(sectionStepIndex).padStart(2, '0')}
+          <span className="vja-step-of"> / {String(sectionStepTotal).padStart(2, '0')}</span>
+        </span>
         {step.safetyCritical && (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-signal-fault/40 bg-signal-fault/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-signal-fault">
-            <ShieldAlert size={12} strokeWidth={2} /> Safety-critical
+          <span className="vja-safety-pill">
+            <ShieldAlert size={12} strokeWidth={2} />
+            Safety-critical
           </span>
         )}
       </div>
-
-      <h1
-        className={[
-          'text-[27px] font-bold leading-[1.15] tracking-tight',
-          step.safetyCritical ? 'text-signal-fault' : 'text-ink-primary',
-        ].join(' ')}
-      >
-        {step.title}
-      </h1>
-
+      <h1 className="vja-step-title">{step.title}</h1>
       {(step.blocks ?? []).length > 0 && (
-        <div className="flex flex-col gap-3.5">
+        <div className="vja-blocks">
           {step.blocks.map((b, i) => (
-            <BlockView key={i} block={b} images={images} />
+            <BlockRenderer key={i} block={b} media={media} />
           ))}
         </div>
       )}
-
-      {galleryImages.length > 0 && (
-        <div className="grid grid-cols-1 gap-3">
-          {galleryImages.map((m) => (
-            <figure key={m.storageKey} className="overflow-hidden rounded-[10px] bg-surface-inset">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={m.url ?? ''} alt={m.caption ?? step.title} className="w-full object-contain" />
-              {m.caption && (
-                <figcaption className="px-3 py-1.5 text-center text-xs text-ink-tertiary">
-                  {m.caption}
-                </figcaption>
-              )}
-            </figure>
+      {gallery.length > 0 && (
+        <ul className="vja-step-media">
+          {gallery.map((m, i) => (
+            <li key={`${m.storageKey}-${i}`}>
+              {m.kind === 'image' ? (
+                <FallbackImage src={m.url ?? ''} alt={m.caption ?? step.title} label={m.caption ?? 'Image unavailable'} />
+              ) : null}
+              {m.kind === 'image' && m.caption && <p className="vja-step-caption">{m.caption}</p>}
+            </li>
           ))}
-        </div>
+        </ul>
       )}
     </article>
   );
 }
 
-function BlockView({ block, images }: { block: StepBlock; images: AdminStepMedia[] }) {
+function BlockRenderer({ block, media }: { block: StepBlock; media: AdminStepMedia[] }): React.ReactElement | null {
   switch (block.kind) {
     case 'paragraph':
-      return <p className="text-[17px] leading-[1.55] text-ink-secondary">{block.text}</p>;
-    case 'callout':
-      return <CalloutView block={block} />;
+      return <p className="vja-block-paragraph">{linkifyText(block.text)}</p>;
+    case 'callout': {
+      const tone = block.tone;
+      const Icon = tone === 'safety' ? ShieldAlert : tone === 'warning' ? AlertTriangle : tone === 'tip' ? Lightbulb : Info;
+      return (
+        <aside className={`vja-block-callout vja-callout-${tone}`}>
+          <span className="vja-callout-icon" aria-hidden>
+            <Icon size={18} strokeWidth={2} />
+          </span>
+          <div className="vja-callout-body">
+            {block.title && <p className="vja-callout-title">{block.title}</p>}
+            <p className="vja-callout-text">{linkifyText(block.text)}</p>
+          </div>
+        </aside>
+      );
+    }
     case 'bullet_list':
       return (
-        <ul className="flex list-disc flex-col gap-1 pl-[22px] text-[16px] leading-[1.6] text-ink-primary">
+        <ul className="vja-block-list">
           {block.items.map((it, i) => (
-            <li key={i}>{it}</li>
+            <li key={i}>{linkifyText(it)}</li>
           ))}
         </ul>
       );
     case 'numbered_list':
       return (
-        <ol className="flex list-decimal flex-col gap-1 pl-[22px] text-[16px] leading-[1.6] text-ink-primary">
+        <ol className="vja-block-list vja-block-list-numbered">
           {block.items.map((it, i) => (
-            <li key={i}>{it}</li>
+            <li key={i}>{linkifyText(it)}</li>
           ))}
         </ol>
       );
     case 'key_value':
       return (
-        <div className="overflow-hidden rounded-[10px] border border-line text-[15px]">
-          <table className="w-full border-separate border-spacing-0">
-            <tbody>
-              {block.rows.map((row, i) => (
-                <tr key={i}>
-                  <td className="border-b border-line bg-surface-elevated px-3 py-1.5 font-medium text-ink-secondary">
-                    {row[0]}
-                  </td>
-                  <td className="border-b border-line px-3 py-1.5 text-ink-primary">{row[1]}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <table className="vja-block-kv">
+          <thead>
+            <tr>
+              <th>{block.columns[0]}</th>
+              <th>{block.columns[1]}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {block.rows.map((row, i) => (
+              <tr key={i}>
+                <td>{row[0]}</td>
+                <td>{row[1]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       );
     case 'photo_inline': {
-      const media = images.find((m) => m.storageKey === block.storageKey);
-      if (!media?.url) return null;
-      const caption = block.caption ?? media.caption ?? null;
+      const m = media.find((mm) => mm.storageKey === block.storageKey);
+      if (!m || m.kind !== 'image' || !m.url) return null;
+      const caption = block.caption ?? m.caption ?? null;
       return (
-        <figure className="overflow-hidden rounded-[10px] border border-line">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={media.url} alt={caption ?? ''} className="w-full object-contain" />
-          {caption && (
-            <figcaption className="bg-surface-elevated px-3 py-1.5 text-center text-xs text-ink-tertiary">
-              {caption}
-            </figcaption>
-          )}
+        <figure className="vja-block-photo">
+          <FallbackImage src={m.url} alt={caption ?? 'Step photo'} label={caption ?? 'Photo unavailable'} />
+          {caption && <figcaption>{caption}</figcaption>}
         </figure>
       );
     }
@@ -419,42 +464,31 @@ function BlockView({ block, images }: { block: StepBlock; images: AdminStepMedia
   }
 }
 
-function CalloutView({ block }: { block: Extract<StepBlock, { kind: 'callout' }> }) {
-  const tone = block.tone;
-  const styles: Record<typeof tone, { box: string; icon: React.ReactNode; title: string }> = {
-    safety: {
-      box: 'border-signal-fault/50 bg-signal-fault/[0.06]',
-      icon: <ShieldAlert size={18} className="text-signal-fault" />,
-      title: 'text-signal-fault',
-    },
-    warning: {
-      box: 'border-signal-warn/50 bg-signal-warn/[0.07]',
-      icon: <AlertTriangle size={18} className="text-signal-warn" />,
-      title: 'text-signal-warn',
-    },
-    tip: {
-      box: 'border-signal-info/50 bg-signal-info/[0.06]',
-      icon: <Lightbulb size={18} className="text-signal-info" />,
-      title: 'text-signal-info',
-    },
-    note: {
-      box: 'border-line-strong bg-surface-elevated',
-      icon: <Info size={18} className="text-ink-secondary" />,
-      title: 'text-ink-secondary',
-    },
-  };
-  const s = styles[tone];
-  return (
-    <aside className={`flex gap-3 rounded-[10px] border px-3.5 py-3 ${s.box}`}>
-      <span className="shrink-0 pt-0.5">{s.icon}</span>
-      <div className="min-w-0 flex-1">
-        {block.title && (
-          <p className={`mb-1 text-[13px] font-bold uppercase tracking-[0.06em] ${s.title}`}>
-            {block.title}
-          </p>
-        )}
-        <p className="text-[16px] leading-[1.5] text-ink-primary">{block.text}</p>
+function FallbackImage({ src, alt, label }: { src: string; alt: string; label: string }): React.ReactElement {
+  const [failed, setFailed] = useState(false);
+  if (failed || !src) {
+    return (
+      <div className="vja-media-fallback" role="img" aria-label={alt}>
+        <span aria-hidden>📷</span>
+        <span>{label}</span>
       </div>
-    </aside>
+    );
+  }
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} alt={alt} loading="lazy" onError={() => setFailed(true)} />;
+}
+
+// Bare-URL → link, matching the runner (no inline bold/italic — the template
+// owns styling).
+function linkifyText(text: string): React.ReactNode {
+  const parts = text.split(/(https?:\/\/[^\s]+)/g);
+  return parts.map((p, i) =>
+    /^https?:\/\//.test(p) ? (
+      <a key={i} href={p} target="_blank" rel="noreferrer">
+        {p}
+      </a>
+    ) : (
+      p
+    ),
   );
 }
